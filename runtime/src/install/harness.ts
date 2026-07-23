@@ -8,6 +8,7 @@ export interface HarnessPlanContext {
   readonly scope: InstallScope;
   readonly profiles: readonly Profile[];
   readonly capabilities: readonly Capability[];
+  readonly toolkitVersion?: string;
 }
 
 export interface HarnessArtifact {
@@ -51,6 +52,9 @@ function managedRules(
     "",
     `Active profiles: ${context.profiles.join(", ")}`,
     `Active capabilities: ${context.capabilities.join(", ")}`,
+    ...(context.toolkitVersion === undefined
+      ? []
+      : [`Toolkit version: ${context.toolkitVersion}`]),
     ""
   ];
   if (context.capabilities.includes("rules")) {

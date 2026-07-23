@@ -4,17 +4,33 @@ import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
+import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { runCli } from "./cli.js";
+import { runDoctorCommand } from "./commands/doctor.js";
 import {
   formatInstallPlan,
   runInitCommand
 } from "./commands/init.js";
+import {
+  formatUninstallPlan,
+  runUninstallCommand
+} from "./commands/uninstall.js";
+import {
+  formatUpdatePlan,
+  runUpdateCommand
+} from "./commands/update.js";
 import { errorEnvelope } from "./output.js";
+
+const CLI_VERSION = "0.0.0-development";
 
 async function confirmInit(
   plan: Parameters<typeof formatInstallPlan>[0]
 ): Promise<boolean> {
-  process.stdout.write(formatInstallPlan(plan));
+  return await confirmPlan(formatInstallPlan(plan));
+}
+
+async function confirmPlan(text: string): Promise<boolean> {
+  process.stdout.write(text);
   const prompt = createInterface({
     input: process.stdin,
     output: process.stdout
@@ -39,24 +55,50 @@ process.exitCode = await runCli(
     writeStderr: (value) => process.stderr.write(value)
   },
   {
-    version: "0.0.0-development",
+    version: CLI_VERSION,
     execute: async (args) => {
-      if (args.command !== "init") {
-        return errorEnvelope(
-          "CLI_COMMAND_UNAVAILABLE",
-          `Command is not implemented yet: ${args.command}`
-        );
+      const root = args.scope === "user" ? homedir() : process.cwd();
+      const isTTY =
+        !args.json &&
+        process.stdin.isTTY === true &&
+        process.stdout.isTTY === true;
+      if (args.command === "init") {
+        return await runInitCommand({
+          args,
+          root,
+          adapters: commonHarnessAdapters(),
+          isTTY,
+          toolkitVersion: CLI_VERSION,
+          confirm: async (plan) => await confirmInit(plan)
+        });
       }
-      return await runInitCommand({
-        args,
-        root: args.scope === "user" ? homedir() : process.cwd(),
-        adapters: commonHarnessAdapters(),
-        isTTY:
-          !args.json &&
-          process.stdin.isTTY === true &&
-          process.stdout.isTTY === true,
-        confirm: async (plan) => await confirmInit(plan)
-      });
+      if (args.command === "doctor") {
+        return await runDoctorCommand({ root });
+      }
+      if (args.command === "uninstall") {
+        return await runUninstallCommand({
+          args,
+          root,
+          isTTY,
+          confirm: async (plan) =>
+            await confirmPlan(formatUninstallPlan(plan))
+        });
+      }
+      if (args.command === "update") {
+        return await runUpdateCommand({
+          args,
+          root,
+          adapters: commonHarnessAdapters(),
+          registry: new NpmRegistryClient(),
+          isTTY,
+          confirm: async (plan) =>
+            await confirmPlan(formatUpdatePlan(plan))
+        });
+      }
+      return errorEnvelope(
+        "CLI_COMMAND_UNAVAILABLE",
+        `Command is not implemented yet: ${args.command}`
+      );
     }
   }
 );

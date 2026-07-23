@@ -54,6 +54,17 @@ function humanSuccess(envelope: CliEnvelope<unknown>): string {
   return `${envelope.code}\n`;
 }
 
+function humanError(envelope: CliEnvelope<unknown>): string {
+  if (typeof envelope.data === "object" && envelope.data !== null) {
+    const data = envelope.data as Record<string, unknown>;
+    if (typeof data.text === "string") {
+      return data.text.endsWith("\n") ? data.text : `${data.text}\n`;
+    }
+  }
+  const message = envelope.errors[0]?.message ?? envelope.code;
+  return `${message}\n`;
+}
+
 export function writeEnvelope(
   sink: OutputSink,
   envelope: CliEnvelope<unknown>,
@@ -69,6 +80,5 @@ export function writeEnvelope(
     sink.writeStdout(humanSuccess(envelope));
     return;
   }
-  const message = envelope.errors[0]?.message ?? envelope.code;
-  sink.writeStderr(`${message}\n`);
+  sink.writeStderr(humanError(envelope));
 }

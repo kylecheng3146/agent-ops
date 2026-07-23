@@ -10,12 +10,14 @@ import {
   okEnvelope,
   type CliEnvelope
 } from "../output.js";
+import { formatOperationPlan } from "../plan-output.js";
 
 export interface InitCommandOptions {
   readonly args: ParsedArgs;
   readonly root: string;
   readonly adapters: readonly HarnessInstallAdapter[];
   readonly isTTY: boolean;
+  readonly toolkitVersion?: string;
   confirm(plan: InstallPlan): Promise<boolean>;
 }
 
@@ -26,45 +28,16 @@ export interface InitCommandData {
   readonly text?: string;
 }
 
-function escapeTerminalText(value: string): string {
-  return value.replace(
-    /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/gu,
-    (character) => {
-      const codePoint = character.codePointAt(0);
-      if (codePoint === undefined) {
-        return "\\u{fffd}";
-      }
-      return codePoint <= 0xff
-        ? `\\x${codePoint.toString(16).padStart(2, "0")}`
-        : `\\u{${codePoint.toString(16)}}`;
-    }
-  );
-}
-
 export function formatInstallPlan(plan: InstallPlan): string {
-  const lines = [
-    "Installation plan",
-    `Scope: ${plan.scope}`,
-    `Harness: ${plan.harness}`,
-    `Profiles: ${plan.profiles.join(", ")}`,
-    "Operations:"
-  ];
-  for (const operation of plan.operations) {
-    lines.push(
-      `- ${operation.kind} ${operation.path}`,
-      `  expected: ${operation.expectedHash ?? "<absent>"}`
-    );
-    if (operation.kind === "write") {
-      lines.push(
-        "  content:",
-        ...operation.content
-          .replace(/\n$/u, "")
-          .split("\n")
-          .map((line) => `    ${escapeTerminalText(line)}`)
-      );
-    }
-  }
-  return `${lines.join("\n")}\n`;
+  return formatOperationPlan({
+    title: "Installation plan",
+    metadata: [
+      `Scope: ${plan.scope}`,
+      `Harness: ${plan.harness}`,
+      `Profiles: ${plan.profiles.join(", ")}`
+    ],
+    operations: plan.operations
+  });
 }
 
 function initError(
@@ -101,7 +74,10 @@ export async function runInitCommand(
     scope: args.scope,
     harness: args.harness,
     profiles: args.profiles,
-    adapters: options.adapters
+    adapters: options.adapters,
+    ...(options.toolkitVersion === undefined
+      ? {}
+      : { toolkitVersion: options.toolkitVersion })
   });
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {

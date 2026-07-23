@@ -43,6 +43,7 @@ export interface CreateInstallPlanOptions {
   readonly harness: Harness;
   readonly profiles: readonly Profile[];
   readonly adapters: readonly HarnessInstallAdapter[];
+  readonly toolkitVersion?: string;
 }
 
 export interface InstallPlan {
@@ -352,13 +353,26 @@ async function planBlocks(
 export async function createInstallPlan(
   options: CreateInstallPlanOptions
 ): Promise<InstallPlan> {
+  if (
+    options.toolkitVersion !== undefined &&
+    !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u
+      .test(options.toolkitVersion)
+  ) {
+    throw new AgentOpsError(
+      "INVALID_TOOLKIT_VERSION",
+      "Toolkit version must be a valid semantic version."
+    );
+  }
   const resolved = resolveProfiles(options.profiles);
   const contribution = await planHarnessContributions(
     options.harness,
     {
       scope: options.scope,
       profiles: resolved.profiles,
-      capabilities: resolved.capabilities
+      capabilities: resolved.capabilities,
+      ...(options.toolkitVersion === undefined
+        ? {}
+        : { toolkitVersion: options.toolkitVersion })
     },
     options.adapters
   );
