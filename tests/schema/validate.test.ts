@@ -240,6 +240,7 @@ test("keeps the supported timestamp dialect aligned with JSON Schema", async () 
   for (const timestamp of [
     "2026-01-01t00:00:00z",
     "2026-01-01 00:00:00Z",
+    "2026-01-01T23:59:60Z",
     "0000-01-01T00:00:00Z"
   ]) {
     const value = cloneJson(valid);
