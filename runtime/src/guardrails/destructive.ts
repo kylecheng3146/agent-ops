@@ -5,17 +5,34 @@ import {
 } from "./types.js";
 
 const AMBIGUOUS_TARGET = /(?:^|[^\\])(?:\$\{?|\*|\?|\[)/;
+const WINDOWS_ENVIRONMENT_TARGET = /%[^%\s]+%/;
+const TILDE_TARGET = /^~[A-Za-z0-9._-]*(?:[\\/]|$)/;
 const WINDOWS_ROOT = /^[A-Za-z]:\/?$/;
 
 function executableName(command: string): string {
   return command.split(/[\\/]/).at(-1)?.replace(/\.exe$/i, "").toLowerCase() ?? "";
 }
 
-function isShortFlag(argument: string, flag: string): boolean {
+function isShortFlag(
+  argument: string,
+  flag: string,
+  caseInsensitive = false
+): boolean {
+  const flags = argument.slice(1);
   return (
     argument.startsWith("-") &&
     !argument.startsWith("--") &&
-    argument.slice(1).includes(flag)
+    (caseInsensitive
+      ? flags.toLowerCase().includes(flag.toLowerCase())
+      : flags.includes(flag))
+  );
+}
+
+function hasAmbiguousExpansion(target: string): boolean {
+  return (
+    AMBIGUOUS_TARGET.test(target) ||
+    WINDOWS_ENVIRONMENT_TARGET.test(target) ||
+    TILDE_TARGET.test(target)
   );
 }
 
@@ -79,7 +96,7 @@ function removalDecision(
 
   const recursive = args.some((argument) =>
     isRm
-      ? argument === "--recursive" || isShortFlag(argument, "r")
+      ? argument === "--recursive" || isShortFlag(argument, "r", true)
       : isPowerShellRemove
         ? argument.toLowerCase() === "-recurse"
         : argument.toLowerCase() === "/s"
@@ -106,7 +123,7 @@ function removalDecision(
         "Delete an explicitly named project-relative path after reviewing its resolved value."
     };
   }
-  if (targets.some((target) => AMBIGUOUS_TARGET.test(target))) {
+  if (targets.some(hasAmbiguousExpansion)) {
     return {
       action: "warn",
       ruleId: GUARDRAIL_RULE_IDS.ambiguousTarget,
@@ -152,7 +169,8 @@ function gitDecision(args: readonly string[]): GuardrailDecision {
       (argument) =>
         argument === "--force" ||
         argument.startsWith("--force-with-lease") ||
-        isShortFlag(argument, "f")
+        isShortFlag(argument, "f") ||
+        (argument.startsWith("+") && argument.length > 1)
     )
   ) {
     return {

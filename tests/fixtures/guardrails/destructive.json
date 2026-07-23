@@ -40,6 +40,16 @@
     }
   },
   {
+    "id": "uppercase-recursive-short-flag-block",
+    "command": "rm",
+    "args": ["-Rf", "."],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-broad-delete"
+    }
+  },
+  {
     "id": "hard-reset-block",
     "command": "git",
     "args": ["reset", "--hard", "HEAD~1"],
@@ -70,6 +80,20 @@
     }
   },
   {
+    "id": "leading-plus-refspec-force-push-block",
+    "command": "git",
+    "args": [
+      "push",
+      "origin",
+      "+refs/heads/main:refs/heads/main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
     "id": "environment-target-warn",
     "command": "rm",
     "args": ["-rf", "$BUILD_OUTPUT"],
@@ -83,6 +107,36 @@
     "id": "glob-target-warn",
     "command": "rm",
     "args": ["-rf", "build/*"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "warn",
+      "ruleId": "destructive-ambiguous-target"
+    }
+  },
+  {
+    "id": "windows-environment-target-warn",
+    "command": "rm",
+    "args": ["-rf", "%USERPROFILE%\\cache"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "warn",
+      "ruleId": "destructive-ambiguous-target"
+    }
+  },
+  {
+    "id": "tilde-user-target-warn",
+    "command": "rm",
+    "args": ["-rf", "~root/cache"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "warn",
+      "ruleId": "destructive-ambiguous-target"
+    }
+  },
+  {
+    "id": "current-user-tilde-target-warn",
+    "command": "rm",
+    "args": ["-rf", "~/cache"],
     "scope": "packages/cli",
     "expected": {
       "action": "warn",

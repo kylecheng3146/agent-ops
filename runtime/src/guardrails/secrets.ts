@@ -12,23 +12,28 @@ const SENSITIVE_ASSIGNMENT =
 const AUTHORIZATION_VALUE =
   /\bAuthorization\s*:\s*(?:Bearer|Basic|token)\s+([^\s,;]+)/gi;
 const PLACEHOLDER =
-  /(?:\[(?:REDACTED|REMOVED)[^\]]*\]|<[^>]*(?:example|placeholder|redacted|replace|your)[^>]*>|(?:change-?me|example|placeholder|redacted|replace-?me|sample)|x{6,})/i;
+  /^(?:\[(?:REDACTED|REMOVED)(?:[_ -][A-Z0-9]+)*\]|<[^>]*(?:example|placeholder|redacted|replace|your)[^>]*>|(?:change-?me|example|placeholder|redacted|replace-?me|sample)|x{6,})$/i;
+const SYNTHETIC_DOCUMENTATION_LABEL =
+  /^\s*(?:[#/*-]+\s*)?synthetic documentation example\s*:/i;
 
 function isPlaceholder(value: string): boolean {
-  return PLACEHOLDER.test(value);
+  return PLACEHOLDER.test(value.trim());
 }
 
 function hasHighEntropy(value: string): boolean {
   if (value.length < 24 || value.length > 4_096 || /\s/.test(value)) {
     return false;
   }
-  const categories = [
-    /[a-z]/.test(value),
-    /[A-Z]/.test(value),
-    /\d/.test(value),
-    /[^A-Za-z0-9]/.test(value)
-  ].filter(Boolean).length;
-  return categories >= 3 && new Set(value).size >= 10;
+  const frequencies = new Map<string, number>();
+  for (const character of value) {
+    frequencies.set(character, (frequencies.get(character) ?? 0) + 1);
+  }
+  let entropy = 0;
+  for (const count of frequencies.values()) {
+    const probability = count / value.length;
+    entropy -= probability * Math.log2(probability);
+  }
+  return frequencies.size >= 8 && entropy >= 3;
 }
 
 function blocksPrivateKey(content: string): boolean {
@@ -67,20 +72,55 @@ function blocksSensitiveValue(content: string): boolean {
   return false;
 }
 
-export function evaluateSecretContent(content: string): GuardrailDecision {
+function isDocumentationScope(scope: string): boolean {
+  const normalized = scope.toLowerCase();
+  const segments = normalized.split("/");
+  const filename = segments.at(-1) ?? "";
+  return (
+    segments.includes("docs") ||
+    segments.includes("documentation") ||
+    /^readme(?:\.|$)/.test(filename) ||
+    /\.(?:adoc|md|mdx|rst)$/.test(filename)
+  );
+}
+
+function documentationExampleDecision(
+  decision: GuardrailDecision,
+  content: string,
+  scope: string
+): GuardrailDecision {
+  if (
+    decision.action !== "block" ||
+    !isDocumentationScope(scope) ||
+    !SYNTHETIC_DOCUMENTATION_LABEL.test(content)
+  ) {
+    return decision;
+  }
+  return {
+    action: "warn",
+    ruleId: GUARDRAIL_RULE_IDS.documentationExample,
+    reason:
+      "A labeled synthetic documentation example contains credential-shaped material."
+  };
+}
+
+export function evaluateSecretContent(
+  content: string,
+  scope = ""
+): GuardrailDecision {
+  let decision: GuardrailDecision = { action: "allow" };
   if (blocksPrivateKey(content)) {
-    return {
+    decision = {
       action: "block",
       ruleId: GUARDRAIL_RULE_IDS.privateKey,
       reason: "Private-key material must not be persisted or transmitted."
     };
-  }
-  if (blocksKnownToken(content) || blocksSensitiveValue(content)) {
-    return {
+  } else if (blocksKnownToken(content) || blocksSensitiveValue(content)) {
+    decision = {
       action: "block",
       ruleId: GUARDRAIL_RULE_IDS.credential,
       reason: "Credential-shaped material must be replaced with a redacted value."
     };
   }
-  return { action: "allow" };
+  return documentationExampleDecision(decision, content, scope);
 }

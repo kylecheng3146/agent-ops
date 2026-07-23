@@ -13,7 +13,7 @@ export function evaluateGuardrail(
 ): GuardrailDecision {
   const decision =
     input.kind === "content"
-      ? evaluateSecretContent(input.content)
+      ? evaluateSecretContent(input.content, input.scope)
       : evaluateDestructiveCommand(input);
   return applySecurityExceptions(decision, input.scope, options);
 }

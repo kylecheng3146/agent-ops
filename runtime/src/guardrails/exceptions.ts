@@ -33,22 +33,6 @@ function isBoundedProjectScope(scope: string): boolean {
   );
 }
 
-function evaluationTime(
-  options: GuardrailEvaluationOptions
-): Date | undefined {
-  if (options.now !== undefined) {
-    return options.now;
-  }
-  if (options.clock === undefined) {
-    return undefined;
-  }
-  try {
-    return options.clock();
-  } catch {
-    return undefined;
-  }
-}
-
 function scopeContains(exceptionScope: string, evaluatedScope: string): boolean {
   return (
     evaluatedScope === exceptionScope ||
@@ -84,7 +68,7 @@ export function applySecurityExceptions(
   if (decision.action === "allow" || options.exceptions === undefined) {
     return decision;
   }
-  const now = evaluationTime(options);
+  const now = options.now;
   if (now === undefined) {
     return decision;
   }

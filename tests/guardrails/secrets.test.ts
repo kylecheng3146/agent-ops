@@ -8,9 +8,10 @@ import { evaluateGuardrail } from "../../runtime/src/guardrails/evaluate.js";
 interface SecretFixture {
   id: string;
   parts: string[];
+  scope?: string;
   expected:
     | { action: "allow" }
-    | { action: "block"; ruleId: string };
+    | { action: "warn" | "block"; ruleId: string };
 }
 
 async function readFixtures(): Promise<SecretFixture[]> {
@@ -22,10 +23,11 @@ test("classifies secret fixtures without returning credential material", async (
   for (const fixture of await readFixtures()) {
     await t.test(fixture.id, () => {
       const content = fixture.parts.join("");
+      const scope = fixture.scope ?? "config/local.env";
       const input = {
         kind: "content" as const,
         content,
-        scope: "docs/example.md"
+        scope
       };
 
       const decision = evaluateGuardrail(input);
@@ -37,11 +39,11 @@ test("classifies secret fixtures without returning credential material", async (
           fixture.expected.ruleId
         );
       }
-      assert.doesNotMatch(JSON.stringify(decision), new RegExp(content, "u"));
+      assert.equal(JSON.stringify(decision).includes(content), false);
       assert.deepEqual(input, {
         kind: "content",
         content,
-        scope: "docs/example.md"
+        scope
       });
     });
   }

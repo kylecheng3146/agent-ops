@@ -114,3 +114,34 @@ test("does not provide a global exception bypass", () => {
   assert.equal(decision.action, "block");
   assert.equal(decision.ruleId, "destructive-force-push");
 });
+
+test("never invokes an executable clock supplied in evaluation options", () => {
+  let clockCalls = 0;
+  const input = {
+    kind: "command" as const,
+    command: "git",
+    args: ["reset", "--hard", "HEAD~1"],
+    scope: "packages/cli"
+  };
+  const options = {
+    exceptions: [
+      {
+        ruleId: "destructive-reset",
+        scope: "packages/cli",
+        expiresAt: "2030-01-02T00:00:00.000Z",
+        reason: "A callback must not grant this exception."
+      }
+    ],
+    clock: () => {
+      clockCalls += 1;
+      return new Date("2030-01-01T00:00:00.000Z");
+    }
+  };
+
+  const first = evaluateGuardrail(input, options);
+  const second = evaluateGuardrail(input, options);
+
+  assert.equal(clockCalls, 0);
+  assert.equal(first.action, "block");
+  assert.deepEqual(first, second);
+});

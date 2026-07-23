@@ -4,6 +4,7 @@ export const GUARDRAIL_RULE_IDS = {
   ambiguousTarget: "destructive-ambiguous-target",
   broadDelete: "destructive-broad-delete",
   credential: "secret-credential",
+  documentationExample: "secret-documentation-example",
   forcePush: "destructive-force-push",
   privateKey: "secret-private-key",
   reset: "destructive-reset"
@@ -42,5 +43,4 @@ export type GuardrailInput = ContentGuardrailInput | CommandGuardrailInput;
 export interface GuardrailEvaluationOptions {
   readonly exceptions?: readonly SecurityException[];
   readonly now?: Date;
-  readonly clock?: () => Date;
 }
