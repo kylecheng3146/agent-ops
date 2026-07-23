@@ -1,0 +1,7 @@
+{
+  "name": "node-discovery-missing-lockfile-fixture",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

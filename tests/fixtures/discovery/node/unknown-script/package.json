@@ -1,0 +1,7 @@
+{
+  "name": "node-discovery-unknown-script-fixture",
+  "private": true,
+  "scripts": {
+    "verify:ci": "node --version"
+  }
+}

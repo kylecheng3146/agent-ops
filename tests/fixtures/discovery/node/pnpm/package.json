@@ -1,0 +1,7 @@
+{
+  "name": "node-discovery-pnpm-fixture",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
