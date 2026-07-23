@@ -58,6 +58,72 @@ function isAlreadyExists(error: unknown): boolean {
   );
 }
 
+interface PrivateLockRecord {
+  processId: number;
+  createdAt: string;
+  token: string;
+}
+
+const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
+const LOCK_MAX_AGE_MS = 60_000;
+const MALFORMED_LOCK_RECOVERY_MS = 5_000;
+
+function parseLockRecord(source: string): PrivateLockRecord | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(source) as unknown;
+  } catch {
+    return null;
+  }
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 3 ||
+    !("processId" in value) ||
+    !("createdAt" in value) ||
+    !("token" in value) ||
+    !Number.isSafeInteger(value.processId) ||
+    (value.processId as number) <= 0 ||
+    typeof value.createdAt !== "string" ||
+    !Number.isFinite(Date.parse(value.createdAt)) ||
+    typeof value.token !== "string" ||
+    value.token.length === 0 ||
+    value.token.length > 128
+  ) {
+    return null;
+  }
+  return {
+    processId: value.processId as number,
+    createdAt: value.createdAt,
+    token: value.token
+  };
+}
+
+function isProcessActive(processId: number): boolean {
+  if (processId === process.pid) {
+    return true;
+  }
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error
+    ) {
+      if (error.code === "ESRCH" || error.code === "EINVAL") {
+        return false;
+      }
+      if (error.code === "EPERM") {
+        return true;
+      }
+    }
+    return true;
+  }
+}
+
 function privateStateError(path: string, cause?: unknown): AgentOpsError {
   return new AgentOpsError(
     "PRIVATE_STATE_PATH_INVALID",
@@ -255,6 +321,48 @@ export async function writePrivateFile(
   }
 }
 
+async function recoverAbandonedLock(
+  lockPath: string,
+  anchorDirectory: string
+): Promise<boolean> {
+  const source = await readPrivateFile(lockPath, anchorDirectory);
+  if (source === null) {
+    return true;
+  }
+  const record = parseLockRecord(source);
+  if (record === null) {
+    const status = await lstat(lockPath);
+    if (Date.now() - status.mtimeMs < MALFORMED_LOCK_RECOVERY_MS) {
+      return false;
+    }
+  } else {
+    const ageMs = Date.now() - Date.parse(record.createdAt);
+    if (
+      Math.abs(ageMs) <= LOCK_MAX_AGE_MS &&
+      isProcessActive(record.processId)
+    ) {
+      return false;
+    }
+  }
+
+  const currentSource = await readPrivateFile(
+    lockPath,
+    anchorDirectory
+  );
+  if (currentSource !== source) {
+    return false;
+  }
+  try {
+    await rm(lockPath);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) {
+      return true;
+    }
+    throw error;
+  }
+}
+
 export async function withPrivateFileLock<T>(
   path: string,
   anchorDirectory: string,
@@ -263,7 +371,7 @@ export async function withPrivateFileLock<T>(
   const parent = dirname(path);
   await ensurePrivateDirectory(parent, anchorDirectory);
   const lockPath = `${path}.lock`;
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
   let handle;
 
   while (handle === undefined) {
@@ -273,7 +381,8 @@ export async function withPrivateFileLock<T>(
       await candidate.writeFile(
         `${JSON.stringify({
           processId: process.pid,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          token: randomUUID()
         })}\n`,
         "utf8"
       );
@@ -286,6 +395,9 @@ export async function withPrivateFileLock<T>(
       }
       if (!isAlreadyExists(error)) {
         throw error;
+      }
+      if (await recoverAbandonedLock(lockPath, anchorDirectory)) {
+        continue;
       }
       if (Date.now() >= deadline) {
         throw new AgentOpsError(

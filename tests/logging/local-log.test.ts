@@ -26,15 +26,16 @@ test("writes only allowlisted redacted event fields with private permissions", a
     await appendLocalLog(
       path,
       {
-        type: "diagnostic",
-        code: "VERIFY_FAILED",
-        message: syntheticHeader
+        type: "trust-change",
+        action: "grant",
+        remoteIdentity: syntheticHeader,
+        result: "changed"
       },
       { anchorDirectory: root, now: "2026-07-23T00:00:00Z" }
     );
     const content = await readFile(path, "utf8");
     assert.doesNotMatch(content, /synthetic-header-value/);
-    assert.match(content, /VERIFY_FAILED/);
+    assert.match(content, /"type":"trust-change"/);
     if (process.platform !== "win32") {
       assert.equal((await lstat(join(root, "private"))).mode & 0o777, 0o700);
       assert.equal((await lstat(path)).mode & 0o777, 0o600);
@@ -54,6 +55,19 @@ test("writes only allowlisted redacted event fields with private permissions", a
       (error: unknown) =>
         error instanceof AgentOpsError && error.code === "LOG_EVENT_INVALID"
     );
+    await assert.rejects(
+      appendLocalLog(
+        path,
+        {
+          type: "diagnostic",
+          code: "RAW_CONTENT",
+          message: "non-secret raw command output"
+        } as unknown as LocalLogEvent,
+        { anchorDirectory: root }
+      ),
+      (error: unknown) =>
+        error instanceof AgentOpsError && error.code === "LOG_EVENT_INVALID"
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -65,7 +79,7 @@ test("prunes local logs by age and total bytes", async () => {
     const path = join(root, "events.ndjson");
     await appendLocalLog(
       path,
-      { type: "diagnostic", code: "OLD", message: "old event" },
+      { type: "diagnostic", code: "OLD" },
       {
         now: "2026-07-20T00:00:00Z",
         anchorDirectory: root,
@@ -78,8 +92,7 @@ test("prunes local logs by age and total bytes", async () => {
         path,
         {
           type: "diagnostic",
-          code: `NEW-${index}`,
-          message: "bounded event payload"
+          code: `NEW-${index}`
         },
         {
           now: `2026-07-23T00:00:0${index}Z`,
@@ -108,8 +121,7 @@ test("serializes concurrent appends without dropping events", async () => {
           path,
           {
             type: "diagnostic",
-            code: `EVENT-${index}`,
-            message: "concurrent event"
+            code: `EVENT-${index}`
           },
           {
             now: `2026-07-23T00:00:${String(index).padStart(2, "0")}Z`,

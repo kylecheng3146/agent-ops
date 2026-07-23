@@ -9,7 +9,6 @@ import { redactSecrets } from "../security/redact.js";
 export interface DiagnosticLogEvent {
   type: "diagnostic";
   code: string;
-  message: string;
 }
 
 export interface CommandResultLogEvent {
@@ -87,17 +86,15 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
   }
   if (value.type === "diagnostic") {
     if (
-      !hasExactKeys(value, ["code", "message", "type"]) ||
+      !hasExactKeys(value, ["code", "type"]) ||
       typeof value.code !== "string" ||
-      !ID_PATTERN.test(value.code) ||
-      !isBoundedString(value.message)
+      !ID_PATTERN.test(value.code)
     ) {
       return invalidEvent();
     }
     return {
       type: "diagnostic",
-      code: value.code,
-      message: redactSecrets(value.message)
+      code: value.code
     };
   }
   if (value.type === "command-result") {

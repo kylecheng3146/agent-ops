@@ -3,6 +3,7 @@ import {
   lstat,
   mkdtemp,
   mkdir,
+  writeFile,
   rm,
   symlink
 } from "node:fs/promises";
@@ -196,6 +197,37 @@ test("serializes concurrent trust mutations without losing grants", async () => 
     for (const binding of bindings) {
       assert.equal((await store.status(binding)).status, "TRUSTED");
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovers an abandoned trust-store lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+  try {
+    const stateDirectory = join(root, "state");
+    const storePath = join(stateDirectory, "trust.json");
+    await mkdir(stateDirectory);
+    await writeFile(
+      `${storePath}.lock`,
+      `${JSON.stringify({
+        processId: process.pid,
+        createdAt: "2000-01-01T00:00:00Z",
+        token: "abandoned-lock-token"
+      })}\n`
+    );
+    const store = new FileTrustStore(storePath, root);
+    const binding: TrustBinding = {
+      canonicalPath: join(root, "repository"),
+      remoteIdentity: "example.com/owner/repository",
+      configHash: CONFIG_HASH,
+      runtimeHash: RUNTIME_HASH
+    };
+
+    await store.grant(binding);
+
+    assert.equal((await store.status(binding)).status, "TRUSTED");
+    await assert.rejects(lstat(`${storePath}.lock`));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
