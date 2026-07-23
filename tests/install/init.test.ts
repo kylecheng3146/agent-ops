@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -189,6 +194,37 @@ test("TTY cancellation leaves the complete plan unapplied", async () => {
     assert.equal(result.code, "INIT_CANCELLED");
     assert.equal(confirmations, 1);
     await assert.rejects(readFile(join(root, "AGENTS.md")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("human plan rendering escapes terminal control sequences", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  try {
+    await writeFile(
+      join(root, "AGENTS.md"),
+      "# Existing\u001b]0;spoofed\u0007\u202Etext\n"
+    );
+    const result = await runInitCommand(
+      options(root, [
+        "init",
+        "--scope",
+        "project",
+        "--harness",
+        "codex",
+        "--profile",
+        "core",
+        "--dry-run"
+      ])
+    );
+
+    const text = result.data?.text ?? "";
+    assert.doesNotMatch(
+      text,
+      /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/u
+    );
+    assert.match(text, /\\x1b\]0;spoofed\\x07\\u\{202e\}text/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

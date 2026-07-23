@@ -26,6 +26,21 @@ export interface InitCommandData {
   readonly text?: string;
 }
 
+function escapeTerminalText(value: string): string {
+  return value.replace(
+    /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/gu,
+    (character) => {
+      const codePoint = character.codePointAt(0);
+      if (codePoint === undefined) {
+        return "\\u{fffd}";
+      }
+      return codePoint <= 0xff
+        ? `\\x${codePoint.toString(16).padStart(2, "0")}`
+        : `\\u{${codePoint.toString(16)}}`;
+    }
+  );
+}
+
 export function formatInstallPlan(plan: InstallPlan): string {
   const lines = [
     "Installation plan",
@@ -45,7 +60,7 @@ export function formatInstallPlan(plan: InstallPlan): string {
         ...operation.content
           .replace(/\n$/u, "")
           .split("\n")
-          .map((line) => `    ${line}`)
+          .map((line) => `    ${escapeTerminalText(line)}`)
       );
     }
   }
