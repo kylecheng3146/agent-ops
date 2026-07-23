@@ -65,7 +65,6 @@ interface PrivateLockRecord {
 }
 
 const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
-const LOCK_MAX_AGE_MS = 60_000;
 const MALFORMED_LOCK_RECOVERY_MS = 5_000;
 
 function parseLockRecord(source: string): PrivateLockRecord | null {
@@ -335,14 +334,8 @@ async function recoverAbandonedLock(
     if (Date.now() - status.mtimeMs < MALFORMED_LOCK_RECOVERY_MS) {
       return false;
     }
-  } else {
-    const ageMs = Date.now() - Date.parse(record.createdAt);
-    if (
-      Math.abs(ageMs) <= LOCK_MAX_AGE_MS &&
-      isProcessActive(record.processId)
-    ) {
-      return false;
-    }
+  } else if (isProcessActive(record.processId)) {
+    return false;
   }
 
   const currentSource = await readPrivateFile(
@@ -363,6 +356,28 @@ async function recoverAbandonedLock(
   }
 }
 
+async function releaseOwnedLock(
+  lockPath: string,
+  anchorDirectory: string,
+  token: string
+): Promise<void> {
+  const source = await readPrivateFile(lockPath, anchorDirectory);
+  if (source === null) {
+    return;
+  }
+  const record = parseLockRecord(source);
+  if (record === null || record.token !== token) {
+    return;
+  }
+  try {
+    await rm(lockPath);
+  } catch (error) {
+    if (!isMissing(error)) {
+      throw error;
+    }
+  }
+}
+
 export async function withPrivateFileLock<T>(
   path: string,
   anchorDirectory: string,
@@ -373,21 +388,24 @@ export async function withPrivateFileLock<T>(
   const lockPath = `${path}.lock`;
   const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
   let handle;
+  let ownerToken: string | undefined;
 
   while (handle === undefined) {
     let candidate;
+    const candidateToken = randomUUID();
     try {
       candidate = await open(lockPath, "wx", 0o600);
       await candidate.writeFile(
         `${JSON.stringify({
           processId: process.pid,
           createdAt: new Date().toISOString(),
-          token: randomUUID()
+          token: candidateToken
         })}\n`,
         "utf8"
       );
       await candidate.sync();
       handle = candidate;
+      ownerToken = candidateToken;
     } catch (error) {
       await candidate?.close().catch(() => undefined);
       if (candidate !== undefined) {
@@ -414,12 +432,12 @@ export async function withPrivateFileLock<T>(
     return await action();
   } finally {
     await handle.close().catch(() => undefined);
-    try {
-      await rm(lockPath);
-    } catch (error) {
-      if (!isMissing(error)) {
-        throw error;
-      }
+    if (ownerToken !== undefined) {
+      await releaseOwnedLock(
+        lockPath,
+        anchorDirectory,
+        ownerToken
+      );
     }
   }
 }

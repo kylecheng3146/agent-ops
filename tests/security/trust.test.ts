@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
   lstat,
   mkdtemp,
@@ -205,13 +206,24 @@ test("serializes concurrent trust mutations without losing grants", async () => 
 test("recovers an abandoned trust-store lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
   try {
+    const exitedProcess = spawn(process.execPath, ["-e", ""], {
+      stdio: "ignore"
+    });
+    const exitedProcessId = exitedProcess.pid;
+    if (exitedProcessId === undefined) {
+      throw new Error("Expected the child process to have a PID.");
+    }
+    await new Promise<void>((resolve, reject) => {
+      exitedProcess.once("error", reject);
+      exitedProcess.once("exit", () => resolve());
+    });
     const stateDirectory = join(root, "state");
     const storePath = join(stateDirectory, "trust.json");
     await mkdir(stateDirectory);
     await writeFile(
       `${storePath}.lock`,
       `${JSON.stringify({
-        processId: process.pid,
+        processId: exitedProcessId,
         createdAt: "2000-01-01T00:00:00Z",
         token: "abandoned-lock-token"
       })}\n`
