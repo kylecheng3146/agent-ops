@@ -156,6 +156,35 @@ test("project config cannot weaken a user guardrail", () => {
       error instanceof AgentOpsError &&
       error.code === "PROJECT_SECURITY_WEAKENING"
   );
+
+  const timedUserCommand = {
+    ...command("security", "scan", true),
+    timeoutMs: 1_000
+  };
+  const timedProjectCommand = {
+    ...command("security", "replacement", true),
+    timeoutMs: 2_000
+  };
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer(
+          "user",
+          config({
+            verification: { commands: [timedUserCommand] }
+          })
+        ),
+        layer(
+          "project",
+          config({
+            verification: { commands: [timedProjectCommand] }
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_GUARDRAIL_WEAKENING"
+  );
 });
 
 test("project path mappings cannot drop user verifier coverage", () => {

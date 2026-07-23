@@ -135,8 +135,17 @@ function assertProjectCommandIsMonotonic(
   const lowersEvidence =
     previous.evidence.kind !== candidate.evidence.kind ||
     candidateMinimum < previousMinimum;
+  const weakensTimeout =
+    previous.timeoutMs !== undefined &&
+    (candidate.timeoutMs === undefined ||
+      candidate.timeoutMs > previous.timeoutMs);
 
-  if (weakensRequired || enablesShell || lowersEvidence) {
+  if (
+    weakensRequired ||
+    enablesShell ||
+    lowersEvidence ||
+    weakensTimeout
+  ) {
     throw new AgentOpsError(
       "PROJECT_GUARDRAIL_WEAKENING",
       `Project command cannot weaken protected verifier ID: ${candidate.id}`
