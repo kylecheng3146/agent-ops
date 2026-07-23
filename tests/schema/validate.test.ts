@@ -139,6 +139,26 @@ test("accepts standard RFC 3339 timestamps without milliseconds", async () => {
   assert.equal(validateEvidence(evidence).ok, true);
 });
 
+test("rejects impossible RFC 3339 calendar and time values", async () => {
+  const config = (await readJsonFixture("valid-config.json")) as {
+    securityExceptions: { expiresAt: string }[];
+  };
+  config.securityExceptions[0]!.expiresAt = "2026-04-31T00:00:00Z";
+  assert.equal(
+    firstErrorCode(validateConfig(config)),
+    "INVALID_TIMESTAMP"
+  );
+
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    startedAt: string;
+  };
+  evidence.startedAt = "2026-01-01T24:00:00Z";
+  assert.equal(
+    firstErrorCode(validateEvidence(evidence)),
+    "INVALID_TIMESTAMP"
+  );
+});
+
 test("requires two to five unique task criteria", async () => {
   const valid = (await readJsonFixture("valid-task.json")) as {
     criteria: {
@@ -239,6 +259,21 @@ test("uses stable manifest IDs and marker boundaries", async () => {
     duplicateBoundary.markers[0]!.endMarker;
   assert.equal(
     firstErrorCode(validateManifest(duplicateBoundary)),
+    "DUPLICATE_OWNERSHIP"
+  );
+
+  const sharedStart = cloneJson(manifest);
+  sharedStart.markers[1]!.startMarker =
+    sharedStart.markers[0]!.startMarker;
+  assert.equal(
+    firstErrorCode(validateManifest(sharedStart)),
+    "DUPLICATE_OWNERSHIP"
+  );
+
+  const sharedEnd = cloneJson(manifest);
+  sharedEnd.markers[1]!.endMarker = sharedEnd.markers[0]!.endMarker;
+  assert.equal(
+    firstErrorCode(validateManifest(sharedEnd)),
     "DUPLICATE_OWNERSHIP"
   );
 });

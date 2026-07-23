@@ -137,15 +137,58 @@ function isIsoTimestamp(value: unknown): value is string {
   if (typeof value !== "string") {
     return false;
   }
-  if (
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(
       value
-    )
-  ) {
+    );
+  if (match === null) {
     return false;
   }
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[8] === undefined ? 0 : Number(match[9]);
+  const offsetMinute = match[8] === undefined ? 0 : Number(match[10]);
+  const isLeapYear =
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31
+  ][month - 1];
+
+  return (
+    Number.isInteger(year) &&
+    year >= 1 &&
+    month >= 1 &&
+    month <= 12 &&
+    daysInMonth !== undefined &&
+    day >= 1 &&
+    day <= daysInMonth &&
+    hour >= 0 &&
+    hour <= 23 &&
+    minute >= 0 &&
+    minute <= 59 &&
+    second >= 0 &&
+    second <= 59 &&
+    offsetHour >= 0 &&
+    offsetHour <= 23 &&
+    offsetMinute >= 0 &&
+    offsetMinute <= 59 &&
+    Number.isFinite(Date.parse(value))
+  );
 }
 
 function hasUniqueStrings(values: readonly string[]): boolean {
@@ -808,7 +851,7 @@ export function validateManifest(
     artifactPaths.add(artifact.value.path);
   }
 
-  const markerRegions = new Set<string>();
+  const markerBoundaries = new Set<string>();
   for (const [index, markerValue] of root.markers.entries()) {
     const marker = validateManagedMarker(
       markerValue,
@@ -831,20 +874,23 @@ export function validateManifest(
         `A whole-file artifact and marker cannot own the same path: ${marker.value.path}`
       );
     }
-    const region = [
-      marker.value.path,
-      marker.value.startMarker,
-      marker.value.endMarker
-    ].join("\0");
-    if (markerRegions.has(region)) {
+    const startBoundary = [marker.value.path, marker.value.startMarker].join(
+      "\0"
+    );
+    const endBoundary = [marker.value.path, marker.value.endMarker].join("\0");
+    if (
+      markerBoundaries.has(startBoundary) ||
+      markerBoundaries.has(endBoundary)
+    ) {
       return failure(
         "DUPLICATE_OWNERSHIP",
         `$.markers[${index}]`,
-        `Marker region is owned more than once: ${marker.value.path}`
+        `Marker boundary is owned more than once: ${marker.value.path}`
       );
     }
     entryIds.add(marker.value.id);
-    markerRegions.add(region);
+    markerBoundaries.add(startBoundary);
+    markerBoundaries.add(endBoundary);
   }
   return success(root as unknown as InstallManifest);
 }
