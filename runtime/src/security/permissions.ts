@@ -71,9 +71,14 @@ interface PrivateLockRecord {
   token: string;
 }
 
+interface ActiveParticipant {
+  path: string;
+  record: PrivateLockRecord;
+}
+
 const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
-const MALFORMED_LOCK_RECOVERY_MS = 5_000;
 const PROCESS_IDENTITY_CACHE_MS = 250;
+const RECENT_PROCESS_RECORD_MS = 5 * 60 * 1000;
 const PROCESS_INSTANCE_TOKEN = randomUUID();
 const execFile = promisify(execFileCallback);
 const lockQueues = new Map<string, Promise<void>>();
@@ -143,7 +148,7 @@ async function readLinuxProcessIdentity(
   }
 }
 
-async function readBsdProcessIdentity(
+async function readPosixProcessIdentity(
   processId: number
 ): Promise<string | null> {
   try {
@@ -157,7 +162,38 @@ async function readBsdProcessIdentity(
       }
     );
     const startedAt = result.stdout.trim();
-    return startedAt.length === 0 ? null : `bsd:${startedAt}`;
+    return startedAt.length === 0 ? null : `posix:${startedAt}`;
+  } catch {
+    return null;
+  }
+}
+
+async function readWindowsProcessIdentity(
+  processId: number
+): Promise<string | null> {
+  try {
+    const script = [
+      `$process = Get-Process -Id ${processId} -ErrorAction Stop`,
+      "$process.StartTime.ToUniversalTime().Ticks"
+    ].join("; ");
+    const result = await execFile(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        script
+      ],
+      {
+        encoding: "utf8",
+        maxBuffer: 4096,
+        timeout: 2000,
+        windowsHide: true
+      }
+    );
+    const startedAt = result.stdout.trim();
+    return startedAt.length === 0 ? null : `windows:${startedAt}`;
   } catch {
     return null;
   }
@@ -173,16 +209,13 @@ async function readProcessIdentity(
   ) {
     return cached.identity;
   }
-  let identity: string | null = null;
+  let identity: string | null;
   if (process.platform === "linux") {
     identity = await readLinuxProcessIdentity(processId);
-  } else if (
-    process.platform === "darwin" ||
-    process.platform === "freebsd"
-  ) {
-    identity = await readBsdProcessIdentity(processId);
-  } else if (processId === process.pid) {
-    identity = `runtime:${PROCESS_INSTANCE_TOKEN}`;
+  } else if (process.platform === "win32") {
+    identity = await readWindowsProcessIdentity(processId);
+  } else {
+    identity = await readPosixProcessIdentity(processId);
   }
   if (identity === null && processId === process.pid) {
     identity = `runtime:${PROCESS_INSTANCE_TOKEN}`;
@@ -224,11 +257,16 @@ async function isProcessInstanceActive(
   if (!isProcessActive(record.processId)) {
     return false;
   }
-  const identity = await readProcessIdentity(record.processId);
-  if (identity === null) {
+  if (record.processId === process.pid) {
+    const localIdentity = await readProcessIdentity(process.pid);
+    return localIdentity === record.processIdentity;
+  }
+  const ageMs = Date.now() - Date.parse(record.createdAt);
+  if (ageMs >= 0 && ageMs <= RECENT_PROCESS_RECORD_MS) {
     return true;
   }
-  return identity === record.processIdentity;
+  const identity = await readProcessIdentity(record.processId);
+  return identity === null || identity === record.processIdentity;
 }
 
 function privateStateError(path: string, cause?: unknown): AgentOpsError {
@@ -475,11 +513,11 @@ async function readActiveParticipants(
   path: string,
   anchorDirectory: string,
   ownParticipantPath: string
-): Promise<PrivateLockRecord[]> {
+): Promise<ActiveParticipant[]> {
   const parent = dirname(path);
   const prefix = lockParticipantPrefix(path);
   const names = await readdir(parent);
-  const participants: PrivateLockRecord[] = [];
+  const participants: ActiveParticipant[] = [];
 
   for (const name of names) {
     if (!name.startsWith(prefix)) {
@@ -495,19 +533,13 @@ async function readActiveParticipants(
     }
     const record = parseLockRecord(source);
     if (record === null) {
-      const status = await lstat(participantPath);
-      if (Date.now() - status.mtimeMs >= MALFORMED_LOCK_RECOVERY_MS) {
-        await rm(participantPath);
-        continue;
+      if (participantPath === ownParticipantPath) {
+        throw new AgentOpsError(
+          "PRIVATE_STATE_LOCK_INVALID",
+          `The current private state lock record is invalid: ${participantPath}`
+        );
       }
-      participants.push({
-        choosing: true,
-        createdAt: new Date(status.mtimeMs).toISOString(),
-        processId: process.pid,
-        processIdentity: `malformed:${name}`,
-        ticket: 0,
-        token: `malformed:${name}`
-      });
+      await rm(participantPath);
       continue;
     }
     if (!await isProcessInstanceActive(record)) {
@@ -519,9 +551,42 @@ async function readActiveParticipants(
       }
       continue;
     }
-    participants.push(record);
+    participants.push({ path: participantPath, record });
   }
   return participants;
+}
+
+async function refreshBlockers(
+  blockers: readonly ActiveParticipant[],
+  record: PrivateLockRecord,
+  anchorDirectory: string
+): Promise<ActiveParticipant[]> {
+  const refreshed: ActiveParticipant[] = [];
+  for (const blocker of blockers) {
+    const source = await readPrivateFile(
+      blocker.path,
+      anchorDirectory
+    );
+    if (source === null) {
+      continue;
+    }
+    const current = parseLockRecord(source);
+    if (current === null) {
+      await rm(blocker.path);
+      continue;
+    }
+    if (!await isProcessInstanceActive(current)) {
+      await removeOwnedParticipant(
+        blocker.path,
+        anchorDirectory
+      );
+      continue;
+    }
+    if (current.choosing || precedes(current, record)) {
+      refreshed.push({ path: blocker.path, record: current });
+    }
+  }
+  return refreshed;
 }
 
 function precedes(
@@ -596,7 +661,7 @@ async function withTicketLock<T>(
     );
     const maximumTicket = initialParticipants.reduce(
       (maximum, participant) =>
-        Math.max(maximum, participant.ticket),
+        Math.max(maximum, participant.record.ticket),
       0
     );
     if (maximumTicket >= Number.MAX_SAFE_INTEGER) {
@@ -616,24 +681,29 @@ async function withTicketLock<T>(
       anchorDirectory
     );
 
-    while (true) {
-      const participants = await readActiveParticipants(
-        path,
-        anchorDirectory,
-        participantPath
+    let blockers = (await readActiveParticipants(
+      path,
+      anchorDirectory,
+      participantPath
+    )).filter(
+      (participant) =>
+        participant.record.token !== token &&
+        (participant.record.choosing ||
+          precedes(participant.record, record))
+    );
+    while (blockers.length > 0) {
+      blockers = await refreshBlockers(
+        blockers,
+        record,
+        anchorDirectory
       );
-      const blocked = participants.some(
-        (participant) =>
-          participant.token !== token &&
-          (participant.choosing || precedes(participant, record))
-      );
-      if (!blocked) {
+      if (blockers.length === 0) {
         break;
       }
       if (Date.now() >= deadline) {
         throw new AgentOpsError(
           "PRIVATE_STATE_LOCK_TIMEOUT",
-          `Timed out waiting for private state lock: ${path}`,
+          `Timed out waiting for private state lock: ${path}`
         );
       }
       await delay(10);

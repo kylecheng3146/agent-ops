@@ -297,7 +297,7 @@ test("distinguishes a reused PID from the current process instance", async () =>
   }
 });
 
-test("recovers a malformed orphan ticket after its bounded grace period", async () => {
+test("recovers a future-dated malformed orphan ticket", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
   try {
     const stateDirectory = join(root, "state");
@@ -310,8 +310,8 @@ test("recovers a malformed orphan ticket after its bounded grace period", async 
     await writeFile(malformedPath, "not-json");
     await utimes(
       malformedPath,
-      new Date("2000-01-01T00:00:00Z"),
-      new Date("2000-01-01T00:00:00Z")
+      new Date("2100-01-01T00:00:00Z"),
+      new Date("2100-01-01T00:00:00Z")
     );
     const store = new FileTrustStore(storePath, root);
     const binding: TrustBinding = {
