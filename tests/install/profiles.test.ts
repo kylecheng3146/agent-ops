@@ -8,6 +8,10 @@ import {
   PROFILE_CAPABILITIES,
   resolveProfiles
 } from "../../runtime/src/install/profiles.js";
+import {
+  COMMON_AGENTS_BLOCK,
+  COMMON_CLAUDE_BLOCK
+} from "../../runtime/src/install/harness.js";
 
 const ALL_CAPABILITIES = [
   "rules",
@@ -104,5 +108,11 @@ test("common routing templates use only managed specification paths", async () =
     assert.deepEqual(referencedMarkdownPaths, [template.target]);
     assert.doesNotMatch(content, /<!--\s*agent-ops:/i);
     assert.doesNotMatch(content, /(?:^|\s)\/(?:Users|home)\//);
+    assert.equal(
+      content,
+      template.target.endsWith("AGENTS.md")
+        ? COMMON_AGENTS_BLOCK
+        : COMMON_CLAUDE_BLOCK
+    );
   }
 });

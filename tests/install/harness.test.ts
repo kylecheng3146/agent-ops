@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import {
+  COMMON_AGENTS_BLOCK,
+  COMMON_CLAUDE_BLOCK,
+  commonHarnessAdapters,
   planHarnessContributions,
   type HarnessContribution,
   type HarnessId,
@@ -138,5 +141,39 @@ test("fails with a stable error when a requested adapter is duplicated", async (
       error instanceof AgentOpsError &&
       error.code === "HARNESS_ADAPTER_DUPLICATE" &&
       error.message === "Duplicate harness adapter: codex"
+  );
+});
+
+test("common adapters produce scoped routing blocks and managed rules", async () => {
+  const project = await planHarnessContributions(
+    "both",
+    CONTEXT,
+    commonHarnessAdapters()
+  );
+  assert.deepEqual(
+    project.blocks.map(({ path, content }) => ({ path, content })),
+    [
+      { path: "AGENTS.md", content: COMMON_AGENTS_BLOCK },
+      { path: "CLAUDE.md", content: COMMON_CLAUDE_BLOCK }
+    ]
+  );
+  assert.deepEqual(
+    project.artifacts.map(({ path }) => path),
+    [".agent-ops/AGENTS.md", ".agent-ops/CLAUDE.md"]
+  );
+  assert.ok(
+    project.artifacts.every(({ content }) =>
+      content.includes("installation approval never grants trust")
+    )
+  );
+
+  const user = await planHarnessContributions(
+    "both",
+    { ...CONTEXT, scope: "user" },
+    commonHarnessAdapters()
+  );
+  assert.deepEqual(
+    user.blocks.map(({ path }) => path),
+    [".codex/AGENTS.md", ".claude/CLAUDE.md"]
   );
 });

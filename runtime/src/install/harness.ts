@@ -33,6 +33,75 @@ export interface HarnessInstallAdapter {
   plan(context: HarnessPlanContext): Promise<HarnessContribution>;
 }
 
+export const COMMON_AGENTS_BLOCK =
+  "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.\n";
+
+export const COMMON_CLAUDE_BLOCK =
+  "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.\n";
+
+function managedRules(
+  id: HarnessId,
+  context: HarnessPlanContext
+): string {
+  const instructionFile = id === "codex" ? "AGENTS.md" : "CLAUDE.md";
+  return [
+    "# Loop Engineering",
+    "",
+    "This routing specification is managed by `agent-ops`.",
+    "",
+    `Active profiles: ${context.profiles.join(", ")}`,
+    `Active capabilities: ${context.capabilities.join(", ")}`,
+    "",
+    "For every change:",
+    "",
+    "1. Define two to five mechanically verifiable acceptance criteria.",
+    "2. Inspect the smallest relevant scope and preserve unrelated changes.",
+    "3. Apply the smallest safe change.",
+    "4. Run evidence-producing verification for every criterion.",
+    "5. Obtain independent review before claiming completion.",
+    "",
+    "Treat `.agent-ops/config.json` as verifier authority. Discovery output is",
+    "only a proposal until a user confirms it. Repository commands require an",
+    "explicit matching trust record; installation approval never grants trust.",
+    "",
+    `This file is routed from the active ${instructionFile}.`,
+    ""
+  ].join("\n");
+}
+
+export function commonHarnessAdapters(): readonly HarnessInstallAdapter[] {
+  return (["codex", "claude"] as const).map((id) => {
+    const instructionFile = id === "codex" ? "AGENTS.md" : "CLAUDE.md";
+    const blockContent =
+      id === "codex" ? COMMON_AGENTS_BLOCK : COMMON_CLAUDE_BLOCK;
+    return {
+      id,
+      async plan(context) {
+        return {
+          artifacts: [
+            {
+              id: `${id}-rules`,
+              path: `.agent-ops/${instructionFile}`,
+              content: managedRules(id, context)
+            }
+          ],
+          blocks: [
+            {
+              id: `${id}-routing`,
+              path:
+                context.scope === "project"
+                  ? instructionFile
+                  : `.${id}/${instructionFile}`,
+              version: 1,
+              content: blockContent
+            }
+          ]
+        };
+      }
+    };
+  });
+}
+
 function requestedHarnessIds(harness: Harness): readonly HarnessId[] {
   return harness === "both" ? ["codex", "claude"] : [harness];
 }
