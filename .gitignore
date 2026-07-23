@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+
+.agent-ops/state/
+.agent-ops/tasks/
+.agent-ops/logs/
+.agent-ops/backups/
+
+.worktrees/
+.DS_Store
+Thumbs.db
+*.log
