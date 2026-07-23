@@ -23,9 +23,12 @@ import {
   type DoctorReport
 } from "../../runtime/src/install/doctor.js";
 
-const START_MARKER = "<!-- agent-ops:start core-routing v1 -->";
-const END_MARKER = "<!-- agent-ops:end core-routing -->";
-const MANAGED_BLOCK = `${START_MARKER}\nmanaged routing\n${END_MARKER}\n`;
+const START_MARKER = "<!-- agent-ops:start codex-routing v1 -->";
+const END_MARKER = "<!-- agent-ops:end codex-routing -->";
+const MANAGED_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
+const MANAGED_BLOCK =
+  `${START_MARKER}\n${MANAGED_BODY}\n${END_MARKER}\n`;
 const CONFIG = {
   schemaVersion: 1,
   profiles: ["core"],
@@ -83,7 +86,7 @@ async function createInstallation(): Promise<string> {
   const agentsSource = `# User instructions\n\n${MANAGED_BLOCK}`;
   await Promise.all([
     writeFile(join(root, ".agent-ops", "config.json"), configSource),
-    writeFile(join(root, ".agent-ops", "rules.md"), rulesSource),
+    writeFile(join(root, ".agent-ops", "AGENTS.md"), rulesSource),
     writeFile(join(root, "AGENTS.md"), agentsSource)
   ]);
   const manifest: InstallManifest = {
@@ -98,15 +101,15 @@ async function createInstallation(): Promise<string> {
         owner: "agent-ops"
       },
       {
-        id: "rules",
-        path: ".agent-ops/rules.md",
+        id: "codex-rules",
+        path: ".agent-ops/AGENTS.md",
         hash: sha256(rulesSource),
         owner: "agent-ops"
       }
     ],
     markers: [
       {
-        id: "core-routing",
+        id: "codex-routing",
         path: "AGENTS.md",
         hash: sha256(agentsSource),
         owner: "agent-ops",
@@ -190,7 +193,7 @@ test("reports stable passing checks without changing the installation", async ()
 test("fails the artifact check when managed content is tampered", async () => {
   const root = await createInstallation();
   try {
-    await writeFile(join(root, ".agent-ops", "rules.md"), "tampered\n");
+    await writeFile(join(root, ".agent-ops", "AGENTS.md"), "tampered\n");
 
     const report = await doctorInstallation({
       root,
@@ -200,6 +203,26 @@ test("fails the artifact check when managed content is tampered", async () => {
 
     assert.equal(checkStatus(report, "artifacts"), "FAIL");
     assert.equal(checkStatus(report, "markers"), "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("fails markers when managed block content changes", async () => {
+  const root = await createInstallation();
+  try {
+    await writeFile(
+      join(root, "AGENTS.md"),
+      `# User instructions\n\n${START_MARKER}\ntampered body\n${END_MARKER}\n`
+    );
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "markers"), "FAIL");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -343,7 +366,7 @@ test("fails closed when an artifact path escapes through a symlink", async () =>
       probes: passingProbes()
     });
 
-    assert.equal(checkStatus(report, "manifest"), "PASS");
+    assert.equal(checkStatus(report, "manifest"), "FAIL");
     assert.equal(checkStatus(report, "artifacts"), "FAIL");
   } finally {
     await rm(root, { recursive: true, force: true });

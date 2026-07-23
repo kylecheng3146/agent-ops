@@ -12,6 +12,10 @@ import {
 } from "../fs/manifest.js";
 import { resolveContainedPath } from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
+import {
+  assertExpectedManagedBlock,
+  assertSupportedManifestOwnership
+} from "./ownership.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MINIMUM_NODE_VERSION = [22, 14, 0] as const;
@@ -180,6 +184,7 @@ async function checkManifest(root: string): Promise<ManifestCheckResult> {
     const manifest = parseInstallManifest(
       await readContainedText(root, PROJECT_MANIFEST_PATH)
     );
+    assertSupportedManifestOwnership(manifest);
     return {
       check: check("manifest", "PASS", "Installation manifest is valid."),
       manifest
@@ -262,20 +267,6 @@ async function checkArtifacts(
       );
 }
 
-function markerCount(source: string, marker: string): number {
-  let count = 0;
-  let offset = 0;
-  while (offset < source.length) {
-    const found = source.indexOf(marker, offset);
-    if (found === -1) {
-      break;
-    }
-    count += 1;
-    offset = found + marker.length;
-  }
-  return count;
-}
-
 async function checkMarkers(
   root: string,
   manifest: InstallManifest | undefined
@@ -289,17 +280,17 @@ async function checkMarkers(
   }
 
   const failures: string[] = [];
+  const expectedMarkers =
+    assertSupportedManifestOwnership(manifest);
   for (const marker of manifest.markers) {
     try {
       const source = await readContainedText(root, marker.path);
-      if (
-        markerCount(source, marker.startMarker) !== 1 ||
-        markerCount(source, marker.endMarker) !== 1 ||
-        source.indexOf(marker.startMarker) >=
-          source.indexOf(marker.endMarker)
-      ) {
+      const expected = expectedMarkers.get(marker.id);
+      if (expected === undefined) {
         failures.push(marker.path);
+        continue;
       }
+      assertExpectedManagedBlock(source, marker, expected);
     } catch {
       failures.push(marker.path);
     }
