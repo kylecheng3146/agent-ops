@@ -149,6 +149,8 @@ function isSafeRelativePath(value: unknown): value is string {
 }
 
 function isIsoTimestamp(value: unknown): value is string {
+  // Deliberately excludes leap-second values because JavaScript Date cannot
+  // order them reliably for startedAt/finishedAt evidence comparisons.
   if (typeof value !== "string") {
     return false;
   }

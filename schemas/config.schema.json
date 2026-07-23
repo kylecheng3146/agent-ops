@@ -86,7 +86,8 @@
           },
           "expiresAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "$comment": "Runtime uses the RFC 3339 date-time profile with seconds 00-59; leap seconds are intentionally unsupported."
           },
           "reason": {
             "type": "string",
@@ -112,7 +113,7 @@
         },
         {
           "not": {
-            "pattern": "\\.(?:/|$)"
+            "pattern": "(?:^|/)[^/]+\\.(?:/|$)"
           }
         }
       ]

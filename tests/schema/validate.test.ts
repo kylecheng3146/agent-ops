@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
+
+import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
+import type { FormatsPlugin } from "ajv-formats";
 
 import {
   validateConfig,
@@ -10,6 +14,9 @@ import {
   validateTask,
   validateTaskAgainstConfig
 } from "../../runtime/src/schema/validate.js";
+
+const require = createRequire(import.meta.url);
+const addFormats = require("ajv-formats") as unknown as FormatsPlugin;
 
 async function readJsonFixture(name: string): Promise<unknown> {
   const path = resolve("tests", "fixtures", "schema", name);
@@ -20,6 +27,12 @@ async function readJsonSchema(name: string): Promise<Record<string, unknown>> {
   return JSON.parse(
     await readFile(resolve("schemas", name), "utf8")
   ) as Record<string, unknown>;
+}
+
+async function compileJsonSchema(name: string): Promise<ValidateFunction> {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+  return ajv.compile(await readJsonSchema(name));
 }
 
 function cloneJson<T>(value: T): T {
@@ -182,7 +195,7 @@ test("keeps runtime and JSON Schema path-segment rules aligned", async () => {
   assert.equal(new RegExp(pattern ?? "").test("src/./feature"), false);
 });
 
-test("accepts standard RFC 3339 timestamps without milliseconds", async () => {
+test("accepts supported RFC 3339 timestamps without milliseconds", async () => {
   const config = (await readJsonFixture("valid-config.json")) as {
     securityExceptions: { expiresAt: string }[];
   };
@@ -465,4 +478,152 @@ test("JSON Schema documents expose the same top-level versioned fields", async (
       schemaName
     );
   }
+});
+
+test("validates shared fixtures with a Draft 2020-12 engine", async () => {
+  const cases = [
+    ["config.schema.json", "valid-config.json"],
+    ["task.schema.json", "valid-task.json"],
+    ["evidence.schema.json", "valid-evidence.json"],
+    ["manifest.schema.json", "valid-manifest.json"]
+  ] as const;
+
+  for (const [schemaName, fixtureName] of cases) {
+    const validate = await compileJsonSchema(schemaName);
+    assert.equal(
+      validate(await readJsonFixture(fixtureName)),
+      true,
+      `${schemaName}: ${JSON.stringify(validate.errors)}`
+    );
+  }
+});
+
+test("keeps structural config fixture outcomes aligned with JSON Schema", async () => {
+  const validate = await compileJsonSchema("config.schema.json");
+  const structurallyInvalid = [
+    "invalid-wrong-version.json",
+    "invalid-path.json",
+    "invalid-profile.json",
+    "invalid-shell-ack.json",
+    "invalid-exception-scope.json"
+  ];
+
+  for (const fixtureName of structurallyInvalid) {
+    assert.equal(
+      validate(await readJsonFixture(fixtureName)),
+      false,
+      fixtureName
+    );
+  }
+
+  for (const semanticFixture of [
+    "invalid-duplicate-id.json",
+    "invalid-unknown-reference.json"
+  ]) {
+    assert.equal(
+      validate(await readJsonFixture(semanticFixture)),
+      true,
+      `${semanticFixture} is intentionally enforced by runtime semantics`
+    );
+  }
+});
+
+test("keeps adversarial runtime and JSON Schema constraints aligned", async () => {
+  const configSchema = await compileJsonSchema("config.schema.json");
+  const config = (await readJsonFixture("valid-config.json")) as {
+    verification: {
+      commands: {
+        command: string;
+        args: string[];
+        timeoutMs?: number;
+      }[];
+    };
+    securityExceptions: { reason: string }[];
+    pathMappings: { path: string }[];
+  };
+
+  const configMutations = [
+    (value: typeof config) => {
+      value.verification.commands[0]!.command = "   ";
+    },
+    (value: typeof config) => {
+      value.verification.commands[0]!.command = "npm\0evil";
+    },
+    (value: typeof config) => {
+      value.verification.commands[0]!.args = ["test\0evil"];
+    },
+    (value: typeof config) => {
+      value.verification.commands[0]!.timeoutMs = 1e100;
+    },
+    (value: typeof config) => {
+      value.securityExceptions[0]!.reason = "   ";
+    },
+    (value: typeof config) => {
+      value.pathMappings[0]!.path = "src/NUL.txt";
+    },
+    (value: typeof config) => {
+      value.pathMappings[0]!.path = "src/file.";
+    }
+  ];
+  for (const mutate of configMutations) {
+    const value = cloneJson(config);
+    mutate(value);
+    assert.equal(validateConfig(value).ok, false);
+    assert.equal(configSchema(value), false, JSON.stringify(configSchema.errors));
+  }
+
+  const taskSchema = await compileJsonSchema("task.schema.json");
+  const taskFixture = (await readJsonFixture("valid-task.json")) as {
+    title: string;
+  };
+  taskFixture.title = "   ";
+  assert.equal(validateTask(taskFixture).ok, false);
+  assert.equal(taskSchema(taskFixture), false, JSON.stringify(taskSchema.errors));
+
+  const evidenceSchema = await compileJsonSchema("evidence.schema.json");
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    toolVersions: Record<string, string>;
+  };
+  evidence.toolVersions.node = "   ";
+  assert.equal(validateEvidence(evidence).ok, false);
+  assert.equal(
+    evidenceSchema(evidence),
+    false,
+    JSON.stringify(evidenceSchema.errors)
+  );
+
+  const manifestSchema = await compileJsonSchema("manifest.schema.json");
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    artifacts: { path: string; owner: string }[];
+    markers: { startMarker: string }[];
+  };
+  manifest.markers[0]!.startMarker = "   ";
+  assert.equal(validateManifest(manifest).ok, false);
+  assert.equal(
+    manifestSchema(manifest),
+    false,
+    JSON.stringify(manifestSchema.errors)
+  );
+
+  const rootManifest = (await readJsonFixture("valid-manifest.json")) as {
+    artifacts: { path: string; owner: string }[];
+  };
+  rootManifest.artifacts[0]!.path = ".";
+  assert.equal(validateManifest(rootManifest).ok, false);
+  assert.equal(
+    manifestSchema(rootManifest),
+    false,
+    JSON.stringify(manifestSchema.errors)
+  );
+
+  const foreignOwner = (await readJsonFixture("valid-manifest.json")) as {
+    artifacts: { owner: string }[];
+  };
+  foreignOwner.artifacts[0]!.owner = "other-tool";
+  assert.equal(validateManifest(foreignOwner).ok, false);
+  assert.equal(
+    manifestSchema(foreignOwner),
+    false,
+    JSON.stringify(manifestSchema.errors)
+  );
 });
