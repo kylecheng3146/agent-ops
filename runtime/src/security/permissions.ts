@@ -9,8 +9,7 @@ import {
   readFile,
   readdir,
   rename,
-  rm,
-  utimes
+  rm
 } from "node:fs/promises";
 import {
   basename,
@@ -229,9 +228,12 @@ async function ensureProcessHeartbeat(
     heartbeatPaths.add(heartbeatPath);
     registerHeartbeatCleanup();
     const timer = setInterval(() => {
-      void utimes(heartbeatPath, new Date(), new Date()).catch((error) => {
-        heartbeatFailures.set(cacheKey, error);
-      });
+      void refreshProcessHeartbeat(heartbeatPath).catch(
+        (error) => {
+          heartbeatFailures.set(cacheKey, error);
+          clearInterval(timer);
+        }
+      );
     }, HEARTBEAT_INTERVAL_MS);
     timer.unref();
     return heartbeatFile;
@@ -242,6 +244,26 @@ async function ensureProcessHeartbeat(
   } catch (error) {
     processHeartbeats.delete(cacheKey);
     throw error;
+  }
+}
+
+async function refreshProcessHeartbeat(path: string): Promise<void> {
+  const handle = await open(
+    path,
+    constants.O_WRONLY | constants.O_NOFOLLOW
+  );
+  try {
+    const status = await handle.stat();
+    if (!status.isFile()) {
+      throw new AgentOpsError(
+        "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE",
+        "The private-state heartbeat is not a regular file."
+      );
+    }
+    const now = new Date();
+    await handle.utimes(now, now);
+  } finally {
+    await handle.close();
   }
 }
 

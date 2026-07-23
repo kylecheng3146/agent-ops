@@ -4,6 +4,7 @@ import {
   lstat,
   mkdtemp,
   mkdir,
+  readdir,
   rm,
   symlink,
   utimes,
@@ -11,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
 import {
@@ -357,6 +359,71 @@ test("does not trust a live foreign PID without its heartbeat", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "does not follow a swapped heartbeat symlink",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+    const externalRoot = await mkdtemp(
+      join(tmpdir(), "agent-ops-external-")
+    );
+    try {
+      const stateDirectory = join(root, "state");
+      const store = new FileTrustStore(
+        join(stateDirectory, "trust.json"),
+        root
+      );
+      const firstBinding: TrustBinding = {
+        canonicalPath: join(root, "repository-first"),
+        remoteIdentity: "example.com/owner/heartbeat-first",
+        configHash: CONFIG_HASH,
+        runtimeHash: RUNTIME_HASH
+      };
+      await store.grant(firstBinding);
+      const heartbeatFile = (await readdir(stateDirectory)).find(
+        (name) => name.startsWith(
+          `.agent-ops-process-${process.pid}-`
+        )
+      );
+      assert.notEqual(heartbeatFile, undefined);
+      if (heartbeatFile === undefined) {
+        return;
+      }
+
+      const externalPath = join(externalRoot, "external.txt");
+      const oldTimestamp = new Date("2000-01-01T00:00:00Z");
+      await writeFile(externalPath, "external\n");
+      await utimes(externalPath, oldTimestamp, oldTimestamp);
+      await rm(join(stateDirectory, heartbeatFile));
+      await symlink(
+        externalPath,
+        join(stateDirectory, heartbeatFile),
+        "file"
+      );
+      await delay(750);
+
+      assert.equal(
+        (await lstat(externalPath)).mtimeMs,
+        oldTimestamp.getTime()
+      );
+      await assert.rejects(
+        store.grant({
+          ...firstBinding,
+          canonicalPath: join(root, "repository-second"),
+          remoteIdentity: "example.com/owner/heartbeat-second"
+        }),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE"
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(externalRoot, { recursive: true, force: true });
+    }
+  }
+);
 
 test("recovers a future-dated malformed orphan ticket", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
