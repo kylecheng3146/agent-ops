@@ -7,7 +7,8 @@ import {
   validateConfig,
   validateEvidence,
   validateManifest,
-  validateTask
+  validateTask,
+  validateTaskAgainstConfig
 } from "../../runtime/src/schema/validate.js";
 
 async function readJsonFixture(name: string): Promise<unknown> {
@@ -101,6 +102,64 @@ test("rejects portable-path violations before command execution is possible", as
   }
 });
 
+test("rejects sparse arrays instead of returning unsound typed values", async () => {
+  const config = (await readJsonFixture("valid-config.json")) as {
+    verification: { commands: { args: string[] }[] };
+  };
+  config.verification.commands[0]!.args = new Array<string>(1);
+  assert.equal(firstErrorCode(validateConfig(config)), "INVALID_ARGS");
+
+  const taskFixture = (await readJsonFixture("valid-task.json")) as {
+    criteria: { verifierIds: string[] }[];
+  };
+  taskFixture.criteria[0]!.verifierIds = new Array<string>(1);
+  assert.equal(
+    firstErrorCode(validateTask(taskFixture)),
+    "INVALID_VERIFIER_REFERENCE"
+  );
+
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    argv: string[];
+  };
+  evidence.argv = new Array<string>(1);
+  assert.equal(firstErrorCode(validateEvidence(evidence)), "INVALID_ARGS");
+});
+
+test("rejects NUL bytes in executable names and arguments", async () => {
+  const valid = (await readJsonFixture("valid-config.json")) as {
+    verification: {
+      commands: { command: string; args: string[] }[];
+    };
+  };
+
+  const invalidCommand = cloneJson(valid);
+  invalidCommand.verification.commands[0]!.command = "npm\0evil";
+  assert.equal(
+    firstErrorCode(validateConfig(invalidCommand)),
+    "INVALID_COMMAND"
+  );
+
+  const invalidArgument = cloneJson(valid);
+  invalidArgument.verification.commands[0]!.args = ["test\0evil"];
+  assert.equal(firstErrorCode(validateConfig(invalidArgument)), "INVALID_ARGS");
+});
+
+test("rejects Windows-reserved and trailing-dot path segments", async () => {
+  const valid = (await readJsonFixture("valid-config.json")) as {
+    pathMappings: { path: string }[];
+  };
+
+  for (const invalidPath of ["CON", "src/NUL.txt", "src/file."]) {
+    const value = cloneJson(valid);
+    value.pathMappings[0]!.path = invalidPath;
+    assert.equal(
+      firstErrorCode(validateConfig(value)),
+      "INVALID_RELATIVE_PATH",
+      invalidPath
+    );
+  }
+});
+
 test("keeps runtime and JSON Schema path-segment rules aligned", async () => {
   const valid = (await readJsonFixture("valid-config.json")) as {
     pathMappings: { path: string }[];
@@ -159,6 +218,17 @@ test("rejects impossible RFC 3339 calendar and time values", async () => {
   );
 });
 
+test("reports the timestamp field that is actually invalid", async () => {
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    finishedAt: string;
+  };
+  evidence.finishedAt = "2026-04-31T00:00:00Z";
+  const result = validateEvidence(evidence);
+  assert.equal(result.ok, false);
+  assert.equal(result.errors[0]?.code, "INVALID_TIMESTAMP");
+  assert.equal(result.errors[0]?.path, "$.finishedAt");
+});
+
 test("requires two to five unique task criteria", async () => {
   const valid = (await readJsonFixture("valid-task.json")) as {
     criteria: {
@@ -189,6 +259,21 @@ test("requires two to five unique task criteria", async () => {
   const duplicate = cloneJson(valid);
   duplicate.criteria[1]!.id = duplicate.criteria[0]!.id;
   assert.equal(firstErrorCode(validateTask(duplicate)), "DUPLICATE_ID");
+});
+
+test("binds task verifier references to authoritative config commands", async () => {
+  const config = await readJsonFixture("valid-config.json");
+  const taskFixture = (await readJsonFixture("valid-task.json")) as {
+    criteria: { verifierIds: string[] }[];
+  };
+
+  assert.equal(validateTaskAgainstConfig(taskFixture, config).ok, true);
+
+  taskFixture.criteria[0]!.verifierIds = ["missing"];
+  assert.equal(
+    firstErrorCode(validateTaskAgainstConfig(taskFixture, config)),
+    "UNKNOWN_VERIFIER_REFERENCE"
+  );
 });
 
 test("rejects raw prompts and output in persistent evidence", async () => {
@@ -228,6 +313,20 @@ test("rejects invalid manifest hashes, paths, and duplicate ownership", async ()
   assert.equal(
     firstErrorCode(validateManifest(duplicate)),
     "DUPLICATE_OWNERSHIP"
+  );
+
+  const rootArtifact = cloneJson(valid);
+  rootArtifact.artifacts[0]!.path = ".";
+  assert.equal(
+    firstErrorCode(validateManifest(rootArtifact)),
+    "INVALID_RELATIVE_PATH"
+  );
+
+  const rootMarker = cloneJson(valid);
+  rootMarker.markers[0]!.path = ".";
+  assert.equal(
+    firstErrorCode(validateManifest(rootMarker)),
+    "INVALID_RELATIVE_PATH"
   );
 });
 
@@ -275,6 +374,67 @@ test("uses stable manifest IDs and marker boundaries", async () => {
   assert.equal(
     firstErrorCode(validateManifest(sharedEnd)),
     "DUPLICATE_OWNERSHIP"
+  );
+});
+
+test("uses portable case-folded manifest ownership keys", async () => {
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    artifacts: Record<string, unknown>[];
+  };
+  manifest.artifacts[0]!.path = "README.md";
+  const alias = cloneJson(manifest.artifacts[0]!);
+  alias.id = "config-alias";
+  alias.path = "readme.md";
+  manifest.artifacts.push(alias);
+
+  assert.equal(
+    firstErrorCode(validateManifest(manifest)),
+    "DUPLICATE_OWNERSHIP"
+  );
+});
+
+test("requires the literal agent-ops manifest owner", async () => {
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    artifacts: Record<string, unknown>[];
+  };
+  manifest.artifacts[0]!.owner = "other-tool";
+  assert.equal(firstErrorCode(validateManifest(manifest)), "INVALID_OWNER");
+});
+
+test("bounds execution-related numeric values to safe integers", async () => {
+  const config = (await readJsonFixture("valid-config.json")) as {
+    verification: {
+      commands: {
+        timeoutMs?: number;
+        evidence: { minimum?: number };
+      }[];
+    };
+  };
+  config.verification.commands[0]!.timeoutMs = 1e100;
+  assert.equal(firstErrorCode(validateConfig(config)), "INVALID_TIMEOUT");
+
+  const minimum = (await readJsonFixture("valid-config.json")) as {
+    verification: { commands: { evidence: { minimum?: number } }[] };
+  };
+  minimum.verification.commands[0]!.evidence.minimum = 1e100;
+  assert.equal(firstErrorCode(validateConfig(minimum)), "INVALID_MINIMUM");
+
+  const exitCode = (await readJsonFixture("valid-evidence.json")) as {
+    exitCode: number | null;
+  };
+  exitCode.exitCode = 1e100;
+  assert.equal(
+    firstErrorCode(validateEvidence(exitCode)),
+    "INVALID_EXIT_CODE"
+  );
+
+  const testCount = (await readJsonFixture("valid-evidence.json")) as {
+    testCount: number | null;
+  };
+  testCount.testCount = 1e100;
+  assert.equal(
+    firstErrorCode(validateEvidence(testCount)),
+    "INVALID_TEST_COUNT"
   );
 });
 

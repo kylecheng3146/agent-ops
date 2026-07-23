@@ -103,7 +103,7 @@ export interface ManagedPathRecord {
   id: string;
   path: string;
   hash: string;
-  owner: string;
+  owner: "agent-ops";
 }
 
 export interface ManagedMarkerRecord extends ManagedPathRecord {

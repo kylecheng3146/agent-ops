@@ -19,10 +19,14 @@ type UnknownRecord = Record<string, unknown>;
 
 const ID_PATTERN = /^[a-z][a-z0-9-]{0,127}$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
+const WINDOWS_RESERVED_SEGMENT =
+  /^(?:aux|com[1-9]|con|lpt[1-9]|nul|prn)(?:\..*)?$/i;
 const PROFILE_VALUES = new Set(["advisory", "core", "guardrails"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
 const HARNESS_VALUES = new Set(["both", "claude", "codex"]);
+const MAX_TIMEOUT_MS = 2_147_483_647;
+const MAX_EXIT_CODE = 4_294_967_295;
 
 function failure(
   code: string,
@@ -92,7 +96,11 @@ function isFailure(
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+  return (
+    typeof value === "string" &&
+    !value.includes("\0") &&
+    value.trim().length > 0
+  );
 }
 
 function isIdentifier(value: unknown): value is string {
@@ -100,10 +108,15 @@ function isIdentifier(value: unknown): value is string {
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.every((item) => typeof item === "string")
-  );
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    if (typeof value[index] !== "string") {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isSafeRelativePath(value: unknown): value is string {
@@ -128,6 +141,8 @@ function isSafeRelativePath(value: unknown): value is string {
         segment.length > 0 &&
         segment !== "." &&
         segment !== ".." &&
+        !segment.endsWith(".") &&
+        !WINDOWS_RESERVED_SEGMENT.test(segment) &&
         /^[A-Za-z0-9._-]+$/.test(segment)
     ) && !value.startsWith("//")
   );
@@ -215,7 +230,7 @@ function validateEvidenceRequirement(
   }
   if (
     value.minimum !== undefined &&
-    (!Number.isInteger(value.minimum) || (value.minimum as number) < 0)
+    (!Number.isSafeInteger(value.minimum) || (value.minimum as number) < 0)
   ) {
     return failure(
       "INVALID_MINIMUM",
@@ -286,7 +301,10 @@ function validateCommand(
       "command must be a non-empty string."
     );
   }
-  if (!isStringArray(value.args)) {
+  if (
+    !isStringArray(value.args) ||
+    value.args.some((argument) => argument.includes("\0"))
+  ) {
     return failure(
       "INVALID_ARGS",
       `${path}.args`,
@@ -309,7 +327,9 @@ function validateCommand(
   }
   if (
     value.timeoutMs !== undefined &&
-    (!Number.isInteger(value.timeoutMs) || (value.timeoutMs as number) <= 0)
+    (!Number.isSafeInteger(value.timeoutMs) ||
+      (value.timeoutMs as number) <= 0 ||
+      (value.timeoutMs as number) > MAX_TIMEOUT_MS)
   ) {
     return failure(
       "INVALID_TIMEOUT",
@@ -630,6 +650,36 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   return success(root as unknown as AgentTask);
 }
 
+export function validateTaskAgainstConfig(
+  taskValue: unknown,
+  configValue: unknown
+): ValidationResult<AgentTask> {
+  const config = validateConfig(configValue);
+  if (!config.ok) {
+    return config;
+  }
+  const task = validateTask(taskValue);
+  if (!task.ok) {
+    return task;
+  }
+  const commandIds = new Set(
+    config.value.verification.commands.map((command) => command.id)
+  );
+  for (const [criterionIndex, criterion] of task.value.criteria.entries()) {
+    const unknownReference = criterion.verifierIds.find(
+      (verifierId) => !commandIds.has(verifierId)
+    );
+    if (unknownReference !== undefined) {
+      return failure(
+        "UNKNOWN_VERIFIER_REFERENCE",
+        `$.criteria[${criterionIndex}].verifierIds`,
+        `Unknown verifier reference: ${unknownReference}`
+      );
+    }
+  }
+  return task;
+}
+
 export function validateEvidence(
   value: unknown
 ): ValidationResult<VerificationEvidence> {
@@ -674,11 +724,18 @@ export function validateEvidence(
   if (typeof root.scope !== "string" || !SCOPE_VALUES.has(root.scope)) {
     return failure("INVALID_SCOPE", "$.scope", "Unsupported evidence scope.");
   }
-  if (!isIsoTimestamp(root.startedAt) || !isIsoTimestamp(root.finishedAt)) {
+  if (!isIsoTimestamp(root.startedAt)) {
     return failure(
       "INVALID_TIMESTAMP",
       "$.startedAt",
-      "Evidence timestamps must be ISO timestamps."
+      "startedAt must be a supported RFC 3339 timestamp."
+    );
+  }
+  if (!isIsoTimestamp(root.finishedAt)) {
+    return failure(
+      "INVALID_TIMESTAMP",
+      "$.finishedAt",
+      "finishedAt must be a supported RFC 3339 timestamp."
     );
   }
   if (
@@ -692,7 +749,9 @@ export function validateEvidence(
   }
   if (
     root.exitCode !== null &&
-    (!Number.isInteger(root.exitCode) || (root.exitCode as number) < 0)
+    (!Number.isSafeInteger(root.exitCode) ||
+      (root.exitCode as number) < 0 ||
+      (root.exitCode as number) > MAX_EXIT_CODE)
   ) {
     return failure(
       "INVALID_EXIT_CODE",
@@ -702,7 +761,7 @@ export function validateEvidence(
   }
   if (
     root.testCount !== null &&
-    (!Number.isInteger(root.testCount) || (root.testCount as number) < 0)
+    (!Number.isSafeInteger(root.testCount) || (root.testCount as number) < 0)
   ) {
     return failure(
       "INVALID_TEST_COUNT",
@@ -752,6 +811,13 @@ function validateManagedPath(
       "Managed paths must be project-relative."
     );
   }
+  if (value.path === ".") {
+    return failure(
+      "INVALID_RELATIVE_PATH",
+      `${path}.path`,
+      "Managed paths must not target the project root."
+    );
+  }
   if (typeof value.hash !== "string" || !HASH_PATTERN.test(value.hash)) {
     return failure(
       "INVALID_HASH",
@@ -759,8 +825,12 @@ function validateManagedPath(
       "Managed path hash must be a lowercase SHA-256 digest."
     );
   }
-  if (!isIdentifier(value.owner)) {
-    return failure("INVALID_ID", `${path}.owner`, "Invalid owner ID.");
+  if (value.owner !== "agent-ops") {
+    return failure(
+      "INVALID_OWNER",
+      `${path}.owner`,
+      "Managed entries must be owned by agent-ops."
+    );
   }
   return success(value as unknown as ManagedPathRecord);
 }
@@ -840,7 +910,8 @@ export function validateManifest(
         `Duplicate manifest entry ID: ${artifact.value.id}`
       );
     }
-    if (artifactPaths.has(artifact.value.path)) {
+    const artifactPathKey = artifact.value.path.toLowerCase();
+    if (artifactPaths.has(artifactPathKey)) {
       return failure(
         "DUPLICATE_OWNERSHIP",
         `$.artifacts[${index}].path`,
@@ -848,7 +919,7 @@ export function validateManifest(
       );
     }
     entryIds.add(artifact.value.id);
-    artifactPaths.add(artifact.value.path);
+    artifactPaths.add(artifactPathKey);
   }
 
   const markerBoundaries = new Set<string>();
@@ -867,17 +938,18 @@ export function validateManifest(
         `Duplicate manifest entry ID: ${marker.value.id}`
       );
     }
-    if (artifactPaths.has(marker.value.path)) {
+    const markerPathKey = marker.value.path.toLowerCase();
+    if (artifactPaths.has(markerPathKey)) {
       return failure(
         "DUPLICATE_OWNERSHIP",
         `$.markers[${index}].path`,
         `A whole-file artifact and marker cannot own the same path: ${marker.value.path}`
       );
     }
-    const startBoundary = [marker.value.path, marker.value.startMarker].join(
+    const startBoundary = [markerPathKey, marker.value.startMarker].join(
       "\0"
     );
-    const endBoundary = [marker.value.path, marker.value.endMarker].join("\0");
+    const endBoundary = [markerPathKey, marker.value.endMarker].join("\0");
     if (
       markerBoundaries.has(startBoundary) ||
       markerBoundaries.has(endBoundary)
