@@ -71,8 +71,14 @@ async function readBoundedPackageJson(
   try {
     handle = await open(
       filePath,
-      constants.O_RDONLY | constants.O_NOFOLLOW
+      constants.O_RDONLY |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK
     );
+    const status = await handle.stat();
+    if (!status.isFile()) {
+      return null;
+    }
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     while (totalBytes <= MAX_PACKAGE_JSON_BYTES) {

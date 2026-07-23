@@ -69,6 +69,19 @@ export type DiscoveryResult =
   | ProposalDiscoveryResult
   | UserDecisionDiscoveryResult;
 
+export interface ProjectDiscoveryResult {
+  kind: "project";
+  adapters: string[];
+  proposals: VerifierProposal[];
+  decisions: UserDecisionDiscoveryResult[];
+  evidence: DiscoveryEvidence[];
+  manualConfigAllowed: true;
+}
+
+export type ProjectDiscovery =
+  | NoMatchDiscoveryResult
+  | ProjectDiscoveryResult;
+
 export interface DiscoveryAdapter {
   id: string;
   discover(root: string): Promise<DiscoveryResult>;
