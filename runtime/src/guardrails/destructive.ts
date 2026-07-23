@@ -152,6 +152,46 @@ function gitSubcommand(args: readonly string[]): {
   return { name: undefined, args: [] };
 }
 
+function hasForcedPushRefspec(args: readonly string[]): boolean {
+  let repositoryFromOption = false;
+  const operands: string[] = [];
+  const optionsWithValues = new Set([
+    "--exec",
+    "--push-option",
+    "--receive-pack",
+    "-o"
+  ]);
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index] ?? "";
+    if (argument === "--repo") {
+      repositoryFromOption = args[index + 1] !== undefined;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("--repo=")) {
+      repositoryFromOption = argument.length > "--repo=".length;
+      continue;
+    }
+    if (optionsWithValues.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if (argument === "--") {
+      operands.push(...args.slice(index + 1));
+      break;
+    }
+    if (!argument.startsWith("-")) {
+      operands.push(argument);
+    }
+  }
+
+  const refspecs = repositoryFromOption ? operands : operands.slice(1);
+  return refspecs.some(
+    (argument) => argument.startsWith("+") && argument.length > 1
+  );
+}
+
 function gitDecision(args: readonly string[]): GuardrailDecision {
   const subcommand = gitSubcommand(args);
   if (subcommand.name === "reset" && subcommand.args.includes("--hard")) {
@@ -165,13 +205,13 @@ function gitDecision(args: readonly string[]): GuardrailDecision {
   }
   if (
     subcommand.name === "push" &&
-    subcommand.args.some(
+    (subcommand.args.some(
       (argument) =>
         argument === "--force" ||
         argument.startsWith("--force-with-lease") ||
-        isShortFlag(argument, "f") ||
-        (argument.startsWith("+") && argument.length > 1)
-    )
+        isShortFlag(argument, "f")
+    ) ||
+      hasForcedPushRefspec(subcommand.args))
   ) {
     return {
       action: "block",

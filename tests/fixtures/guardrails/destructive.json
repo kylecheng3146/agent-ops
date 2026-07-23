@@ -94,6 +94,44 @@
     }
   },
   {
+    "id": "leading-plus-repository-allow",
+    "command": "git",
+    "args": ["push", "+backup", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "repo-equals-leading-plus-refspec-block",
+    "command": "git",
+    "args": [
+      "push",
+      "--repo=origin",
+      "+refs/heads/main:refs/heads/main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "repo-option-leading-plus-refspec-block",
+    "command": "git",
+    "args": [
+      "push",
+      "--repo",
+      "origin",
+      "+refs/heads/main:refs/heads/main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
     "id": "environment-target-warn",
     "command": "rm",
     "args": ["-rf", "$BUILD_OUTPUT"],
