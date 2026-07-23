@@ -231,6 +231,88 @@ test("rejects impossible RFC 3339 calendar and time values", async () => {
   );
 });
 
+test("keeps the supported timestamp dialect aligned with JSON Schema", async () => {
+  const validateConfigSchema = await compileJsonSchema("config.schema.json");
+  const valid = (await readJsonFixture("valid-config.json")) as {
+    securityExceptions: { expiresAt: string }[];
+  };
+
+  for (const timestamp of [
+    "2026-01-01t00:00:00z",
+    "2026-01-01 00:00:00Z",
+    "0000-01-01T00:00:00Z"
+  ]) {
+    const value = cloneJson(valid);
+    value.securityExceptions[0]!.expiresAt = timestamp;
+    assert.equal(validateConfig(value).ok, false, timestamp);
+    assert.equal(validateConfigSchema(value), false, timestamp);
+  }
+
+  for (const timestamp of [
+    "2026-01-01T00:00:00Z",
+    "2026-01-01T00:00:00.123456+08:00"
+  ]) {
+    const value = cloneJson(valid);
+    value.securityExceptions[0]!.expiresAt = timestamp;
+    assert.equal(validateConfig(value).ok, true, timestamp);
+    assert.equal(
+      validateConfigSchema(value),
+      true,
+      `${timestamp}: ${JSON.stringify(validateConfigSchema.errors)}`
+    );
+  }
+
+  const validateEvidenceSchema = await compileJsonSchema("evidence.schema.json");
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    startedAt: string;
+  };
+  evidence.startedAt = "2026-01-01t00:00:00z";
+  assert.equal(validateEvidence(evidence).ok, false);
+  assert.equal(validateEvidenceSchema(evidence), false);
+});
+
+test("keeps non-empty NUL-free text aligned with JSON Schema", async () => {
+  const configSchema = await compileJsonSchema("config.schema.json");
+  const config = (await readJsonFixture("valid-config.json")) as {
+    verification: { commands: { command: string }[] };
+    securityExceptions: { reason: string }[];
+  };
+
+  config.verification.commands[0]!.command = "npm\n test";
+  assert.equal(validateConfig(config).ok, true);
+  assert.equal(
+    configSchema(config),
+    true,
+    JSON.stringify(configSchema.errors)
+  );
+
+  config.securityExceptions[0]!.reason = "reason\0";
+  assert.equal(validateConfig(config).ok, false);
+  assert.equal(configSchema(config), false);
+
+  const taskSchema = await compileJsonSchema("task.schema.json");
+  const task = (await readJsonFixture("valid-task.json")) as { title: string };
+  task.title = "task\0";
+  assert.equal(validateTask(task).ok, false);
+  assert.equal(taskSchema(task), false);
+
+  const evidenceSchema = await compileJsonSchema("evidence.schema.json");
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    toolVersions: Record<string, string>;
+  };
+  evidence.toolVersions.node = "22\0";
+  assert.equal(validateEvidence(evidence).ok, false);
+  assert.equal(evidenceSchema(evidence), false);
+
+  const manifestSchema = await compileJsonSchema("manifest.schema.json");
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    markers: { startMarker: string }[];
+  };
+  manifest.markers[0]!.startMarker = "start\0";
+  assert.equal(validateManifest(manifest).ok, false);
+  assert.equal(manifestSchema(manifest), false);
+});
+
 test("reports the timestamp field that is actually invalid", async () => {
   const evidence = (await readJsonFixture("valid-evidence.json")) as {
     finishedAt: string;

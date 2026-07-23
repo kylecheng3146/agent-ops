@@ -97,13 +97,18 @@
           "const": "agent-ops"
         },
         "startMarker": {
-          "type": "string",
-          "pattern": "\\S"
+          "$ref": "#/$defs/nonEmptyString"
         },
         "endMarker": {
-          "type": "string",
-          "pattern": "\\S"
+          "$ref": "#/$defs/nonEmptyString"
         }
+      }
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "[^\\s\\u0000]",
+      "not": {
+        "pattern": "\\u0000"
       }
     }
   },

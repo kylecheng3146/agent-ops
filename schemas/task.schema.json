@@ -13,8 +13,7 @@
       "$ref": "#/$defs/id"
     },
     "title": {
-      "type": "string",
-      "pattern": "\\S"
+      "$ref": "#/$defs/nonEmptyString"
     },
     "criteria": {
       "type": "array",
@@ -29,8 +28,7 @@
             "$ref": "#/$defs/id"
           },
           "description": {
-            "type": "string",
-            "pattern": "\\S"
+            "$ref": "#/$defs/nonEmptyString"
           },
           "verifierIds": {
             "type": "array",
@@ -48,6 +46,13 @@
     "id": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "[^\\s\\u0000]",
+      "not": {
+        "pattern": "\\u0000"
+      }
     }
   },
   "$comment": "Criterion ID uniqueness is a semantic constraint enforced by runtime validation."

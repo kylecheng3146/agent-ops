@@ -85,13 +85,10 @@
             ]
           },
           "expiresAt": {
-            "type": "string",
-            "format": "date-time",
-            "$comment": "Runtime uses the RFC 3339 date-time profile with seconds 00-59; leap seconds are intentionally unsupported."
+            "$ref": "#/$defs/timestamp"
           },
           "reason": {
-            "type": "string",
-            "pattern": "\\S"
+            "$ref": "#/$defs/nonEmptyString"
           }
         }
       }
@@ -101,6 +98,19 @@
     "id": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "[^\\s\\u0000]",
+      "not": {
+        "pattern": "\\u0000"
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?!0000-)\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+      "$comment": "Runtime uses a case-sensitive RFC 3339 subset with years 0001-9999 and seconds 00-59; leap seconds are intentionally unsupported."
     },
     "relativePath": {
       "type": "string",
@@ -141,8 +151,7 @@
           "$ref": "#/$defs/id"
         },
         "command": {
-          "type": "string",
-          "pattern": "^(?!.*\\u0000).*\\S.*$"
+          "$ref": "#/$defs/nonEmptyString"
         },
         "args": {
           "type": "array",

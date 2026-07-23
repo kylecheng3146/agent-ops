@@ -47,14 +47,10 @@
       "enum": ["project", "user"]
     },
     "startedAt": {
-      "type": "string",
-      "format": "date-time",
-      "$comment": "Runtime uses the RFC 3339 date-time profile with seconds 00-59; leap seconds are intentionally unsupported."
+      "$ref": "#/$defs/timestamp"
     },
     "finishedAt": {
-      "type": "string",
-      "format": "date-time",
-      "$comment": "Runtime uses the RFC 3339 date-time profile with seconds 00-59; leap seconds are intentionally unsupported."
+      "$ref": "#/$defs/timestamp"
     },
     "exitCode": {
       "type": ["integer", "null"],
@@ -69,8 +65,7 @@
     "toolVersions": {
       "type": "object",
       "additionalProperties": {
-        "type": "string",
-        "pattern": "\\S"
+        "$ref": "#/$defs/nonEmptyString"
       }
     },
     "configHash": {
@@ -85,6 +80,19 @@
     "hash": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "[^\\s\\u0000]",
+      "not": {
+        "pattern": "\\u0000"
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?!0000-)\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+      "$comment": "Runtime uses a case-sensitive RFC 3339 subset with years 0001-9999 and seconds 00-59; leap seconds are intentionally unsupported."
     },
     "relativePath": {
       "type": "string",
