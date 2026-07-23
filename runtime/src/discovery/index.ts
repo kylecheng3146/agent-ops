@@ -1,4 +1,8 @@
+import { goDiscoveryAdapter } from "./go.js";
+import { makeDiscoveryAdapter } from "./make.js";
 import { nodeDiscoveryAdapter } from "./node.js";
+import { pythonDiscoveryAdapter } from "./python.js";
+import { rustDiscoveryAdapter } from "./rust.js";
 import type {
   DiscoveryAdapter,
   DiscoveryEvidence,
@@ -7,7 +11,13 @@ import type {
   UserDecisionDiscoveryResult
 } from "./types.js";
 
-const DEFAULT_ADAPTERS: DiscoveryAdapter[] = [nodeDiscoveryAdapter];
+const DEFAULT_ADAPTERS: readonly DiscoveryAdapter[] = [
+  nodeDiscoveryAdapter,
+  pythonDiscoveryAdapter,
+  goDiscoveryAdapter,
+  rustDiscoveryAdapter,
+  makeDiscoveryAdapter
+];
 
 export async function discoverProject(
   root: string,
@@ -50,7 +60,14 @@ export async function discoverProject(
   };
 }
 
+export { discoverGoProject, goDiscoveryAdapter } from "./go.js";
+export { discoverMakeProject, makeDiscoveryAdapter } from "./make.js";
 export { discoverNodeProject, nodeDiscoveryAdapter } from "./node.js";
+export {
+  discoverPythonProject,
+  pythonDiscoveryAdapter
+} from "./python.js";
+export { discoverRustProject, rustDiscoveryAdapter } from "./rust.js";
 export type {
   DiscoveryAdapter,
   DiscoveryConfidence,
