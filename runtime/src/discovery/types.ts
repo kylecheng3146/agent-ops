@@ -22,21 +22,20 @@ export interface VerifierProposal {
   confirmed: false;
 }
 
-export type NodePackageManager = "bun" | "npm" | "pnpm" | "yarn";
-
 export interface ProposalDiscoveryResult {
   kind: "proposals";
   adapter: string;
-  packageManager: NodePackageManager;
   proposals: VerifierProposal[];
   evidence: DiscoveryEvidence[];
   manualConfigAllowed: true;
 }
 
 export type UserDecisionReason =
+  | "invalid-manifest"
   | "invalid-package-json"
   | "missing-lockfile"
   | "multiple-package-managers"
+  | "no-known-commands"
   | "no-known-scripts";
 
 export interface UserDecisionDiscoveryResult {
@@ -48,7 +47,13 @@ export interface UserDecisionDiscoveryResult {
   manualConfigAllowed: true;
 }
 
-export type NoMatchReason = "not-node-project" | "unsupported-stack";
+export type NoMatchReason =
+  | "not-go-project"
+  | "not-make-project"
+  | "not-node-project"
+  | "not-python-project"
+  | "not-rust-project"
+  | "unsupported-stack";
 
 export interface NoMatchDiscoveryResult {
   kind: "no-match";

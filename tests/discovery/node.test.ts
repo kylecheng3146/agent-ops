@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { discoverProject } from "../../runtime/src/discovery/index.js";
-import { discoverNodeProject } from "../../runtime/src/discovery/node.js";
+import {
+  discoverNodeProject,
+  type NodeProposalDiscoveryResult
+} from "../../runtime/src/discovery/node.js";
 import type {
   DiscoveryResult,
-  ProposalDiscoveryResult,
   UserDecisionDiscoveryResult,
 } from "../../runtime/src/discovery/types.js";
 
@@ -15,13 +25,13 @@ function fixturePath(name: string): string {
 }
 
 function assertProposalResult(
-  result: DiscoveryResult,
-): asserts result is ProposalDiscoveryResult {
+  result: DiscoveryResult
+): asserts result is NodeProposalDiscoveryResult {
   assert.equal(result.kind, "proposals");
 }
 
 function assertUserDecision(
-  result: DiscoveryResult,
+  result: DiscoveryResult
 ): asserts result is UserDecisionDiscoveryResult {
   assert.equal(result.kind, "user-decision");
 }
@@ -49,6 +59,13 @@ test("selects a stable package manager from one lockfile", async (t) => {
       command: "yarn",
       args: ["test"],
     },
+    {
+      fixture: "bun",
+      lockfile: "bun.lock",
+      manager: "bun",
+      command: "bun",
+      args: ["run", "test"]
+    }
   ] as const;
 
   for (const scenario of scenarios) {
@@ -66,13 +83,13 @@ test("selects a stable package manager from one lockfile", async (t) => {
       assert.equal(proposal.confidence, "high");
       assert.ok(
         proposal.sourceEvidence.some(
-          (evidence) => evidence.path === scenario.lockfile,
-        ),
+          (evidence) => evidence.path === scenario.lockfile
+        )
       );
       assert.ok(
         proposal.sourceEvidence.some(
-          (evidence) => evidence.path === "package.json#scripts.test",
-        ),
+          (evidence) => evidence.path === "package.json#scripts.test"
+        )
       );
     });
   }
@@ -127,4 +144,53 @@ test("unsupported projects allow manual configuration", async () => {
   assert.equal(result.kind, "no-match");
   assert.equal(result.reason, "unsupported-stack");
   assert.equal(result.manualConfigAllowed, true);
+});
+
+test(
+  "does not follow a package manifest symlink",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = await mkdtemp(
+      path.join(tmpdir(), "agent-ops-node-discovery-")
+    );
+    try {
+      const project = path.join(root, "project");
+      const outsideManifest = path.join(root, "outside.json");
+      await mkdir(project);
+      await writeFile(
+        outsideManifest,
+        JSON.stringify({ scripts: { test: "must not inspect" } })
+      );
+      await symlink(outsideManifest, path.join(project, "package.json"));
+      await writeFile(path.join(project, "package-lock.json"), "{}");
+
+      const result = await discoverNodeProject(project);
+
+      assert.equal(result.kind, "no-match");
+      assert.equal(result.reason, "not-node-project");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test("bounds package manifest reads", async () => {
+  const root = await mkdtemp(
+    path.join(tmpdir(), "agent-ops-node-discovery-")
+  );
+  try {
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ padding: "x".repeat(1024 * 1024) })
+    );
+    await writeFile(path.join(root, "package-lock.json"), "{}");
+
+    const result = await discoverNodeProject(root);
+
+    assertUserDecision(result);
+    assert.equal(result.reason, "invalid-package-json");
+    assert.equal(result.manualConfigAllowed, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
