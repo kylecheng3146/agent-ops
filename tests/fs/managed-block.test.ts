@@ -49,7 +49,9 @@ test("rejects missing, duplicate, reversed, and wrong-version markers", () => {
     `${start}\nbody\n`,
     `${start}\n${start}\nbody\n${end}\n`,
     `${end}\nbody\n${start}\n`,
-    "<!-- agent-ops:start core-routing v2 -->\nbody\n<!-- agent-ops:end core-routing -->\n"
+    "<!-- agent-ops:start core-routing v2 -->\nbody\n<!-- agent-ops:end core-routing -->\n",
+    "<!--  agent-ops:start core-routing v1 -->\nbody\n<!--  agent-ops:end core-routing -->\n",
+    "<!-- agent-ops:start core-routing vx -->\nbody\n<!-- agent-ops:end core-routing -->\n"
   ];
 
   for (const source of malformed) {

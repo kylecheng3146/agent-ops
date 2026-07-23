@@ -13,12 +13,18 @@ const WINDOWS_RESERVED_SEGMENT =
 export class AgentOpsError extends Error {
   readonly code: string;
   override readonly cause?: unknown;
+  readonly recoveryPaths?: readonly string[];
 
-  constructor(code: string, message: string, options?: { cause?: unknown }) {
+  constructor(
+    code: string,
+    message: string,
+    options?: { cause?: unknown; recoveryPaths?: readonly string[] }
+  ) {
     super(message);
     this.name = "AgentOpsError";
     this.code = code;
     this.cause = options?.cause;
+    this.recoveryPaths = options?.recoveryPaths;
   }
 }
 

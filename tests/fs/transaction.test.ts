@@ -4,7 +4,9 @@ import {
   lstat,
   mkdtemp,
   mkdir,
+  readdir,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile
@@ -228,6 +230,222 @@ test("post-apply validation failure rolls changes back", async () => {
         error instanceof AgentOpsError && error.code === "TRANSACTION_FAILED"
     );
     assert.equal(await readFile(join(root, "config.txt"), "utf8"), "original\n");
+  });
+});
+
+test("rechecks preconditions after the last injected boundary", async () => {
+  await withTempRoot(async (root) => {
+    const target = join(root, "config.txt");
+    await writeFile(target, "original\n");
+    const transaction = new FileTransaction(root, {
+      beforeReplace: async () => {
+        await writeFile(target, "external\n");
+      }
+    });
+
+    await assert.rejects(
+      transaction.apply({
+        operations: [
+          {
+            kind: "write",
+            path: "config.txt",
+            content: "managed\n",
+            expectedHash: sha256("original\n")
+          }
+        ]
+      }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "PRECONDITION_CHANGED"
+    );
+    assert.equal(await readFile(target, "utf8"), "external\n");
+  });
+});
+
+test("rechecks containment after a parent directory symlink swap", async (context) => {
+  await withTempRoot(async (root) => {
+    const managed = join(root, "managed");
+    const parked = join(root, "managed-parked");
+    const outside = await mkdtemp(join(tmpdir(), "agent-ops-race-"));
+    await mkdir(managed);
+    await writeFile(join(managed, "config.txt"), "original\n");
+    await writeFile(join(outside, "config.txt"), "outside\n");
+    try {
+      const probe = join(root, "symlink-probe");
+      try {
+        await symlink(
+          outside,
+          probe,
+          process.platform === "win32" ? "junction" : "dir"
+        );
+        await rm(probe);
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "EPERM"
+        ) {
+          context.skip("symlinks require elevated privileges");
+          return;
+        }
+        throw error;
+      }
+      const transaction = new FileTransaction(root, {
+        beforeReplace: async () => {
+          await rename(managed, parked);
+          await symlink(
+            outside,
+            managed,
+            process.platform === "win32" ? "junction" : "dir"
+          );
+        }
+      });
+
+      await assert.rejects(
+        transaction.apply({
+          operations: [
+            {
+              kind: "write",
+              path: "managed/config.txt",
+              content: "managed\n",
+              expectedHash: sha256("original\n")
+            }
+          ]
+        }),
+        (error: unknown) =>
+          error instanceof AgentOpsError &&
+          error.code === "PRECONDITION_CHANGED"
+      );
+      assert.equal(
+        await readFile(join(outside, "config.txt"), "utf8"),
+        "outside\n"
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("rejects malformed operation discriminants before filesystem access", async () => {
+  await withTempRoot(async (root) => {
+    const invalidPlans: unknown[] = [
+      {
+        operations: [
+          {
+            kind: "bogus",
+            path: "config.txt",
+            expectedHash: null
+          }
+        ]
+      },
+      {
+        operations: [
+          {
+            kind: "remove",
+            path: "config.txt",
+            content: "not allowed",
+            expectedHash: null
+          }
+        ]
+      },
+      {
+        operations: [
+          {
+            kind: "write",
+            path: "config.txt",
+            content: "content",
+            expectedHash: "not-a-hash"
+          }
+        ]
+      },
+      { operations: [], unexpected: true }
+    ];
+
+    for (const invalidPlan of invalidPlans) {
+      await assert.rejects(
+        new FileTransaction(join(root, "missing-root")).apply(
+          invalidPlan as TransactionPlan
+        ),
+        (error: unknown) =>
+          error instanceof AgentOpsError &&
+          error.code === "INVALID_TRANSACTION_PLAN"
+      );
+    }
+  });
+});
+
+test("rollback failure preserves owner-only recovery backups", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await withTempRoot(async (root) => {
+    const target = join(root, "config.txt");
+    await writeFile(target, "original\n");
+    let recoveryPaths: readonly string[] = [];
+
+    await assert.rejects(
+      new FileTransaction(root).apply(
+        {
+          operations: [
+            {
+              kind: "write",
+              path: "config.txt",
+              content: "managed\n",
+              expectedHash: sha256("original\n")
+            }
+          ]
+        },
+        async () => {
+          await rm(target);
+          await mkdir(target);
+          throw new Error("validation failed after hostile replacement");
+        }
+      ),
+      (error: unknown) => {
+        if (
+          error instanceof AgentOpsError &&
+          error.code === "ROLLBACK_FAILED"
+        ) {
+          recoveryPaths = error.recoveryPaths ?? [];
+          return true;
+        }
+        return false;
+      }
+    );
+
+    assert.equal(recoveryPaths.length, 1);
+    assert.equal(await readFile(recoveryPaths[0]!, "utf8"), "original\n");
+    assert.equal((await lstat(recoveryPaths[0]!)).mode & 0o777, 0o600);
+    assert.equal(
+      (await readdir(root)).some((name) => name.includes("agent-ops-backup")),
+      true
+    );
+  });
+});
+
+test("rollback removes parent directories created for new files", async () => {
+  await withTempRoot(async (root) => {
+    await assert.rejects(
+      new FileTransaction(root).apply(
+        {
+          operations: [
+            {
+              kind: "write",
+              path: "new/nested/config.txt",
+              content: "managed\n",
+              expectedHash: null
+            }
+          ]
+        },
+        async () => {
+          throw new Error("validation failed");
+        }
+      ),
+      (error: unknown) =>
+        error instanceof AgentOpsError && error.code === "TRANSACTION_FAILED"
+    );
+    await assert.rejects(lstat(join(root, "new")));
   });
 });
 

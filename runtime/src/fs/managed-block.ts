@@ -21,6 +21,19 @@ function assertBlockId(id: string): void {
   }
 }
 
+function assertExactMarkerSyntax(source: string): void {
+  const validMarker =
+    /^<!-- agent-ops:(?:start [a-z][a-z0-9-]{0,127} v[1-9][0-9]*|end [a-z][a-z0-9-]{0,127}) -->$/;
+  for (const line of source.split(/\r?\n/)) {
+    if (/<!--\s*agent-ops:/.test(line) && !validMarker.test(line)) {
+      throw new AgentOpsError(
+        "MALFORMED_MANAGED_BLOCK",
+        "Managed block markers must use the exact agent-ops marker syntax."
+      );
+    }
+  }
+}
+
 export function managedBlockMarkers(
   id: string,
   version: number
@@ -44,6 +57,7 @@ function locateMarkers(
   version?: number
 ): { start: string; end: string; startIndex: number; endIndex: number } | null {
   assertBlockId(id);
+  assertExactMarkerSyntax(source);
   const escapedId = escapeRegExp(id);
   const startMatches = [
     ...source.matchAll(
@@ -83,7 +97,7 @@ function locateMarkers(
 }
 
 function renderBlock(options: ManagedBlockOptions): string {
-  if (/<!-- agent-ops:(?:start|end)\b/.test(options.content)) {
+  if (/<!--\s*agent-ops:/.test(options.content)) {
     throw new AgentOpsError(
       "AMBIGUOUS_MANAGED_CONTENT",
       "Managed content must not contain agent-ops marker boundaries."
