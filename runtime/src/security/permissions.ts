@@ -65,7 +65,7 @@ function isAlreadyExists(error: unknown): boolean {
 interface PrivateLockRecord {
   choosing: boolean;
   createdAt: string;
-  heartbeatFile: string;
+  heartbeatFile: string | null;
   processId: number;
   processIdentity: string;
   ticket: number;
@@ -77,6 +77,12 @@ interface ActiveParticipant {
   record: PrivateLockRecord;
 }
 
+interface ProcessHeartbeat {
+  device: string;
+  file: string;
+  inode: string;
+}
+
 const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
 const HEARTBEAT_INTERVAL_MS = 500;
 const HEARTBEAT_MAX_AGE_MS = 3_000;
@@ -86,7 +92,7 @@ const execFile = promisify(execFileCallback);
 const lockQueues = new Map<string, Promise<void>>();
 const heartbeatFailures = new Map<string, unknown>();
 const heartbeatPaths = new Set<string>();
-const processHeartbeats = new Map<string, Promise<string>>();
+const processHeartbeats = new Map<string, Promise<ProcessHeartbeat>>();
 const processIdentityCache = new Map<
   number,
   { checkedAt: number; identity: string | null }
@@ -97,7 +103,10 @@ function isValidProcessIdentity(
   identity: string,
   heartbeatFile: unknown,
   processId: number
-): heartbeatFile is string {
+): heartbeatFile is string | null {
+  if (/^windows:\d+$/u.test(identity)) {
+    return heartbeatFile === null;
+  }
   const heartbeatMatch =
     typeof heartbeatFile === "string"
       ? new RegExp(
@@ -116,8 +125,7 @@ function isValidProcessIdentity(
   }
   return (
     /^linux:\d+$/u.test(identity) ||
-    /^posix:[^\0\r\n]{1,240}$/u.test(identity) ||
-    /^windows:\d+$/u.test(identity)
+    /^posix:[^\0\r\n]{1,240}$/u.test(identity)
   );
 }
 
@@ -197,7 +205,9 @@ async function ensureProcessHeartbeat(
   const cacheKey = `${resolve(anchorDirectory)}\0${resolve(parent)}`;
   const existing = processHeartbeats.get(cacheKey);
   if (existing !== undefined) {
-    return await existing;
+    const heartbeat = await existing;
+    await assertProcessHeartbeat(parent, heartbeat);
+    return heartbeat.file;
   }
   const heartbeatFile =
     `.agent-ops-process-${process.pid}-${PROCESS_INSTANCE_TOKEN}`;
@@ -205,12 +215,17 @@ async function ensureProcessHeartbeat(
   const creating = (async () => {
     await ensurePrivateDirectory(parent, anchorDirectory);
     const handle = await open(heartbeatPath, "wx", 0o600);
+    let device: string;
+    let inode: string;
     try {
       await handle.writeFile(
         `runtime:${PROCESS_INSTANCE_TOKEN}\n`,
         "utf8"
       );
       await handle.sync();
+      const status = await handle.stat({ bigint: true });
+      device = status.dev.toString();
+      inode = status.ino.toString();
     } catch (error) {
       await handle.close().catch(() => {
         process.emitWarning(
@@ -224,46 +239,66 @@ async function ensureProcessHeartbeat(
       });
       throw error;
     }
-    await handle.close();
     heartbeatPaths.add(heartbeatPath);
     registerHeartbeatCleanup();
+    const heartbeat: ProcessHeartbeat = {
+      device,
+      file: heartbeatFile,
+      inode
+    };
     const timer = setInterval(() => {
-      void refreshProcessHeartbeat(heartbeatPath).catch(
-        (error) => {
-          heartbeatFailures.set(cacheKey, error);
-          clearInterval(timer);
-        }
-      );
+      void handle.utimes(new Date(), new Date()).catch((error) => {
+        heartbeatFailures.set(cacheKey, error);
+        clearInterval(timer);
+        void handle.close().catch(() => {
+          process.emitWarning(
+            "A failed private-state heartbeat handle could not be closed."
+          );
+        });
+      });
     }, HEARTBEAT_INTERVAL_MS);
     timer.unref();
-    return heartbeatFile;
+    return heartbeat;
   })();
   processHeartbeats.set(cacheKey, creating);
   try {
-    return await creating;
+    return (await creating).file;
   } catch (error) {
     processHeartbeats.delete(cacheKey);
     throw error;
   }
 }
 
-async function refreshProcessHeartbeat(path: string): Promise<void> {
-  const handle = await open(
-    path,
-    constants.O_WRONLY | constants.O_NOFOLLOW
-  );
+async function assertProcessHeartbeat(
+  parent: string,
+  heartbeat: ProcessHeartbeat
+): Promise<void> {
+  const heartbeatPath = join(parent, heartbeat.file);
   try {
-    const status = await handle.stat();
-    if (!status.isFile()) {
+    const status = await lstat(heartbeatPath, { bigint: true });
+    if (
+      status.isSymbolicLink() ||
+      !status.isFile() ||
+      status.dev.toString() !== heartbeat.device ||
+      status.ino.toString() !== heartbeat.inode
+    ) {
       throw new AgentOpsError(
         "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE",
-        "The private-state heartbeat is not a regular file."
+        "The private-state heartbeat path changed after creation."
       );
     }
-    const now = new Date();
-    await handle.utimes(now, now);
-  } finally {
-    await handle.close();
+  } catch (error) {
+    if (
+      error instanceof AgentOpsError &&
+      error.code === "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE"
+    ) {
+      throw error;
+    }
+    throw new AgentOpsError(
+      "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE",
+      "The private-state heartbeat could not be verified.",
+      { cause: error }
+    );
   }
 }
 
@@ -398,6 +433,10 @@ async function isProcessInstanceActive(
   if (record.processId === process.pid) {
     const localIdentity = await readProcessIdentity(process.pid);
     return localIdentity === record.processIdentity;
+  }
+  if (record.heartbeatFile === null) {
+    const identity = await readProcessIdentity(record.processId);
+    return identity === null || identity === record.processIdentity;
   }
   const heartbeatPath = join(parent, record.heartbeatFile);
   const heartbeatIdentity =
@@ -808,10 +847,19 @@ async function withTicketLock<T>(
   const processIdentity =
     await readProcessIdentity(process.pid) ??
     `runtime:${PROCESS_INSTANCE_TOKEN}`;
-  const heartbeatFile = await ensureProcessHeartbeat(
-    parent,
-    anchorDirectory
-  );
+  const heartbeatFile =
+    process.platform === "win32"
+      ? null
+      : await ensureProcessHeartbeat(parent, anchorDirectory);
+  if (
+    process.platform === "win32" &&
+    !processIdentity.startsWith("windows:")
+  ) {
+    throw new AgentOpsError(
+      "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE",
+      "Windows process identity could not be verified."
+    );
+  }
   const heartbeatFailure = heartbeatFailures.get(
     `${resolve(anchorDirectory)}\0${resolve(parent)}`
   );
