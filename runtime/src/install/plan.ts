@@ -2,6 +2,7 @@ import { lstat, readFile } from "node:fs/promises";
 
 import {
   SCHEMA_VERSION,
+  type AgentOpsConfig,
   type Harness,
   type InstallManifest,
   type InstallScope,
@@ -44,6 +45,10 @@ export interface CreateInstallPlanOptions {
   readonly profiles: readonly Profile[];
   readonly adapters: readonly HarnessInstallAdapter[];
   readonly toolkitVersion?: string;
+  readonly existingConfig?: {
+    readonly value: AgentOpsConfig;
+    readonly sourceHash: string;
+  };
 }
 
 export interface InstallPlan {
@@ -122,7 +127,11 @@ function formatConfig(
 async function planConfig(
   root: string,
   profiles: readonly Profile[],
-  existingManifest: InstallManifest | null
+  existingManifest: InstallManifest | null,
+  suppliedConfig?: {
+    readonly value: AgentOpsConfig;
+    readonly sourceHash: string;
+  }
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -143,7 +152,27 @@ async function planConfig(
         readonly securityExceptions: unknown;
       }
     | undefined;
-  if (current !== null) {
+  if (suppliedConfig !== undefined) {
+    if (
+      current === null ||
+      current.hash !== suppliedConfig.sourceHash
+    ) {
+      throw new AgentOpsError(
+        "PRECONDITION_CHANGED",
+        "Managed configuration changed during plan creation."
+      );
+    }
+    const result = validateConfig(suppliedConfig.value);
+    if (!result.ok) {
+      throw new AgentOpsError(
+        "CONFIG_INVALID",
+        `${result.errors[0]?.path ?? "$"}: ${
+          result.errors[0]?.message ?? "Invalid managed configuration."
+        }`
+      );
+    }
+    existingConfig = result.value;
+  } else if (current !== null) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(current.content) as unknown;
@@ -393,7 +422,8 @@ export async function createInstallPlan(
   const config = await planConfig(
     options.root,
     resolved.profiles,
-    existing?.manifest ?? null
+    existing?.manifest ?? null,
+    options.existingConfig
   );
   operations.push(config.operation);
   artifacts.push(config.record);

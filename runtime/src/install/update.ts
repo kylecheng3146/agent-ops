@@ -1,4 +1,16 @@
-import { AgentOpsError } from "../fs/paths.js";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
+
+import {
+  previewConfigMigration,
+  type ConfigMigrationPreview,
+  type MigrationStep
+} from "../config/migrate.js";
+import { sha256 } from "../fs/hash.js";
+import {
+  AgentOpsError,
+  resolveContainedPath
+} from "../fs/paths.js";
 import type { RegistryClient } from "../registry/npm.js";
 import { applyInstallPlan } from "./apply.js";
 import { doctorInstallation } from "./doctor.js";
@@ -9,6 +21,12 @@ import {
 } from "./plan.js";
 
 const PACKAGE_NAME = "@kylecheng3146/agent-ops";
+const CONFIG_PATH = ".agent-ops/config.json";
+const MAX_UPDATE_CONFIG_BYTES = 1024 * 1024;
+
+interface ManagedConfigPreview extends ConfigMigrationPreview {
+  readonly sourceHash: string;
+}
 
 export interface CreateUpdatePlanOptions {
   readonly root: string;
@@ -20,11 +38,105 @@ export interface CreateUpdatePlanOptions {
 
 export interface UpdatePlan {
   readonly targetVersion: string;
-  readonly migrationSteps: readonly {
-    readonly fromVersion: number;
-    readonly toVersion: number;
-  }[];
+  readonly migrationSteps: readonly MigrationStep[];
   readonly installation: InstallPlan;
+}
+
+async function readBoundedConfig(root: string): Promise<Buffer> {
+  const resolvedPath = await resolveContainedPath(root, CONFIG_PATH);
+  const before = await lstat(resolvedPath, { bigint: true });
+  if (
+    !before.isFile() ||
+    before.size > BigInt(MAX_UPDATE_CONFIG_BYTES)
+  ) {
+    throw new AgentOpsError(
+      "UPDATE_INSTALLATION_INVALID",
+      "Update requires a bounded regular configuration file."
+    );
+  }
+
+  const handle = await open(
+    resolvedPath,
+    constants.O_RDONLY |
+      constants.O_NOFOLLOW |
+      constants.O_NONBLOCK
+  );
+  try {
+    const opened = await handle.stat({ bigint: true });
+    const resolvedAgain = await resolveContainedPath(root, CONFIG_PATH);
+    const after = await lstat(resolvedAgain, { bigint: true });
+    if (
+      resolvedAgain !== resolvedPath ||
+      !opened.isFile() ||
+      opened.size > BigInt(MAX_UPDATE_CONFIG_BYTES) ||
+      after.dev !== opened.dev ||
+      after.ino !== opened.ino
+    ) {
+      throw new AgentOpsError(
+        "UPDATE_INSTALLATION_INVALID",
+        "Configuration identity changed during update planning."
+      );
+    }
+
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    while (totalBytes <= MAX_UPDATE_CONFIG_BYTES) {
+      const remaining =
+        MAX_UPDATE_CONFIG_BYTES + 1 - totalBytes;
+      const chunk = Buffer.alloc(Math.min(64 * 1024, remaining));
+      const { bytesRead } = await handle.read(
+        chunk,
+        0,
+        chunk.length,
+        null
+      );
+      if (bytesRead === 0) {
+        return Buffer.concat(chunks, totalBytes);
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+      totalBytes += bytesRead;
+    }
+    throw new AgentOpsError(
+      "UPDATE_INSTALLATION_INVALID",
+      "Configuration exceeded the update planning limit."
+    );
+  } finally {
+    await handle.close();
+  }
+}
+
+async function previewManagedConfig(
+  root: string
+): Promise<ManagedConfigPreview> {
+  let source: Buffer;
+  let parsed: unknown;
+  try {
+    source = await readBoundedConfig(root);
+    parsed = JSON.parse(source.toString("utf8")) as unknown;
+  } catch (error) {
+    if (
+      error instanceof AgentOpsError &&
+      error.code === "UPDATE_INSTALLATION_INVALID"
+    ) {
+      throw error;
+    }
+    throw new AgentOpsError(
+      "UPDATE_INSTALLATION_INVALID",
+      "Update requires valid configuration JSON."
+    );
+  }
+
+  try {
+    return {
+      ...previewConfigMigration(parsed),
+      sourceHash: sha256(source)
+    };
+  } catch {
+    throw new AgentOpsError(
+      "UPDATE_INSTALLATION_INVALID",
+      "Update requires a valid or migratable configuration."
+    );
+  }
 }
 
 function statusOf(
@@ -57,7 +169,6 @@ export async function createUpdatePlan(
   for (const id of [
     "node-version",
     "manifest",
-    "config",
     "markers"
   ] as const) {
     if (statusOf(report, id) !== "PASS") {
@@ -67,10 +178,20 @@ export async function createUpdatePlan(
       );
     }
   }
-  if (report.manifest === undefined || report.config === undefined) {
+  if (report.manifest === undefined) {
     throw new AgentOpsError(
       "UPDATE_INSTALLATION_INVALID",
-      "Update requires a valid manifest and configuration."
+      "Update requires a valid manifest."
+    );
+  }
+  const configPreview = await previewManagedConfig(options.root);
+  if (
+    statusOf(report, "config") !== "PASS" &&
+    configPreview.steps.length === 0
+  ) {
+    throw new AgentOpsError(
+      "UPDATE_INSTALLATION_INVALID",
+      "Update requires a passing config doctor check."
     );
   }
 
@@ -78,13 +199,17 @@ export async function createUpdatePlan(
     root: options.root,
     scope: report.manifest.scope,
     harness: report.manifest.harness,
-    profiles: report.config.profiles,
+    profiles: configPreview.migrated.profiles,
     adapters: options.adapters,
-    toolkitVersion: targetVersion
+    toolkitVersion: targetVersion,
+    existingConfig: {
+      value: configPreview.migrated,
+      sourceHash: configPreview.sourceHash
+    }
   });
   return {
     targetVersion,
-    migrationSteps: [],
+    migrationSteps: configPreview.steps,
     installation
   };
 }
