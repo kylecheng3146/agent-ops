@@ -21,7 +21,8 @@ Commands:
   init       Plan or install agent-ops
   config explain
              Inspect effective configuration provenance
-  trust      Manage repository trust
+  trust <status|grant|revoke>
+             Manage explicit repository trust
   doctor     Diagnose an installation
   update     Update managed artifacts
   uninstall  Remove managed artifacts

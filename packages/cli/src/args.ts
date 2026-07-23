@@ -20,10 +20,12 @@ const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
 export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
 export type CliCommand = "help" | "version" | TopLevelCommand;
 export type ConfigAction = "explain";
+export type TrustAction = "grant" | "revoke" | "status";
+export type CliAction = ConfigAction | TrustAction;
 
 export interface ParsedArgs {
   command: CliCommand;
-  action?: ConfigAction;
+  action?: CliAction;
   scope?: InstallScope;
   harness?: Harness;
   profiles: Profile[];
@@ -78,7 +80,7 @@ function invalidValue(option: string, value: string): never {
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   let command: CliCommand | undefined;
-  let action: ConfigAction | undefined;
+  let action: CliAction | undefined;
   let scope: InstallScope | undefined;
   let harness: Harness | undefined;
   const profiles: Profile[] = [];
@@ -174,6 +176,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           token === "explain"
         ) {
           action = token;
+          break;
+        }
+        if (
+          command === "trust" &&
+          action === undefined &&
+          ["grant", "revoke", "status"].includes(token)
+        ) {
+          action = token as TrustAction;
           break;
         }
         if (command !== undefined) {
