@@ -241,6 +241,46 @@ test("fails closed for malformed and oversized task state", async () => {
   }
 });
 
+test("reads schema version 1 task records created before failure fingerprints", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
+  const statePath = join(root, ".agent-ops", "tasks", "state.json");
+  try {
+    await mkdir(join(root, ".agent-ops", "tasks"), {
+      recursive: true
+    });
+    await writeFile(
+      statePath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        tasks: [
+          {
+            task: {
+              schemaVersion: 1,
+              id: "task-legacy",
+              title: "Legacy task state",
+              criteria: input().criteria
+            },
+            status: "active",
+            evidence: {},
+            createdAt: "2026-07-22T12:00:00.000Z",
+            updatedAt: "2026-07-22T12:00:00.000Z",
+            completedAt: null,
+            archivedAt: null
+          }
+        ],
+        sessions: []
+      }, null, 2)}\n`
+    );
+
+    const records = await service(root).list();
+
+    assert.equal(records[0]?.task.id, "task-legacy");
+    assert.equal(records[0]?.failureFingerprint, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("task command returns stable human and JSON views", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
   try {

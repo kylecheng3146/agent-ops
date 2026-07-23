@@ -8,6 +8,11 @@ import {
 import { AgentOpsError } from "../fs/paths.js";
 import { validateTask } from "../schema/validate.js";
 import { renderTaskMarkdown } from "./render.js";
+import {
+  advanceFailureFingerprint,
+  type FailureFingerprint,
+  type FailureFingerprintAdvance
+} from "../verify/fingerprint.js";
 import type {
   MutableTaskState,
   StoredTaskRecord,
@@ -181,7 +186,8 @@ export class TaskService {
         createdAt: now,
         updatedAt: now,
         completedAt: null,
-        archivedAt: null
+        archivedAt: null,
+        failureFingerprint: null
       };
       state.tasks.push(record);
       return cloneRecord(record);
@@ -339,5 +345,47 @@ export class TaskService {
 
   async export(taskId: string): Promise<string> {
     return renderTaskMarkdown(await this.status({ taskId }));
+  }
+
+  async recordFailure(
+    taskId: string,
+    fingerprint: FailureFingerprint
+  ): Promise<FailureFingerprintAdvance> {
+    const now = assertTimestamp(this.#now());
+    return await this.#store.mutate((state) => {
+      const current = findTask(state, taskId);
+      if (current.status === "archived") {
+        throw taskError(
+          "TASK_NOT_ACTIVE",
+          "An archived task cannot record verification failures."
+        );
+      }
+      const advanced = advanceFailureFingerprint(
+        current.failureFingerprint,
+        fingerprint,
+        now
+      );
+      replaceTask(state, {
+        ...current,
+        updatedAt: now,
+        failureFingerprint: advanced.state
+      });
+      return structuredClone(advanced);
+    });
+  }
+
+  async clearFailure(taskId: string): Promise<void> {
+    const now = assertTimestamp(this.#now());
+    await this.#store.mutate((state) => {
+      const current = findTask(state, taskId);
+      if (current.failureFingerprint === null) {
+        return;
+      }
+      replaceTask(state, {
+        ...current,
+        updatedAt: now,
+        failureFingerprint: null
+      });
+    });
   }
 }

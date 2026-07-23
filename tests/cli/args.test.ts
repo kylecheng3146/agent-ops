@@ -98,6 +98,53 @@ test("parses structured task lifecycle arguments", () => {
   );
 });
 
+test("parses verify task or session targets without task mutation options", () => {
+  assert.deepEqual(
+    parseArgs([
+      "verify",
+      "--task",
+      "task-one",
+      "--scope",
+      "project",
+      "--json"
+    ]),
+    {
+      command: "verify",
+      scope: "project",
+      profiles: [],
+      taskId: "task-one",
+      dryRun: false,
+      json: true,
+      yes: false
+    }
+  );
+  assert.equal(
+    parseArgs(["verify", "--session", "session-one"]).sessionId,
+    "session-one"
+  );
+});
+
+test("rejects ignored or conflicting verify options", () => {
+  for (const argv of [
+    ["verify", "--task", "task-one", "--session", "session-one"],
+    ["verify", "--title", "ignored"],
+    ["verify", "--criterion", "{}"],
+    ["verify", "--evidence", "criterion=reference"],
+    ["verify", "--harness", "both"],
+    ["verify", "--profile", "core"],
+    ["verify", "--dry-run"],
+    ["verify", "--yes"]
+  ]) {
+    assert.throws(
+      () => parseArgs(argv),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_OPTION_NOT_ALLOWED",
+      argv.join(" ")
+    );
+  }
+});
+
 test("rejects task options that an action would ignore", () => {
   for (const argv of [
     ["task", "create", "--session", "session-one"],

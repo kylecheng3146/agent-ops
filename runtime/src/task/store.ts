@@ -8,6 +8,9 @@ import {
   withPrivateFileLock,
   writePrivateFile
 } from "../security/permissions.js";
+import type {
+  FailureFingerprintState
+} from "../verify/fingerprint.js";
 
 export type TaskLifecycleStatus =
   | "active"
@@ -22,6 +25,7 @@ export interface StoredTaskRecord {
   readonly updatedAt: string;
   readonly completedAt: string | null;
   readonly archivedAt: string | null;
+  readonly failureFingerprint: FailureFingerprintState | null;
 }
 
 export interface SessionAttachment {
@@ -138,17 +142,19 @@ function parseEvidence(
 }
 
 function parseTaskRecord(value: unknown): StoredTaskRecord {
+  const baseKeys = [
+    "archivedAt",
+    "completedAt",
+    "createdAt",
+    "evidence",
+    "status",
+    "task",
+    "updatedAt"
+  ];
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, [
-      "archivedAt",
-      "completedAt",
-      "createdAt",
-      "evidence",
-      "status",
-      "task",
-      "updatedAt"
-    ])
+    (!hasExactKeys(value, baseKeys) &&
+      !hasExactKeys(value, [...baseKeys, "failureFingerprint"]))
   ) {
     return invalidState("Task state contains an invalid task record.");
   }
@@ -181,6 +187,49 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     status === "complete" ||
       (status === "archived" && value.completedAt !== null)
   );
+  let failureFingerprint: FailureFingerprintState | null = null;
+  if (
+    value.failureFingerprint !== undefined &&
+    value.failureFingerprint !== null
+  ) {
+    const fingerprint = value.failureFingerprint;
+    if (
+      !isRecord(fingerprint) ||
+      !hasExactKeys(fingerprint, [
+        "commandId",
+        "consecutive",
+        "diagnostics",
+        "exitCategory",
+        "failureClass",
+        "recordedAt",
+        "value"
+      ]) ||
+      typeof fingerprint.value !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(fingerprint.value) ||
+      typeof fingerprint.commandId !== "string" ||
+      typeof fingerprint.failureClass !== "string" ||
+      typeof fingerprint.exitCategory !== "string" ||
+      typeof fingerprint.diagnostics !== "string" ||
+      fingerprint.diagnostics.includes("\0") ||
+      Buffer.byteLength(fingerprint.diagnostics, "utf8") > 512 ||
+      !Number.isSafeInteger(fingerprint.consecutive) ||
+      (fingerprint.consecutive as number) <= 0 ||
+      !isTimestamp(fingerprint.recordedAt)
+    ) {
+      return invalidState(
+        "Task state contains an invalid failure fingerprint."
+      );
+    }
+    failureFingerprint = {
+      value: fingerprint.value,
+      commandId: fingerprint.commandId,
+      failureClass: fingerprint.failureClass,
+      exitCategory: fingerprint.exitCategory,
+      diagnostics: fingerprint.diagnostics,
+      consecutive: fingerprint.consecutive as number,
+      recordedAt: fingerprint.recordedAt
+    };
+  }
   return {
     task: task.value,
     status,
@@ -188,7 +237,8 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     completedAt: value.completedAt as string | null,
-    archivedAt: value.archivedAt as string | null
+    archivedAt: value.archivedAt as string | null,
+    failureFingerprint
   };
 }
 

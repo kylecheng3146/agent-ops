@@ -321,16 +321,21 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "The task command requires one of: create, status, attach, complete, archive, export."
     );
   }
-  const hasTaskOptions =
+  const hasTaskTargetOptions =
     taskId !== undefined ||
+    sessionId !== undefined;
+  const hasTaskMutationOptions =
     title !== undefined ||
     criteria.length > 0 ||
-    evidence.length > 0 ||
-    sessionId !== undefined;
-  if (command !== "task" && hasTaskOptions) {
+    evidence.length > 0;
+  if (
+    command !== "task" &&
+    command !== "verify" &&
+    (hasTaskTargetOptions || hasTaskMutationOptions)
+  ) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "Task options may be used only with the task command."
+      "Task target options may be used only with task or verify."
     );
   }
   if (command === "task") {
@@ -374,6 +379,22 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         `Unsupported option for task ${action}.`
       );
     }
+  }
+  if (
+    command === "verify" &&
+    (harness !== undefined ||
+      profiles.length > 0 ||
+      title !== undefined ||
+      criteria.length > 0 ||
+      evidence.length > 0 ||
+      dryRun ||
+      yes ||
+      (taskId !== undefined && sessionId !== undefined))
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Verify accepts only scope, task or session, and json options."
+    );
   }
 
   return {
