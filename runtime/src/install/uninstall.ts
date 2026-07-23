@@ -6,7 +6,11 @@ import type {
   ManagedMarkerRecord
 } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
-import { removeManagedBlock } from "../fs/managed-block.js";
+import {
+  applyManagedBlock,
+  managedBlockMarkers,
+  removeManagedBlock
+} from "../fs/managed-block.js";
 import { parseInstallManifest } from "../fs/manifest.js";
 import {
   AgentOpsError,
@@ -16,6 +20,11 @@ import {
   FileTransaction,
   type FileOperation
 } from "../fs/transaction.js";
+import {
+  COMMON_AGENTS_BLOCK,
+  COMMON_CLAUDE_BLOCK,
+  type HarnessId
+} from "./harness.js";
 
 const MANIFEST_PATH = ".agent-ops/manifest.json";
 const MAX_UNINSTALL_FILE_BYTES = 1024 * 1024;
@@ -30,6 +39,14 @@ export interface UninstallPlan {
 interface CurrentFile {
   content: string;
   hash: string;
+}
+
+interface ExpectedMarker {
+  id: string;
+  path: string;
+  startMarker: string;
+  endMarker: string;
+  content: string;
 }
 
 function isMissing(error: unknown): boolean {
@@ -124,26 +141,120 @@ function exactMarkerCount(source: string, marker: string): number {
   return count;
 }
 
+function selectedHarnesses(
+  manifest: InstallManifest
+): readonly HarnessId[] {
+  return manifest.harness === "both"
+    ? ["codex", "claude"]
+    : [manifest.harness];
+}
+
+function expectedMarker(
+  manifest: InstallManifest,
+  id: HarnessId
+): ExpectedMarker {
+  const isCodex = id === "codex";
+  const markerId = `${id}-routing`;
+  const markers = managedBlockMarkers(markerId, 1);
+  const instructionFile = isCodex ? "AGENTS.md" : "CLAUDE.md";
+  return {
+    id: markerId,
+    path:
+      manifest.scope === "project"
+        ? instructionFile
+        : `.${id}/${instructionFile}`,
+    startMarker: markers.start,
+    endMarker: markers.end,
+    content: isCodex ? COMMON_AGENTS_BLOCK : COMMON_CLAUDE_BLOCK
+  };
+}
+
+function manifestOwnershipError(): AgentOpsError {
+  return new AgentOpsError(
+    "MANIFEST_OWNERSHIP_INVALID",
+    "The manifest does not match a supported managed installation shape."
+  );
+}
+
+function assertSupportedManifestOwnership(
+  manifest: InstallManifest
+): Map<string, ExpectedMarker> {
+  const harnesses = selectedHarnesses(manifest);
+  const expectedArtifacts = new Map<string, string>([
+    ["config", ".agent-ops/config.json"]
+  ]);
+  const expectedMarkers = new Map<string, ExpectedMarker>();
+  for (const id of harnesses) {
+    expectedArtifacts.set(
+      `${id}-rules`,
+      `.agent-ops/${id === "codex" ? "AGENTS.md" : "CLAUDE.md"}`
+    );
+    const marker = expectedMarker(manifest, id);
+    expectedMarkers.set(marker.id, marker);
+  }
+  if (
+    manifest.artifacts.length !== expectedArtifacts.size ||
+    manifest.markers.length !== expectedMarkers.size
+  ) {
+    throw manifestOwnershipError();
+  }
+  for (const artifact of manifest.artifacts) {
+    if (expectedArtifacts.get(artifact.id) !== artifact.path) {
+      throw manifestOwnershipError();
+    }
+  }
+  for (const marker of manifest.markers) {
+    const expected = expectedMarkers.get(marker.id);
+    if (
+      expected === undefined ||
+      marker.path !== expected.path ||
+      marker.startMarker !== expected.startMarker ||
+      marker.endMarker !== expected.endMarker
+    ) {
+      throw manifestOwnershipError();
+    }
+  }
+  return expectedMarkers;
+}
+
 function assertOwnedMarker(
   source: string,
-  marker: ManagedMarkerRecord
+  marker: ManagedMarkerRecord,
+  expected: ExpectedMarker
 ): void {
+  const startIndex = source.indexOf(marker.startMarker);
+  const endIndex = source.indexOf(marker.endMarker);
   if (
     exactMarkerCount(source, marker.startMarker) !== 1 ||
     exactMarkerCount(source, marker.endMarker) !== 1 ||
-    source.indexOf(marker.startMarker) >=
-      source.indexOf(marker.endMarker)
+    startIndex >= endIndex
   ) {
     throw new AgentOpsError(
       "MANAGED_BLOCK_CHANGED",
       `Managed block boundaries changed after installation: ${marker.path}`
     );
   }
+  const expectedBlock = applyManagedBlock("", {
+    id: expected.id,
+    version: 1,
+    content: expected.content
+  }).replace(/\n$/u, "");
+  const currentBlock = source.slice(
+    startIndex,
+    endIndex + marker.endMarker.length
+  );
+  if (currentBlock !== expectedBlock) {
+    throw new AgentOpsError(
+      "MANAGED_BLOCK_CHANGED",
+      `Managed block content changed after installation: ${marker.path}`
+    );
+  }
 }
 
 async function planMarkerFiles(
   root: string,
-  markers: readonly ManagedMarkerRecord[]
+  markers: readonly ManagedMarkerRecord[],
+  expectedMarkers: ReadonlyMap<string, ExpectedMarker>
 ): Promise<FileOperation[]> {
   const grouped = new Map<string, ManagedMarkerRecord[]>();
   for (const marker of markers) {
@@ -163,7 +274,11 @@ async function planMarkerFiles(
     }
     let content = current.content;
     for (const marker of pathMarkers) {
-      assertOwnedMarker(content, marker);
+      const expected = expectedMarkers.get(marker.id);
+      if (expected === undefined) {
+        throw manifestOwnershipError();
+      }
+      assertOwnedMarker(content, marker, expected);
       try {
         content = removeManagedBlock(content, marker.id);
       } catch (error) {
@@ -205,6 +320,8 @@ export async function createUninstallPlan(
     };
   }
   const manifest = parseInstallManifest(currentManifest.content);
+  const expectedMarkers =
+    assertSupportedManifestOwnership(manifest);
   const operations: FileOperation[] = [];
   for (const artifact of manifest.artifacts) {
     const current = await readCurrentFile(root, artifact.path);
@@ -220,7 +337,13 @@ export async function createUninstallPlan(
       expectedHash: current.hash
     });
   }
-  operations.push(...await planMarkerFiles(root, manifest.markers));
+  operations.push(
+    ...await planMarkerFiles(
+      root,
+      manifest.markers,
+      expectedMarkers
+    )
+  );
   operations.push({
     kind: "remove",
     path: MANIFEST_PATH,

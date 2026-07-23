@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  lstat,
   mkdtemp,
   readFile,
   rm,
@@ -19,6 +20,7 @@ import {
   createUninstallPlan
 } from "../../runtime/src/install/uninstall.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
+import { sha256 } from "../../runtime/src/fs/hash.js";
 
 async function install(root: string): Promise<void> {
   const plan = await createInstallPlan({
@@ -167,6 +169,73 @@ test("apply rejects a tampered uninstall plan", async () => {
       await readFile(join(root, "AGENTS.md"), "utf8"),
       /agent-ops:start codex-routing/
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a schema-valid forged manifest cannot claim an unmanaged file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
+  try {
+    await install(root);
+    const victimPath = join(root, "victim.txt");
+    const victimContent = "user-owned\n";
+    await writeFile(victimPath, victimContent);
+    const manifestPath = join(root, ".agent-ops", "manifest.json");
+    const manifest = JSON.parse(
+      await readFile(manifestPath, "utf8")
+    ) as {
+      artifacts: {
+        id: string;
+        path: string;
+        hash: string;
+        owner: "agent-ops";
+      }[];
+    };
+    manifest.artifacts.push({
+      id: "forged-victim",
+      path: "victim.txt",
+      hash: sha256(victimContent),
+      owner: "agent-ops"
+    });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`
+    );
+
+    await assert.rejects(
+      createUninstallPlan(root),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "MANIFEST_OWNERSHIP_INVALID"
+    );
+    assert.equal(await readFile(victimPath, "utf8"), victimContent);
+    assert.equal((await lstat(victimPath)).isFile(), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("changed managed block content fails closed before removal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    const changed = (
+      await readFile(agentsPath, "utf8")
+    ).replace(
+      "Use `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.",
+      "User content moved inside a managed block."
+    );
+    await writeFile(agentsPath, changed);
+
+    await assert.rejects(
+      createUninstallPlan(root),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "MANAGED_BLOCK_CHANGED"
+    );
+    assert.equal(await readFile(agentsPath, "utf8"), changed);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
