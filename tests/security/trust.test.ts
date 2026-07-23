@@ -228,8 +228,10 @@ test("recovers an abandoned trust-store lock", async () => {
       ),
       `${JSON.stringify({
         choosing: false,
+        heartbeatFile:
+          `.agent-ops-process-${exitedProcessId}-00000000-0000-4000-8000-000000000000`,
         processId: exitedProcessId,
-        processIdentity: "exited-process",
+        processIdentity: "linux:1",
         createdAt: "2000-01-01T00:00:00Z",
         ticket: 1,
         token: "abandoned-lock-token"
@@ -264,6 +266,8 @@ test("distinguishes a reused PID from the current process instance", async () =>
   try {
     const stateDirectory = join(root, "state");
     const storePath = join(stateDirectory, "trust.json");
+    const previousIdentity =
+      "runtime:00000000-0000-4000-8000-000000000000";
     const stalePath = join(
       stateDirectory,
       `.trust.json.agent-ops-lock-${process.pid}-previous-instance`
@@ -274,8 +278,10 @@ test("distinguishes a reused PID from the current process instance", async () =>
       `${JSON.stringify({
         choosing: false,
         createdAt: "2000-01-01T00:00:00Z",
+        heartbeatFile:
+          `.agent-ops-process-${process.pid}-${previousIdentity.slice(8)}`,
         processId: process.pid,
-        processIdentity: "previous-process-instance",
+        processIdentity: previousIdentity,
         ticket: 1,
         token: "previous-instance"
       })}\n`
@@ -293,6 +299,61 @@ test("distinguishes a reused PID from the current process instance", async () =>
     assert.equal((await store.status(binding)).status, "TRUSTED");
     await assert.rejects(lstat(stalePath));
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("does not trust a live foreign PID without its heartbeat", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+  const unrelatedProcess = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => undefined, 1000)"],
+    { stdio: "ignore" }
+  );
+  try {
+    const unrelatedProcessId = unrelatedProcess.pid;
+    if (unrelatedProcessId === undefined) {
+      throw new Error("Expected the child process to have a PID.");
+    }
+    const stateDirectory = join(root, "state");
+    const storePath = join(stateDirectory, "trust.json");
+    const foreignIdentity =
+      "runtime:00000000-0000-4000-8000-000000000000";
+    const stalePath = join(
+      stateDirectory,
+      `.trust.json.agent-ops-lock-${unrelatedProcessId}-foreign-instance`
+    );
+    await mkdir(stateDirectory);
+    await writeFile(
+      stalePath,
+      `${JSON.stringify({
+        choosing: false,
+        createdAt: new Date().toISOString(),
+        heartbeatFile:
+          `.agent-ops-process-${unrelatedProcessId}-${foreignIdentity.slice(8)}`,
+        processId: unrelatedProcessId,
+        processIdentity: foreignIdentity,
+        ticket: 1,
+        token: "foreign-instance"
+      })}\n`
+    );
+    const store = new FileTrustStore(storePath, root);
+    const binding: TrustBinding = {
+      canonicalPath: join(root, "repository"),
+      remoteIdentity: "example.com/owner/foreign-pid",
+      configHash: CONFIG_HASH,
+      runtimeHash: RUNTIME_HASH
+    };
+
+    await store.grant(binding);
+
+    assert.equal((await store.status(binding)).status, "TRUSTED");
+    await assert.rejects(lstat(stalePath));
+  } finally {
+    unrelatedProcess.kill();
+    await new Promise<void>((resolve) => {
+      unrelatedProcess.once("exit", () => resolve());
+    });
     await rm(root, { recursive: true, force: true });
   }
 });

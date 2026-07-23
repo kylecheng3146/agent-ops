@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, rmSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -9,7 +9,8 @@ import {
   readFile,
   readdir,
   rename,
-  rm
+  rm,
+  utimes
 } from "node:fs/promises";
 import {
   basename,
@@ -65,6 +66,7 @@ function isAlreadyExists(error: unknown): boolean {
 interface PrivateLockRecord {
   choosing: boolean;
   createdAt: string;
+  heartbeatFile: string;
   processId: number;
   processIdentity: string;
   ticket: number;
@@ -77,15 +79,48 @@ interface ActiveParticipant {
 }
 
 const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
+const HEARTBEAT_INTERVAL_MS = 500;
+const HEARTBEAT_MAX_AGE_MS = 3_000;
 const PROCESS_IDENTITY_CACHE_MS = 250;
-const RECENT_PROCESS_RECORD_MS = 5 * 60 * 1000;
 const PROCESS_INSTANCE_TOKEN = randomUUID();
 const execFile = promisify(execFileCallback);
 const lockQueues = new Map<string, Promise<void>>();
+const heartbeatFailures = new Map<string, unknown>();
+const heartbeatPaths = new Set<string>();
+const processHeartbeats = new Map<string, Promise<string>>();
 const processIdentityCache = new Map<
   number,
   { checkedAt: number; identity: string | null }
 >();
+let heartbeatCleanupRegistered = false;
+
+function isValidProcessIdentity(
+  identity: string,
+  heartbeatFile: unknown,
+  processId: number
+): heartbeatFile is string {
+  const heartbeatMatch =
+    typeof heartbeatFile === "string"
+      ? new RegExp(
+          `^\\.agent-ops-process-${processId}-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`,
+          "u"
+        ).exec(heartbeatFile)
+      : null;
+  if (heartbeatMatch === null) {
+    return false;
+  }
+  const runtimeMatch =
+    /^runtime:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+      .test(identity);
+  if (runtimeMatch) {
+    return heartbeatMatch[1] === identity.slice(8);
+  }
+  return (
+    /^linux:\d+$/u.test(identity) ||
+    /^posix:[^\0\r\n]{1,240}$/u.test(identity) ||
+    /^windows:\d+$/u.test(identity)
+  );
+}
 
 function parseLockRecord(source: string): PrivateLockRecord | null {
   let value: unknown;
@@ -98,8 +133,9 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    Object.keys(value).length !== 6 ||
+    Object.keys(value).length !== 7 ||
     !("choosing" in value) ||
+    !("heartbeatFile" in value) ||
     !("processId" in value) ||
     !("processIdentity" in value) ||
     !("createdAt" in value) ||
@@ -111,6 +147,11 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
     typeof value.processIdentity !== "string" ||
     value.processIdentity.length === 0 ||
     value.processIdentity.length > 256 ||
+    !isValidProcessIdentity(
+      value.processIdentity,
+      value.heartbeatFile,
+      value.processId as number
+    ) ||
     typeof value.createdAt !== "string" ||
     !Number.isFinite(Date.parse(value.createdAt)) ||
     !Number.isSafeInteger(value.ticket) ||
@@ -124,11 +165,84 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
   return {
     choosing: value.choosing,
     createdAt: value.createdAt,
+    heartbeatFile: value.heartbeatFile,
     processId: value.processId as number,
     processIdentity: value.processIdentity,
     ticket: value.ticket as number,
     token: value.token
   };
+}
+
+function registerHeartbeatCleanup(): void {
+  if (heartbeatCleanupRegistered) {
+    return;
+  }
+  heartbeatCleanupRegistered = true;
+  process.once("exit", () => {
+    for (const heartbeatPath of heartbeatPaths) {
+      try {
+        rmSync(heartbeatPath, { force: true });
+      } catch {
+        process.emitWarning(
+          "A private-state heartbeat could not be removed during exit."
+        );
+      }
+    }
+  });
+}
+
+async function ensureProcessHeartbeat(
+  parent: string,
+  anchorDirectory: string
+): Promise<string> {
+  const cacheKey = `${resolve(anchorDirectory)}\0${resolve(parent)}`;
+  const existing = processHeartbeats.get(cacheKey);
+  if (existing !== undefined) {
+    return await existing;
+  }
+  const heartbeatFile =
+    `.agent-ops-process-${process.pid}-${PROCESS_INSTANCE_TOKEN}`;
+  const heartbeatPath = join(parent, heartbeatFile);
+  const creating = (async () => {
+    await ensurePrivateDirectory(parent, anchorDirectory);
+    const handle = await open(heartbeatPath, "wx", 0o600);
+    try {
+      await handle.writeFile(
+        `runtime:${PROCESS_INSTANCE_TOKEN}\n`,
+        "utf8"
+      );
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => {
+        process.emitWarning(
+          "A private-state heartbeat handle could not be closed."
+        );
+      });
+      await rm(heartbeatPath, { force: true }).catch(() => {
+        process.emitWarning(
+          "An incomplete private-state heartbeat could not be removed."
+        );
+      });
+      throw error;
+    }
+    await handle.close();
+    heartbeatPaths.add(heartbeatPath);
+    registerHeartbeatCleanup();
+    const timer = setInterval(() => {
+      void utimes(heartbeatPath, new Date(), new Date()).catch((error) => {
+        heartbeatFailures.set(cacheKey, error);
+      });
+    }, HEARTBEAT_INTERVAL_MS);
+    timer.unref();
+    return heartbeatFile;
+  })();
+  processHeartbeats.set(cacheKey, creating);
+  try {
+    return await creating;
+  } catch (error) {
+    processHeartbeats.delete(cacheKey);
+    throw error;
+  }
 }
 
 async function readLinuxProcessIdentity(
@@ -252,7 +366,9 @@ function isProcessActive(processId: number): boolean {
 }
 
 async function isProcessInstanceActive(
-  record: PrivateLockRecord
+  record: PrivateLockRecord,
+  parent: string,
+  anchorDirectory: string
 ): Promise<boolean> {
   if (!isProcessActive(record.processId)) {
     return false;
@@ -261,9 +377,31 @@ async function isProcessInstanceActive(
     const localIdentity = await readProcessIdentity(process.pid);
     return localIdentity === record.processIdentity;
   }
-  const ageMs = Date.now() - Date.parse(record.createdAt);
-  if (ageMs >= 0 && ageMs <= RECENT_PROCESS_RECORD_MS) {
-    return true;
+  const heartbeatPath = join(parent, record.heartbeatFile);
+  const heartbeatIdentity =
+    `runtime:${record.heartbeatFile.slice(-36)}`;
+  const source = await readPrivateFile(
+    heartbeatPath,
+    anchorDirectory
+  );
+  if (source !== null && source.trimEnd() === heartbeatIdentity) {
+    try {
+      const status = await lstat(heartbeatPath);
+      const ageMs = Date.now() - status.mtimeMs;
+      if (
+        ageMs >= -HEARTBEAT_MAX_AGE_MS &&
+        ageMs <= HEARTBEAT_MAX_AGE_MS
+      ) {
+        return true;
+      }
+    } catch (error) {
+      if (!isMissing(error)) {
+        throw error;
+      }
+    }
+  }
+  if (record.processIdentity.startsWith("runtime:")) {
+    return false;
   }
   const identity = await readProcessIdentity(record.processId);
   return identity === null || identity === record.processIdentity;
@@ -539,10 +677,14 @@ async function readActiveParticipants(
           `The current private state lock record is invalid: ${participantPath}`
         );
       }
-      await rm(participantPath);
+      await rm(participantPath, { force: true });
       continue;
     }
-    if (!await isProcessInstanceActive(record)) {
+    if (!await isProcessInstanceActive(
+      record,
+      parent,
+      anchorDirectory
+    )) {
       if (participantPath !== ownParticipantPath) {
         await removeOwnedParticipant(
           participantPath,
@@ -559,6 +701,7 @@ async function readActiveParticipants(
 async function refreshBlockers(
   blockers: readonly ActiveParticipant[],
   record: PrivateLockRecord,
+  parent: string,
   anchorDirectory: string
 ): Promise<ActiveParticipant[]> {
   const refreshed: ActiveParticipant[] = [];
@@ -572,10 +715,14 @@ async function refreshBlockers(
     }
     const current = parseLockRecord(source);
     if (current === null) {
-      await rm(blocker.path);
+      await rm(blocker.path, { force: true });
       continue;
     }
-    if (!await isProcessInstanceActive(current)) {
+    if (!await isProcessInstanceActive(
+      current,
+      parent,
+      anchorDirectory
+    )) {
       await removeOwnedParticipant(
         blocker.path,
         anchorDirectory
@@ -639,9 +786,24 @@ async function withTicketLock<T>(
   const processIdentity =
     await readProcessIdentity(process.pid) ??
     `runtime:${PROCESS_INSTANCE_TOKEN}`;
+  const heartbeatFile = await ensureProcessHeartbeat(
+    parent,
+    anchorDirectory
+  );
+  const heartbeatFailure = heartbeatFailures.get(
+    `${resolve(anchorDirectory)}\0${resolve(parent)}`
+  );
+  if (heartbeatFailure !== undefined) {
+    throw new AgentOpsError(
+      "PRIVATE_STATE_LOCK_IDENTITY_UNAVAILABLE",
+      "The private-state heartbeat could not be refreshed.",
+      { cause: heartbeatFailure }
+    );
+  }
   let record: PrivateLockRecord = {
     choosing: true,
     createdAt: new Date().toISOString(),
+    heartbeatFile,
     processId: process.pid,
     processIdentity,
     ticket: 0,
@@ -695,6 +857,7 @@ async function withTicketLock<T>(
       blockers = await refreshBlockers(
         blockers,
         record,
+        parent,
         anchorDirectory
       );
       if (blockers.length === 0) {
