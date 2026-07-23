@@ -100,9 +100,15 @@ export type InstallScope = "project" | "user";
 export type Harness = "both" | "claude" | "codex";
 
 export interface ManagedPathRecord {
+  id: string;
   path: string;
   hash: string;
   owner: string;
+}
+
+export interface ManagedMarkerRecord extends ManagedPathRecord {
+  startMarker: string;
+  endMarker: string;
 }
 
 export interface InstallManifest {
@@ -110,7 +116,7 @@ export interface InstallManifest {
   scope: InstallScope;
   harness: Harness;
   artifacts: ManagedPathRecord[];
-  markers: ManagedPathRecord[];
+  markers: ManagedMarkerRecord[];
 }
 
 export interface ValidationError {

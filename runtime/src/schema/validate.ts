@@ -4,6 +4,7 @@ import type {
   AgentTask,
   EvidenceRequirement,
   InstallManifest,
+  ManagedMarkerRecord,
   ManagedPathRecord,
   PathMapping,
   SecurityException,
@@ -136,8 +137,15 @@ function isIsoTimestamp(value: unknown): value is string {
   if (typeof value !== "string") {
     return false;
   }
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value
+    )
+  ) {
+    return false;
+  }
   const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+  return Number.isFinite(timestamp);
 }
 
 function hasUniqueStrings(values: readonly string[]): boolean {
@@ -376,6 +384,22 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   ]);
   if (isFailure(root)) {
     return root;
+  }
+
+  if (isRecord(root.verification) && Array.isArray(root.verification.commands)) {
+    for (const [index, command] of root.verification.commands.entries()) {
+      if (
+        isRecord(command) &&
+        command.shell === true &&
+        command.acknowledgeRisk !== true
+      ) {
+        return failure(
+          "SHELL_ACK_REQUIRED",
+          `$.verification.commands[${index}].acknowledgeRisk`,
+          "Shell execution requires acknowledgeRisk: true."
+        );
+      }
+    }
   }
 
   if (!Array.isArray(root.profiles)) {
@@ -665,14 +689,18 @@ export function validateEvidence(
 
 function validateManagedPath(
   value: unknown,
-  path: string
+  path: string,
+  allowedFields: readonly string[]
 ): ValidationResult<ManagedPathRecord> {
   if (!isRecord(value)) {
     return failure("INVALID_TYPE", path, "Expected a managed path record.");
   }
-  const unknown = unknownFieldFailure(value, ["hash", "owner", "path"], path);
+  const unknown = unknownFieldFailure(value, allowedFields, path);
   if (unknown !== undefined) {
     return unknown;
+  }
+  if (!isIdentifier(value.id)) {
+    return failure("INVALID_ID", `${path}.id`, "Invalid managed entry ID.");
   }
   if (!isSafeRelativePath(value.path)) {
     return failure(
@@ -692,6 +720,36 @@ function validateManagedPath(
     return failure("INVALID_ID", `${path}.owner`, "Invalid owner ID.");
   }
   return success(value as unknown as ManagedPathRecord);
+}
+
+function validateManagedMarker(
+  value: unknown,
+  path: string
+): ValidationResult<ManagedMarkerRecord> {
+  const base = validateManagedPath(value, path, [
+    "endMarker",
+    "hash",
+    "id",
+    "owner",
+    "path",
+    "startMarker"
+  ]);
+  if (!base.ok) {
+    return base;
+  }
+  const marker = value as UnknownRecord;
+  if (
+    !isNonEmptyString(marker.startMarker) ||
+    !isNonEmptyString(marker.endMarker) ||
+    marker.startMarker === marker.endMarker
+  ) {
+    return failure(
+      "INVALID_MARKER_BOUNDARY",
+      path,
+      "Marker boundaries must be distinct non-empty strings."
+    );
+  }
+  return success(value as unknown as ManagedMarkerRecord);
 }
 
 export function validateManifest(
@@ -721,28 +779,72 @@ export function validateManifest(
     );
   }
 
-  const ownedPaths = new Set<string>();
-  for (const [collectionName, collection] of [
-    ["artifacts", root.artifacts],
-    ["markers", root.markers]
-  ] as const) {
-    for (const [index, recordValue] of collection.entries()) {
-      const record = validateManagedPath(
-        recordValue,
-        `$.${collectionName}[${index}]`
-      );
-      if (!record.ok) {
-        return record;
-      }
-      if (ownedPaths.has(record.value.path)) {
-        return failure(
-          "DUPLICATE_OWNERSHIP",
-          `$.${collectionName}[${index}].path`,
-          `Managed path is owned more than once: ${record.value.path}`
-        );
-      }
-      ownedPaths.add(record.value.path);
+  const entryIds = new Set<string>();
+  const artifactPaths = new Set<string>();
+  for (const [index, artifactValue] of root.artifacts.entries()) {
+    const artifact = validateManagedPath(
+      artifactValue,
+      `$.artifacts[${index}]`,
+      ["hash", "id", "owner", "path"]
+    );
+    if (!artifact.ok) {
+      return artifact;
     }
+    if (entryIds.has(artifact.value.id)) {
+      return failure(
+        "DUPLICATE_ID",
+        `$.artifacts[${index}].id`,
+        `Duplicate manifest entry ID: ${artifact.value.id}`
+      );
+    }
+    if (artifactPaths.has(artifact.value.path)) {
+      return failure(
+        "DUPLICATE_OWNERSHIP",
+        `$.artifacts[${index}].path`,
+        `Artifact path is owned more than once: ${artifact.value.path}`
+      );
+    }
+    entryIds.add(artifact.value.id);
+    artifactPaths.add(artifact.value.path);
+  }
+
+  const markerRegions = new Set<string>();
+  for (const [index, markerValue] of root.markers.entries()) {
+    const marker = validateManagedMarker(
+      markerValue,
+      `$.markers[${index}]`
+    );
+    if (!marker.ok) {
+      return marker;
+    }
+    if (entryIds.has(marker.value.id)) {
+      return failure(
+        "DUPLICATE_ID",
+        `$.markers[${index}].id`,
+        `Duplicate manifest entry ID: ${marker.value.id}`
+      );
+    }
+    if (artifactPaths.has(marker.value.path)) {
+      return failure(
+        "DUPLICATE_OWNERSHIP",
+        `$.markers[${index}].path`,
+        `A whole-file artifact and marker cannot own the same path: ${marker.value.path}`
+      );
+    }
+    const region = [
+      marker.value.path,
+      marker.value.startMarker,
+      marker.value.endMarker
+    ].join("\0");
+    if (markerRegions.has(region)) {
+      return failure(
+        "DUPLICATE_OWNERSHIP",
+        `$.markers[${index}]`,
+        `Marker region is owned more than once: ${marker.value.path}`
+      );
+    }
+    entryIds.add(marker.value.id);
+    markerRegions.add(region);
   }
   return success(root as unknown as InstallManifest);
 }

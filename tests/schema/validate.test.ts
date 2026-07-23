@@ -15,6 +15,12 @@ async function readJsonFixture(name: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8")) as unknown;
 }
 
+async function readJsonSchema(name: string): Promise<Record<string, unknown>> {
+  return JSON.parse(
+    await readFile(resolve("schemas", name), "utf8")
+  ) as Record<string, unknown>;
+}
+
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -44,6 +50,18 @@ test("rejects shell execution without explicit acknowledgement", async () => {
 
   assert.equal(result.ok, false);
   assert.match(firstErrorCode(result), /SHELL_ACK_REQUIRED/);
+});
+
+test("prioritizes shell acknowledgement for the mandated minimal input", () => {
+  const result = validateConfig({
+    schemaVersion: 1,
+    verification: {
+      commands: [{ id: "test", command: "npm test", shell: true }]
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(firstErrorCode(result), "SHELL_ACK_REQUIRED");
 });
 
 test("returns stable codes for invalid config fixtures", async () => {
@@ -81,6 +99,44 @@ test("rejects portable-path violations before command execution is possible", as
     assert.equal(result.ok, false, invalidPath);
     assert.equal(firstErrorCode(result), "INVALID_RELATIVE_PATH", invalidPath);
   }
+});
+
+test("keeps runtime and JSON Schema path-segment rules aligned", async () => {
+  const valid = (await readJsonFixture("valid-config.json")) as {
+    pathMappings: { path: string }[];
+  };
+  const value = cloneJson(valid);
+  value.pathMappings[0]!.path = "src/./feature";
+
+  assert.equal(
+    firstErrorCode(validateConfig(value)),
+    "INVALID_RELATIVE_PATH"
+  );
+
+  const schema = await readJsonSchema("config.schema.json");
+  const definitions = schema.$defs as Record<
+    string,
+    { pattern?: string }
+  >;
+  const pattern = definitions.relativePath?.pattern;
+  assert.equal(typeof pattern, "string");
+  assert.equal(new RegExp(pattern ?? "").test("src/./feature"), false);
+});
+
+test("accepts standard RFC 3339 timestamps without milliseconds", async () => {
+  const config = (await readJsonFixture("valid-config.json")) as {
+    securityExceptions: { expiresAt: string }[];
+  };
+  config.securityExceptions[0]!.expiresAt = "2027-01-01T00:00:00Z";
+  assert.equal(validateConfig(config).ok, true);
+
+  const evidence = (await readJsonFixture("valid-evidence.json")) as {
+    startedAt: string;
+    finishedAt: string;
+  };
+  evidence.startedAt = "2026-07-23T09:00:00Z";
+  evidence.finishedAt = "2026-07-23T10:00:01+01:00";
+  assert.equal(validateEvidence(evidence).ok, true);
 });
 
 test("requires two to five unique task criteria", async () => {
@@ -155,6 +211,38 @@ test("rejects invalid manifest hashes, paths, and duplicate ownership", async ()
   );
 });
 
+test("uses stable manifest IDs and marker boundaries", async () => {
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    artifacts: Record<string, unknown>[];
+    markers: Record<string, unknown>[];
+  };
+  manifest.artifacts[0]!.id = "config";
+  manifest.markers[0]!.id = "agents-routing";
+  manifest.markers[0]!.startMarker = "<!-- agent-ops:start:agents-routing -->";
+  manifest.markers[0]!.endMarker = "<!-- agent-ops:end:agents-routing -->";
+
+  const secondMarker = cloneJson(manifest.markers[0]!);
+  secondMarker.id = "agents-review";
+  secondMarker.startMarker = "<!-- agent-ops:start:agents-review -->";
+  secondMarker.endMarker = "<!-- agent-ops:end:agents-review -->";
+  manifest.markers.push(secondMarker);
+  assert.equal(validateManifest(manifest).ok, true);
+
+  const duplicateId = cloneJson(manifest);
+  duplicateId.markers[1]!.id = "config";
+  assert.equal(firstErrorCode(validateManifest(duplicateId)), "DUPLICATE_ID");
+
+  const duplicateBoundary = cloneJson(manifest);
+  duplicateBoundary.markers[1]!.startMarker =
+    duplicateBoundary.markers[0]!.startMarker;
+  duplicateBoundary.markers[1]!.endMarker =
+    duplicateBoundary.markers[0]!.endMarker;
+  assert.equal(
+    firstErrorCode(validateManifest(duplicateBoundary)),
+    "DUPLICATE_OWNERSHIP"
+  );
+});
+
 test("JSON Schema documents expose the same top-level versioned fields", async () => {
   const cases = [
     ["config.schema.json", "valid-config.json"],
@@ -164,9 +252,7 @@ test("JSON Schema documents expose the same top-level versioned fields", async (
   ] as const;
 
   for (const [schemaName, fixtureName] of cases) {
-    const schema = JSON.parse(
-      await readFile(resolve("schemas", schemaName), "utf8")
-    ) as {
+    const schema = (await readJsonSchema(schemaName)) as {
       additionalProperties?: boolean;
       properties?: Record<string, { const?: unknown }>;
       required?: string[];

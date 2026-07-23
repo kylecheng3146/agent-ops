@@ -4,6 +4,7 @@
   "harness": "both",
   "artifacts": [
     {
+      "id": "config",
       "path": ".agent-ops/config.json",
       "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "owner": "agent-ops"
@@ -11,9 +12,12 @@
   ],
   "markers": [
     {
+      "id": "agents-routing",
       "path": "AGENTS.md",
       "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "owner": "agent-ops"
+      "owner": "agent-ops",
+      "startMarker": "<!-- agent-ops:start:agents-routing -->",
+      "endMarker": "<!-- agent-ops:end:agents-routing -->"
     }
   ]
 }

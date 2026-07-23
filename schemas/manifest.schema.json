@@ -24,7 +24,7 @@
     "markers": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/managedPath"
+        "$ref": "#/$defs/managedMarker"
       }
     }
   },
@@ -39,13 +39,16 @@
     },
     "relativePath": {
       "type": "string",
-      "pattern": "^(?:\\.|(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*)$"
+      "pattern": "^(?:\\.|(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*)$"
     },
     "managedPath": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "hash", "owner"],
+      "required": ["id", "path", "hash", "owner"],
       "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
         "path": {
           "$ref": "#/$defs/relativePath"
         },
@@ -54,6 +57,40 @@
         },
         "owner": {
           "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "managedMarker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "hash",
+        "owner",
+        "startMarker",
+        "endMarker"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "owner": {
+          "$ref": "#/$defs/id"
+        },
+        "startMarker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endMarker": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }
