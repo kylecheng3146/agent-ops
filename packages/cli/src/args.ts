@@ -235,6 +235,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "A command, --help, or --version is required."
     );
   }
+  if (command === "trust" && action === undefined) {
+    throw new CliArgumentError(
+      "CLI_ACTION_REQUIRED",
+      "The trust command requires one of: status, grant, revoke."
+    );
+  }
 
   return {
     command,

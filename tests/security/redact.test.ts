@@ -8,13 +8,21 @@ test("redacts credential-shaped synthetic values", () => {
   const apiToken = ["sk", "-", "b".repeat(30)].join("");
   const queryValue = "synthetic-query-value";
   const headerValue = "synthetic-header-value";
+  const tokenHeaderValue = "synthetic-token-header-value";
+  const digestHeaderValue = "synthetic-digest-header-value";
   const environmentValue = "synthetic-environment-value";
+  const singleQuotedValue = "synthetic single quoted value";
+  const jsonValue = 'synthetic \\"json\\" value';
   const privateMaterial = "SYNTHETIC_PRIVATE_MATERIAL";
   const privateHeader = ["-----BEGIN ", "PRIVATE KEY-----"].join("");
   const privateFooter = ["-----END ", "PRIVATE KEY-----"].join("");
   const source = [
     ["token", "=", environmentValue].join(""),
     ["Authorization", ": Bearer ", headerValue].join(""),
+    ["Authorization", ": token ", tokenHeaderValue].join(""),
+    ["Authorization", ": Digest ", digestHeaderValue].join(""),
+    ["token", "='", singleQuotedValue, "'"].join(""),
+    ['{"access_', 'token":"', jsonValue, '"}'].join(""),
     [
       "https://example.com/path?",
       "token",
@@ -36,7 +44,11 @@ test("redacts credential-shaped synthetic values", () => {
     apiToken,
     queryValue,
     headerValue,
+    tokenHeaderValue,
+    digestHeaderValue,
     environmentValue,
+    singleQuotedValue,
+    jsonValue,
     privateMaterial
   ]) {
     assert.doesNotMatch(redacted, new RegExp(secret));

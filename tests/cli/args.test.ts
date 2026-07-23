@@ -45,7 +45,8 @@ test("recognizes every top-level command", () => {
   ]);
 
   for (const command of COMMAND_NAMES) {
-    assert.equal(parseArgs([command]).command, command);
+    const argv = command === "trust" ? [command, "status"] : [command];
+    assert.equal(parseArgs(argv).command, command);
   }
 });
 

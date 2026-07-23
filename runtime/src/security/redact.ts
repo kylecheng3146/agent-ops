@@ -12,7 +12,7 @@ const AUTHORIZATION_HEADER = new RegExp(
     "(",
     "Authorization",
     "[ \\t]*:[ \\t]*)",
-    "(?:Basic|Bearer)\\s+[^\\r\\n]+"
+    "[^\\r\\n]+"
   ].join(""),
   "gi"
 );
@@ -26,11 +26,23 @@ const KNOWN_TOKEN = new RegExp(
   ].join(""),
   "g"
 );
-const KEY_VALUE = new RegExp(
+const SENSITIVE_KEY = [
+  "(?:access[_-]?token|api[_-]?key|client[_-]?secret|",
+  "password|token)"
+].join("");
+const QUOTED_KEY_VALUE = new RegExp(
   [
-    "(\\b(?:access[_-]?token|api[_-]?key|client[_-]?secret|",
-    "password|token)\\b[ \\t]*[:=][ \\t]*)",
-    "([^\\s\"'&;]+)"
+    `(\\b${SENSITIVE_KEY}\\b["']?[ \\t]*[:=][ \\t]*)`,
+    "([\"'])",
+    "(?:\\\\.|(?!\\2)[^\\r\\n\\\\])*",
+    "\\2"
+  ].join(""),
+  "gi"
+);
+const UNQUOTED_KEY_VALUE = new RegExp(
+  [
+    `(\\b${SENSITIVE_KEY}\\b[ \\t]*[:=][ \\t]*)`,
+    "([^\\s\"'&;,}]+)"
   ].join(""),
   "gi"
 );
@@ -43,5 +55,6 @@ export function redactSecrets(value: string): string {
     )
     .replace(AUTHORIZATION_HEADER, "$1[REDACTED_AUTHORIZATION]")
     .replace(KNOWN_TOKEN, "[REDACTED_TOKEN]")
-    .replace(KEY_VALUE, "$1[REDACTED_VALUE]");
+    .replace(QUOTED_KEY_VALUE, "$1$2[REDACTED_VALUE]$2")
+    .replace(UNQUOTED_KEY_VALUE, "$1[REDACTED_VALUE]");
 }

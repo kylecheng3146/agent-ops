@@ -1,6 +1,7 @@
 import { AgentOpsError } from "../fs/paths.js";
 import {
   readPrivateFile,
+  withPrivateFileLock,
   writePrivateFile
 } from "../security/permissions.js";
 import { redactSecrets } from "../security/redact.js";
@@ -32,9 +33,10 @@ export type LocalLogEvent =
   | TrustChangeLogEvent;
 
 export interface LocalLogOptions {
-  now?: string;
+  anchorDirectory: string;
   maxAgeMs?: number;
   maxBytes?: number;
+  now?: string;
 }
 
 interface StoredEvent {
@@ -204,7 +206,7 @@ function positiveOption(
 export async function appendLocalLog(
   path: string,
   event: LocalLogEvent,
-  options: LocalLogOptions = {}
+  options: LocalLogOptions
 ): Promise<void> {
   const now = options.now ?? new Date().toISOString();
   const nowMs = Date.parse(now);
@@ -231,29 +233,43 @@ export async function appendLocalLog(
     );
   }
 
-  const source = await readPrivateFile(path);
-  const retained =
-    source === null || source.length === 0
-      ? []
-      : source
-          .split("\n")
-          .filter((line) => line.length > 0)
-          .map(parseStoredLine)
-          .filter(
-            (entry) => nowMs - Date.parse(entry.timestamp) <= maxAgeMs
-          );
-  retained.push(storedEvent);
+  await withPrivateFileLock(
+    path,
+    options.anchorDirectory,
+    async () => {
+      const source = await readPrivateFile(
+        path,
+        options.anchorDirectory
+      );
+      const retained =
+        source === null || source.length === 0
+          ? []
+          : source
+              .split("\n")
+              .filter((line) => line.length > 0)
+              .map(parseStoredLine)
+              .filter(
+                (entry) =>
+                  nowMs - Date.parse(entry.timestamp) <= maxAgeMs
+              );
+      retained.push(storedEvent);
 
-  let serialized = retained.map(serialize);
-  let totalBytes = serialized.reduce(
-    (total, line) => total + Buffer.byteLength(line),
-    0
-  );
-  while (serialized.length > 1 && totalBytes > maxBytes) {
-    const removed = serialized.shift();
-    if (removed !== undefined) {
-      totalBytes -= Buffer.byteLength(removed);
+      const serialized = retained.map(serialize);
+      let totalBytes = serialized.reduce(
+        (total, line) => total + Buffer.byteLength(line),
+        0
+      );
+      while (serialized.length > 1 && totalBytes > maxBytes) {
+        const removed = serialized.shift();
+        if (removed !== undefined) {
+          totalBytes -= Buffer.byteLength(removed);
+        }
+      }
+      await writePrivateFile(
+        path,
+        serialized.join(""),
+        options.anchorDirectory
+      );
     }
-  }
-  await writePrivateFile(path, serialized.join(""));
+  );
 }

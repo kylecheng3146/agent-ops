@@ -30,7 +30,7 @@ test("writes only allowlisted redacted event fields with private permissions", a
         code: "VERIFY_FAILED",
         message: syntheticHeader
       },
-      { now: "2026-07-23T00:00:00Z" }
+      { anchorDirectory: root, now: "2026-07-23T00:00:00Z" }
     );
     const content = await readFile(path, "utf8");
     assert.doesNotMatch(content, /synthetic-header-value/);
@@ -48,7 +48,8 @@ test("writes only allowlisted redacted event fields with private permissions", a
           code: "BAD",
           message: "safe",
           prompt: "must not persist"
-        } as unknown as LocalLogEvent
+        } as unknown as LocalLogEvent,
+        { anchorDirectory: root }
       ),
       (error: unknown) =>
         error instanceof AgentOpsError && error.code === "LOG_EVENT_INVALID"
@@ -67,6 +68,7 @@ test("prunes local logs by age and total bytes", async () => {
       { type: "diagnostic", code: "OLD", message: "old event" },
       {
         now: "2026-07-20T00:00:00Z",
+        anchorDirectory: root,
         maxAgeMs: 7 * 24 * 60 * 60 * 1_000,
         maxBytes: 320
       }
@@ -81,6 +83,7 @@ test("prunes local logs by age and total bytes", async () => {
         },
         {
           now: `2026-07-23T00:00:0${index}Z`,
+          anchorDirectory: root,
           maxAgeMs: 24 * 60 * 60 * 1_000,
           maxBytes: 320
         }
@@ -90,6 +93,39 @@ test("prunes local logs by age and total bytes", async () => {
     assert.doesNotMatch(content, /"code":"OLD"/);
     assert.match(content, /"code":"NEW-4"/);
     assert.ok(Buffer.byteLength(content) <= 320);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("serializes concurrent appends without dropping events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-log-"));
+  try {
+    const path = join(root, "events.ndjson");
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        appendLocalLog(
+          path,
+          {
+            type: "diagnostic",
+            code: `EVENT-${index}`,
+            message: "concurrent event"
+          },
+          {
+            now: `2026-07-23T00:00:${String(index).padStart(2, "0")}Z`,
+            anchorDirectory: root,
+            maxBytes: 16_384
+          }
+        )
+      )
+    );
+
+    const content = await readFile(path, "utf8");
+    const lines = content.trim().split("\n");
+    assert.equal(lines.length, 12);
+    for (let index = 0; index < 12; index += 1) {
+      assert.match(content, new RegExp(`"code":"EVENT-${index}"`));
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

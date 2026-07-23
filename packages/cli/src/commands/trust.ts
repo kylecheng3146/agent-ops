@@ -45,49 +45,51 @@ export async function runTrustCommand(
 ): Promise<CliEnvelope<TrustCommandData>> {
   const binding = await options.calculateBinding();
 
-  if (options.action === "status") {
-    const trust = await options.store.status(binding);
-    return okEnvelope("TRUST_STATUS", {
-      binding,
-      trust,
-      message: `Repository trust status: ${trust.status}`
-    });
-  }
+  switch (options.action) {
+    case "status": {
+      const trust = await options.store.status(binding);
+      return okEnvelope("TRUST_STATUS", {
+        binding,
+        trust,
+        message: `Repository trust status: ${trust.status}`
+      });
+    }
+    case "revoke": {
+      const revoked = await options.store.revoke(binding);
+      return okEnvelope("TRUST_REVOKED", {
+        binding,
+        revoked,
+        message: revoked
+          ? "Repository trust was revoked."
+          : "No exact repository trust record existed."
+      });
+    }
+    case "grant": {
+      await options.presentBinding(binding);
+      if (!options.isTTY && !options.yes) {
+        return trustError(
+          "TRUST_CONFIRMATION_REQUIRED",
+          "Non-interactive trust grant requires: agent-ops trust grant --yes",
+          binding
+        );
+      }
+      if (
+        options.isTTY &&
+        !options.yes &&
+        !(await options.confirmGrant(binding))
+      ) {
+        return trustError(
+          "TRUST_GRANT_CANCELLED",
+          "Repository trust was not granted.",
+          binding
+        );
+      }
 
-  if (options.action === "revoke") {
-    const revoked = await options.store.revoke(binding);
-    return okEnvelope("TRUST_REVOKED", {
-      binding,
-      revoked,
-      message: revoked
-        ? "Repository trust was revoked."
-        : "No exact repository trust record existed."
-    });
+      await options.store.grant(binding);
+      return okEnvelope("TRUST_GRANTED", {
+        binding,
+        message: "Repository trust was granted for the displayed binding."
+      });
+    }
   }
-
-  await options.presentBinding(binding);
-  if (!options.isTTY && !options.yes) {
-    return trustError(
-      "TRUST_CONFIRMATION_REQUIRED",
-      "Non-interactive trust grant requires: agent-ops trust grant --yes",
-      binding
-    );
-  }
-  if (
-    options.isTTY &&
-    !options.yes &&
-    !(await options.confirmGrant(binding))
-  ) {
-    return trustError(
-      "TRUST_GRANT_CANCELLED",
-      "Repository trust was not granted.",
-      binding
-    );
-  }
-
-  await options.store.grant(binding);
-  return okEnvelope("TRUST_GRANTED", {
-    binding,
-    message: "Repository trust was granted for the displayed binding."
-  });
 }

@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from "node:path";
 import { AgentOpsError } from "../fs/paths.js";
 import {
   readPrivateFile,
+  withPrivateFileLock,
   writePrivateFile
 } from "./permissions.js";
 
@@ -264,20 +265,25 @@ function matchScore(left: TrustBinding, right: TrustBinding): number {
 }
 
 export class FileTrustStore implements TrustStore {
+  readonly #anchorDirectory: string;
   readonly #path: string;
 
-  constructor(path: string) {
+  constructor(path: string, anchorDirectory: string) {
     this.#path = path;
+    this.#anchorDirectory = anchorDirectory;
   }
 
   async #read(): Promise<TrustStoreFile> {
-    return parseTrustStore(await readPrivateFile(this.#path));
+    return parseTrustStore(
+      await readPrivateFile(this.#path, this.#anchorDirectory)
+    );
   }
 
   async #write(store: TrustStoreFile): Promise<void> {
     await writePrivateFile(
       this.#path,
-      `${JSON.stringify(store, null, 2)}\n`
+      `${JSON.stringify(store, null, 2)}\n`,
+      this.#anchorDirectory
     );
   }
 
@@ -321,26 +327,38 @@ export class FileTrustStore implements TrustStore {
         "Trust grant timestamp must be an ISO-compatible timestamp."
       );
     }
-    const store = await this.#read();
-    const records = store.records.filter(
-      (record) =>
-        record.binding.canonicalPath !== binding.canonicalPath &&
-        record.binding.remoteIdentity !== binding.remoteIdentity
+    await withPrivateFileLock(
+      this.#path,
+      this.#anchorDirectory,
+      async () => {
+        const store = await this.#read();
+        const records = store.records.filter(
+          (record) =>
+            record.binding.canonicalPath !== binding.canonicalPath &&
+            record.binding.remoteIdentity !== binding.remoteIdentity
+        );
+        records.push({ binding: structuredClone(binding), grantedAt });
+        await this.#write({ schemaVersion: 1, records });
+      }
     );
-    records.push({ binding: structuredClone(binding), grantedAt });
-    await this.#write({ schemaVersion: 1, records });
   }
 
   async revoke(binding: TrustBinding): Promise<boolean> {
     assertBinding(binding);
-    const store = await this.#read();
-    const records = store.records.filter(
-      (record) => !sameBinding(record.binding, binding)
+    return await withPrivateFileLock(
+      this.#path,
+      this.#anchorDirectory,
+      async () => {
+        const store = await this.#read();
+        const records = store.records.filter(
+          (record) => !sameBinding(record.binding, binding)
+        );
+        if (records.length === store.records.length) {
+          return false;
+        }
+        await this.#write({ schemaVersion: 1, records });
+        return true;
+      }
     );
-    if (records.length === store.records.length) {
-      return false;
-    }
-    await this.#write({ schemaVersion: 1, records });
-    return true;
   }
 }

@@ -1,18 +1,28 @@
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   chmod,
   lstat,
   mkdir,
   open,
-  readFile,
   rename,
   rm
 } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep
+} from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { AgentOpsError } from "../fs/paths.js";
 
 export interface LocalStatePaths {
+  anchorDirectory: string;
   root: string;
   trustStore: string;
   logDirectory: string;
@@ -22,6 +32,7 @@ export interface LocalStatePaths {
 export function localStatePaths(homeDirectory: string): LocalStatePaths {
   const root = join(homeDirectory, ".agent-ops", "state");
   return {
+    anchorDirectory: homeDirectory,
     root,
     trustStore: join(root, "trust.json"),
     logDirectory: join(root, "logs"),
@@ -36,6 +47,95 @@ function isMissing(error: unknown): boolean {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EEXIST"
+  );
+}
+
+function privateStateError(path: string, cause?: unknown): AgentOpsError {
+  return new AgentOpsError(
+    "PRIVATE_STATE_PATH_INVALID",
+    `Private state path is outside its anchor or contains a symlink: ${path}`,
+    { cause }
+  );
+}
+
+function containedSegments(
+  path: string,
+  anchorDirectory: string
+): { anchor: string; segments: string[] } {
+  const anchor = resolve(anchorDirectory);
+  const candidate = resolve(path);
+  const fromAnchor = relative(anchor, candidate);
+  if (
+    !isAbsolute(anchorDirectory) ||
+    !isAbsolute(path) ||
+    fromAnchor === ".." ||
+    fromAnchor.startsWith(`..${sep}`) ||
+    isAbsolute(fromAnchor)
+  ) {
+    throw privateStateError(path);
+  }
+  return {
+    anchor,
+    segments:
+      fromAnchor.length === 0 ? [] : fromAnchor.split(sep)
+  };
+}
+
+async function assertAnchor(anchor: string): Promise<void> {
+  let status;
+  try {
+    status = await lstat(anchor);
+  } catch (error) {
+    throw privateStateError(anchor, error);
+  }
+  if (!status.isDirectory() || status.isSymbolicLink()) {
+    throw privateStateError(anchor);
+  }
+}
+
+async function inspectPath(
+  path: string,
+  anchorDirectory: string,
+  leafKind: "directory" | "file"
+): Promise<boolean> {
+  const { anchor, segments } = containedSegments(path, anchorDirectory);
+  await assertAnchor(anchor);
+  let current = anchor;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    current = join(current, segments[index]);
+    let status;
+    try {
+      status = await lstat(current);
+    } catch (error) {
+      if (isMissing(error)) {
+        return false;
+      }
+      throw error;
+    }
+    const isLeaf = index === segments.length - 1;
+    if (
+      status.isSymbolicLink() ||
+      (!isLeaf && !status.isDirectory()) ||
+      (isLeaf &&
+        ((leafKind === "directory" && !status.isDirectory()) ||
+          (leafKind === "file" && !status.isFile())))
+    ) {
+      throw privateStateError(current);
+    }
+    if (!isLeaf) {
+      await chmod(current, 0o700);
+    }
+  }
+  return true;
 }
 
 async function syncDirectory(path: string): Promise<void> {
@@ -61,58 +161,77 @@ async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-export async function ensurePrivateDirectory(path: string): Promise<void> {
-  await mkdir(path, { recursive: true, mode: 0o700 });
-  const status = await lstat(path);
-  if (!status.isDirectory() || status.isSymbolicLink()) {
-    throw new AgentOpsError(
-      "PRIVATE_STATE_PATH_INVALID",
-      `Private state path must be a directory: ${path}`
-    );
+export async function ensurePrivateDirectory(
+  path: string,
+  anchorDirectory: string
+): Promise<void> {
+  const { anchor, segments } = containedSegments(path, anchorDirectory);
+  await assertAnchor(anchor);
+  let current = anchor;
+
+  for (const segment of segments) {
+    current = join(current, segment);
+    try {
+      await mkdir(current, { mode: 0o700 });
+    } catch (error) {
+      if (!isAlreadyExists(error)) {
+        throw error;
+      }
+    }
+    const status = await lstat(current);
+    if (!status.isDirectory() || status.isSymbolicLink()) {
+      throw privateStateError(current);
+    }
+    await chmod(current, 0o700);
   }
-  await chmod(path, 0o700);
 }
 
 export async function readPrivateFile(
-  path: string
+  path: string,
+  anchorDirectory: string
 ): Promise<string | null> {
+  const exists = await inspectPath(path, anchorDirectory, "file");
+  if (!exists) {
+    return null;
+  }
+  let handle;
   try {
-    const status = await lstat(path);
-    if (!status.isFile() || status.isSymbolicLink()) {
-      throw new AgentOpsError(
-        "PRIVATE_STATE_PATH_INVALID",
-        `Private state path must be a regular file: ${path}`
-      );
+    handle = await open(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW
+    );
+    const status = await handle.stat();
+    if (!status.isFile()) {
+      throw privateStateError(path);
     }
-    await chmod(path, 0o600);
-    return await readFile(path, "utf8");
+    await handle.chmod(0o600);
+    return await handle.readFile("utf8");
   } catch (error) {
     if (isMissing(error)) {
       return null;
     }
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      ["ELOOP", "EMLINK"].includes(String(error.code))
+    ) {
+      throw privateStateError(path, error);
+    }
     throw error;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 
 export async function writePrivateFile(
   path: string,
-  content: string
+  content: string,
+  anchorDirectory: string
 ): Promise<void> {
   const parent = dirname(path);
-  await ensurePrivateDirectory(parent);
-  try {
-    const existing = await lstat(path);
-    if (!existing.isFile() || existing.isSymbolicLink()) {
-      throw new AgentOpsError(
-        "PRIVATE_STATE_PATH_INVALID",
-        `Private state path must be a regular file: ${path}`
-      );
-    }
-  } catch (error) {
-    if (!isMissing(error)) {
-      throw error;
-    }
-  }
+  await ensurePrivateDirectory(parent, anchorDirectory);
+  await inspectPath(path, anchorDirectory, "file");
 
   const temporaryPath = join(
     parent,
@@ -133,5 +252,62 @@ export async function writePrivateFile(
     await handle?.close().catch(() => undefined);
     await rm(temporaryPath, { force: true }).catch(() => undefined);
     throw error;
+  }
+}
+
+export async function withPrivateFileLock<T>(
+  path: string,
+  anchorDirectory: string,
+  action: () => Promise<T>
+): Promise<T> {
+  const parent = dirname(path);
+  await ensurePrivateDirectory(parent, anchorDirectory);
+  const lockPath = `${path}.lock`;
+  const deadline = Date.now() + 5_000;
+  let handle;
+
+  while (handle === undefined) {
+    let candidate;
+    try {
+      candidate = await open(lockPath, "wx", 0o600);
+      await candidate.writeFile(
+        `${JSON.stringify({
+          processId: process.pid,
+          createdAt: new Date().toISOString()
+        })}\n`,
+        "utf8"
+      );
+      await candidate.sync();
+      handle = candidate;
+    } catch (error) {
+      await candidate?.close().catch(() => undefined);
+      if (candidate !== undefined) {
+        await rm(lockPath, { force: true }).catch(() => undefined);
+      }
+      if (!isAlreadyExists(error)) {
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw new AgentOpsError(
+          "PRIVATE_STATE_LOCK_TIMEOUT",
+          `Timed out waiting for private state lock: ${path}`,
+          { cause: error }
+        );
+      }
+      await delay(10);
+    }
+  }
+
+  try {
+    return await action();
+  } finally {
+    await handle.close().catch(() => undefined);
+    try {
+      await rm(lockPath);
+    } catch (error) {
+      if (!isMissing(error)) {
+        throw error;
+      }
+    }
   }
 }

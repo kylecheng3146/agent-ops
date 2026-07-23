@@ -3,7 +3,8 @@ import {
   lstat,
   mkdtemp,
   mkdir,
-  rm
+  rm,
+  symlink
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,8 @@ import test from "node:test";
 import {
   calculateTrustBinding,
   FileTrustStore,
-  normalizeRemoteIdentity
+  normalizeRemoteIdentity,
+  type TrustBinding
 } from "../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../runtime/src/security/permissions.js";
 
@@ -21,6 +23,7 @@ const RUNTIME_HASH = "b".repeat(64);
 
 test("default local state stays under the injected user home", () => {
   const paths = localStatePaths(join("/user-home"));
+  assert.equal(paths.anchorDirectory, join("/user-home"));
   assert.equal(paths.trustStore, join(paths.root, "trust.json"));
   assert.equal(paths.logDirectory, join(paths.root, "logs"));
   assert.equal(paths.failureDirectory, join(paths.root, "failures"));
@@ -59,7 +62,7 @@ test("normalizes remote identity and invalidates every bound field", async () =>
     assert.equal(first.remoteIdentity, equivalent.remoteIdentity);
 
     const storePath = join(root, "state", "trust.json");
-    const store = new FileTrustStore(storePath);
+    const store = new FileTrustStore(storePath, root);
     await store.grant(first, "2026-07-23T00:00:00Z");
     assert.equal((await store.status(first)).status, "TRUSTED");
 
@@ -117,7 +120,7 @@ test("revoke is exact, idempotent, and local state is owner-only", async () => {
     });
     const stateDirectory = join(root, "private-state");
     const storePath = join(stateDirectory, "trust.json");
-    const store = new FileTrustStore(storePath);
+    const store = new FileTrustStore(storePath, root);
     await store.grant(binding, "2026-07-23T00:00:00Z");
 
     if (process.platform !== "win32") {
@@ -127,6 +130,72 @@ test("revoke is exact, idempotent, and local state is owner-only", async () => {
     assert.equal(await store.revoke(binding), true);
     assert.equal(await store.revoke(binding), false);
     assert.equal((await store.status(binding)).status, "UNTRUSTED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test(
+  "rejects a symlinked local-state ancestor",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+    try {
+      const home = join(root, "home");
+      const redirected = join(root, "redirected");
+      const repositoryPath = join(root, "repository");
+      await mkdir(home);
+      await mkdir(redirected);
+      await mkdir(repositoryPath);
+      await symlink(redirected, join(home, ".agent-ops"), "dir");
+      const paths = localStatePaths(home);
+      const store = new FileTrustStore(
+        paths.trustStore,
+        paths.anchorDirectory
+      );
+      const binding = await calculateTrustBinding({
+        repositoryPath,
+        remoteUrl: "ssh://git@example.com/owner/repository.git",
+        configHash: CONFIG_HASH,
+        runtimeHash: RUNTIME_HASH
+      });
+
+      await assert.rejects(
+        store.grant(binding),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "PRIVATE_STATE_PATH_INVALID"
+      );
+      await assert.rejects(lstat(join(redirected, "state", "trust.json")));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test("serializes concurrent trust mutations without losing grants", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+  try {
+    const store = new FileTrustStore(
+      join(root, "state", "trust.json"),
+      root
+    );
+    const bindings: TrustBinding[] = Array.from(
+      { length: 12 },
+      (_, index) => ({
+        canonicalPath: join(root, `repository-${index}`),
+        remoteIdentity: `example.com/owner/repository-${index}`,
+        configHash: CONFIG_HASH,
+        runtimeHash: RUNTIME_HASH
+      })
+    );
+
+    await Promise.all(bindings.map((binding) => store.grant(binding)));
+
+    for (const binding of bindings) {
+      assert.equal((await store.status(binding)).status, "TRUSTED");
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

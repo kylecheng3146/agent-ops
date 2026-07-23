@@ -106,5 +106,12 @@ test("parses only explicit trust lifecycle actions", () => {
   assert.equal(grant.command, "trust");
   assert.equal(grant.action, "grant");
   assert.equal(grant.yes, true);
+  assert.throws(
+    () => parseArgs(["trust", "--yes"]),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "CLI_ACTION_REQUIRED"
+  );
   assert.throws(() => parseArgs(["init", "grant", "--yes"]));
 });
