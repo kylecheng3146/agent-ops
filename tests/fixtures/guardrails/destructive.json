@@ -80,6 +80,53 @@
     }
   },
   {
+    "id": "attached-push-option-value-with-f-allow",
+    "command": "git",
+    "args": ["push", "-odraft", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "clustered-short-force-push-block",
+    "command": "git",
+    "args": ["push", "-vf", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "attached-o-value-equal-f-allow",
+    "command": "git",
+    "args": ["push", "-of", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "force-before-attached-o-value-block",
+    "command": "git",
+    "args": ["push", "-foquiet", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "separate-o-consumes-next-f-value-allow",
+    "command": "git",
+    "args": ["push", "-o", "-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
     "id": "leading-plus-refspec-force-push-block",
     "command": "git",
     "args": [
