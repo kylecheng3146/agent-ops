@@ -1,0 +1,4 @@
+[project]
+name = "python-discovery-ambiguous-fixture"
+version = "0.0.0"
+dependencies = ["pytest>=8"]
