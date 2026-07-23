@@ -1,7 +1,10 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 
-import type { InstallManifest } from "../contracts.js";
+import type {
+  AgentOpsConfig,
+  InstallManifest
+} from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import {
   parseInstallManifest,
@@ -48,11 +51,18 @@ export interface DoctorInstallationOptions {
 
 export interface DoctorReport {
   readonly checks: readonly DoctorCheck[];
+  readonly manifest?: InstallManifest;
+  readonly config?: AgentOpsConfig;
 }
 
 interface ManifestCheckResult {
   readonly check: DoctorCheck;
   readonly manifest?: InstallManifest;
+}
+
+interface ConfigCheckResult {
+  readonly check: DoctorCheck;
+  readonly config?: AgentOpsConfig;
 }
 
 function check(
@@ -185,32 +195,39 @@ async function checkManifest(root: string): Promise<ManifestCheckResult> {
   }
 }
 
-async function checkConfig(root: string): Promise<DoctorCheck> {
+async function checkConfig(root: string): Promise<ConfigCheckResult> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(
       await readContainedText(root, CONFIG_PATH)
     ) as unknown;
   } catch {
-    return check(
-      "config",
-      "FAIL",
-      "Configuration is missing, unsafe, or invalid JSON."
-    );
+    return {
+      check: check(
+        "config",
+        "FAIL",
+        "Configuration is missing, unsafe, or invalid JSON."
+      )
+    };
   }
 
   const result = validateConfig(parsed);
   if (!result.ok) {
     const error = result.errors[0];
-    return check(
-      "config",
-      "FAIL",
-      error === undefined
-        ? "Configuration failed validation."
-        : `Configuration failed validation: ${error.code} at ${error.path}.`
-    );
+    return {
+      check: check(
+        "config",
+        "FAIL",
+        error === undefined
+          ? "Configuration failed validation."
+          : `Configuration failed validation: ${error.code} at ${error.path}.`
+      )
+    };
   }
-  return check("config", "PASS", "Configuration is valid.");
+  return {
+    check: check("config", "PASS", "Configuration is valid."),
+    config: result.value
+  };
 }
 
 async function checkArtifacts(
@@ -319,10 +336,11 @@ export async function doctorInstallation(
   options: DoctorInstallationOptions
 ): Promise<DoctorReport> {
   const manifest = await checkManifest(options.root);
+  const config = await checkConfig(options.root);
   const checks: DoctorCheck[] = [
     checkNodeVersion(options.nodeVersion ?? process.versions.node),
     manifest.check,
-    await checkConfig(options.root),
+    config.check,
     await checkArtifacts(options.root, manifest.manifest),
     await checkMarkers(options.root, manifest.manifest),
     await checkProbe(
@@ -338,5 +356,11 @@ export async function doctorInstallation(
       options.probes?.smokeAvailability
     )
   ];
-  return { checks };
+  return {
+    checks,
+    ...(manifest.manifest === undefined
+      ? {}
+      : { manifest: manifest.manifest }),
+    ...(config.config === undefined ? {} : { config: config.config })
+  };
 }
