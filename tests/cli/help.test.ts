@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { runCli, type CliIo, type CliServices } from "../../packages/cli/src/cli.js";
-import type { CliEnvelope } from "../../packages/cli/src/output.js";
+import {
+  okEnvelope,
+  type CliEnvelope
+} from "../../packages/cli/src/output.js";
 
 function createIo(isTTY = false): {
   io: CliIo;
@@ -118,6 +121,45 @@ test("non-TTY init reports missing explicit choices even with --yes", async () =
   assert.equal(calls, 0);
   assert.equal(stderr.length, 0);
   assert.equal(parseEnvelope(stdout).code, "CLI_INTERACTIVE_REQUIRED");
+});
+
+test("JSON mode never writes interactive prompts, including on a TTY", async () => {
+  const { io, stdout, stderr } = createIo(true);
+  let promptCalls = 0;
+  let executeCalls = 0;
+  io.prompt = async () => {
+    promptCalls += 1;
+    return "";
+  };
+  const services = createServices(async () => {
+    executeCalls += 1;
+    return okEnvelope("UNEXPECTED", null);
+  });
+
+  assert.equal(await runCli(["init", "--json"], io, services), 2);
+  assert.equal(promptCalls, 0);
+  assert.equal(executeCalls, 0);
+  assert.equal(stderr.length, 0);
+  assert.equal(stdout.length, 1);
+  assert.equal(parseEnvelope(stdout).code, "CLI_INTERACTIVE_REQUIRED");
+});
+
+test("JSON output preserves data when a service returns undefined", async () => {
+  const { io, stdout, stderr } = createIo();
+  const services = createServices(async () =>
+    okEnvelope("EMPTY_RESULT", undefined)
+  );
+
+  assert.equal(await runCli(["doctor", "--json"], io, services), 0);
+  assert.equal(stderr.length, 0);
+  const envelope = parseEnvelope(stdout);
+  assert.deepEqual(Object.keys(envelope).sort(), [
+    "code",
+    "data",
+    "errors",
+    "status"
+  ]);
+  assert.equal(envelope.data, null);
 });
 
 test("complete non-interactive args reach the injected command service", async () => {

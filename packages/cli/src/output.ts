@@ -21,7 +21,7 @@ export function okEnvelope<T>(code: string, data: T): CliEnvelope<T> {
   return {
     code,
     status: "ok",
-    data,
+    data: data === undefined ? null : data,
     errors: []
   };
 }
@@ -60,7 +60,9 @@ export function writeEnvelope(
   json: boolean
 ): void {
   if (json) {
-    sink.writeStdout(`${JSON.stringify(envelope)}\n`);
+    const normalized =
+      envelope.data === undefined ? { ...envelope, data: null } : envelope;
+    sink.writeStdout(`${JSON.stringify(normalized)}\n`);
     return;
   }
   if (envelope.status === "ok") {

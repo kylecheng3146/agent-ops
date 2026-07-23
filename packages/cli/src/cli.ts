@@ -99,7 +99,10 @@ export async function runCli(
 
   try {
     if (args.command === "init") {
-      args = await completeInitChoices(args, io);
+      args = await completeInitChoices(
+        args,
+        args.json ? { ...io, isTTY: false } : io
+      );
     }
     if (services.execute === undefined) {
       return writeAndReturn(
