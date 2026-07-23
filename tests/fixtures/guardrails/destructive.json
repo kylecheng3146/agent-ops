@@ -1,0 +1,128 @@
+[
+  {
+    "id": "root-recursive-delete-block",
+    "command": "rm",
+    "args": ["-rf", "/"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-broad-delete"
+    }
+  },
+  {
+    "id": "project-recursive-delete-block",
+    "command": "rm",
+    "args": ["--recursive", "--force", "."],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-broad-delete"
+    }
+  },
+  {
+    "id": "root-dot-recursive-delete-block",
+    "command": "rm",
+    "args": ["-rf", "/."],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-broad-delete"
+    }
+  },
+  {
+    "id": "root-parent-recursive-delete-block",
+    "command": "rm",
+    "args": ["-rf", "/tmp/.."],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-broad-delete"
+    }
+  },
+  {
+    "id": "hard-reset-block",
+    "command": "git",
+    "args": ["reset", "--hard", "HEAD~1"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-reset"
+    }
+  },
+  {
+    "id": "force-push-block",
+    "command": "git",
+    "args": ["push", "--force", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "short-force-push-block",
+    "command": "git",
+    "args": ["push", "-f", "origin", "feature"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "environment-target-warn",
+    "command": "rm",
+    "args": ["-rf", "$BUILD_OUTPUT"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "warn",
+      "ruleId": "destructive-ambiguous-target"
+    }
+  },
+  {
+    "id": "glob-target-warn",
+    "command": "rm",
+    "args": ["-rf", "build/*"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "warn",
+      "ruleId": "destructive-ambiguous-target"
+    }
+  },
+  {
+    "id": "bounded-delete-allow",
+    "command": "rm",
+    "args": ["-rf", "dist"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "resolved-bounded-delete-allow",
+    "command": "rm",
+    "args": ["--recursive", "packages/generated"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "soft-reset-allow",
+    "command": "git",
+    "args": ["reset", "--soft", "HEAD~1"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "ordinary-push-allow",
+    "command": "git",
+    "args": ["push", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  }
+]
