@@ -5,16 +5,16 @@ import { createInterface } from "node:readline/promises";
 
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
 import { runCli } from "./cli.js";
-import { runInitCommand } from "./commands/init.js";
+import {
+  formatInstallPlan,
+  runInitCommand
+} from "./commands/init.js";
 import { errorEnvelope } from "./output.js";
 
 async function confirmInit(
-  operations: readonly { kind: string; path: string }[]
+  plan: Parameters<typeof formatInstallPlan>[0]
 ): Promise<boolean> {
-  process.stdout.write(
-    operations.map(({ kind, path }) => `  ${kind} ${path}`).join("\n") +
-      "\n"
-  );
+  process.stdout.write(formatInstallPlan(plan));
   const prompt = createInterface({
     input: process.stdin,
     output: process.stdout
@@ -55,7 +55,7 @@ process.exitCode = await runCli(
           !args.json &&
           process.stdin.isTTY === true &&
           process.stdout.isTTY === true,
-        confirm: async (plan) => await confirmInit(plan.operations)
+        confirm: async (plan) => await confirmInit(plan)
       });
     }
   }

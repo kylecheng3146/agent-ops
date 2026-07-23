@@ -85,6 +85,9 @@ test("dry-run returns the complete plan without writing", async () => {
         ({ path }) => path === ".agent-ops/manifest.json"
       )
     );
+    assert.match(result.data?.text ?? "", /^Installation plan/m);
+    assert.match(result.data?.text ?? "", /expected: <absent>/);
+    assert.match(result.data?.text ?? "", /content:/);
     await assert.rejects(readFile(join(root, ".agent-ops", "config.json")));
   } finally {
     await rm(root, { recursive: true, force: true });

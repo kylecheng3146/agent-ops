@@ -44,29 +44,50 @@ function managedRules(
   context: HarnessPlanContext
 ): string {
   const instructionFile = id === "codex" ? "AGENTS.md" : "CLAUDE.md";
-  return [
+  const lines = [
     "# Loop Engineering",
     "",
     "This routing specification is managed by `agent-ops`.",
     "",
     `Active profiles: ${context.profiles.join(", ")}`,
     `Active capabilities: ${context.capabilities.join(", ")}`,
-    "",
-    "For every change:",
-    "",
-    "1. Define two to five mechanically verifiable acceptance criteria.",
-    "2. Inspect the smallest relevant scope and preserve unrelated changes.",
-    "3. Apply the smallest safe change.",
-    "4. Run evidence-producing verification for every criterion.",
-    "5. Obtain independent review before claiming completion.",
-    "",
-    "Treat `.agent-ops/config.json` as verifier authority. Discovery output is",
-    "only a proposal until a user confirms it. Repository commands require an",
-    "explicit matching trust record; installation approval never grants trust.",
-    "",
+    ""
+  ];
+  if (context.capabilities.includes("rules")) {
+    lines.push(
+      "For every change:",
+      "",
+      "1. Define two to five mechanically verifiable acceptance criteria.",
+      "2. Inspect the smallest relevant scope and preserve unrelated changes.",
+      "3. Apply the smallest safe change.",
+      "4. Run evidence-producing verification for every criterion.",
+      "5. Obtain independent review before claiming completion.",
+      "",
+      "Treat `.agent-ops/config.json` as verifier authority. Discovery output is",
+      "only a proposal until a user confirms it. Repository commands require an",
+      "explicit matching trust record; installation approval never grants trust.",
+      ""
+    );
+  }
+  if (context.capabilities.includes("lifecycle-summary")) {
+    lines.push(
+      "Advisory lifecycle summaries and local logs are informational. Advisory",
+      "failures must remain fail-open and cannot become verification evidence.",
+      ""
+    );
+  }
+  if (context.capabilities.includes("command-policy")) {
+    lines.push(
+      "Command policy guards high-confidence unsafe actions. Optional Stop",
+      "verification never marks a task complete by itself.",
+      ""
+    );
+  }
+  lines.push(
     `This file is routed from the active ${instructionFile}.`,
     ""
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 export function commonHarnessAdapters(): readonly HarnessInstallAdapter[] {

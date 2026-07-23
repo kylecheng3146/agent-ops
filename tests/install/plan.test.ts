@@ -219,6 +219,59 @@ test("apply is transactional and a repeated init is idempotent", async () => {
   }
 });
 
+test("replanning preserves user-authored verifier configuration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-"));
+  try {
+    const first = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: "codex",
+      profiles: ["core"],
+      adapters: adapters()
+    });
+    await applyInstallPlan(root, first);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const configured = {
+      schemaVersion: 1,
+      profiles: ["core"],
+      verification: {
+        commands: [
+          {
+            id: "unit",
+            command: "node",
+            args: ["--test"],
+            cwd: ".",
+            required: true,
+            evidence: { kind: "test-count", minimum: 1 }
+          }
+        ]
+      },
+      pathMappings: [{ path: "src", verifierIds: ["unit"] }],
+      securityExceptions: []
+    };
+    await writeFile(
+      configPath,
+      `${JSON.stringify(configured, null, 2)}\n`
+    );
+
+    const second = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: "codex",
+      profiles: ["core"],
+      adapters: adapters()
+    });
+    await applyInstallPlan(root, second);
+
+    assert.deepEqual(
+      JSON.parse(await readFile(configPath, "utf8")),
+      configured
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("malformed managed markers fail before any write", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-install-"));
   try {

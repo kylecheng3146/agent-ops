@@ -23,6 +23,33 @@ export interface InitCommandData {
   readonly applied: boolean;
   readonly plan: InstallPlan;
   readonly message: string;
+  readonly text?: string;
+}
+
+export function formatInstallPlan(plan: InstallPlan): string {
+  const lines = [
+    "Installation plan",
+    `Scope: ${plan.scope}`,
+    `Harness: ${plan.harness}`,
+    `Profiles: ${plan.profiles.join(", ")}`,
+    "Operations:"
+  ];
+  for (const operation of plan.operations) {
+    lines.push(
+      `- ${operation.kind} ${operation.path}`,
+      `  expected: ${operation.expectedHash ?? "<absent>"}`
+    );
+    if (operation.kind === "write") {
+      lines.push(
+        "  content:",
+        ...operation.content
+          .replace(/\n$/u, "")
+          .split("\n")
+          .map((line) => `    ${line}`)
+      );
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function initError(
@@ -65,7 +92,8 @@ export async function runInitCommand(
     return okEnvelope("INIT_PLAN_READY", {
       applied: false,
       plan,
-      message: "Installation plan calculated; no files were written."
+      message: "Installation plan calculated; no files were written.",
+      text: formatInstallPlan(plan)
     });
   }
   if (!args.yes && !options.isTTY) {

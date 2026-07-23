@@ -23,6 +23,7 @@ import {
   resolveContainedPath
 } from "../fs/paths.js";
 import type { FileOperation } from "../fs/transaction.js";
+import { validateConfig } from "../schema/validate.js";
 import {
   planHarnessContributions,
   type HarnessArtifact,
@@ -96,18 +97,89 @@ async function readCurrentFile(
   }
 }
 
-function formatConfig(profiles: readonly Profile[]): string {
+function formatConfig(
+  profiles: readonly Profile[],
+  existing?: {
+    readonly verification: unknown;
+    readonly pathMappings: unknown;
+    readonly securityExceptions: unknown;
+  }
+): string {
   return `${JSON.stringify(
     {
       schemaVersion: SCHEMA_VERSION,
       profiles,
-      verification: { commands: [] },
-      pathMappings: [],
-      securityExceptions: []
+      verification: existing?.verification ?? { commands: [] },
+      pathMappings: existing?.pathMappings ?? [],
+      securityExceptions: existing?.securityExceptions ?? []
     },
     null,
     2
   )}\n`;
+}
+
+async function planConfig(
+  root: string,
+  profiles: readonly Profile[],
+  existingManifest: InstallManifest | null
+): Promise<{
+  operation: FileOperation;
+  record: ManagedPathRecord;
+}> {
+  const current = await readCurrentFile(root, CONFIG_PATH);
+  const owned = findOwnedArtifact(existingManifest, CONFIG_PATH);
+  if (current !== null && owned === undefined) {
+    throw new AgentOpsError(
+      "UNMANAGED_INSTALL_PATH",
+      `Refusing to replace an unmanaged install artifact: ${CONFIG_PATH}`
+    );
+  }
+
+  let existingConfig:
+    | {
+        readonly verification: unknown;
+        readonly pathMappings: unknown;
+        readonly securityExceptions: unknown;
+      }
+    | undefined;
+  if (current !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(current.content) as unknown;
+    } catch (error) {
+      throw new AgentOpsError(
+        "CONFIG_INVALID_JSON",
+        "Managed configuration is not valid JSON.",
+        { cause: error }
+      );
+    }
+    const result = validateConfig(parsed);
+    if (!result.ok) {
+      throw new AgentOpsError(
+        "CONFIG_INVALID",
+        `${result.errors[0]?.path ?? "$"}: ${
+          result.errors[0]?.message ?? "Invalid managed configuration."
+        }`
+      );
+    }
+    existingConfig = result.value;
+  }
+
+  const content = formatConfig(profiles, existingConfig);
+  return {
+    operation: {
+      kind: "write",
+      path: CONFIG_PATH,
+      content,
+      expectedHash: current?.hash ?? null
+    },
+    record: {
+      id: "config",
+      path: CONFIG_PATH,
+      hash: sha256(content),
+      owner: "agent-ops"
+    }
+  };
 }
 
 function pathKey(path: string): string {
@@ -304,13 +376,9 @@ export async function createInstallPlan(
 
   const operations: FileOperation[] = [];
   const artifacts: ManagedPathRecord[] = [];
-  const config = await planArtifact(
+  const config = await planConfig(
     options.root,
-    {
-      id: "config",
-      path: CONFIG_PATH,
-      content: formatConfig(resolved.profiles)
-    },
+    resolved.profiles,
     existing?.manifest ?? null
   );
   operations.push(config.operation);

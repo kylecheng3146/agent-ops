@@ -176,4 +176,19 @@ test("common adapters produce scoped routing blocks and managed rules", async ()
     user.blocks.map(({ path }) => path),
     [".codex/AGENTS.md", ".claude/CLAUDE.md"]
   );
+
+  const advisory = await planHarnessContributions(
+    "codex",
+    {
+      scope: "project",
+      profiles: ["advisory"],
+      capabilities: ["lifecycle-summary", "local-log"]
+    },
+    commonHarnessAdapters()
+  );
+  const advisoryRules = advisory.artifacts[0]?.content ?? "";
+  assert.match(advisoryRules, /fail-open/);
+  assert.doesNotMatch(advisoryRules, /acceptance criteria/);
+  assert.doesNotMatch(advisoryRules, /independent review/);
+  assert.doesNotMatch(advisoryRules, /Repository commands require/);
 });
