@@ -94,7 +94,7 @@ export async function resolveContainedPath(
   let current = canonicalRoot;
 
   for (let index = 0; index < segments.length; index += 1) {
-    const candidate = join(current, segments[index]!);
+    const candidate = join(current, segments[index]);
     let status;
     try {
       status = await lstat(candidate);

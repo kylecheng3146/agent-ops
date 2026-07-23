@@ -1,17 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import {
-  chmod,
   lstat,
-  mkdir,
-  open,
   readFile,
   realpath,
-  rename,
-  rmdir,
-  rm,
-  unlink
+  stat
 } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { sha256 } from "./hash.js";
 import {
@@ -63,6 +59,23 @@ interface Snapshot {
   createdDirectories: string[];
 }
 
+interface ParentGuard {
+  expectedParentPath: string;
+  parentDevice: string;
+  parentInode: string;
+}
+
+interface AnchoredMutationRequest extends ParentGuard {
+  action: "mkdir" | "remove" | "rmdir" | "write";
+  targetName: string;
+  expectedHash: string | null;
+  mode?: number;
+}
+
+const MUTATION_WORKER_PATH = fileURLToPath(
+  new URL("./mutation-worker.js", import.meta.url)
+);
+
 function isMissing(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -72,56 +85,145 @@ function isMissing(error: unknown): boolean {
   );
 }
 
-async function syncDirectory(path: string): Promise<void> {
-  try {
-    const directory = await open(path, "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      ["EACCES", "EISDIR", "EINVAL", "ENOTSUP", "EPERM"].includes(
-        String(error.code)
-      )
-    ) {
-      return;
-    }
-    throw error;
+function normalizedPath(path: string): string {
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+
+async function captureParentGuard(parent: string): Promise<ParentGuard> {
+  const [canonicalPath, status] = await Promise.all([
+    realpath(parent),
+    stat(parent, { bigint: true })
+  ]);
+  if (
+    !status.isDirectory() ||
+    normalizedPath(canonicalPath) !== normalizedPath(parent)
+  ) {
+    throw new AgentOpsError(
+      "PRECONDITION_CHANGED",
+      `Destination directory changed before mutation: ${parent}`
+    );
   }
+  return {
+    expectedParentPath: canonicalPath,
+    parentDevice: status.dev.toString(),
+    parentInode: status.ino.toString()
+  };
+}
+
+async function runAnchoredMutation(
+  targetPath: string,
+  action: "mkdir" | "remove" | "rmdir" | "write",
+  expectedHash: string | null,
+  content?: string | Uint8Array,
+  mode?: number
+): Promise<void> {
+  const parent = dirname(targetPath);
+  const guard = await captureParentGuard(parent);
+  const request: AnchoredMutationRequest = {
+    action,
+    targetName: basename(targetPath),
+    expectedHash,
+    ...guard,
+    ...(mode === undefined ? {} : { mode })
+  };
+  const encodedRequest = Buffer.from(
+    JSON.stringify(request),
+    "utf8"
+  ).toString("base64url");
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [MUTATION_WORKER_PATH, encodedRequest], {
+      cwd: parent,
+      shell: false,
+      stdio: ["pipe", "ignore", "pipe"]
+    });
+    let standardError = "";
+    let settled = false;
+    const rejectOnce = (error: unknown): void => {
+      if (!settled) {
+        settled = true;
+        rejectPromise(error);
+      }
+    };
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      if (standardError.length < 4096) {
+        standardError += chunk.slice(0, 4096 - standardError.length);
+      }
+    });
+    child.once("error", (error) => {
+      const code =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        ["ENOENT", "ENOTDIR"].includes(String(error.code))
+          ? "PRECONDITION_CHANGED"
+          : "ANCHORED_MUTATION_FAILED";
+      rejectOnce(
+        new AgentOpsError(code, "Unable to start an anchored file mutation.", {
+          cause: error
+        })
+      );
+    });
+    child.once("close", (exitCode) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (exitCode === 0) {
+        resolvePromise();
+        return;
+      }
+      const preconditionChanged =
+        exitCode === 10 ||
+        standardError.trim() === "PRECONDITION_CHANGED";
+      rejectPromise(
+        new AgentOpsError(
+          preconditionChanged
+            ? "PRECONDITION_CHANGED"
+            : "ANCHORED_MUTATION_FAILED",
+          preconditionChanged
+            ? "The target changed before anchored mutation."
+            : "The anchored file mutation failed."
+        )
+      );
+    });
+    child.stdin.on("error", () => undefined);
+    child.stdin.end(action === "write" ? content : undefined);
+  });
 }
 
 async function atomicWrite(
   targetPath: string,
   content: string | Uint8Array,
   mode: number,
-  assertBeforeRename?: () => Promise<void>
+  expectedHash: string | null
 ): Promise<void> {
-  const parent = dirname(targetPath);
-  const temporaryPath = join(
-    parent,
-    `.${basename(targetPath)}.agent-ops-tmp-${randomUUID()}`
+  await runAnchoredMutation(
+    targetPath,
+    "write",
+    expectedHash,
+    content,
+    mode
   );
-  let handle;
-  try {
-    handle = await open(temporaryPath, "wx", 0o600);
-    await handle.writeFile(content);
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    await chmod(temporaryPath, mode);
-    await assertBeforeRename?.();
-    await rename(temporaryPath, targetPath);
-    await syncDirectory(parent);
-  } catch (error) {
-    await handle?.close().catch(() => undefined);
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
+}
+
+async function atomicRemove(
+  targetPath: string,
+  expectedHash: string
+): Promise<void> {
+  await runAnchoredMutation(targetPath, "remove", expectedHash);
+}
+
+async function atomicMakeDirectory(
+  targetPath: string,
+  mode: number
+): Promise<void> {
+  await runAnchoredMutation(targetPath, "mkdir", null, undefined, mode);
+}
+
+async function atomicRemoveDirectory(targetPath: string): Promise<void> {
+  await runAnchoredMutation(targetPath, "rmdir", null);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,9 +303,7 @@ async function createRecoveryDirectory(root: string): Promise<string> {
     root,
     `.agent-ops-backup-${randomUUID()}`
   );
-  await mkdir(recoveryDirectory, { mode: 0o700 });
-  await chmod(recoveryDirectory, 0o700);
-  await syncDirectory(root);
+  await atomicMakeDirectory(recoveryDirectory, 0o700);
   return recoveryDirectory;
 }
 
@@ -218,15 +318,7 @@ async function createBackup(
     recoveryDirectory,
     `${basename(snapshot.targetPath)}-${randomUUID()}`
   );
-  const handle = await open(backupPath, "wx", 0o600);
-  try {
-    await handle.writeFile(snapshot.content);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await chmod(backupPath, 0o600);
-  await syncDirectory(dirname(backupPath));
+  await atomicWrite(backupPath, snapshot.content, 0o600, null);
   return backupPath;
 }
 
@@ -351,24 +443,14 @@ async function ensureParentDirectories(
         throw error;
       }
       try {
-        await mkdir(current, { mode: 0o700 });
+        await atomicMakeDirectory(current, 0o700);
         snapshot.createdDirectories.push(current);
       } catch (mkdirError) {
-        if (
-          typeof mkdirError !== "object" ||
-          mkdirError === null ||
-          !("code" in mkdirError) ||
-          mkdirError.code !== "EEXIST"
-        ) {
-          throw mkdirError;
-        }
-        const status = await lstat(current);
-        if (!status.isDirectory() || status.isSymbolicLink()) {
-          throw new AgentOpsError(
-            "PRECONDITION_CHANGED",
-            `Managed parent changed while it was created: ${snapshot.operation.path}`
-          );
-        }
+        throw new AgentOpsError(
+          "PRECONDITION_CHANGED",
+          `Managed parent changed while it was created: ${snapshot.operation.path}`,
+          { cause: mkdirError }
+        );
       }
     }
   }
@@ -382,7 +464,7 @@ function desiredHash(snapshot: Snapshot): string | null {
 
 async function removeCreatedDirectories(snapshot: Snapshot): Promise<void> {
   for (const directory of [...snapshot.createdDirectories].reverse()) {
-    await rmdir(directory);
+    await atomicRemoveDirectory(directory);
   }
 }
 
@@ -414,49 +496,84 @@ async function rollback(
         snapshot.targetPath,
         snapshot.content,
         snapshot.mode,
-        () => assertMutationBoundaryForHash(root, snapshot, desiredHash(snapshot))
+        desiredHash(snapshot)
       );
     } else {
-      await unlink(snapshot.targetPath).catch((error: unknown) => {
-        if (!isMissing(error)) {
-          throw error;
-        }
-      });
-      await syncDirectory(dirname(snapshot.targetPath));
+      const expectedHash = desiredHash(snapshot);
+      if (expectedHash === null) {
+        throw new AgentOpsError(
+          "PRECONDITION_CHANGED",
+          `Rollback target disappeared before removal: ${snapshot.operation.path}`
+        );
+      }
+      await atomicRemove(snapshot.targetPath, expectedHash);
       await removeCreatedDirectories(snapshot);
     }
   }
 }
 
-async function assertMutationBoundaryForHash(
-  root: string,
-  snapshot: Snapshot,
-  expectedHash: string | null
-): Promise<void> {
-  const resolved = await resolveContainedPath(root, snapshot.operation.path);
-  if (
-    resolved !== snapshot.targetPath ||
-    (await currentHash(resolved)) !== expectedHash
-  ) {
-    throw new AgentOpsError(
-      "PRECONDITION_CHANGED",
-      `Target changed at the replacement boundary: ${snapshot.operation.path}`
-    );
-  }
-}
-
 async function removeRecoveryDirectory(
-  recoveryDirectory: string | null
+  recoveryDirectory: string | null,
+  snapshots: readonly Snapshot[]
 ): Promise<void> {
-  if (recoveryDirectory !== null) {
-    await rm(recoveryDirectory, { recursive: true, force: true });
+  if (recoveryDirectory === null) {
+    return;
   }
+  const cleanupProbe = join(
+    dirname(recoveryDirectory),
+    `.agent-ops-cleanup-probe-${randomUUID()}`
+  );
+  await atomicMakeDirectory(cleanupProbe, 0o700);
+  await atomicRemoveDirectory(cleanupProbe);
+  for (const snapshot of snapshots) {
+    if (snapshot.backupPath !== null && snapshot.actualHash !== null) {
+      await atomicRemove(snapshot.backupPath, snapshot.actualHash);
+    }
+  }
+  await atomicRemoveDirectory(recoveryDirectory);
 }
 
-function recoveryPaths(snapshots: readonly Snapshot[]): string[] {
-  return snapshots.flatMap((snapshot) =>
-    snapshot.backupPath === null ? [] : [snapshot.backupPath]
-  );
+async function recoveryPaths(
+  snapshots: readonly Snapshot[]
+): Promise<string[]> {
+  const retained: string[] = [];
+  for (const snapshot of snapshots) {
+    if (snapshot.backupPath === null) {
+      continue;
+    }
+    try {
+      const status = await lstat(snapshot.backupPath);
+      if (status.isFile() && !status.isSymbolicLink()) {
+        retained.push(snapshot.backupPath);
+      }
+    } catch (error) {
+      if (!isMissing(error)) {
+        retained.push(snapshot.backupPath);
+      }
+    }
+  }
+  return retained;
+}
+
+async function cleanupPreparedDirectories(
+  root: string,
+  snapshot: Snapshot
+): Promise<void> {
+  if (snapshot.createdDirectories.length === 0) {
+    return;
+  }
+  try {
+    const resolved = await resolveContainedPath(root, snapshot.operation.path);
+    if (
+      resolved === snapshot.targetPath &&
+      (await currentHash(resolved)) === snapshot.actualHash
+    ) {
+      await removeCreatedDirectories(snapshot);
+    }
+  } catch {
+    // A concurrent change owns the path now. Leaving empty directories is safer
+    // than deleting through a path whose identity can no longer be proven.
+  }
 }
 
 export class FileTransaction {
@@ -513,28 +630,48 @@ export class FileTransaction {
           recoveryDirectory === null
             ? null
             : await createBackup(snapshot, recoveryDirectory);
-        await this.#options.beforeReplace?.({
-          index,
-          targetPath: snapshot.targetPath,
-          backupPath: snapshot.backupPath
-        });
         await assertMutationBoundary(root, snapshot);
-        applied.push(snapshot);
         if (snapshot.operation.kind === "write") {
           await ensureParentDirectories(root, snapshot);
           await assertMutationBoundary(root, snapshot);
         }
-        if (snapshot.operation.kind === "write") {
-          await atomicWrite(
-            snapshot.targetPath,
-            snapshot.operation.content,
-            snapshot.existed ? snapshot.mode : 0o600,
-            () => assertMutationBoundary(root, snapshot)
-          );
-        } else {
-          await assertMutationBoundary(root, snapshot);
-          await unlink(snapshot.targetPath);
-          await syncDirectory(dirname(snapshot.targetPath));
+        try {
+          await this.#options.beforeReplace?.({
+            index,
+            targetPath: snapshot.targetPath,
+            backupPath: snapshot.backupPath
+          });
+        } catch (error) {
+          await cleanupPreparedDirectories(root, snapshot);
+          throw error;
+        }
+        applied.push(snapshot);
+        try {
+          if (snapshot.operation.kind === "write") {
+            await atomicWrite(
+              snapshot.targetPath,
+              snapshot.operation.content,
+              snapshot.existed ? snapshot.mode : 0o600,
+              snapshot.actualHash
+            );
+          } else {
+            if (snapshot.actualHash === null) {
+              throw new AgentOpsError(
+                "PRECONDITION_CHANGED",
+                `Remove target disappeared before mutation: ${snapshot.operation.path}`
+              );
+            }
+            await atomicRemove(snapshot.targetPath, snapshot.actualHash);
+          }
+        } catch (error) {
+          if (
+            error instanceof AgentOpsError &&
+            error.code === "PRECONDITION_CHANGED"
+          ) {
+            applied.pop();
+            await cleanupPreparedDirectories(root, snapshot);
+          }
+          throw error;
         }
       }
       await validate();
@@ -542,7 +679,7 @@ export class FileTransaction {
       try {
         await rollback(root, applied);
       } catch (rollbackError) {
-        const retainedRecoveryPaths = recoveryPaths(snapshots);
+        const retainedRecoveryPaths = await recoveryPaths(snapshots);
         throw new AgentOpsError(
           "ROLLBACK_FAILED",
           "The transaction failed and rollback was incomplete.",
@@ -552,7 +689,18 @@ export class FileTransaction {
           }
         );
       }
-      await removeRecoveryDirectory(recoveryDirectory);
+      try {
+        await removeRecoveryDirectory(recoveryDirectory, snapshots);
+      } catch (cleanupError) {
+        throw new AgentOpsError(
+          "ROLLED_BACK_CLEANUP_FAILED",
+          "The transaction was rolled back, but recovery cleanup failed.",
+          {
+            cause: cleanupError,
+            recoveryPaths: await recoveryPaths(snapshots)
+          }
+        );
+      }
       if (
         error instanceof AgentOpsError &&
         error.code === "PRECONDITION_CHANGED"
@@ -565,6 +713,17 @@ export class FileTransaction {
         { cause: error }
       );
     }
-    await removeRecoveryDirectory(recoveryDirectory);
+    try {
+      await removeRecoveryDirectory(recoveryDirectory, snapshots);
+    } catch (cleanupError) {
+      throw new AgentOpsError(
+        "COMMITTED_CLEANUP_FAILED",
+        "The transaction committed, but recovery cleanup failed.",
+        {
+          cause: cleanupError,
+          recoveryPaths: await recoveryPaths(snapshots)
+        }
+      );
+    }
   }
 }

@@ -415,12 +415,66 @@ test("rollback failure preserves owner-only recovery backups", async () => {
     );
 
     assert.equal(recoveryPaths.length, 1);
-    assert.equal(await readFile(recoveryPaths[0]!, "utf8"), "original\n");
-    assert.equal((await lstat(recoveryPaths[0]!)).mode & 0o777, 0o600);
+    const recoveryPath = recoveryPaths[0];
+    assert.ok(recoveryPath);
+    assert.equal(await readFile(recoveryPath, "utf8"), "original\n");
+    assert.equal((await lstat(recoveryPath)).mode & 0o777, 0o600);
     assert.equal(
       (await readdir(root)).some((name) => name.includes("agent-ops-backup")),
       true
     );
+  });
+});
+
+test("reports committed state when recovery cleanup fails", async () => {
+  if (process.platform === "win32") {
+    return;
+  }
+  await withTempRoot(async (root) => {
+    const target = join(root, "config.txt");
+    await writeFile(target, "original\n");
+    let recoveryPaths: readonly string[] = [];
+    let rootLocked = false;
+
+    try {
+      await assert.rejects(
+        new FileTransaction(root).apply(
+          {
+            operations: [
+              {
+                kind: "write",
+                path: "config.txt",
+                content: "managed\n",
+                expectedHash: sha256("original\n")
+              }
+            ]
+          },
+          async () => {
+            await chmod(root, 0o500);
+            rootLocked = true;
+          }
+        ),
+        (error: unknown) => {
+          if (
+            error instanceof AgentOpsError &&
+            error.code === "COMMITTED_CLEANUP_FAILED"
+          ) {
+            recoveryPaths = error.recoveryPaths ?? [];
+            return true;
+          }
+          return false;
+        }
+      );
+      assert.equal(await readFile(target, "utf8"), "managed\n");
+      assert.equal(recoveryPaths.length, 1);
+      const recoveryPath = recoveryPaths[0];
+      assert.ok(recoveryPath);
+      assert.equal(await readFile(recoveryPath, "utf8"), "original\n");
+    } finally {
+      if (rootLocked) {
+        await chmod(root, 0o700);
+      }
+    }
   });
 });
 
