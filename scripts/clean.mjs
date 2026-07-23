@@ -1,4 +1,4 @@
-import { lstat, rm } from "node:fs/promises";
+import { lstat, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -13,14 +13,18 @@ function normalizeCleanTarget(target) {
   }
 
   const portableTarget = target.replaceAll("\\", "/");
+  if (portableTarget.split("/").includes("..")) {
+    throw new Error(`Refusing to clean traversal target: ${target}`);
+  }
+
   const normalizedTarget = path.posix.normalize(portableTarget);
   const isAllowlisted = normalizedTarget === "dist"
-    || normalizedTarget.startsWith("dist/")
-    || normalizedTarget === ".tmp"
-    || normalizedTarget.startsWith(".tmp/");
+    || normalizedTarget === ".tmp";
 
   if (!isAllowlisted) {
-    throw new Error(`Refusing to clean target outside dist/.tmp: ${target}`);
+    throw new Error(
+      `Refusing to clean target outside top-level dist/.tmp roots: ${target}`,
+    );
   }
 
   return path.normalize(normalizedTarget);
@@ -32,43 +36,40 @@ function isMissingPathError(error) {
     && error.code === "ENOENT";
 }
 
-async function rejectSymlinkComponents(target, { cwd, inspect }) {
-  let currentPath = path.resolve(cwd);
-
-  for (const component of target.split(path.sep)) {
-    currentPath = path.join(currentPath, component);
-
-    try {
-      const entry = await inspect(currentPath);
-      if (entry.isSymbolicLink()) {
-        throw new Error(
-          `Refusing to clean through symbolic link: ${currentPath}`,
-        );
-      }
-    } catch (error) {
-      if (isMissingPathError(error)) {
-        return;
-      }
-      throw error;
+async function rejectSymlinkTarget(target, inspect) {
+  try {
+    const entry = await inspect(target);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Refusing to clean symbolic link: ${target}`);
     }
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return;
+    }
+    throw error;
   }
 }
 
 export async function cleanTargets(
   targets,
   {
+    canonicalize = realpath,
     cwd = process.cwd(),
     inspect = lstat,
     remove = rm,
   } = {},
 ) {
   const normalizedTargets = targets.map(normalizeCleanTarget);
+  const canonicalCwd = await canonicalize(path.resolve(cwd));
+  const absoluteTargets = normalizedTargets.map(
+    (target) => path.join(canonicalCwd, target),
+  );
 
-  for (const target of normalizedTargets) {
-    await rejectSymlinkComponents(target, { cwd, inspect });
+  for (const target of absoluteTargets) {
+    await rejectSymlinkTarget(target, inspect);
   }
 
-  for (const target of normalizedTargets) {
+  for (const target of absoluteTargets) {
     await remove(target, { force: true, recursive: true });
   }
 }

@@ -244,8 +244,10 @@ test("cleanTargets rejects absolute paths and targets outside dist or .tmp", asy
     "C:/temp/dist",
     "\\\\server\\share\\dist",
     "../dist",
+    "other/../dist",
     "docs",
     "dist/../../README.md",
+    ".tmp/nested/..",
     "dist\\..\\README.md",
     ".tmpish",
   ]) {
@@ -255,36 +257,80 @@ test("cleanTargets rejects absolute paths and targets outside dist or .tmp", asy
   assert.deepEqual(removed, []);
 });
 
-test("cleanTargets rejects intermediate symlinks that escape the allowlist", async (t) => {
+test("cleanTargets rejects allowlisted roots that are symbolic links", async (t) => {
   const root = await createTemporaryDirectory(t, "agent-ops-clean-");
   const project = path.join(root, "project");
-  const temporaryDirectory = path.join(project, ".tmp");
   const outsideDirectory = path.join(root, "outside");
   const victim = path.join(outsideDirectory, "victim.txt");
-  await mkdir(temporaryDirectory, { recursive: true });
+  await mkdir(project);
   await mkdir(outsideDirectory);
   await writeFile(victim, "preserve me");
   await symlink(
     outsideDirectory,
-    path.join(temporaryDirectory, "link"),
+    path.join(project, ".tmp"),
     process.platform === "win32" ? "junction" : "dir",
   );
 
   await assert.rejects(
-    cleanTargets([".tmp/link/victim.txt"], { cwd: project }),
+    cleanTargets([".tmp"], { cwd: project }),
     /symbolic link/,
   );
   assert.equal(await readFile(victim, "utf8"), "preserve me");
 });
 
-test("cleanTargets removes only allowlisted relative targets", async () => {
+test("cleanTargets rejects nested targets before filesystem access", async () => {
+  const calls = [];
+
+  await assert.rejects(
+    cleanTargets(["dist/nested"], {
+      canonicalize: async (...args) => {
+        calls.push(["canonicalize", ...args]);
+        return args[0];
+      },
+      inspect: async (...args) => {
+        calls.push(["inspect", ...args]);
+        return { isSymbolicLink: () => false };
+      },
+      remove: async (...args) => calls.push(["remove", ...args]),
+    }),
+    /top-level/,
+  );
+
+  assert.deepEqual(calls, []);
+});
+
+test("cleanTargets removes roots from the requested cwd instead of process cwd", async (t) => {
+  const root = await createTemporaryDirectory(t, "agent-ops-cwd-");
+  const processDirectory = path.join(root, "process");
+  const requestedDirectory = path.join(root, "requested");
+  const processMarker = path.join(processDirectory, "dist", "marker.txt");
+  const requestedMarker = path.join(requestedDirectory, "dist", "marker.txt");
+  await mkdir(path.dirname(processMarker), { recursive: true });
+  await mkdir(path.dirname(requestedMarker), { recursive: true });
+  await writeFile(processMarker, "keep process cwd");
+  await writeFile(requestedMarker, "remove requested cwd");
+  const originalCwd = process.cwd();
+
+  process.chdir(processDirectory);
+  try {
+    await cleanTargets(["dist"], { cwd: requestedDirectory });
+  } finally {
+    process.chdir(originalCwd);
+  }
+
+  assert.equal(await readFile(processMarker, "utf8"), "keep process cwd");
+  await assert.rejects(readFile(requestedMarker), { code: "ENOENT" });
+});
+
+test("cleanTargets removes only canonical allowlisted roots", async () => {
   const removed = [];
   const remove = async (...args) => removed.push(args);
+  const canonicalCwd = await realpath(process.cwd());
 
-  await cleanTargets(["dist", ".tmp/test-dist"], { remove });
+  await cleanTargets(["dist", ".tmp"], { remove });
 
   assert.deepEqual(removed, [
-    ["dist", { force: true, recursive: true }],
-    [path.normalize(".tmp/test-dist"), { force: true, recursive: true }],
+    [path.join(canonicalCwd, "dist"), { force: true, recursive: true }],
+    [path.join(canonicalCwd, ".tmp"), { force: true, recursive: true }],
   ]);
 });

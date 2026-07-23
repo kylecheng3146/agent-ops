@@ -28,7 +28,7 @@
   "scripts": {
     "clean": "node scripts/clean.mjs dist .tmp",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:compile": "node scripts/clean.mjs .tmp/test-dist && tsc -p tsconfig.test.json",
+    "test:compile": "node scripts/clean.mjs .tmp && tsc -p tsconfig.test.json",
     "test": "npm run test:compile && node scripts/run-tests.mjs .tmp/test-dist/tests",
     "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
     "package:check": "node scripts/package-check.mjs"

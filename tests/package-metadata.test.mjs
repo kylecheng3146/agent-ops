@@ -9,3 +9,12 @@ test("package exposes a Node 22 CLI without runtime dependencies", async () => {
   assert.equal(pkg.bin["agent-ops"], "dist/packages/cli/src/bin.js");
   assert.deepEqual(pkg.dependencies ?? {}, {});
 });
+
+test("test compilation cleans only the top-level temporary root", async () => {
+  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.equal(
+    pkg.scripts["test:compile"],
+    "node scripts/clean.mjs .tmp && tsc -p tsconfig.test.json",
+  );
+});
