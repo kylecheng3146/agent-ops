@@ -26,7 +26,8 @@ Commands:
   doctor     Diagnose an installation
   update     Update managed artifacts
   uninstall  Remove managed artifacts
-  task       Manage task acceptance criteria
+  task <create|status|attach|complete|archive|export>
+             Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review
 
@@ -34,6 +35,11 @@ Options:
   --scope <project|user>
   --harness <both|claude|codex>
   --profile <core|advisory|guardrails>  Repeatable
+  --task <id>
+  --title <text>
+  --criterion <json>                    Repeatable
+  --evidence <criterion-id=reference>   Repeatable
+  --session <id>
   --dry-run
   --json
   --yes

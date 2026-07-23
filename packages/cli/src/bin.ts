@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
+import { TaskService } from "../../../runtime/src/task/service.js";
+import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { runCli } from "./cli.js";
 import { runDoctorCommand } from "./commands/doctor.js";
 import {
@@ -15,6 +18,7 @@ import {
   formatUninstallPlan,
   runUninstallCommand
 } from "./commands/uninstall.js";
+import { runTaskCommand } from "./commands/task.js";
 import {
   formatUpdatePlan,
   runUpdateCommand
@@ -93,6 +97,20 @@ process.exitCode = await runCli(
           isTTY,
           confirm: async (plan) =>
             await confirmPlan(formatUpdatePlan(plan))
+        });
+      }
+      if (args.command === "task") {
+        const service = new TaskService(
+          new FileTaskStore(
+            join(root, ".agent-ops", "tasks", "state.json"),
+            root
+          )
+        );
+        const sessionId = process.env.AGENT_OPS_SESSION_ID;
+        return await runTaskCommand({
+          args,
+          service,
+          ...(sessionId === undefined ? {} : { sessionId })
         });
       }
       return errorEnvelope(

@@ -21,7 +21,14 @@ export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
 export type CliCommand = "help" | "version" | TopLevelCommand;
 export type ConfigAction = "explain";
 export type TrustAction = "grant" | "revoke" | "status";
-export type CliAction = ConfigAction | TrustAction;
+export type TaskAction =
+  | "archive"
+  | "attach"
+  | "complete"
+  | "create"
+  | "export"
+  | "status";
+export type CliAction = ConfigAction | TaskAction | TrustAction;
 
 export interface ParsedArgs {
   command: CliCommand;
@@ -29,6 +36,11 @@ export interface ParsedArgs {
   scope?: InstallScope;
   harness?: Harness;
   profiles: Profile[];
+  taskId?: string;
+  title?: string;
+  criteria?: string[];
+  evidence?: string[];
+  sessionId?: string;
   dryRun: boolean;
   json: boolean;
   yes: boolean;
@@ -83,7 +95,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let action: CliAction | undefined;
   let scope: InstallScope | undefined;
   let harness: Harness | undefined;
+  let taskId: string | undefined;
+  let title: string | undefined;
+  let sessionId: string | undefined;
   const profiles: Profile[] = [];
+  const criteria: string[] = [];
+  const evidence: string[] = [];
   let dryRun = false;
   let json = false;
   let yes = false;
@@ -91,7 +108,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let versionSeen = false;
 
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index]!;
+    const token = argv[index];
+    if (token === undefined) {
+      break;
+    }
 
     switch (token) {
       case "--scope": {
@@ -127,6 +147,40 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(`${token} ${value}`);
         }
         profiles.push(value as Profile);
+        index += 1;
+        break;
+      }
+      case "--task": {
+        if (taskId !== undefined) {
+          duplicate(token);
+        }
+        taskId = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--title": {
+        if (title !== undefined) {
+          duplicate(token);
+        }
+        title = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--criterion": {
+        criteria.push(readOptionValue(argv, index, token));
+        index += 1;
+        break;
+      }
+      case "--evidence": {
+        evidence.push(readOptionValue(argv, index, token));
+        index += 1;
+        break;
+      }
+      case "--session": {
+        if (sessionId !== undefined) {
+          duplicate(token);
+        }
+        sessionId = readOptionValue(argv, index, token);
         index += 1;
         break;
       }
@@ -186,6 +240,21 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           action = token as TrustAction;
           break;
         }
+        if (
+          command === "task" &&
+          action === undefined &&
+          [
+            "archive",
+            "attach",
+            "complete",
+            "create",
+            "export",
+            "status"
+          ].includes(token)
+        ) {
+          action = token as TaskAction;
+          break;
+        }
         if (command !== undefined) {
           throw new CliArgumentError(
             "CLI_UNEXPECTED_ARGUMENT",
@@ -219,6 +288,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       scope !== undefined ||
       harness !== undefined ||
       profiles.length > 0 ||
+      taskId !== undefined ||
+      title !== undefined ||
+      criteria.length > 0 ||
+      evidence.length > 0 ||
+      sessionId !== undefined ||
       dryRun ||
       yes
     ) {
@@ -241,6 +315,66 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "The trust command requires one of: status, grant, revoke."
     );
   }
+  if (command === "task" && action === undefined) {
+    throw new CliArgumentError(
+      "CLI_ACTION_REQUIRED",
+      "The task command requires one of: create, status, attach, complete, archive, export."
+    );
+  }
+  const hasTaskOptions =
+    taskId !== undefined ||
+    title !== undefined ||
+    criteria.length > 0 ||
+    evidence.length > 0 ||
+    sessionId !== undefined;
+  if (command !== "task" && hasTaskOptions) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Task options may be used only with the task command."
+    );
+  }
+  if (command === "task") {
+    if (
+      harness !== undefined ||
+      profiles.length > 0 ||
+      dryRun ||
+      yes
+    ) {
+      throw new CliArgumentError(
+        "CLI_OPTION_NOT_ALLOWED",
+        "Task commands do not accept harness, profile, dry-run, or yes options."
+      );
+    }
+    const taskOptionInvalid =
+      (action === "create" &&
+        (taskId !== undefined ||
+          evidence.length > 0 ||
+          sessionId !== undefined)) ||
+      (action === "status" &&
+        (title !== undefined ||
+          criteria.length > 0 ||
+          evidence.length > 0 ||
+          (taskId !== undefined && sessionId !== undefined))) ||
+      (action === "attach" &&
+        (title !== undefined ||
+          criteria.length > 0 ||
+          evidence.length > 0)) ||
+      (action === "complete" &&
+        (title !== undefined ||
+          criteria.length > 0 ||
+          sessionId !== undefined)) ||
+      ((action === "archive" || action === "export") &&
+        (title !== undefined ||
+          criteria.length > 0 ||
+          evidence.length > 0 ||
+          sessionId !== undefined));
+    if (taskOptionInvalid) {
+      throw new CliArgumentError(
+        "CLI_OPTION_NOT_ALLOWED",
+        `Unsupported option for task ${action}.`
+      );
+    }
+  }
 
   return {
     command,
@@ -248,6 +382,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(scope === undefined ? {} : { scope }),
     ...(harness === undefined ? {} : { harness }),
     profiles,
+    ...(taskId === undefined ? {} : { taskId }),
+    ...(title === undefined ? {} : { title }),
+    ...(criteria.length === 0 ? {} : { criteria }),
+    ...(evidence.length === 0 ? {} : { evidence }),
+    ...(sessionId === undefined ? {} : { sessionId }),
     dryRun,
     json,
     yes

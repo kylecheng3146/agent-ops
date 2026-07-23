@@ -45,8 +45,73 @@ test("recognizes every top-level command", () => {
   ]);
 
   for (const command of COMMAND_NAMES) {
-    const argv = command === "trust" ? [command, "status"] : [command];
+    const argv =
+      command === "trust" || command === "task"
+        ? [command, "status"]
+        : [command];
     assert.equal(parseArgs(argv).command, command);
+  }
+});
+
+test("parses structured task lifecycle arguments", () => {
+  assert.deepEqual(
+    parseArgs([
+      "task",
+      "create",
+      "--title",
+      "Ship task state",
+      "--criterion",
+      "{\"id\":\"criterion-one\",\"description\":\"One\",\"verifierIds\":[\"unit\"]}",
+      "--criterion",
+      "{\"id\":\"criterion-two\",\"description\":\"Two\",\"verifierIds\":[\"unit\"]}",
+      "--json"
+    ]),
+    {
+      command: "task",
+      action: "create",
+      profiles: [],
+      title: "Ship task state",
+      criteria: [
+        "{\"id\":\"criterion-one\",\"description\":\"One\",\"verifierIds\":[\"unit\"]}",
+        "{\"id\":\"criterion-two\",\"description\":\"Two\",\"verifierIds\":[\"unit\"]}"
+      ],
+      dryRun: false,
+      json: true,
+      yes: false
+    }
+  );
+  assert.deepEqual(
+    parseArgs([
+      "task",
+      "complete",
+      "--task",
+      "task-one",
+      "--evidence",
+      "criterion-one=evidence/one.json",
+      "--evidence",
+      "criterion-two=evidence/two.json"
+    ]).evidence,
+    [
+      "criterion-one=evidence/one.json",
+      "criterion-two=evidence/two.json"
+    ]
+  );
+});
+
+test("rejects task options that an action would ignore", () => {
+  for (const argv of [
+    ["task", "create", "--session", "session-one"],
+    ["task", "status", "--evidence", "criterion=reference"],
+    ["task", "archive", "--title", "ignored"],
+    ["task", "export", "--dry-run"]
+  ]) {
+    assert.throws(
+      () => parseArgs(argv),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_OPTION_NOT_ALLOWED",
+      argv.join(" ")
+    );
   }
 });
 
