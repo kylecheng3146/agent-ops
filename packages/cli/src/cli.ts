@@ -19,7 +19,8 @@ export const HELP_TEXT = `Usage: agent-ops <command> [options]
 
 Commands:
   init       Plan or install agent-ops
-  config     Inspect effective configuration
+  config explain
+             Inspect effective configuration provenance
   trust      Manage repository trust
   doctor     Diagnose an installation
   update     Update managed artifacts

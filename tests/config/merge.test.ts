@@ -1,0 +1,214 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type {
+  AgentOpsConfig,
+  SecurityException,
+  VerificationCommand
+} from "../../runtime/src/contracts.js";
+import {
+  mergeConfigLayers,
+  type ConfigLayer
+} from "../../runtime/src/config/merge.js";
+import { AgentOpsError } from "../../runtime/src/fs/paths.js";
+
+function command(
+  id: string,
+  executable: string,
+  required = true
+): VerificationCommand {
+  return {
+    id,
+    command: executable,
+    args: ["test"],
+    cwd: ".",
+    required,
+    evidence: { kind: "test-count", minimum: 1 }
+  };
+}
+
+function exception(scope: string): SecurityException {
+  return {
+    ruleId: "secrets",
+    scope,
+    expiresAt: "2027-01-01T00:00:00Z",
+    reason: "Synthetic fixture."
+  };
+}
+
+function config(overrides: Partial<AgentOpsConfig> = {}): AgentOpsConfig {
+  return {
+    schemaVersion: 1,
+    profiles: ["core"],
+    verification: { commands: [] },
+    pathMappings: [],
+    securityExceptions: [],
+    ...overrides
+  };
+}
+
+function layer(
+  source: ConfigLayer["source"],
+  value: AgentOpsConfig
+): ConfigLayer {
+  return {
+    source,
+    sourcePath: `${source}.json`,
+    config: value
+  };
+}
+
+test("merges stable IDs with provenance and monotonic guardrails", () => {
+  const allowedException = exception("fixtures/synthetic");
+  const merged = mergeConfigLayers([
+    layer(
+      "default",
+      config({
+        verification: { commands: [command("test", "default-tool", false)] }
+      })
+    ),
+    layer(
+      "user",
+      config({
+        profiles: ["guardrails"],
+        verification: { commands: [command("test", "user-tool")] },
+        pathMappings: [{ path: "src", verifierIds: ["test"] }],
+        securityExceptions: [allowedException]
+      })
+    ),
+    layer(
+      "project",
+      config({
+        verification: {
+          commands: [
+            command("test", "project-tool"),
+            command("lint", "lint-tool")
+          ]
+        },
+        pathMappings: [
+          { path: "src", verifierIds: ["test", "lint"] }
+        ],
+        securityExceptions: [allowedException]
+      })
+    )
+  ]);
+
+  assert.deepEqual(merged.config.profiles, ["core", "guardrails"]);
+  assert.equal(
+    merged.config.verification.commands.find(({ id }) => id === "test")
+      ?.command,
+    "project-tool"
+  );
+  assert.deepEqual(merged.config.pathMappings[0]?.verifierIds, [
+    "test",
+    "lint"
+  ]);
+  assert.equal(
+    merged.provenance.profiles.find(({ value }) => value === "guardrails")
+      ?.source,
+    "user"
+  );
+  assert.equal(
+    merged.provenance.verificationCommands.find(
+      ({ value }) => value.id === "test"
+    )?.source,
+    "project"
+  );
+  assert.equal(merged.provenance.securityExceptions[0]?.source, "user");
+});
+
+test("project config cannot weaken a user guardrail", () => {
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer(
+          "user",
+          config({
+            verification: { commands: [command("security", "scan", true)] }
+          })
+        ),
+        layer(
+          "project",
+          config({
+            verification: {
+              commands: [command("security", "replacement", false)]
+            }
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_GUARDRAIL_WEAKENING"
+  );
+
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer("user", config()),
+        layer(
+          "project",
+          config({
+            securityExceptions: [exception("src/private")]
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_SECURITY_WEAKENING"
+  );
+});
+
+test("project path mappings cannot drop user verifier coverage", () => {
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer(
+          "user",
+          config({
+            verification: {
+              commands: [
+                command("test", "test-tool"),
+                command("security", "security-tool")
+              ]
+            },
+            pathMappings: [
+              { path: "src", verifierIds: ["test", "security"] }
+            ]
+          })
+        ),
+        layer(
+          "project",
+          config({
+            verification: {
+              commands: [command("test", "project-test-tool")]
+            },
+            pathMappings: [{ path: "src", verifierIds: ["test"] }]
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_GUARDRAIL_WEAKENING"
+  );
+});
+
+test("rejects duplicate stable mapping IDs within one layer", () => {
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer(
+          "project",
+          config({
+            verification: { commands: [command("test", "npm")] },
+            pathMappings: [
+              { path: "src", verifierIds: ["test"] },
+              { path: "SRC", verifierIds: ["test"] }
+            ]
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "CONFIG_DUPLICATE_ID"
+  );
+});

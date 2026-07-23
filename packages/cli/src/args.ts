@@ -19,9 +19,11 @@ const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
 
 export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
 export type CliCommand = "help" | "version" | TopLevelCommand;
+export type ConfigAction = "explain";
 
 export interface ParsedArgs {
   command: CliCommand;
+  action?: ConfigAction;
   scope?: InstallScope;
   harness?: Harness;
   profiles: Profile[];
@@ -76,6 +78,7 @@ function invalidValue(option: string, value: string): never {
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   let command: CliCommand | undefined;
+  let action: ConfigAction | undefined;
   let scope: InstallScope | undefined;
   let harness: Harness | undefined;
   const profiles: Profile[] = [];
@@ -165,6 +168,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
             token
           );
         }
+        if (
+          command === "config" &&
+          action === undefined &&
+          token === "explain"
+        ) {
+          action = token;
+          break;
+        }
         if (command !== undefined) {
           throw new CliArgumentError(
             "CLI_UNEXPECTED_ARGUMENT",
@@ -217,6 +228,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 
   return {
     command,
+    ...(action === undefined ? {} : { action }),
     ...(scope === undefined ? {} : { scope }),
     ...(harness === undefined ? {} : { harness }),
     profiles,
