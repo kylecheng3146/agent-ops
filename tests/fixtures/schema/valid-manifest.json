@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "scope": "project",
+  "harness": "both",
+  "artifacts": [
+    {
+      "path": ".agent-ops/config.json",
+      "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "owner": "agent-ops"
+    }
+  ],
+  "markers": [
+    {
+      "path": "AGENTS.md",
+      "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "owner": "agent-ops"
+    }
+  ]
+}

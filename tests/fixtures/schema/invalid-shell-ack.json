@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "profiles": ["core"],
+  "verification": {
+    "commands": [
+      {
+        "id": "test",
+        "command": "npm test",
+        "args": [],
+        "cwd": ".",
+        "required": true,
+        "shell": true,
+        "evidence": {
+          "kind": "exit-code"
+        }
+      }
+    ]
+  },
+  "pathMappings": [],
+  "securityExceptions": []
+}

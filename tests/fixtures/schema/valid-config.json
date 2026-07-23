@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "profiles": ["core", "guardrails"],
+  "verification": {
+    "commands": [
+      {
+        "id": "test",
+        "command": "npm",
+        "args": ["test"],
+        "cwd": ".",
+        "required": true,
+        "evidence": {
+          "kind": "test-count",
+          "minimum": 1
+        }
+      },
+      {
+        "id": "shell-check",
+        "command": "npm test",
+        "args": [],
+        "cwd": ".",
+        "required": false,
+        "shell": true,
+        "acknowledgeRisk": true,
+        "evidence": {
+          "kind": "exit-code"
+        }
+      }
+    ]
+  },
+  "pathMappings": [
+    {
+      "path": "src",
+      "verifierIds": ["test"]
+    }
+  ],
+  "securityExceptions": [
+    {
+      "ruleId": "secrets",
+      "scope": "src/fixtures",
+      "expiresAt": "2027-01-01T00:00:00.000Z",
+      "reason": "Fixture contains a documented synthetic token."
+    }
+  ]
+}

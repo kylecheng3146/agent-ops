@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kylecheng3146/agent-ops/schemas/config.schema.json",
+  "title": "Agent Ops configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profiles",
+    "verification",
+    "pathMappings",
+    "securityExceptions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "profiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["core", "advisory", "guardrails"]
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/directCommand"
+              },
+              {
+                "$ref": "#/$defs/shellCommand"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "pathMappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "verifierIds"],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/relativePath"
+          },
+          "verifierIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        }
+      }
+    },
+    "securityExceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ruleId", "scope", "expiresAt", "reason"],
+        "properties": {
+          "ruleId": {
+            "$ref": "#/$defs/id"
+          },
+          "scope": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/relativePath"
+              },
+              {
+                "not": {
+                  "const": "."
+                }
+              }
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?:\\.|(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*)$"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["exit-code", "test-count", "file"]
+        },
+        "minimum": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "commandFields": {
+      "type": "object",
+      "required": ["id", "command", "args", "cwd", "required", "evidence"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      }
+    },
+    "directCommand": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandFields"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": true,
+            "command": true,
+            "args": true,
+            "cwd": true,
+            "required": true,
+            "timeoutMs": true,
+            "evidence": true,
+            "shell": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "shellCommand": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandFields"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shell", "acknowledgeRisk"],
+          "properties": {
+            "id": true,
+            "command": true,
+            "args": true,
+            "cwd": true,
+            "required": true,
+            "timeoutMs": true,
+            "evidence": true,
+            "shell": {
+              "const": true
+            },
+            "acknowledgeRisk": {
+              "const": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$comment": "Duplicate IDs and verifier reference resolution are semantic constraints enforced by runtime validation."
+}

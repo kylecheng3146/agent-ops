@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "profiles": ["guardrails"],
+  "verification": {
+    "commands": []
+  },
+  "pathMappings": [],
+  "securityExceptions": [
+    {
+      "ruleId": "secrets",
+      "scope": ".",
+      "expiresAt": "2027-01-01T00:00:00.000Z",
+      "reason": "This must not disable a rule globally."
+    }
+  ]
+}

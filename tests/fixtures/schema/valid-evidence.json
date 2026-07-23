@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "taskId": "task-001",
+  "criterionId": "criterion-schema",
+  "commandId": "test",
+  "argv": ["npm", "test"],
+  "cwd": ".",
+  "scope": "project",
+  "startedAt": "2026-07-23T09:00:00.000Z",
+  "finishedAt": "2026-07-23T09:00:01.000Z",
+  "exitCode": 0,
+  "testCount": 1,
+  "toolVersions": {
+    "node": "26.1.0"
+  },
+  "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
