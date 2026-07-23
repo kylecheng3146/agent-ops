@@ -1,0 +1,4 @@
+[package]
+name = "rust-discovery-package-fixture"
+version = "0.0.0"
+edition = "2021"
