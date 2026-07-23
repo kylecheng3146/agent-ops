@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
 import { constants } from "node:fs";
 import {
   chmod,
   lstat,
   mkdir,
   open,
+  readFile,
   readdir,
   rename,
   rm
@@ -19,6 +21,7 @@ import {
   sep
 } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 
 import { AgentOpsError } from "../fs/paths.js";
 
@@ -63,11 +66,21 @@ interface PrivateLockRecord {
   choosing: boolean;
   createdAt: string;
   processId: number;
+  processIdentity: string;
   ticket: number;
   token: string;
 }
 
 const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
+const MALFORMED_LOCK_RECOVERY_MS = 5_000;
+const PROCESS_IDENTITY_CACHE_MS = 250;
+const PROCESS_INSTANCE_TOKEN = randomUUID();
+const execFile = promisify(execFileCallback);
+const lockQueues = new Map<string, Promise<void>>();
+const processIdentityCache = new Map<
+  number,
+  { checkedAt: number; identity: string | null }
+>();
 
 function parseLockRecord(source: string): PrivateLockRecord | null {
   let value: unknown;
@@ -80,15 +93,19 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    Object.keys(value).length !== 5 ||
+    Object.keys(value).length !== 6 ||
     !("choosing" in value) ||
     !("processId" in value) ||
+    !("processIdentity" in value) ||
     !("createdAt" in value) ||
     !("ticket" in value) ||
     !("token" in value) ||
     typeof value.choosing !== "boolean" ||
     !Number.isSafeInteger(value.processId) ||
     (value.processId as number) <= 0 ||
+    typeof value.processIdentity !== "string" ||
+    value.processIdentity.length === 0 ||
+    value.processIdentity.length > 256 ||
     typeof value.createdAt !== "string" ||
     !Number.isFinite(Date.parse(value.createdAt)) ||
     !Number.isSafeInteger(value.ticket) ||
@@ -103,9 +120,78 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
     choosing: value.choosing,
     createdAt: value.createdAt,
     processId: value.processId as number,
+    processIdentity: value.processIdentity,
     ticket: value.ticket as number,
     token: value.token
   };
+}
+
+async function readLinuxProcessIdentity(
+  processId: number
+): Promise<string | null> {
+  try {
+    const source = await readFile(`/proc/${processId}/stat`, "utf8");
+    const commandEnd = source.lastIndexOf(")");
+    if (commandEnd < 0) {
+      return null;
+    }
+    const fields = source.slice(commandEnd + 1).trim().split(/\s+/);
+    const startTime = fields[19];
+    return startTime === undefined ? null : `linux:${startTime}`;
+  } catch {
+    return null;
+  }
+}
+
+async function readBsdProcessIdentity(
+  processId: number
+): Promise<string | null> {
+  try {
+    const result = await execFile(
+      "/bin/ps",
+      ["-o", "lstart=", "-p", String(processId)],
+      {
+        encoding: "utf8",
+        maxBuffer: 4096,
+        timeout: 1000
+      }
+    );
+    const startedAt = result.stdout.trim();
+    return startedAt.length === 0 ? null : `bsd:${startedAt}`;
+  } catch {
+    return null;
+  }
+}
+
+async function readProcessIdentity(
+  processId: number
+): Promise<string | null> {
+  const cached = processIdentityCache.get(processId);
+  if (
+    cached !== undefined &&
+    Date.now() - cached.checkedAt <= PROCESS_IDENTITY_CACHE_MS
+  ) {
+    return cached.identity;
+  }
+  let identity: string | null = null;
+  if (process.platform === "linux") {
+    identity = await readLinuxProcessIdentity(processId);
+  } else if (
+    process.platform === "darwin" ||
+    process.platform === "freebsd"
+  ) {
+    identity = await readBsdProcessIdentity(processId);
+  } else if (processId === process.pid) {
+    identity = `runtime:${PROCESS_INSTANCE_TOKEN}`;
+  }
+  if (identity === null && processId === process.pid) {
+    identity = `runtime:${PROCESS_INSTANCE_TOKEN}`;
+  }
+  processIdentityCache.set(processId, {
+    checkedAt: Date.now(),
+    identity
+  });
+  return identity;
 }
 
 function isProcessActive(processId: number): boolean {
@@ -130,6 +216,19 @@ function isProcessActive(processId: number): boolean {
     }
     return true;
   }
+}
+
+async function isProcessInstanceActive(
+  record: PrivateLockRecord
+): Promise<boolean> {
+  if (!isProcessActive(record.processId)) {
+    return false;
+  }
+  const identity = await readProcessIdentity(record.processId);
+  if (identity === null) {
+    return true;
+  }
+  return identity === record.processIdentity;
 }
 
 function privateStateError(path: string, cause?: unknown): AgentOpsError {
@@ -396,12 +495,22 @@ async function readActiveParticipants(
     }
     const record = parseLockRecord(source);
     if (record === null) {
-      throw new AgentOpsError(
-        "PRIVATE_STATE_LOCK_INVALID",
-        `Private state lock record is invalid: ${participantPath}`
-      );
+      const status = await lstat(participantPath);
+      if (Date.now() - status.mtimeMs >= MALFORMED_LOCK_RECOVERY_MS) {
+        await rm(participantPath);
+        continue;
+      }
+      participants.push({
+        choosing: true,
+        createdAt: new Date(status.mtimeMs).toISOString(),
+        processId: process.pid,
+        processIdentity: `malformed:${name}`,
+        ticket: 0,
+        token: `malformed:${name}`
+      });
+      continue;
     }
-    if (!isProcessActive(record.processId)) {
+    if (!await isProcessInstanceActive(record)) {
       if (participantPath !== ownParticipantPath) {
         await removeOwnedParticipant(
           participantPath,
@@ -430,6 +539,29 @@ export async function withPrivateFileLock<T>(
   anchorDirectory: string,
   action: () => Promise<T>
 ): Promise<T> {
+  const queueKey = `${resolve(anchorDirectory)}\0${resolve(path)}`;
+  const previous = lockQueues.get(queueKey);
+  let releaseQueue = (): void => undefined;
+  const current = new Promise<void>((resolveQueue) => {
+    releaseQueue = resolveQueue;
+  });
+  lockQueues.set(queueKey, current);
+  await previous;
+  try {
+    return await withTicketLock(path, anchorDirectory, action);
+  } finally {
+    releaseQueue();
+    if (lockQueues.get(queueKey) === current) {
+      lockQueues.delete(queueKey);
+    }
+  }
+}
+
+async function withTicketLock<T>(
+  path: string,
+  anchorDirectory: string,
+  action: () => Promise<T>
+): Promise<T> {
   const parent = dirname(path);
   await ensurePrivateDirectory(parent, anchorDirectory);
   const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
@@ -439,10 +571,14 @@ export async function withPrivateFileLock<T>(
     process.pid,
     token
   );
+  const processIdentity =
+    await readProcessIdentity(process.pid) ??
+    `runtime:${PROCESS_INSTANCE_TOKEN}`;
   let record: PrivateLockRecord = {
     choosing: true,
     createdAt: new Date().toISOString(),
     processId: process.pid,
+    processIdentity,
     ticket: 0,
     token
   };

@@ -4,9 +4,10 @@ import {
   lstat,
   mkdtemp,
   mkdir,
-  writeFile,
   rm,
-  symlink
+  symlink,
+  utimes,
+  writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -176,7 +177,7 @@ test(
   }
 );
 
-test("serializes concurrent trust mutations without losing grants", async () => {
+test("serializes a large burst of trust mutations without loss", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
   try {
     const store = new FileTrustStore(
@@ -184,7 +185,7 @@ test("serializes concurrent trust mutations without losing grants", async () => 
       root
     );
     const bindings: TrustBinding[] = Array.from(
-      { length: 12 },
+      { length: 100 },
       (_, index) => ({
         canonicalPath: join(root, `repository-${index}`),
         remoteIdentity: `example.com/owner/repository-${index}`,
@@ -228,6 +229,7 @@ test("recovers an abandoned trust-store lock", async () => {
       `${JSON.stringify({
         choosing: false,
         processId: exitedProcessId,
+        processIdentity: "exited-process",
         createdAt: "2000-01-01T00:00:00Z",
         ticket: 1,
         token: "abandoned-lock-token"
@@ -252,6 +254,77 @@ test("recovers an abandoned trust-store lock", async () => {
         )
       )
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("distinguishes a reused PID from the current process instance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+  try {
+    const stateDirectory = join(root, "state");
+    const storePath = join(stateDirectory, "trust.json");
+    const stalePath = join(
+      stateDirectory,
+      `.trust.json.agent-ops-lock-${process.pid}-previous-instance`
+    );
+    await mkdir(stateDirectory);
+    await writeFile(
+      stalePath,
+      `${JSON.stringify({
+        choosing: false,
+        createdAt: "2000-01-01T00:00:00Z",
+        processId: process.pid,
+        processIdentity: "previous-process-instance",
+        ticket: 1,
+        token: "previous-instance"
+      })}\n`
+    );
+    const store = new FileTrustStore(storePath, root);
+    const binding: TrustBinding = {
+      canonicalPath: join(root, "repository"),
+      remoteIdentity: "example.com/owner/reused-pid",
+      configHash: CONFIG_HASH,
+      runtimeHash: RUNTIME_HASH
+    };
+
+    await store.grant(binding);
+
+    assert.equal((await store.status(binding)).status, "TRUSTED");
+    await assert.rejects(lstat(stalePath));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recovers a malformed orphan ticket after its bounded grace period", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+  try {
+    const stateDirectory = join(root, "state");
+    const storePath = join(stateDirectory, "trust.json");
+    const malformedPath = join(
+      stateDirectory,
+      ".trust.json.agent-ops-lock-999999-malformed"
+    );
+    await mkdir(stateDirectory);
+    await writeFile(malformedPath, "not-json");
+    await utimes(
+      malformedPath,
+      new Date("2000-01-01T00:00:00Z"),
+      new Date("2000-01-01T00:00:00Z")
+    );
+    const store = new FileTrustStore(storePath, root);
+    const binding: TrustBinding = {
+      canonicalPath: join(root, "repository"),
+      remoteIdentity: "example.com/owner/malformed-lock",
+      configHash: CONFIG_HASH,
+      runtimeHash: RUNTIME_HASH
+    };
+
+    await store.grant(binding);
+
+    assert.equal((await store.status(binding)).status, "TRUSTED");
+    await assert.rejects(lstat(malformedPath));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
