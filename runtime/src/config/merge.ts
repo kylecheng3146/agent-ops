@@ -59,7 +59,7 @@ function sameException(
 ): boolean {
   return (
     left.ruleId === right.ruleId &&
-    left.scope.toLowerCase() === right.scope.toLowerCase() &&
+    left.scope === right.scope &&
     left.expiresAt === right.expiresAt &&
     left.reason === right.reason
   );
@@ -132,10 +132,21 @@ function assertProjectCommandIsMonotonic(
   const candidateMinimum = candidate.evidence.minimum ?? 0;
   const weakensRequired = previous.required && !candidate.required;
   const enablesShell = previous.shell !== true && candidate.shell === true;
+  const changesProtectedExecution =
+    previous.required &&
+    (previous.command !== candidate.command ||
+      previous.cwd !== candidate.cwd ||
+      (previous.shell === true) !== (candidate.shell === true) ||
+      previous.args.length !== candidate.args.length ||
+      previous.args.some(
+        (argument, index) => argument !== candidate.args[index]
+      ));
   const lowersEvidence =
-    previous.evidence.kind !== candidate.evidence.kind ||
-    candidateMinimum < previousMinimum;
+    previous.required &&
+    (previous.evidence.kind !== candidate.evidence.kind ||
+      candidateMinimum < previousMinimum);
   const weakensTimeout =
+    previous.required &&
     previous.timeoutMs !== undefined &&
     (candidate.timeoutMs === undefined ||
       candidate.timeoutMs > previous.timeoutMs);
@@ -143,6 +154,7 @@ function assertProjectCommandIsMonotonic(
   if (
     weakensRequired ||
     enablesShell ||
+    changesProtectedExecution ||
     lowersEvidence ||
     weakensTimeout
   ) {
@@ -162,6 +174,7 @@ function assertProjectMappingIsMonotonic(
   }
   const candidateIds = new Set(candidate.verifierIds);
   if (
+    existing.value.path !== candidate.path ||
     existing.value.verifierIds.some(
       (verifierId) => !candidateIds.has(verifierId)
     )

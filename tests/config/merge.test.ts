@@ -71,7 +71,9 @@ test("merges stable IDs with provenance and monotonic guardrails", () => {
       "user",
       config({
         profiles: ["guardrails"],
-        verification: { commands: [command("test", "user-tool")] },
+        verification: {
+          commands: [command("test", "user-tool", false)]
+        },
         pathMappings: [{ path: "src", verifierIds: ["test"] }],
         securityExceptions: [allowedException]
       })
@@ -81,7 +83,7 @@ test("merges stable IDs with provenance and monotonic guardrails", () => {
       config({
         verification: {
           commands: [
-            command("test", "project-tool"),
+            command("test", "project-tool", false),
             command("lint", "lint-tool")
           ]
         },
@@ -144,11 +146,58 @@ test("project config cannot weaken a user guardrail", () => {
   assert.throws(
     () =>
       mergeConfigLayers([
+        layer(
+          "user",
+          config({
+            verification: {
+              commands: [command("security", "trusted-scan", true)]
+            }
+          })
+        ),
+        layer(
+          "project",
+          config({
+            verification: {
+              commands: [command("security", "no-op", true)]
+            }
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_GUARDRAIL_WEAKENING"
+  );
+
+  assert.throws(
+    () =>
+      mergeConfigLayers([
         layer("user", config()),
         layer(
           "project",
           config({
             securityExceptions: [exception("src/private")]
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_SECURITY_WEAKENING"
+  );
+
+  const userException = exception("fixtures/synthetic");
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer(
+          "user",
+          config({ securityExceptions: [userException] })
+        ),
+        layer(
+          "project",
+          config({
+            securityExceptions: [
+              { ...userException, scope: "FIXTURES/SYNTHETIC" }
+            ]
           })
         )
       ]),
@@ -212,6 +261,31 @@ test("project path mappings cannot drop user verifier coverage", () => {
               commands: [command("test", "project-test-tool")]
             },
             pathMappings: [{ path: "src", verifierIds: ["test"] }]
+          })
+        )
+      ]),
+    (error: unknown) =>
+      error instanceof AgentOpsError &&
+      error.code === "PROJECT_GUARDRAIL_WEAKENING"
+  );
+
+  assert.throws(
+    () =>
+      mergeConfigLayers([
+        layer(
+          "user",
+          config({
+            verification: { commands: [command("test", "test-tool")] },
+            pathMappings: [{ path: "src", verifierIds: ["test"] }]
+          })
+        ),
+        layer(
+          "project",
+          config({
+            verification: {
+              commands: [command("test", "test-tool")]
+            },
+            pathMappings: [{ path: "SRC", verifierIds: ["test"] }]
           })
         )
       ]),
