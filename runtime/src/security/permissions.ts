@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   open,
+  readdir,
   rename,
   rm
 } from "node:fs/promises";
@@ -59,13 +60,14 @@ function isAlreadyExists(error: unknown): boolean {
 }
 
 interface PrivateLockRecord {
-  processId: number;
+  choosing: boolean;
   createdAt: string;
+  processId: number;
+  ticket: number;
   token: string;
 }
 
 const LOCK_ACQUIRE_TIMEOUT_MS = 6_000;
-const MALFORMED_LOCK_RECOVERY_MS = 5_000;
 
 function parseLockRecord(source: string): PrivateLockRecord | null {
   let value: unknown;
@@ -78,14 +80,19 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    Object.keys(value).length !== 3 ||
+    Object.keys(value).length !== 5 ||
+    !("choosing" in value) ||
     !("processId" in value) ||
     !("createdAt" in value) ||
+    !("ticket" in value) ||
     !("token" in value) ||
+    typeof value.choosing !== "boolean" ||
     !Number.isSafeInteger(value.processId) ||
     (value.processId as number) <= 0 ||
     typeof value.createdAt !== "string" ||
     !Number.isFinite(Date.parse(value.createdAt)) ||
+    !Number.isSafeInteger(value.ticket) ||
+    (value.ticket as number) < 0 ||
     typeof value.token !== "string" ||
     value.token.length === 0 ||
     value.token.length > 128
@@ -93,8 +100,10 @@ function parseLockRecord(source: string): PrivateLockRecord | null {
     return null;
   }
   return {
-    processId: value.processId as number,
+    choosing: value.choosing,
     createdAt: value.createdAt,
+    processId: value.processId as number,
+    ticket: value.ticket as number,
     token: value.token
   };
 }
@@ -320,62 +329,100 @@ export async function writePrivateFile(
   }
 }
 
-async function recoverAbandonedLock(
-  lockPath: string,
+function lockParticipantPrefix(path: string): string {
+  return `.${basename(path)}.agent-ops-lock-`;
+}
+
+function lockParticipantPath(
+  path: string,
+  processId: number,
+  token: string
+): string {
+  return join(
+    dirname(path),
+    `${lockParticipantPrefix(path)}${processId}-${token}`
+  );
+}
+
+async function removeOwnedParticipant(
+  participantPath: string,
   anchorDirectory: string
-): Promise<boolean> {
-  const source = await readPrivateFile(lockPath, anchorDirectory);
+): Promise<void> {
+  const source = await readPrivateFile(
+    participantPath,
+    anchorDirectory
+  );
   if (source === null) {
-    return true;
+    return;
   }
   const record = parseLockRecord(source);
   if (record === null) {
-    const status = await lstat(lockPath);
-    if (Date.now() - status.mtimeMs < MALFORMED_LOCK_RECOVERY_MS) {
-      return false;
-    }
-  } else if (isProcessActive(record.processId)) {
-    return false;
-  }
-
-  const currentSource = await readPrivateFile(
-    lockPath,
-    anchorDirectory
-  );
-  if (currentSource !== source) {
-    return false;
+    throw new AgentOpsError(
+      "PRIVATE_STATE_LOCK_INVALID",
+      `Private state lock record is invalid: ${participantPath}`
+    );
   }
   try {
-    await rm(lockPath);
-    return true;
+    await rm(participantPath);
   } catch (error) {
     if (isMissing(error)) {
-      return true;
+      return;
     }
     throw error;
   }
 }
 
-async function releaseOwnedLock(
-  lockPath: string,
+async function readActiveParticipants(
+  path: string,
   anchorDirectory: string,
-  token: string
-): Promise<void> {
-  const source = await readPrivateFile(lockPath, anchorDirectory);
-  if (source === null) {
-    return;
-  }
-  const record = parseLockRecord(source);
-  if (record === null || record.token !== token) {
-    return;
-  }
-  try {
-    await rm(lockPath);
-  } catch (error) {
-    if (!isMissing(error)) {
-      throw error;
+  ownParticipantPath: string
+): Promise<PrivateLockRecord[]> {
+  const parent = dirname(path);
+  const prefix = lockParticipantPrefix(path);
+  const names = await readdir(parent);
+  const participants: PrivateLockRecord[] = [];
+
+  for (const name of names) {
+    if (!name.startsWith(prefix)) {
+      continue;
     }
+    const participantPath = join(parent, name);
+    const source = await readPrivateFile(
+      participantPath,
+      anchorDirectory
+    );
+    if (source === null) {
+      continue;
+    }
+    const record = parseLockRecord(source);
+    if (record === null) {
+      throw new AgentOpsError(
+        "PRIVATE_STATE_LOCK_INVALID",
+        `Private state lock record is invalid: ${participantPath}`
+      );
+    }
+    if (!isProcessActive(record.processId)) {
+      if (participantPath !== ownParticipantPath) {
+        await removeOwnedParticipant(
+          participantPath,
+          anchorDirectory
+        );
+      }
+      continue;
+    }
+    participants.push(record);
   }
+  return participants;
+}
+
+function precedes(
+  left: PrivateLockRecord,
+  right: PrivateLockRecord
+): boolean {
+  return (
+    left.ticket < right.ticket ||
+    (left.ticket === right.ticket && left.token < right.token)
+  );
 }
 
 export async function withPrivateFileLock<T>(
@@ -385,59 +432,82 @@ export async function withPrivateFileLock<T>(
 ): Promise<T> {
   const parent = dirname(path);
   await ensurePrivateDirectory(parent, anchorDirectory);
-  const lockPath = `${path}.lock`;
   const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
-  let handle;
-  let ownerToken: string | undefined;
+  const token = randomUUID();
+  const participantPath = lockParticipantPath(
+    path,
+    process.pid,
+    token
+  );
+  let record: PrivateLockRecord = {
+    choosing: true,
+    createdAt: new Date().toISOString(),
+    processId: process.pid,
+    ticket: 0,
+    token
+  };
+  await writePrivateFile(
+    participantPath,
+    `${JSON.stringify(record)}\n`,
+    anchorDirectory
+  );
 
-  while (handle === undefined) {
-    let candidate;
-    const candidateToken = randomUUID();
-    try {
-      candidate = await open(lockPath, "wx", 0o600);
-      await candidate.writeFile(
-        `${JSON.stringify({
-          processId: process.pid,
-          createdAt: new Date().toISOString(),
-          token: candidateToken
-        })}\n`,
-        "utf8"
+  try {
+    const initialParticipants = await readActiveParticipants(
+      path,
+      anchorDirectory,
+      participantPath
+    );
+    const maximumTicket = initialParticipants.reduce(
+      (maximum, participant) =>
+        Math.max(maximum, participant.ticket),
+      0
+    );
+    if (maximumTicket >= Number.MAX_SAFE_INTEGER) {
+      throw new AgentOpsError(
+        "PRIVATE_STATE_LOCK_EXHAUSTED",
+        `Private state lock ticket space is exhausted: ${path}`
       );
-      await candidate.sync();
-      handle = candidate;
-      ownerToken = candidateToken;
-    } catch (error) {
-      await candidate?.close().catch(() => undefined);
-      if (candidate !== undefined) {
-        await rm(lockPath, { force: true }).catch(() => undefined);
-      }
-      if (!isAlreadyExists(error)) {
-        throw error;
-      }
-      if (await recoverAbandonedLock(lockPath, anchorDirectory)) {
-        continue;
+    }
+    record = {
+      ...record,
+      choosing: false,
+      ticket: maximumTicket + 1
+    };
+    await writePrivateFile(
+      participantPath,
+      `${JSON.stringify(record)}\n`,
+      anchorDirectory
+    );
+
+    while (true) {
+      const participants = await readActiveParticipants(
+        path,
+        anchorDirectory,
+        participantPath
+      );
+      const blocked = participants.some(
+        (participant) =>
+          participant.token !== token &&
+          (participant.choosing || precedes(participant, record))
+      );
+      if (!blocked) {
+        break;
       }
       if (Date.now() >= deadline) {
         throw new AgentOpsError(
           "PRIVATE_STATE_LOCK_TIMEOUT",
           `Timed out waiting for private state lock: ${path}`,
-          { cause: error }
         );
       }
       await delay(10);
     }
-  }
 
-  try {
     return await action();
   } finally {
-    await handle.close().catch(() => undefined);
-    if (ownerToken !== undefined) {
-      await releaseOwnedLock(
-        lockPath,
-        anchorDirectory,
-        ownerToken
-      );
-    }
+    await removeOwnedParticipant(
+      participantPath,
+      anchorDirectory
+    );
   }
 }

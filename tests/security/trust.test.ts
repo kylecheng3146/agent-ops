@@ -221,10 +221,15 @@ test("recovers an abandoned trust-store lock", async () => {
     const storePath = join(stateDirectory, "trust.json");
     await mkdir(stateDirectory);
     await writeFile(
-      `${storePath}.lock`,
+      join(
+        stateDirectory,
+        `.trust.json.agent-ops-lock-${exitedProcessId}-abandoned-lock-token`
+      ),
       `${JSON.stringify({
+        choosing: false,
         processId: exitedProcessId,
         createdAt: "2000-01-01T00:00:00Z",
+        ticket: 1,
         token: "abandoned-lock-token"
       })}\n`
     );
@@ -239,7 +244,14 @@ test("recovers an abandoned trust-store lock", async () => {
     await store.grant(binding);
 
     assert.equal((await store.status(binding)).status, "TRUSTED");
-    await assert.rejects(lstat(`${storePath}.lock`));
+    await assert.rejects(
+      lstat(
+        join(
+          stateDirectory,
+          `.trust.json.agent-ops-lock-${exitedProcessId}-abandoned-lock-token`
+        )
+      )
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
