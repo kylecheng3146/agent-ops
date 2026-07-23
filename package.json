@@ -1,0 +1,40 @@
+{
+  "name": "@kylecheng3146/agent-ops",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "Evidence-driven development loops for Codex and Claude Code",
+  "type": "module",
+  "license": "MIT",
+  "repository": "github:kylecheng3146/agent-ops",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "bin": {
+    "agent-ops": "dist/packages/cli/src/bin.js"
+  },
+  "files": [
+    "dist/",
+    "schemas/",
+    "templates/",
+    "docs/en/spec/",
+    "docs/zh-TW/spec/",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs dist .tmp",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:compile": "node scripts/clean.mjs .tmp/test-dist && tsc -p tsconfig.test.json",
+    "test": "npm run test:compile && node scripts/run-tests.mjs .tmp/test-dist/tests",
+    "build": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
+    "package:check": "node scripts/package-check.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2"
+  }
+}
