@@ -5,6 +5,13 @@ import {
 } from "./types.js";
 
 const AMBIGUOUS_TARGET = /(?:^|[^\\])(?:\$\{?|\*|\?|\[)/;
+const PUSH_LONG_OPTIONS_WITH_VALUES = new Set([
+  "--exec",
+  "--push-option",
+  "--receive-pack",
+  "--recurse-submodules",
+  "--repo"
+]);
 const WINDOWS_ENVIRONMENT_TARGET = /%[^%\s]+%/;
 const TILDE_TARGET = /^~[A-Za-z0-9._-]*(?:[\\/]|$)/;
 const WINDOWS_ROOT = /^[A-Za-z]:\/?$/;
@@ -152,80 +159,64 @@ function gitSubcommand(args: readonly string[]): {
   return { name: undefined, args: [] };
 }
 
-function hasForcedPushRefspec(args: readonly string[]): boolean {
-  let repositoryFromOption = false;
+function hasDestructivePushArgument(args: readonly string[]): boolean {
+  let repositorySupplied = false;
   const operands: string[] = [];
-  const optionsWithValues = new Set([
-    "--exec",
-    "--push-option",
-    "--receive-pack",
-    "-o"
-  ]);
+  let optionsEnded = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index] ?? "";
-    if (argument === "--repo") {
-      repositoryFromOption = args[index + 1] !== undefined;
-      index += 1;
-      continue;
-    }
-    if (argument.startsWith("--repo=")) {
-      repositoryFromOption = argument.length > "--repo=".length;
-      continue;
-    }
-    if (optionsWithValues.has(argument)) {
-      index += 1;
+    if (optionsEnded) {
+      operands.push(argument);
       continue;
     }
     if (argument === "--") {
-      operands.push(...args.slice(index + 1));
-      break;
+      optionsEnded = true;
+      continue;
     }
-    if (!argument.startsWith("-")) {
-      operands.push(argument);
+    if (argument.startsWith("--")) {
+      const equalsIndex = argument.indexOf("=");
+      const option =
+        equalsIndex === -1 ? argument : argument.slice(0, equalsIndex);
+      if (
+        option === "--force" ||
+        option === "--force-with-lease"
+      ) {
+        return true;
+      }
+      if (PUSH_LONG_OPTIONS_WITH_VALUES.has(option)) {
+        if (option === "--repo") {
+          repositorySupplied = true;
+        }
+        if (equalsIndex === -1) {
+          index += 1;
+        }
+      }
+      continue;
     }
+    if (argument.startsWith("-") && argument !== "-") {
+      const flags = argument.slice(1);
+      for (let flagIndex = 0; flagIndex < flags.length; flagIndex += 1) {
+        const flag = flags[flagIndex];
+        if (flag === "f") {
+          return true;
+        }
+        if (flag === "o") {
+          if (flagIndex === flags.length - 1) {
+            index += 1;
+          }
+          break;
+        }
+      }
+      continue;
+    }
+    operands.push(argument);
   }
 
-  const refspecs = repositoryFromOption ? operands : operands.slice(1);
+  const refspecs = repositorySupplied ? operands : operands.slice(1);
   return refspecs.some(
     (argument) => argument.startsWith("+") && argument.length > 1
   );
-}
-
-function hasPushForceOption(args: readonly string[]): boolean {
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index] ?? "";
-    if (argument === "--") {
-      return false;
-    }
-    if (
-      argument === "--force" ||
-      argument.startsWith("--force-with-lease")
-    ) {
-      return true;
-    }
-    if (argument === "-o") {
-      index += 1;
-      continue;
-    }
-    if (!argument.startsWith("-") || argument.startsWith("--")) {
-      continue;
-    }
-    const flags = argument.slice(1);
-    for (let flagIndex = 0; flagIndex < flags.length; flagIndex += 1) {
-      const flag = flags[flagIndex];
-      if (flag === "f") {
-        return true;
-      }
-      if (flag === "o") {
-        if (flagIndex === flags.length - 1) {
-          index += 1;
-        }
-        break;
-      }
-    }
-  }
-  return false;
 }
 
 function gitDecision(args: readonly string[]): GuardrailDecision {
@@ -241,8 +232,7 @@ function gitDecision(args: readonly string[]): GuardrailDecision {
   }
   if (
     subcommand.name === "push" &&
-    (hasPushForceOption(subcommand.args) ||
-      hasForcedPushRefspec(subcommand.args))
+    hasDestructivePushArgument(subcommand.args)
   ) {
     return {
       action: "block",

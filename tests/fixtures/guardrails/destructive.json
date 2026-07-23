@@ -127,6 +127,185 @@
     }
   },
   {
+    "id": "repo-consumes-next-f-value-allow",
+    "command": "git",
+    "args": ["push", "--repo", "-f", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "repo-value-then-real-force-block",
+    "command": "git",
+    "args": ["push", "--repo", "origin", "-f", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "repo-inline-f-value-allow",
+    "command": "git",
+    "args": ["push", "--repo=-f", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "recurse-submodules-consumes-next-f-value-allow",
+    "command": "git",
+    "args": [
+      "push",
+      "--recurse-submodules",
+      "-f",
+      "origin",
+      "main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "recurse-submodules-value-then-real-force-block",
+    "command": "git",
+    "args": [
+      "push",
+      "--recurse-submodules",
+      "check",
+      "-f",
+      "origin",
+      "main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "recurse-submodules-inline-f-value-allow",
+    "command": "git",
+    "args": [
+      "push",
+      "--recurse-submodules=-f",
+      "origin",
+      "main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "receive-pack-consumes-next-f-value-allow",
+    "command": "git",
+    "args": ["push", "--receive-pack", "-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "receive-pack-value-then-real-force-block",
+    "command": "git",
+    "args": [
+      "push",
+      "--receive-pack",
+      "receive",
+      "-f",
+      "origin",
+      "main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "receive-pack-inline-f-value-allow",
+    "command": "git",
+    "args": ["push", "--receive-pack=-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "exec-consumes-next-f-value-allow",
+    "command": "git",
+    "args": ["push", "--exec", "-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "exec-value-then-real-force-block",
+    "command": "git",
+    "args": [
+      "push",
+      "--exec",
+      "receive",
+      "-f",
+      "origin",
+      "main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "exec-inline-f-value-allow",
+    "command": "git",
+    "args": ["push", "--exec=-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "push-option-consumes-next-f-value-allow",
+    "command": "git",
+    "args": ["push", "--push-option", "-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
+    "id": "push-option-value-then-real-force-block",
+    "command": "git",
+    "args": [
+      "push",
+      "--push-option",
+      "draft",
+      "-f",
+      "origin",
+      "main"
+    ],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "push-option-inline-f-value-allow",
+    "command": "git",
+    "args": ["push", "--push-option=-f", "origin", "main"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
     "id": "leading-plus-refspec-force-push-block",
     "command": "git",
     "args": [
