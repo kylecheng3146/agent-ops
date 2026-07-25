@@ -68,8 +68,8 @@ async function readBoundedConfig(root: string): Promise<Buffer> {
     if (
       !opened.isFile() ||
       opened.size > BigInt(MAX_UPDATE_CONFIG_BYTES) ||
-      after.dev !== opened.dev ||
-      after.ino !== opened.ino
+      after.dev !== before.dev ||
+      after.ino !== before.ino
     ) {
       throw new AgentOpsError(
         "UPDATE_INSTALLATION_INVALID",

@@ -144,8 +144,8 @@ async function readContained(
     if (
       !opened.isFile() ||
       opened.size > BigInt(MAX_DOCTOR_FILE_BYTES) ||
-      after.dev !== opened.dev ||
-      after.ino !== opened.ino
+      after.dev !== before.dev ||
+      after.ino !== before.ino
     ) {
       throw new Error("Doctor target identity changed during inspection.");
     }

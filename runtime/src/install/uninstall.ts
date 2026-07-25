@@ -75,8 +75,8 @@ async function readCurrentFile(
     if (
       !opened.isFile() ||
       opened.size > BigInt(MAX_UNINSTALL_FILE_BYTES) ||
-      after.dev !== opened.dev ||
-      after.ino !== opened.ino
+      after.dev !== before.dev ||
+      after.ino !== before.ino
     ) {
       throw new AgentOpsError(
         "UNINSTALL_TARGET_INVALID",
