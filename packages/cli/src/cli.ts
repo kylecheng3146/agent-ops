@@ -7,11 +7,13 @@ import {
   type OutputSink
 } from "./output.js";
 import { completeInitChoices, type WizardIo } from "./wizard.js";
+import type { CommandRegistry } from "./commands/index.js";
 
 export interface CliIo extends OutputSink, WizardIo {}
 
 export interface CliServices {
   version: string;
+  registry?: CommandRegistry;
   execute?(args: ParsedArgs): Promise<CliEnvelope<unknown>>;
 }
 
@@ -36,6 +38,7 @@ Options:
   --harness <both|claude|codex>
   --profile <core|advisory|guardrails>  Repeatable
   --task <id>
+  --target-version <version>          Update target version (offline-capable)
   --title <text>
   --criterion <json>                    Repeatable
   --evidence <criterion-id=reference>   Repeatable
@@ -112,7 +115,11 @@ export async function runCli(
         args.json ? { ...io, isTTY: false } : io
       );
     }
-    if (services.execute === undefined) {
+    const execute =
+      args.command === "help" || args.command === "version"
+        ? services.execute
+        : services.registry?.get(args.command) ?? services.execute;
+    if (execute === undefined) {
       return writeAndReturn(
         io,
         errorEnvelope(
@@ -123,7 +130,7 @@ export async function runCli(
         1
       );
     }
-    const result = await services.execute(args);
+    const result = await execute(args);
     return writeAndReturn(
       io,
       result,

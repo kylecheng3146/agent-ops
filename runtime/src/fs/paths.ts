@@ -4,7 +4,8 @@ import {
   join,
   relative,
   resolve,
-  sep
+  sep,
+  win32
 } from "node:path";
 
 const WINDOWS_RESERVED_SEGMENT =
@@ -83,6 +84,20 @@ function assertContained(root: string, candidate: string): void {
       `Resolved path escapes the managed root: ${candidate}`
     );
   }
+}
+
+export function sameResolvedPath(
+  left: string,
+  right: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  if (platform !== "win32") {
+    return left === right;
+  }
+  return (
+    win32.normalize(left).toLowerCase() ===
+    win32.normalize(right).toLowerCase()
+  );
 }
 
 export async function resolveContainedPath(

@@ -9,6 +9,48 @@ This repository is in its foundation stage. The CLI, hook runtime, normative
 specification, and installation profiles are being developed in a reviewable
 feature branch before the first pre-1.0 release.
 
+The current CLI is an unreleased development interface. Its packed artifact is
+checked by `npm run package:check`; command behavior may change before the first
+tagged pre-1.0 release.
+
+## Quick start from a source checkout
+
+Version 0.1.0 is prepared for release but has not yet been published to npm.
+Until the protected release workflow completes, use a source checkout:
+
+```bash
+git clone https://github.com/kylecheng3146/agent-ops.git
+cd agent-ops
+npm ci
+npm run build
+node dist/packages/cli/src/bin.js --version
+```
+
+Preview a project installation before changing files:
+
+```bash
+node dist/packages/cli/src/bin.js init \
+  --dry-run --scope project --harness both --profile core --json
+```
+
+After reviewing the plan, apply it explicitly with `--yes`. Trust, diagnostics,
+updates, and removal are separate commands:
+
+```bash
+node dist/packages/cli/src/bin.js init --scope project --harness both --profile core --yes
+node dist/packages/cli/src/bin.js trust status --json
+node dist/packages/cli/src/bin.js doctor --json
+node dist/packages/cli/src/bin.js update --target-version 0.1.0 --dry-run --json
+node dist/packages/cli/src/bin.js uninstall --dry-run --json
+```
+
+The commands after `init --yes` are post-apply operations; `doctor` may report
+an unknown probe status until a repository-specific verification setup exists.
+
+Use `--scope user` with user-home installations. Do not install from npm until
+the `v0.1.0` tag has been published; the release workflow is the source of the
+published package and provenance record.
+
 ## Project principles
 
 - Define verifiable success before making changes.
@@ -22,6 +64,13 @@ feature branch before the first pre-1.0 release.
 
 No npm package has been published yet. Do not depend on the current repository
 as a stable interface until a tagged release is available.
+
+Documentation:
+
+- [English specification](docs/en/spec/README.md)
+- [繁體中文規範](docs/zh-TW/spec/README.md)
+- [English guides](docs/en/guides/quickstart.md)
+- [繁體中文指南](docs/zh-TW/guides/quickstart.md)
 
 ## Community
 
