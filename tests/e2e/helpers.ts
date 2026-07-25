@@ -21,7 +21,7 @@ export function runBuiltCli(
       stdout.push(
         execFileSync(
           process.execPath,
-          [join(process.cwd(), "dist/packages/cli/src/bin.js"), ...args],
+          [join(process.cwd(), ".tmp/test-dist/packages/cli/src/bin.js"), ...args],
           {
             cwd: root,
             encoding: "utf8",

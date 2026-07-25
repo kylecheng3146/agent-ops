@@ -6,14 +6,18 @@ import { createInterface } from "node:readline/promises";
 import { execFileSync } from "node:child_process";
 
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
+import type { AgentOpsConfig } from "../../../runtime/src/contracts.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { mergeConfigLayers } from "../../../runtime/src/config/merge.js";
+import { loadConfigFile } from "../../../runtime/src/config/load.js";
 import { FileTrustStore, calculateTrustBinding } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { sha256 } from "../../../runtime/src/fs/hash.js";
-import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
+import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
+import { VerificationService } from "../../../runtime/src/verify/service.js";
+import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
 import { runCli } from "./cli.js";
 import { createCommandRegistry } from "./commands/index.js";
 import { explainConfigCommand } from "./commands/config.js";
@@ -37,6 +41,34 @@ import {
 import { errorEnvelope, type CliEnvelope } from "./output.js";
 
 const CLI_VERSION = "0.0.0-development";
+
+const DEFAULT_CONFIG: AgentOpsConfig = {
+  schemaVersion: 1,
+  profiles: [],
+  verification: { commands: [] },
+  pathMappings: [],
+  securityExceptions: []
+};
+
+async function loadEffectiveConfig(root: string): Promise<AgentOpsConfig> {
+  try {
+    const loaded = await loadConfigFile(join(root, ".agent-ops", "config.json"));
+    return mergeConfigLayers([
+      {
+        source: "default",
+        sourcePath: "built-in defaults",
+        config: DEFAULT_CONFIG
+      },
+      {
+        source: "project",
+        sourcePath: loaded.sourcePath,
+        config: loaded.config
+      }
+    ]).config;
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
 
 async function confirmInit(
   plan: Parameters<typeof formatInstallPlan>[0]
@@ -145,35 +177,56 @@ process.exitCode = await runCli(
             });
           }
           if (args.command === "config") {
+            const config = await loadEffectiveConfig(root);
             return explainConfigCommand(
               mergeConfigLayers([{
                 source: "default",
                 sourcePath: "built-in defaults",
-                config: {
-                  schemaVersion: 1,
-                  profiles: [],
-                  verification: { commands: [] },
-                  pathMappings: [],
-                  securityExceptions: []
-                }
+                config
               }])
             );
           }
           if (args.command === "verify") {
+            const config = await loadEffectiveConfig(root);
             return await runVerifyCommand({
               args,
               taskService,
-              service: {
-                verify: async () => {
-                  throw new AgentOpsError(
-                    "VERIFY_CONFIG_REQUIRED",
-                    "Verification requires an installed and trusted configuration."
-                  );
-                }
-              }
+              service: new VerificationService({
+                root,
+                scope: args.scope === "user" ? "user" : "project",
+                config,
+                gitRunner: {
+                  run: async (gitArgs) => {
+                    try {
+                      return {
+                        exitCode: 0,
+                        stdout: execFileSync("git", [...gitArgs], {
+                          cwd: root,
+                          encoding: "buffer",
+                          stdio: ["ignore", "pipe", "ignore"]
+                        })
+                      };
+                    } catch (error) {
+                      const failure = error as {
+                        status?: number | null;
+                        stdout?: Uint8Array;
+                      };
+                      return {
+                        exitCode: failure.status ?? 1,
+                        stdout: failure.stdout ?? new Uint8Array()
+                      };
+                    }
+                  }
+                },
+                processRunner: new NodeVerificationProcessRunner(),
+                taskService,
+                evidenceStore: new FileEvidenceStore(root, root),
+                trusted: false
+              })
             });
           }
           if (args.command === "trust") {
+            const config = await loadEffectiveConfig(root);
             const state = localStatePaths(
               process.env.AGENT_OPS_HOME ?? homedir()
             );
@@ -190,7 +243,7 @@ process.exitCode = await runCli(
             const binding = await calculateTrustBinding({
               repositoryPath: root,
               remoteUrl: remote,
-              configHash: sha256("built-in-default-config"),
+              configHash: sha256(JSON.stringify(config)),
               runtimeHash: sha256(CLI_VERSION)
             });
             return await runTrustCommand({
