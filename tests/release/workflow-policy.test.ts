@@ -79,4 +79,7 @@ test("governance files document safe reporting and review evidence", async () =>
   }
   const changelog = await read("CHANGELOG.md");
   assert.match(changelog, /Unreleased/u);
+  const readme = await read("README.md");
+  assert.match(readme, /init --scope project --harness both --profile core --yes/u);
+  assert.match(readme, /post-apply|after applying/iu);
 });

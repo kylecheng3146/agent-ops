@@ -9,17 +9,20 @@ const files = execFileSync("git", ["ls-files"], { encoding: "utf8" })
   .filter((file) => file.length > 0);
 const patterns = [
   /(?:^|[\s"'`(=])\/(?:Users|home|private|tmp|var|opt|workspace)\//iu,
+  /(?:^|[\s"'`(=])(?:[A-Za-z]:[\\/]|\\\\)(?:Users|home|private|tmp|var|opt|workspace)[\\/]/iu,
   /(?:frontend-wixgo|agent-ops-build|(?:^|[./])wixtar\.com)\b/iu,
   /gh[pousr]_[A-Za-z0-9]{20,}/u,
   /github_pat_[A-Za-z0-9_]{20,}/u,
-  /sk-[A-Za-z0-9_-]{20,}/u
+  /sk-[A-Za-z0-9_-]{20,}/u,
+  /(?:xox[baprs]|AIza|AKIA|npm)_[A-Za-z0-9_-]{16,}/u,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/u
 ];
 const findings = [];
 for (const file of files) {
-  if (
-    !/^(?:packages|runtime|docs|\.github)\//u.test(file) &&
-    !/^(?:README|SECURITY|CONTRIBUTING|CHANGELOG)\.md$/u.test(file)
-  ) {
+  if (/^tests\//u.test(file)) {
+    continue;
+  }
+  if (/^scripts\/(?:package-check|scan-release|scan-source)\.mjs$/u.test(file)) {
     continue;
   }
   let content;

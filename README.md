@@ -37,11 +37,15 @@ After reviewing the plan, apply it explicitly with `--yes`. Trust, diagnostics,
 updates, and removal are separate commands:
 
 ```bash
+node dist/packages/cli/src/bin.js init --scope project --harness both --profile core --yes
 node dist/packages/cli/src/bin.js trust status --json
 node dist/packages/cli/src/bin.js doctor --json
 node dist/packages/cli/src/bin.js update --target-version 0.0.1 --dry-run --json
 node dist/packages/cli/src/bin.js uninstall --dry-run --json
 ```
+
+The commands after `init --yes` are post-apply operations; `doctor` may report
+an unknown probe status until a repository-specific verification setup exists.
 
 Use `--scope user` with user-home installations. Do not copy the development
 version into a global npm install; wait for a tagged release and its published
