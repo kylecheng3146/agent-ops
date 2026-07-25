@@ -5,6 +5,8 @@ Verified on 2026-07-25 against:
 - Codex CLI `0.145.0`
 - the current official [Codex Hooks manual](https://learn.chatgpt.com/docs/hooks)
 
+Result: `../results/codex-hook-smoke.json`
+
 ## Normative contract used by the adapter
 
 The official manual establishes the following behavior:

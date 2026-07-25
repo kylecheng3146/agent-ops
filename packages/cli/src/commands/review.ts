@@ -8,6 +8,11 @@ import {
   runIndependentReview,
   type ReviewRunResult
 } from "../../../../runtime/src/review/runner.js";
+import {
+  resolveReviewRole,
+  type ReviewRole,
+  type ReviewRoleConfig
+} from "../../../../runtime/src/review/roles.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 
@@ -17,6 +22,8 @@ export interface ReviewCommandOptions {
   readonly execute?: Parameters<typeof runIndependentReview>[0]["execute"];
   readonly model?: string;
   readonly effort?: string;
+  readonly role?: ReviewRole;
+  readonly roles?: readonly ReviewRoleConfig[];
 }
 
 export interface ReviewCommandData {
@@ -47,11 +54,15 @@ export async function runReviewCommand(
     };
   });
   const selectedHarness = harness(options.args.harness);
+  const role = resolveReviewRole(
+    options.role ?? "independent-review",
+    options.roles ?? []
+  );
   const result = await runIndependentReview({
     invocation: {
-      harness: selectedHarness,
-      model: options.model ?? "configured",
-      effort: options.effort ?? "configured",
+      harness: role?.harness ?? selectedHarness,
+      model: role?.model ?? options.model ?? "configured",
+      effort: role?.effort ?? options.effort ?? "configured",
       packet: buildReviewPacket({
         request: "Review the requested implementation.",
         criteria,
@@ -74,7 +85,20 @@ export async function runReviewCommand(
   const data = {
     message,
     result,
-    text: `${message}\n${result.prompt}\n`
+    text: [
+      message,
+      `Status: ${result.status}`,
+      `Harness: ${result.harness}; model: ${result.model}; effort: ${result.effort}.`,
+      ...(result.reason === undefined ? [] : [`Reason: ${result.reason}.`]),
+      ...(result.results === undefined
+        ? []
+        : result.results.map(
+            (item) =>
+              `${item.criterionId}: ${item.status} [${item.evidence.join(", ")}]`
+          )),
+      result.prompt,
+      ""
+    ].join("\n")
   };
   if (result.status === "PASS") {
     return okEnvelope("REVIEW_RESULT", data);

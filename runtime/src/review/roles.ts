@@ -1,4 +1,8 @@
-export type ReviewRole = "implementer" | "spec-reviewer" | "security-reviewer";
+export type ReviewRole =
+  | "mechanical"
+  | "implementation"
+  | "deep-reasoning"
+  | "independent-review";
 
 export interface ReviewRoleConfig {
   readonly role: ReviewRole;

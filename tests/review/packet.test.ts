@@ -66,6 +66,13 @@ test("fails aggregation for missing, duplicate, unknown, or empty evidence", () 
     );
   }
   assert.equal(
+    aggregateReviewResults(
+      ["tests"],
+      [result("tests", "PASS", "   ")]
+    ).status,
+    "FAIL"
+  );
+  assert.equal(
     aggregateReviewResults(["tests"], [result("tests", "FAIL")]).status,
     "FAIL"
   );

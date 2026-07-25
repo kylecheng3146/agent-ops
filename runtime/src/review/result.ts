@@ -22,7 +22,8 @@ export function aggregateReviewResults(
     if (
       !expected.has(result.criterionId) ||
       seen.has(result.criterionId) ||
-      result.evidence.length === 0
+      result.evidence.length === 0 ||
+      result.evidence.some((reference) => reference.trim().length === 0)
     ) {
       valid = false;
     }

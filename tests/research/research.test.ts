@@ -16,4 +16,11 @@ test("research scaffolding is protocol-only and has a valid result schema", asyn
   assert.doesNotMatch(readme, /historical result|measured result|internal repository/i);
   await access(join(root, "fixtures/README.md"));
   assert.doesNotMatch(readme, /frontend-wixgo|agent-ops-build|\/private\/tmp/);
+  for (const protocol of ["codex-hook-smoke.md", "claude-hook-smoke.md"]) {
+    const source = await readFile(join(root, "protocols", protocol), "utf8");
+    const result = source.match(/^Result: `([^`]+)`$/m)?.[1];
+    assert.ok(result, `${protocol} must link a result file`);
+    await access(join(root, "protocols", result));
+    assert.doesNotMatch(source, /frontend-wixgo|agent-ops-build|\/private\/tmp/);
+  }
 });

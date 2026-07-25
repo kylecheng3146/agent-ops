@@ -8,6 +8,8 @@ Verified on 2026-07-25 against:
 - the official [CLAUDE.md reference](https://code.claude.com/docs/en/memory)
 - the official [Security reference](https://code.claude.com/docs/en/security)
 
+Result: `../results/claude-hook-smoke.json`
+
 ## Normative contract used by the adapter
 
 Claude Code stores hooks inside hierarchical settings:
