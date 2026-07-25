@@ -28,3 +28,13 @@ test("review accepts independent-review options", () => {
 test("review accepts --yes as explicit reviewer authorization", () => {
   assert.equal(parseArgs(["review", "--yes"]).yes, true);
 });
+
+test("review rejects the multi-harness selection", () => {
+  assert.throws(
+    () => parseArgs(["review", "--harness", "both"]),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "CLI_INVALID_VALUE"
+  );
+});

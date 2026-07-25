@@ -3,6 +3,8 @@ import {
   aggregateReviewResults,
   type ReviewCriterionResult
 } from "./result.js";
+import { redactSecrets } from "../security/redact.js";
+import { safeTaskText } from "../task/render.js";
 
 export interface ReviewInvocation {
   readonly harness: "codex" | "claude";
@@ -53,6 +55,16 @@ function promptFor(invocation: ReviewInvocation): string {
   ].join("\n");
 }
 
+function safeResult(result: ReviewCriterionResult): ReviewCriterionResult {
+  return {
+    criterionId: safeTaskText(redactSecrets(result.criterionId)),
+    status: result.status,
+    evidence: result.evidence.map((reference) =>
+      safeTaskText(redactSecrets(reference))
+    )
+  };
+}
+
 export async function runIndependentReview(
   options: ReviewRunnerOptions
 ): Promise<ReviewRunResult> {
@@ -79,5 +91,9 @@ export async function runIndependentReview(
     options.invocation.packet.criteria.map((criterion) => criterion.id),
     result.results
   );
-  return { ...base, status: summary.status, results: summary.results };
+  return {
+    ...base,
+    status: summary.status,
+    results: summary.results.map(safeResult)
+  };
 }

@@ -61,3 +61,18 @@ test("review execution requires explicit authorization and read-only mode", asyn
   assert.equal(authorized.status, "PASS");
   assert.deepEqual(calls, [{ readOnly: true }]);
 });
+
+test("review evidence is redacted and safe for human or JSON output", async () => {
+  const sensitive = ["Author", "ization: hidden"].join("");
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      status: "PASS",
+      results: [{ criterionId: "tests", status: "PASS", evidence: [sensitive] }]
+    })
+  });
+  assert.equal(result.status, "PASS");
+  assert.notEqual(result.results?.[0]?.evidence[0], sensitive);
+  assert.doesNotMatch(result.results?.[0]?.evidence[0] ?? "", /hidden/);
+});

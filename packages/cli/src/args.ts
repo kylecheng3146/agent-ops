@@ -406,6 +406,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review accepts harness, criteria, evidence, scope, dry-run, json, and yes options."
     );
   }
+  if (command === "review" && harness === "both") {
+    invalidValue("--harness", harness);
+  }
 
   return {
     command,
