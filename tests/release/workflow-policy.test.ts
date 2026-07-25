@@ -8,6 +8,7 @@ async function read(path: string): Promise<string> {
 
 test("CI policy covers the cross-platform Node matrix and installed CLI smoke", async () => {
   const workflow = await read(".github/workflows/ci.yml");
+  const packageCheck = await read("scripts/package-check.mjs");
   for (const operatingSystem of [
     "ubuntu-latest",
     "macos-latest",
@@ -24,6 +25,7 @@ test("CI policy covers the cross-platform Node matrix and installed CLI smoke", 
     "npm test",
     "npm run build",
     "npm run package:check",
+    "node scripts/scan-source.mjs",
     "node scripts/ci-package-smoke.mjs"
   ]) {
     assert.match(workflow, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -32,6 +34,7 @@ test("CI policy covers the cross-platform Node matrix and installed CLI smoke", 
   assert.match(workflow, /matrix\.node/);
   assert.doesNotMatch(workflow, /npm\s+publish\b/u);
   assert.doesNotMatch(workflow, /id-token:\s*write/u);
+  assert.match(packageCheck, /process\.platform\s*===\s*["']win32["'][\s\S]*npm\.cmd/u);
 });
 
 test("release policy is dispatch-only, protected, and provenance-capable", async () => {
@@ -43,6 +46,7 @@ test("release policy is dispatch-only, protected, and provenance-capable", async
   assert.match(workflow, /npm\s+publish\b/u);
   assert.match(workflow, /11\.5\.1/u);
   assert.match(workflow, /github\.event_name\s*==\s*["']workflow_dispatch["']/u);
+  assert.match(workflow, /git\s+rev-parse[\s\S]*RELEASE_TAG[\s\S]*git\s+rev-parse[\s\S]*HEAD/isu);
   assert.doesNotMatch(workflow, /NPM_TOKEN|NODE_AUTH_TOKEN/u);
   assert.doesNotMatch(workflow, /pull_request:/u);
   assert.doesNotMatch(workflow, /on:\s*push:/u);

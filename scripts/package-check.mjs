@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = await mkdtemp(join(tmpdir(), "agent-ops-package-check-"));
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const packJson = join(root, "pack.json");
 const consumer = join(root, "consumer");
 const isolatedHome = join(root, "home");
@@ -38,7 +39,7 @@ function probe(command, args, options = {}) {
 }
 
 try {
-  const metadata = run("npm", ["pack", "--json", "--pack-destination", root]);
+  const metadata = run(npm, ["pack", "--json", "--pack-destination", root]);
   await writeFile(packJson, metadata, "utf8");
   const scan = JSON.parse(
     run(process.execPath, ["scripts/scan-release.mjs", packJson])
@@ -74,7 +75,7 @@ try {
       throw new Error(`Packed content contains an internal path or credential pattern: ${name}`);
     }
   }
-  await run("npm", [
+  await run(npm, [
     "install",
     "--ignore-scripts",
     "--no-audit",

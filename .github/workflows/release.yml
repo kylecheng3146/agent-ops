@@ -37,6 +37,9 @@ jobs:
         run: |
           node -e 'const fs = require("node:fs"); const pkg = JSON.parse(fs.readFileSync("package.json", "utf8")); const tag = process.env.RELEASE_TAG; if (tag !== `v${pkg.version}`) { throw new Error(`Tag ${tag} does not match package version ${pkg.version}`) }'
           git show-ref --tags --verify "refs/tags/${RELEASE_TAG}"
+          TAG_COMMIT="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          test "$TAG_COMMIT" = "$HEAD_COMMIT"
       - name: Install locked dependencies
         run: npm ci
       - name: Type-check
@@ -47,6 +50,8 @@ jobs:
         run: npm run build
       - name: Verify packed package
         run: npm run package:check
+      - name: Scan repository source
+        run: node scripts/scan-source.mjs
       - name: Keep private development packages unpublished
         run: node -e 'const pkg = require("./package.json"); if (pkg.private === true) { throw new Error("package.json is private; approve release preparation before publishing") }'
       - name: Publish with npm trusted publishing

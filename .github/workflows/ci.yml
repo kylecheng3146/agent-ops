@@ -35,5 +35,7 @@ jobs:
         run: npm run build
       - name: Verify packed package
         run: npm run package:check
+      - name: Scan repository source
+        run: node scripts/scan-source.mjs
       - name: Smoke-test installed package
         run: node scripts/ci-package-smoke.mjs
