@@ -70,6 +70,25 @@
     }
   },
   {
+    "id": "mirror-push-block",
+    "command": "git",
+    "args": ["push", "--mirror", "origin"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "block",
+      "ruleId": "destructive-force-push"
+    }
+  },
+  {
+    "id": "no-mirror-push-allow",
+    "command": "git",
+    "args": ["push", "--no-mirror", "origin"],
+    "scope": "packages/cli",
+    "expected": {
+      "action": "allow"
+    }
+  },
+  {
     "id": "short-force-push-block",
     "command": "git",
     "args": ["push", "-f", "origin", "feature"],

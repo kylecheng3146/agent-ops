@@ -180,7 +180,8 @@ function hasDestructivePushArgument(args: readonly string[]): boolean {
         equalsIndex === -1 ? argument : argument.slice(0, equalsIndex);
       if (
         option === "--force" ||
-        option === "--force-with-lease"
+        option === "--force-with-lease" ||
+        option === "--mirror"
       ) {
         return true;
       }
