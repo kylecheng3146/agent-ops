@@ -99,7 +99,8 @@ test("common routing templates use only managed specification paths", async () =
   ];
 
   for (const template of templates) {
-    const content = await readFile(resolve(template.path), "utf8");
+    const content = (await readFile(resolve(template.path), "utf8"))
+      .replace(/\r\n?/gu, "\n");
     const referencedMarkdownPaths = [
       ...content.matchAll(/`([^`]+\.md)`/g)
     ].map((match) => match[1]);

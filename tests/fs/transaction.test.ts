@@ -21,7 +21,10 @@ import {
   formatInstallManifest,
   parseInstallManifest
 } from "../../runtime/src/fs/manifest.js";
-import { resolveContainedPath } from "../../runtime/src/fs/paths.js";
+import {
+  resolveContainedPath,
+  sameResolvedPath
+} from "../../runtime/src/fs/paths.js";
 import {
   AgentOpsError,
   FileTransaction,
@@ -142,6 +145,29 @@ test("rejects traversal and symlink escapes", async (context) => {
       await rm(outside, { recursive: true, force: true });
     }
   });
+});
+
+test("compares resolved paths with Windows filesystem identity semantics", () => {
+  assert.equal(
+    sameResolvedPath(
+      "C:/Work/Agent-Ops/file.txt",
+      "c:\\work\\agent-ops\\file.txt",
+      "win32"
+    ),
+    true
+  );
+  assert.equal(
+    sameResolvedPath(
+      "C:/Work/Agent-Ops/file.txt",
+      "C:/Work/Agent-Ops/other.txt",
+      "win32"
+    ),
+    false
+  );
+  assert.equal(
+    sameResolvedPath("/tmp/Agent-Ops/file.txt", "/tmp/agent-ops/file.txt", "linux"),
+    false
+  );
 });
 
 test("precondition mismatch preserves an external edit", async () => {

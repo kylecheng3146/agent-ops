@@ -32,7 +32,18 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     const explained = runBuiltCli(["config", "explain", "--json"], root).result;
     assert.equal(explained.status, 0);
     assert.match(explained.stdout, /"source":"project"/);
-    assert.match(explained.stdout, /\.agent-ops[\\/]config\.json/);
+    const explainedPayload = JSON.parse(explained.stdout) as {
+      data?: {
+        profiles?: readonly {
+          source?: string;
+          sourcePath?: string;
+        }[];
+      };
+    };
+    const projectSourcePath = explainedPayload.data?.profiles?.find(
+      (profile) => profile.source === "project"
+    )?.sourcePath ?? "";
+    assert.match(projectSourcePath, /[\\/]\.agent-ops[\\/]config\.json$/u);
     const configPath = join(root, ".agent-ops", "config.json");
     const validConfig = await readFile(configPath, "utf8");
     await writeFile(configPath, "{broken\n");

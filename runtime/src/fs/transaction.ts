@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
 import { sha256 } from "./hash.js";
 import {
   AgentOpsError,
-  resolveContainedPath
+  resolveContainedPath,
+  sameResolvedPath
 } from "./paths.js";
 
 export { AgentOpsError } from "./paths.js";
@@ -387,7 +388,7 @@ async function assertMutationBoundary(
 ): Promise<void> {
   try {
     const resolved = await resolveContainedPath(root, snapshot.operation.path);
-    if (resolved !== snapshot.targetPath) {
+    if (!sameResolvedPath(resolved, snapshot.targetPath)) {
       throw new AgentOpsError(
         "PRECONDITION_CHANGED",
         `Resolved target changed for ${snapshot.operation.path}.`
@@ -474,7 +475,7 @@ async function rollback(
 ): Promise<void> {
   for (const snapshot of [...snapshots].reverse()) {
     const resolved = await resolveContainedPath(root, snapshot.operation.path);
-    if (resolved !== snapshot.targetPath) {
+    if (!sameResolvedPath(resolved, snapshot.targetPath)) {
       throw new AgentOpsError(
         "PRECONDITION_CHANGED",
         `Cannot safely roll back changed path: ${snapshot.operation.path}`
@@ -565,7 +566,7 @@ async function cleanupPreparedDirectories(
   try {
     const resolved = await resolveContainedPath(root, snapshot.operation.path);
     if (
-      resolved === snapshot.targetPath &&
+      sameResolvedPath(resolved, snapshot.targetPath) &&
       (await currentHash(resolved)) === snapshot.actualHash
     ) {
       await removeCreatedDirectories(snapshot);

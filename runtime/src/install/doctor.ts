@@ -10,7 +10,10 @@ import {
   parseInstallManifest,
   PROJECT_MANIFEST_PATH
 } from "../fs/manifest.js";
-import { resolveContainedPath } from "../fs/paths.js";
+import {
+  resolveContainedPath,
+  sameResolvedPath
+} from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
 import {
   assertExpectedManagedBlock,
@@ -140,7 +143,7 @@ async function readContained(
     const resolvedAgain = await resolveContainedPath(root, path);
     const after = await lstat(resolvedAgain, { bigint: true });
     if (
-      resolvedAgain !== resolvedPath ||
+      !sameResolvedPath(resolvedAgain, resolvedPath) ||
       !opened.isFile() ||
       opened.size > BigInt(MAX_DOCTOR_FILE_BYTES) ||
       after.dev !== opened.dev ||
