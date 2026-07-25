@@ -48,7 +48,7 @@ import type {
   MergedConfig
 } from "../../../runtime/src/config/merge.js";
 
-const CLI_VERSION = "0.0.0-development";
+const CLI_VERSION = "0.1.0";
 
 const DEFAULT_CONFIG: AgentOpsConfig = {
   schemaVersion: 1,

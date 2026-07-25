@@ -90,7 +90,7 @@ try {
   );
 
   const version = probe(["--version"], { cwd: consumer });
-  if (version.status !== 0 || !version.output.includes("0.0.0-development")) {
+  if (version.status !== 0 || !version.output.includes("0.1.0")) {
     throw new Error(`Installed --version failed: ${version.output}`);
   }
   assertJson(

@@ -15,8 +15,8 @@ tagged pre-1.0 release.
 
 ## Quick start from a source checkout
 
-The package is private and has not been published to npm. Use a checkout for
-now:
+Version 0.1.0 is prepared for release but has not yet been published to npm.
+Until the protected release workflow completes, use a source checkout:
 
 ```bash
 git clone https://github.com/kylecheng3146/agent-ops.git
@@ -40,16 +40,16 @@ updates, and removal are separate commands:
 node dist/packages/cli/src/bin.js init --scope project --harness both --profile core --yes
 node dist/packages/cli/src/bin.js trust status --json
 node dist/packages/cli/src/bin.js doctor --json
-node dist/packages/cli/src/bin.js update --target-version 0.0.1 --dry-run --json
+node dist/packages/cli/src/bin.js update --target-version 0.1.0 --dry-run --json
 node dist/packages/cli/src/bin.js uninstall --dry-run --json
 ```
 
 The commands after `init --yes` are post-apply operations; `doctor` may report
 an unknown probe status until a repository-specific verification setup exists.
 
-Use `--scope user` with user-home installations. Do not copy the development
-version into a global npm install; wait for a tagged release and its published
-package instructions.
+Use `--scope user` with user-home installations. Do not install from npm until
+the `v0.1.0` tag has been published; the release workflow is the source of the
+published package and provenance record.
 
 ## Project principles
 
