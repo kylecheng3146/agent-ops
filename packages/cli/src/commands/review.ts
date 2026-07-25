@@ -71,9 +71,19 @@ export async function runReviewCommand(
       : result.status === "FAIL"
         ? "Independent review failed."
         : "Independent review was not run.";
-  return okEnvelope("REVIEW_RESULT", {
+  const data = {
     message,
     result,
     text: `${message}\n${result.prompt}\n`
-  });
+  };
+  if (result.status === "PASS") {
+    return okEnvelope("REVIEW_RESULT", data);
+  }
+  const code = result.status === "FAIL" ? "REVIEW_FAILED" : "REVIEW_NOT_RUN";
+  return {
+    code,
+    status: "error",
+    data,
+    errors: [{ code, message }]
+  };
 }
