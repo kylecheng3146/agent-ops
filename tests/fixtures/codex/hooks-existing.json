@@ -1,0 +1,37 @@
+{
+  "description": "User-authored Codex hooks.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^McpTool$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "user-policy check",
+            "timeout": 9
+          }
+        ]
+      },
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-ops hook codex legacy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "user-audit append"
+          }
+        ]
+      }
+    ]
+  }
+}
