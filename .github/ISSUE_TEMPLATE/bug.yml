@@ -1,0 +1,30 @@
+name: Bug report
+description: Report a reproducible problem in the toolkit.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove secrets, private prompts, and personal absolute paths before submitting.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest safe reproduction and expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Node version, harness, and commit/tag.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste redacted commands and results.
+    validations:
+      required: true

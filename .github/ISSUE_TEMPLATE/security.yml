@@ -1,0 +1,17 @@
+name: Security report
+description: Privately report a suspected vulnerability.
+title: "[Security]: "
+labels: [security]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include exploit details, credentials, or personal data in this public issue form.
+        Follow [SECURITY.md](../../SECURITY.md) for the private reporting route.
+  - type: checkboxes
+    id: private
+    attributes:
+      label: Private report acknowledgement
+      options:
+        - label: I will use the private SECURITY.md reporting route instead of posting exploit details here.
+          required: true

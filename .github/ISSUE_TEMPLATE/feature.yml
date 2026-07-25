@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a focused, evidence-backed improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and outcome
+      description: Explain the user problem and observable success criteria.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and risk
+      description: Describe breaking, migration, performance, security, or telemetry impact.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

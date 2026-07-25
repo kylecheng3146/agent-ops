@@ -13,6 +13,40 @@ The current CLI is an unreleased development interface. Its packed artifact is
 checked by `npm run package:check`; command behavior may change before the first
 tagged pre-1.0 release.
 
+## Quick start from a source checkout
+
+The package is private and has not been published to npm. Use a checkout for
+now:
+
+```bash
+git clone https://github.com/kylecheng3146/agent-ops.git
+cd agent-ops
+npm ci
+npm run build
+node dist/packages/cli/src/bin.js --version
+```
+
+Preview a project installation before changing files:
+
+```bash
+node dist/packages/cli/src/bin.js init \
+  --dry-run --scope project --harness both --profile core --json
+```
+
+After reviewing the plan, apply it explicitly with `--yes`. Trust, diagnostics,
+updates, and removal are separate commands:
+
+```bash
+node dist/packages/cli/src/bin.js trust status --json
+node dist/packages/cli/src/bin.js doctor --json
+node dist/packages/cli/src/bin.js update --target-version 0.0.1 --dry-run --json
+node dist/packages/cli/src/bin.js uninstall --dry-run --json
+```
+
+Use `--scope user` with user-home installations. Do not copy the development
+version into a global npm install; wait for a tagged release and its published
+package instructions.
+
 ## Project principles
 
 - Define verifiable success before making changes.

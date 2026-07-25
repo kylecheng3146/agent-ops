@@ -15,6 +15,32 @@ changes before implementing them.
   absolute paths, or project-specific data.
 - Describe the commands run and their outcomes in the pull request.
 
+## Local verification
+
+The repository is not published to npm yet. From a source checkout, install the
+locked development dependencies and run the same checks used by CI:
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run package:check
+```
+
+Changes to workflows, release policy, issue forms, or pull request governance
+must include focused policy tests and must not add npm tokens or publish from a
+pull request or ordinary branch push.
+
+## Maintainer release boundary
+
+The development package remains private until a separately approved
+release-preparation change assigns a public SemVer and removes `private: true`.
+After that change, configure npm Trusted Publishing for this repository and the
+`release` GitHub Environment, create a matching `v<version>` tag on `main`, and
+run the dispatch-only Release workflow. The workflow performs the full gate and
+publishes with OIDC provenance; it does not use an npm token.
+
 The project does not require a Contributor License Agreement or Developer
 Certificate of Origin. Contributions are provided under the repository's MIT
 License.
