@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/agent-ops/research/result.schema.json",
+  "title": "Research result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "source", "scope", "observedAt"],
+  "properties": {
+    "status": { "enum": ["PASS", "FAIL", "UNKNOWN", "NOT_RUN"] },
+    "source": { "type": "string", "minLength": 1 },
+    "scope": { "type": "string", "minLength": 1 },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "evidence": { "type": "array", "items": { "type": "string" } },
+    "revalidate": { "type": "string", "minLength": 1 }
+  }
+}
