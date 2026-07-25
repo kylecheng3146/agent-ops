@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kylecheng3146/agent-ops/schemas/config.schema.json",
+  "title": "Agent Ops configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profiles",
+    "verification",
+    "pathMappings",
+    "securityExceptions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "profiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["core", "advisory", "guardrails"]
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/directCommand"
+              },
+              {
+                "$ref": "#/$defs/shellCommand"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "pathMappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "verifierIds"],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/relativePath"
+          },
+          "verifierIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        }
+      }
+    },
+    "securityExceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ruleId", "scope", "expiresAt", "reason"],
+        "properties": {
+          "ruleId": {
+            "$ref": "#/$defs/id"
+          },
+          "scope": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/relativePath"
+              },
+              {
+                "not": {
+                  "const": "."
+                }
+              }
+            ]
+          },
+          "expiresAt": {
+            "$ref": "#/$defs/timestamp"
+          },
+          "reason": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "[^\\s\\u0000]",
+      "not": {
+        "pattern": "\\u0000"
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?!0000-)\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+      "$comment": "Runtime uses a case-sensitive RFC 3339 subset with years 0001-9999 and seconds 00-59; leap seconds are intentionally unsupported."
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?:\\.|(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*)$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "(?:^|/)(?:[Aa][Uu][Xx]|[Cc][Oo][Mm][1-9]|[Cc][Oo][Nn]|[Ll][Pp][Tt][1-9]|[Nn][Uu][Ll]|[Pp][Rr][Nn])(?:\\.[A-Za-z0-9._-]*)?(?:/|$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(?:^|/)[^/]+\\.(?:/|$)"
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["exit-code", "test-count", "file"]
+        },
+        "minimum": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "commandFields": {
+      "type": "object",
+      "required": ["id", "command", "args", "cwd", "required", "evidence"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "command": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "cwd": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      }
+    },
+    "directCommand": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandFields"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": true,
+            "command": true,
+            "args": true,
+            "cwd": true,
+            "required": true,
+            "timeoutMs": true,
+            "evidence": true,
+            "shell": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "shellCommand": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandFields"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shell", "acknowledgeRisk"],
+          "properties": {
+            "id": true,
+            "command": true,
+            "args": true,
+            "cwd": true,
+            "required": true,
+            "timeoutMs": true,
+            "evidence": true,
+            "shell": {
+              "const": true
+            },
+            "acknowledgeRisk": {
+              "const": true
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$comment": "Duplicate IDs and verifier reference resolution are semantic constraints enforced by runtime validation."
+}

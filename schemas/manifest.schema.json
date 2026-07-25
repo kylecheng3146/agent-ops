@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kylecheng3146/agent-ops/schemas/manifest.schema.json",
+  "title": "Agent Ops installation manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "scope", "harness", "artifacts", "markers"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "scope": {
+      "enum": ["project", "user"]
+    },
+    "harness": {
+      "enum": ["codex", "claude", "both"]
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/managedPath"
+      }
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/managedMarker"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!\\.$)(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "(?:^|/)(?:[Aa][Uu][Xx]|[Cc][Oo][Mm][1-9]|[Cc][Oo][Nn]|[Ll][Pp][Tt][1-9]|[Nn][Uu][Ll]|[Pp][Rr][Nn])(?:\\.[A-Za-z0-9._-]*)?(?:/|$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(?:^|/)[^/]+\\.(?:/|$)"
+          }
+        }
+      ]
+    },
+    "managedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "hash", "owner"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "owner": {
+          "const": "agent-ops"
+        }
+      }
+    },
+    "managedMarker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "hash",
+        "owner",
+        "startMarker",
+        "endMarker"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "owner": {
+          "const": "agent-ops"
+        },
+        "startMarker": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "endMarker": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "[^\\s\\u0000]",
+      "not": {
+        "pattern": "\\u0000"
+      }
+    }
+  },
+  "$comment": "Cross-collection path ownership uniqueness is a semantic constraint enforced by runtime validation."
+}

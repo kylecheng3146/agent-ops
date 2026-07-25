@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "task-001",
+  "title": "Define versioned contracts",
+  "criteria": [
+    {
+      "id": "criterion-schema",
+      "description": "All versioned schemas accept the valid fixtures.",
+      "verifierIds": ["test"]
+    },
+    {
+      "id": "criterion-shell",
+      "description": "Shell execution requires explicit acknowledgement.",
+      "verifierIds": ["shell-check"]
+    }
+  ]
+}

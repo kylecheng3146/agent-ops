@@ -1,0 +1,8 @@
+{
+  "status": "UNKNOWN",
+  "source": "Official Claude Code hook, settings, memory, and security references",
+  "scope": "Claude hook settings, event output, and non-interactive trust limitation",
+  "observedAt": "2026-07-25T00:00:00Z",
+  "evidence": ["claude --version", "claude --help"],
+  "revalidate": "When the official Claude Code references or installed CLI changes"
+}

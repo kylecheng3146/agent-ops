@@ -1,0 +1,4 @@
+[project]
+name = "python-discovery-malformed-fixture"
+
+[tool.pytest.ini_options

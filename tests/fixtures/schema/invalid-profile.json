@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "profiles": ["enterprise"],
+  "verification": {
+    "commands": []
+  },
+  "pathMappings": [],
+  "securityExceptions": []
+}

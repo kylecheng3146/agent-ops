@@ -1,0 +1,139 @@
+export type JsonPrimitive = boolean | null | number | string;
+
+export type JsonValue = JsonObject | JsonPrimitive | JsonValue[];
+
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+export const SCHEMA_VERSION = 1 as const;
+
+export type Profile = "advisory" | "core" | "guardrails";
+
+export type EvidenceKind = "exit-code" | "file" | "test-count";
+
+export interface EvidenceRequirement {
+  kind: EvidenceKind;
+  minimum?: number;
+}
+
+export interface VerifierCommand {
+  id: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  required: boolean;
+  shell?: false;
+  timeoutMs?: number;
+  evidence: EvidenceRequirement;
+}
+
+export interface ShellVerifierCommand {
+  id: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  required: boolean;
+  shell: true;
+  acknowledgeRisk: true;
+  timeoutMs?: number;
+  evidence: EvidenceRequirement;
+}
+
+export type VerificationCommand = ShellVerifierCommand | VerifierCommand;
+
+export interface VerificationConfig {
+  commands: VerificationCommand[];
+}
+
+export interface PathMapping {
+  path: string;
+  verifierIds: string[];
+}
+
+export interface SecurityException {
+  ruleId: string;
+  scope: string;
+  expiresAt: string;
+  reason: string;
+}
+
+export interface AgentOpsConfig {
+  schemaVersion: typeof SCHEMA_VERSION;
+  profiles: Profile[];
+  verification: VerificationConfig;
+  pathMappings: PathMapping[];
+  securityExceptions: SecurityException[];
+}
+
+export interface AcceptanceCriterion {
+  id: string;
+  description: string;
+  verifierIds: string[];
+}
+
+export interface AgentTask {
+  schemaVersion: typeof SCHEMA_VERSION;
+  id: string;
+  title: string;
+  criteria: AcceptanceCriterion[];
+}
+
+export interface VerificationEvidence {
+  schemaVersion: typeof SCHEMA_VERSION;
+  taskId: string;
+  criterionId: string;
+  commandId: string;
+  argv: string[];
+  cwd: string;
+  scope: string;
+  startedAt: string;
+  finishedAt: string;
+  exitCode: number | null;
+  testCount: number | null;
+  toolVersions: Record<string, string>;
+  configHash: string;
+}
+
+export type InstallScope = "project" | "user";
+
+export type Harness = "both" | "claude" | "codex";
+
+export interface ManagedPathRecord {
+  id: string;
+  path: string;
+  hash: string;
+  owner: "agent-ops";
+}
+
+export interface ManagedMarkerRecord extends ManagedPathRecord {
+  startMarker: string;
+  endMarker: string;
+}
+
+export interface InstallManifest {
+  schemaVersion: typeof SCHEMA_VERSION;
+  scope: InstallScope;
+  harness: Harness;
+  artifacts: ManagedPathRecord[];
+  markers: ManagedMarkerRecord[];
+}
+
+export interface ValidationError {
+  code: string;
+  path: string;
+  message: string;
+}
+
+export interface ValidationSuccess<T> {
+  ok: true;
+  value: T;
+  errors: [];
+}
+
+export interface ValidationFailure {
+  ok: false;
+  errors: ValidationError[];
+}
+
+export type ValidationResult<T> = ValidationFailure | ValidationSuccess<T>;

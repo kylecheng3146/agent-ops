@@ -1,0 +1,90 @@
+[
+  {
+    "id": "exact-rule-bounded-scope-future-expiry",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": "packages/cli",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "A maintainer approved this one bounded migration."
+    },
+    "evaluationScope": "packages/cli/migrations",
+    "expectedAction": "allow"
+  },
+  {
+    "id": "wrong-rule-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-force-push",
+      "scope": "packages/cli",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "Approval is for a different rule."
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  },
+  {
+    "id": "expired-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": "packages/cli",
+      "expiresAt": "2029-12-31T23:59:59.000Z",
+      "reason": "This approval has expired."
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  },
+  {
+    "id": "project-root-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": ".",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "A global bypass is forbidden."
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  },
+  {
+    "id": "wildcard-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": "packages/*",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "Wildcard scope is too broad."
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  },
+  {
+    "id": "unsafe-parent-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": "../packages/cli",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "Parent traversal is unsafe."
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  },
+  {
+    "id": "empty-reason-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": "packages/cli",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "   "
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  },
+  {
+    "id": "sibling-scope-does-not-bypass",
+    "exception": {
+      "ruleId": "destructive-reset",
+      "scope": "packages/runtime",
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "reason": "Approval is bounded to a sibling scope."
+    },
+    "evaluationScope": "packages/cli",
+    "expectedAction": "block"
+  }
+]

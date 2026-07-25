@@ -1,0 +1,8 @@
+{
+  "status": "UNKNOWN",
+  "source": "Official Codex Hooks manual and bounded version probe",
+  "scope": "Codex hook discovery and documented common fields",
+  "observedAt": "2026-07-25T00:00:00Z",
+  "evidence": ["codex --version", "codex features list"],
+  "revalidate": "When the official Codex Hooks manual or installed CLI changes"
+}

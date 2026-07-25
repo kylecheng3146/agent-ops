@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "profiles": ["core"],
+  "verification": {
+    "commands": [
+      {
+        "id": "test",
+        "command": "npm",
+        "args": ["test"],
+        "cwd": ".",
+        "required": true,
+        "evidence": {
+          "kind": "test-count",
+          "minimum": 1
+        }
+      }
+    ]
+  },
+  "pathMappings": [
+    {
+      "path": "src",
+      "verifierIds": ["test"]
+    }
+  ],
+  "securityExceptions": []
+}
