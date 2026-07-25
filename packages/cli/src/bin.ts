@@ -19,6 +19,7 @@ import {
   runUninstallCommand
 } from "./commands/uninstall.js";
 import { runTaskCommand } from "./commands/task.js";
+import { runReviewCommand } from "./commands/review.js";
 import {
   formatUpdatePlan,
   runUpdateCommand
@@ -111,6 +112,12 @@ process.exitCode = await runCli(
           args,
           service,
           ...(sessionId === undefined ? {} : { sessionId })
+        });
+      }
+      if (args.command === "review") {
+        return await runReviewCommand({
+          args,
+          authorized: args.yes
         });
       }
       return errorEnvelope(

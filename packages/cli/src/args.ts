@@ -331,6 +331,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (
     command !== "task" &&
     command !== "verify" &&
+    command !== "review" &&
     (hasTaskTargetOptions || hasTaskMutationOptions)
   ) {
     throw new CliArgumentError(
@@ -394,6 +395,15 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "Verify accepts only scope, task or session, and json options."
+    );
+  }
+  if (
+    command === "review" &&
+    (title !== undefined || sessionId !== undefined || yes)
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Review accepts harness, criteria, evidence, scope, dry-run, and json options."
     );
   }
 
