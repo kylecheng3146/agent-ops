@@ -72,6 +72,7 @@ try {
   const checks = [
     ["--version"],
     ["init", "--dry-run", "--scope", "project", "--harness", "both", "--profile", "core", "--json"],
+    ["trust", "status", "--json"],
     ["doctor", "--json"],
     ["task", "status", "--json"],
     ["verify", "--task", "missing", "--json"],
