@@ -10,8 +10,7 @@ import { removeManagedBlock } from "../fs/managed-block.js";
 import { parseInstallManifest } from "../fs/manifest.js";
 import {
   AgentOpsError,
-  resolveContainedPath,
-  sameResolvedPath
+  resolveContainedPath
 } from "../fs/paths.js";
 import {
   FileTransaction,
@@ -74,7 +73,6 @@ async function readCurrentFile(
     const resolvedAgain = await resolveContainedPath(root, path);
     const after = await lstat(resolvedAgain, { bigint: true });
     if (
-      !sameResolvedPath(resolvedAgain, resolvedPath) ||
       !opened.isFile() ||
       opened.size > BigInt(MAX_UNINSTALL_FILE_BYTES) ||
       after.dev !== opened.dev ||

@@ -12,8 +12,7 @@ import { fileURLToPath } from "node:url";
 import { sha256 } from "./hash.js";
 import {
   AgentOpsError,
-  resolveContainedPath,
-  sameResolvedPath
+  resolveContainedPath
 } from "./paths.js";
 
 export { AgentOpsError } from "./paths.js";
@@ -56,8 +55,15 @@ interface Snapshot {
   content: Uint8Array | null;
   mode: number;
   actualHash: string | null;
+  device: string | null;
+  inode: string | null;
   backupPath: string | null;
   createdDirectories: string[];
+}
+
+interface FileIdentity {
+  device: string;
+  inode: string;
 }
 
 interface ParentGuard {
@@ -344,6 +350,8 @@ async function snapshotOperation(
       content,
       mode: status.mode & 0o777,
       actualHash: sha256(content),
+      device: status.dev.toString(),
+      inode: status.ino.toString(),
       backupPath: null,
       createdDirectories: []
     };
@@ -358,6 +366,8 @@ async function snapshotOperation(
       content: null,
       mode: 0o600,
       actualHash: null,
+      device: null,
+      inode: null,
       backupPath: null,
       createdDirectories: []
     };
@@ -382,18 +392,54 @@ async function currentHash(path: string): Promise<string | null> {
   }
 }
 
+async function currentIdentity(path: string): Promise<FileIdentity | null> {
+  try {
+    const status = await lstat(path, { bigint: true });
+    if (!status.isFile() || status.isSymbolicLink()) {
+      throw new AgentOpsError(
+        "PRECONDITION_CHANGED",
+        `A managed path is no longer a regular file: ${path}`
+      );
+    }
+    return {
+      device: status.dev.toString(),
+      inode: status.ino.toString()
+    };
+  } catch (error) {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function assertSnapshotIdentity(
+  snapshot: Snapshot,
+  path: string
+): Promise<void> {
+  if (!snapshot.existed) {
+    return;
+  }
+  const identity = await currentIdentity(path);
+  if (
+    identity === null ||
+    identity.device !== snapshot.device ||
+    identity.inode !== snapshot.inode
+  ) {
+    throw new AgentOpsError(
+      "PRECONDITION_CHANGED",
+      `Target identity changed for ${snapshot.operation.path}.`
+    );
+  }
+}
+
 async function assertMutationBoundary(
   root: string,
   snapshot: Snapshot
 ): Promise<void> {
   try {
     const resolved = await resolveContainedPath(root, snapshot.operation.path);
-    if (!sameResolvedPath(resolved, snapshot.targetPath)) {
-      throw new AgentOpsError(
-        "PRECONDITION_CHANGED",
-        `Resolved target changed for ${snapshot.operation.path}.`
-      );
-    }
+    await assertSnapshotIdentity(snapshot, resolved);
     if ((await currentHash(resolved)) !== snapshot.actualHash) {
       throw new AgentOpsError(
         "PRECONDITION_CHANGED",
@@ -475,13 +521,7 @@ async function rollback(
 ): Promise<void> {
   for (const snapshot of [...snapshots].reverse()) {
     const resolved = await resolveContainedPath(root, snapshot.operation.path);
-    if (!sameResolvedPath(resolved, snapshot.targetPath)) {
-      throw new AgentOpsError(
-        "PRECONDITION_CHANGED",
-        `Cannot safely roll back changed path: ${snapshot.operation.path}`
-      );
-    }
-    const observedHash = await currentHash(snapshot.targetPath);
+    const observedHash = await currentHash(resolved);
     if (observedHash === snapshot.actualHash) {
       await removeCreatedDirectories(snapshot);
       continue;
@@ -494,7 +534,7 @@ async function rollback(
     }
     if (snapshot.existed && snapshot.content !== null) {
       await atomicWrite(
-        snapshot.targetPath,
+        resolved,
         snapshot.content,
         snapshot.mode,
         desiredHash(snapshot)
@@ -507,7 +547,7 @@ async function rollback(
           `Rollback target disappeared before removal: ${snapshot.operation.path}`
         );
       }
-      await atomicRemove(snapshot.targetPath, expectedHash);
+      await atomicRemove(resolved, expectedHash);
       await removeCreatedDirectories(snapshot);
     }
   }
@@ -565,8 +605,14 @@ async function cleanupPreparedDirectories(
   }
   try {
     const resolved = await resolveContainedPath(root, snapshot.operation.path);
+    const identity = await currentIdentity(resolved);
+    const identityMatches = snapshot.existed
+      ? identity !== null &&
+        identity.device === snapshot.device &&
+        identity.inode === snapshot.inode
+      : identity === null;
     if (
-      sameResolvedPath(resolved, snapshot.targetPath) &&
+      identityMatches &&
       (await currentHash(resolved)) === snapshot.actualHash
     ) {
       await removeCreatedDirectories(snapshot);

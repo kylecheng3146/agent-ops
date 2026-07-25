@@ -9,8 +9,7 @@ import {
 import { sha256 } from "../fs/hash.js";
 import {
   AgentOpsError,
-  resolveContainedPath,
-  sameResolvedPath
+  resolveContainedPath
 } from "../fs/paths.js";
 import type { RegistryClient } from "../registry/npm.js";
 import { applyInstallPlan } from "./apply.js";
@@ -67,7 +66,6 @@ async function readBoundedConfig(root: string): Promise<Buffer> {
     const resolvedAgain = await resolveContainedPath(root, CONFIG_PATH);
     const after = await lstat(resolvedAgain, { bigint: true });
     if (
-      !sameResolvedPath(resolvedAgain, resolvedPath) ||
       !opened.isFile() ||
       opened.size > BigInt(MAX_UPDATE_CONFIG_BYTES) ||
       after.dev !== opened.dev ||

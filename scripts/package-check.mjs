@@ -22,7 +22,8 @@ function run(command, args, options = {}) {
       npm_config_cache: join(root, "npm-cache"),
       AGENT_OPS_HOME: isolatedHome
     },
-    ...options
+    ...options,
+    shell: process.platform === "win32" && command === npm
   });
 }
 
