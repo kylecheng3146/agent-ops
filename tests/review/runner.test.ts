@@ -38,7 +38,10 @@ test("review execution requires explicit authorization and read-only mode", asyn
     authorized: false,
     execute: async ({ readOnly }) => {
       calls.push({ readOnly });
-      return { status: "PASS", evidence: ["review-output"] };
+      return {
+        status: "PASS",
+        results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }]
+      };
     }
   });
   assert.equal(result.status, "NOT_RUN");
@@ -49,7 +52,10 @@ test("review execution requires explicit authorization and read-only mode", asyn
     authorized: true,
     execute: async ({ readOnly }) => {
       calls.push({ readOnly });
-      return { status: "PASS", evidence: ["review-output"] };
+      return {
+        status: "PASS",
+        results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }]
+      };
     }
   });
   assert.equal(authorized.status, "PASS");

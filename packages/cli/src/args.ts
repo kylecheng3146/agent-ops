@@ -399,11 +399,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   if (
     command === "review" &&
-    (title !== undefined || sessionId !== undefined || yes)
+    (title !== undefined || sessionId !== undefined)
   ) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "Review accepts harness, criteria, evidence, scope, dry-run, and json options."
+      "Review accepts harness, criteria, evidence, scope, dry-run, json, and yes options."
     );
   }
 

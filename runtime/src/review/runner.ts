@@ -1,5 +1,8 @@
 import type { ReviewPacket } from "./packet.js";
-import type { ReviewCriterionResult } from "./result.js";
+import {
+  aggregateReviewResults,
+  type ReviewCriterionResult
+} from "./result.js";
 
 export interface ReviewInvocation {
   readonly harness: "codex" | "claude";
@@ -19,7 +22,7 @@ export interface ReviewExecutionRequest {
 }
 
 export type ReviewExecutionResult =
-  | { readonly status: "PASS"; readonly evidence: readonly string[] }
+  | { readonly status: "PASS"; readonly results: readonly ReviewCriterionResult[] }
   | { readonly status: "FAIL"; readonly results: readonly ReviewCriterionResult[] }
   | { readonly status: "NOT_RUN"; readonly reason: ReviewUnavailableReason };
 
@@ -30,7 +33,6 @@ export interface ReviewRunResult {
   readonly effort: string;
   readonly prompt: string;
   readonly reason?: ReviewUnavailableReason | "authorization-required";
-  readonly evidence?: readonly string[];
   readonly results?: readonly ReviewCriterionResult[];
 }
 
@@ -73,5 +75,9 @@ export async function runIndependentReview(
   if (result.status === "FAIL") {
     return { ...base, status: result.status, results: result.results };
   }
-  return { ...base, status: result.status, evidence: result.evidence };
+  const summary = aggregateReviewResults(
+    options.invocation.packet.criteria.map((criterion) => criterion.id),
+    result.results
+  );
+  return { ...base, status: summary.status, results: summary.results };
 }

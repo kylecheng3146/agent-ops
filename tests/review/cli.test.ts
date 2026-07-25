@@ -24,3 +24,7 @@ test("review accepts independent-review options", () => {
     yes: false
   });
 });
+
+test("review accepts --yes as explicit reviewer authorization", () => {
+  assert.equal(parseArgs(["review", "--yes"]).yes, true);
+});
