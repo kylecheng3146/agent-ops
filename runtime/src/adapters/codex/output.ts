@@ -2,6 +2,7 @@ import type { HookResult } from "../../hooks/events.js";
 import type { CodexSupportedEvent } from "./events.js";
 
 export const CODEX_NON_ZERO_EXIT_BEHAVIOR = "UNKNOWN" as const;
+export const CODEX_PRE_TOOL_BLOCKING = "UNKNOWN" as const;
 
 export interface CodexHookProcessOutput {
   readonly exitCode: 0;

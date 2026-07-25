@@ -1,19 +1,9 @@
 import type { NormalizedHookEvent } from "../../hooks/events.js";
 import { normalizeHookEvent } from "../../hooks/normalize.js";
-
-const SAFE_SHELL_WORD = /^[A-Za-z0-9_./:=+@%,-]+$/;
+import { normalizeShellHookEvent } from "../../hooks/shell.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeArgv(command: string): string[] | null {
-  const words = command.trim().split(/\s+/);
-  return (
-    words.length > 0 && words.every((word) => SAFE_SHELL_WORD.test(word))
-      ? words
-      : null
-  );
 }
 
 function shellCommand(input: Record<string, unknown>): string | null {
@@ -48,15 +38,8 @@ export function normalizeCodexHookInput(
     input.tool_name === "Bash"
   ) {
     const rawCommand = shellCommand(input);
-    const argv = rawCommand === null ? null : safeArgv(rawCommand);
-    if (argv !== null && argv[0] !== undefined) {
-      return normalizeHookEvent({
-        event: "command",
-        projectRoot,
-        command: argv[0],
-        args: argv.slice(1),
-        scope: projectRoot
-      });
+    if (rawCommand !== null) {
+      return normalizeShellHookEvent(rawCommand, projectRoot);
     }
   }
   return normalizeHookEvent({

@@ -14,6 +14,7 @@ import {
 } from "../../runtime/src/adapters/codex/events.js";
 import { normalizeCodexHookInput } from "../../runtime/src/adapters/codex/input.js";
 import {
+  CODEX_PRE_TOOL_BLOCKING,
   CODEX_NON_ZERO_EXIT_BEHAVIOR,
   codexHookOutput
 } from "../../runtime/src/adapters/codex/output.js";
@@ -44,6 +45,7 @@ test("merges only agent-ops groups and preserves unrelated Codex hooks", async (
   );
   const serialized = JSON.stringify(merged);
   assert.match(serialized, /user-policy check/);
+  assert.match(serialized, /mixed-user-policy check/);
   assert.match(serialized, /user-audit append/);
   assert.doesNotMatch(serialized, /agent-ops hook codex legacy/);
   assert.match(serialized, /agent-ops hook codex PreToolUse/);
@@ -85,6 +87,28 @@ test("normalizes only documented Codex common fields", () => {
     {
       event: "session-start",
       projectRoot: "/repo"
+    }
+  );
+  assert.deepEqual(
+    normalizeCodexHookInput({
+      hook_event_name: "PreToolUse",
+      cwd: "/repo",
+      tool_name: "Bash",
+      tool_input: {
+        command: "echo ok && git push --force \"origin\" main"
+      }
+    }),
+    {
+      event: "command-batch",
+      projectRoot: "/repo",
+      commands: [
+        { command: "echo", args: ["ok"] },
+        {
+          command: "git",
+          args: ["push", "--force", "origin", "main"]
+        }
+      ],
+      scope: "/repo"
     }
   );
   assert.deepEqual(
@@ -142,6 +166,7 @@ test("encodes only documented Codex output behavior", () => {
     }
   );
   assert.equal(CODEX_NON_ZERO_EXIT_BEHAVIOR, "UNKNOWN");
+  assert.equal(CODEX_PRE_TOOL_BLOCKING, "UNKNOWN");
 });
 
 test("declares only documented event and matcher support", () => {

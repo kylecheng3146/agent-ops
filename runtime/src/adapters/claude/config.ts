@@ -57,7 +57,12 @@ function commandHook(
   return {
     type: "command",
     command: "node",
-    args: [runtimePath, "claude", event],
+    args: [
+      runtimePath,
+      "claude",
+      event,
+      "--managed-by=agent-ops"
+    ],
     timeout: 30
   };
 }
@@ -103,23 +108,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isOwnedGroup(value: unknown): boolean {
-  if (!isRecord(value) || !Array.isArray(value.hooks)) {
+function isOwnedHandler(handler: unknown): boolean {
+  if (
+    !isRecord(handler) ||
+    handler.command !== "node" ||
+    !Array.isArray(handler.args)
+  ) {
     return false;
   }
-  return value.hooks.some((handler) => {
-    if (
-      !isRecord(handler) ||
-      handler.command !== "node" ||
-      !Array.isArray(handler.args)
-    ) {
-      return false;
-    }
-    return (
-      handler.args[1] === "claude" &&
-      typeof handler.args[2] === "string"
-    );
-  });
+  return handler.args[3] === "--managed-by=agent-ops";
+}
+
+function withoutOwnedHandlers(value: unknown): unknown | null {
+  if (!isRecord(value) || !Array.isArray(value.hooks)) {
+    return value;
+  }
+  const hooks = value.hooks.filter(
+    (handler) => !isOwnedHandler(handler)
+  );
+  return hooks.length === 0 ? null : { ...value, hooks };
 }
 
 function hookRecord(
@@ -157,9 +164,9 @@ export function mergeClaudeSettings(
     ...Object.keys(managed.hooks)
   ]);
   for (const eventName of eventNames) {
-    const preserved = (existingHooks[eventName] ?? []).filter(
-      (group) => !isOwnedGroup(group)
-    ) as ClaudeMatcherGroup[];
+    const preserved = (existingHooks[eventName] ?? [])
+      .map(withoutOwnedHandlers)
+      .filter((group) => group !== null) as ClaudeMatcherGroup[];
     const additions = managed.hooks[eventName] ?? [];
     if (preserved.length > 0 || additions.length > 0) {
       hooks[eventName] = [...preserved, ...additions];

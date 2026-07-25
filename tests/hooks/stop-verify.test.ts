@@ -84,6 +84,45 @@ test("verifier UNKNOWN remains UNKNOWN", async () => {
   assert.equal(result.evidence?.commandResults[0]?.exitCode, null);
 });
 
+test("contradictory PASS evidence becomes UNKNOWN", async (t) => {
+  const fixtures = [
+    {
+      name: "empty results",
+      results: []
+    },
+    {
+      name: "missing exit code",
+      results: [{ commandId: "unit", exitCode: null, testCount: 1 }]
+    },
+    {
+      name: "non-zero exit",
+      results: [{ commandId: "unit", exitCode: 1, testCount: 1 }]
+    },
+    {
+      name: "zero tests",
+      results: [{ commandId: "unit", exitCode: 0, testCount: 0 }]
+    }
+  ];
+
+  for (const fixture of fixtures) {
+    await t.test(fixture.name, async () => {
+      const options = eligibleOptions();
+      options.verify = async () => ({
+        status: "PASS",
+        results: fixture.results
+      });
+
+      const result = await runStopVerification(options);
+
+      assert.deepEqual(result, {
+        action: "continue",
+        status: "UNKNOWN",
+        code: "STOP_VERIFICATION_EVIDENCE_INVALID"
+      });
+    });
+  }
+});
+
 test("untrusted projects never execute Stop verification", async () => {
   let calls = 0;
   const options = eligibleOptions();

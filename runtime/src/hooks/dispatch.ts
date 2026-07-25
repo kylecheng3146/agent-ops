@@ -28,6 +28,33 @@ function guardrailResult(decision: GuardrailDecision): HookResult {
   return continueWith("PASS", "GUARDRAIL_ALLOWED");
 }
 
+function evaluateCommands(
+  commands: readonly {
+    readonly command: string;
+    readonly args: readonly string[];
+  }[],
+  scope: string
+): HookResult {
+  let warning: HookResult | null = null;
+  for (const command of commands) {
+    const result = guardrailResult(
+      evaluateGuardrail({
+        kind: "command",
+        command: command.command,
+        args: command.args,
+        scope
+      })
+    );
+    if (result.action === "block") {
+      return result;
+    }
+    if (result.status === "UNKNOWN") {
+      warning = result;
+    }
+  }
+  return warning ?? continueWith("PASS", "GUARDRAIL_ALLOWED");
+}
+
 export async function dispatchHookEvent(
   event: NormalizedHookEvent,
   options: HookDispatchOptions
@@ -48,22 +75,25 @@ export async function dispatchHookEvent(
     }
   }
   if (
-    (event.event === "command" || event.event === "content") &&
+    (event.event === "command" ||
+      event.event === "command-batch" ||
+      event.event === "content") &&
     options.capabilities.includes("command-policy")
   ) {
-    return guardrailResult(
-      event.event === "command"
-        ? evaluateGuardrail({
-            kind: "command",
-            command: event.command,
-            args: event.args,
-            scope: event.scope
-          })
-        : evaluateGuardrail({
+    if (event.event === "content") {
+      return guardrailResult(
+        evaluateGuardrail({
             kind: "content",
             content: event.content,
             scope: event.scope
           })
+      );
+    }
+    return evaluateCommands(
+      event.event === "command"
+        ? [{ command: event.command, args: event.args }]
+        : event.commands,
+      event.scope
     );
   }
   if (
@@ -73,7 +103,10 @@ export async function dispatchHookEvent(
     if (options.stopVerification === undefined) {
       return continueWith("UNKNOWN", "STOP_VERIFICATION_UNAVAILABLE");
     }
-    return await runStopVerification(options.stopVerification);
+    return await runStopVerification({
+      ...options.stopVerification,
+      trusted: options.trusted && options.stopVerification.trusted
+    });
   }
   return continueWith("PASS", "HOOK_NOOP");
 }

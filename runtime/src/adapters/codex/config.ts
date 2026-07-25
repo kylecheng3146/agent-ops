@@ -79,16 +79,22 @@ export function buildCodexHookConfig(
   };
 }
 
-function isOwnedGroup(value: unknown): boolean {
-  if (!isRecord(value) || !Array.isArray(value.hooks)) {
-    return false;
-  }
-  return value.hooks.some(
-    (hook) =>
-      isRecord(hook) &&
-      typeof hook.command === "string" &&
-      hook.command.startsWith(COMMAND_PREFIX)
+function isOwnedHandler(hook: unknown): boolean {
+  return (
+    isRecord(hook) &&
+    typeof hook.command === "string" &&
+    hook.command.startsWith(COMMAND_PREFIX)
   );
+}
+
+function withoutOwnedHandlers(value: unknown): unknown | null {
+  if (!isRecord(value) || !Array.isArray(value.hooks)) {
+    return value;
+  }
+  const hooks = value.hooks.filter(
+    (hook) => !isOwnedHandler(hook)
+  );
+  return hooks.length === 0 ? null : { ...value, hooks };
 }
 
 function hookRecord(
@@ -132,9 +138,9 @@ export function mergeCodexHookConfig(
     ...Object.keys(managed.hooks)
   ]);
   for (const eventName of eventNames) {
-    const preserved = (existingHooks[eventName] ?? []).filter(
-      (group) => !isOwnedGroup(group)
-    ) as CodexMatcherGroup[];
+    const preserved = (existingHooks[eventName] ?? [])
+      .map(withoutOwnedHandlers)
+      .filter((group) => group !== null) as CodexMatcherGroup[];
     const additions = managed.hooks[eventName] ?? [];
     if (preserved.length > 0 || additions.length > 0) {
       hooks[eventName] = [...preserved, ...additions];

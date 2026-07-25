@@ -38,6 +38,23 @@ function boundedEvidence(
   }));
 }
 
+function evidenceSupportsStatus(
+  status: "FAIL" | "PASS" | "UNKNOWN",
+  results: readonly HookCommandEvidence[]
+): boolean {
+  if (status !== "PASS") {
+    return true;
+  }
+  return (
+    results.length > 0 &&
+    results.every(
+      (result) =>
+        result.exitCode === 0 &&
+        (result.testCount === null || result.testCount > 0)
+    )
+  );
+}
+
 export async function runStopVerification(
   options: StopVerificationOptions
 ): Promise<HookResult> {
@@ -60,6 +77,7 @@ export async function runStopVerification(
     const timestamp = (options.now ?? (() => new Date().toISOString()))();
     if (
       commandResults === null ||
+      !evidenceSupportsStatus(report.status, commandResults) ||
       !Number.isFinite(Date.parse(timestamp))
     ) {
       return unavailable("STOP_VERIFICATION_EVIDENCE_INVALID");

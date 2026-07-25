@@ -34,13 +34,18 @@ The official manual establishes the following behavior:
 
 The official manual does not establish a portable meaning for non-zero hook
 exit codes or a hook-output byte limit. Both remain `UNKNOWN`. The adapter
-does not copy Claude Code exit behavior into Codex.
+does not copy Claude Code exit behavior into Codex. Because the verified
+`PreToolUse` output contract supports `systemMessage` but not shared
+`continue` or `stopReason`, native high-confidence blocking also remains
+`UNKNOWN`; the adapter surfaces the decision without claiming the tool was
+blocked.
 
 Tool-hook coverage is not a complete enforcement boundary. Matching hooks
 start concurrently, hosted tools do not use the local tool-hook path, and
-specialized tool paths can opt out. Shell input is normalized to argv only
-when every word is unquoted and operator-free; ambiguous shell syntax is not
-guessed.
+specialized tool paths can opt out. Shell input is normalized into a bounded
+command batch with ordinary quoting and command separators handled without
+executing the input. Unsupported shell constructs remain explicit rather than
+being guessed.
 
 ## Bounded smoke
 

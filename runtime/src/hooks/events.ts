@@ -18,6 +18,17 @@ export interface CommandHookEvent extends HookEventBase {
   readonly scope: string;
 }
 
+export interface HookCommand {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+export interface CommandBatchHookEvent extends HookEventBase {
+  readonly event: "command-batch";
+  readonly commands: readonly HookCommand[];
+  readonly scope: string;
+}
+
 export interface ContentHookEvent extends HookEventBase {
   readonly event: "content";
   readonly content: string;
@@ -33,6 +44,7 @@ export interface UnsupportedHookEvent extends HookEventBase {
 }
 
 export type NormalizedHookEvent =
+  | CommandBatchHookEvent
   | CommandHookEvent
   | ContentHookEvent
   | SessionStartHookEvent

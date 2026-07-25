@@ -47,6 +47,7 @@ test("merges only agent-ops hooks and preserves unrelated Claude settings", asyn
     (existing as typeof merged).permissions
   );
   assert.match(serialized, /user-policy/);
+  assert.match(serialized, /\/user\/hook\.js/);
   assert.match(serialized, /user-audit append/);
   assert.doesNotMatch(serialized, /\/old\/agent-ops/);
   assert.match(serialized, /SessionStart/);
@@ -85,7 +86,8 @@ test("prefers direct exec and keeps paths with spaces as one argument", () => {
     args: [
       "/opt/agent ops/hook-entry.js",
       "claude",
-      "PreToolUse"
+      "PreToolUse",
+      "--managed-by=agent-ops"
     ],
     timeout: 30
   });
@@ -116,6 +118,28 @@ test("normalizes only fields used by Claude hook policy", () => {
       projectRoot: "/repo",
       command: "git",
       args: ["push", "--force", "origin", "main"],
+      scope: "/repo"
+    }
+  );
+  assert.deepEqual(
+    normalizeClaudeHookInput({
+      hook_event_name: "PreToolUse",
+      cwd: "/repo",
+      tool_name: "Bash",
+      tool_input: {
+        command: "echo ok && git push --force \"origin\" main"
+      }
+    }),
+    {
+      event: "command-batch",
+      projectRoot: "/repo",
+      commands: [
+        { command: "echo", args: ["ok"] },
+        {
+          command: "git",
+          args: ["push", "--force", "origin", "main"]
+        }
+      ],
       scope: "/repo"
     }
   );

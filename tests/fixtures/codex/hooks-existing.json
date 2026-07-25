@@ -18,6 +18,10 @@
           {
             "type": "command",
             "command": "agent-ops hook codex legacy"
+          },
+          {
+            "type": "command",
+            "command": "mixed-user-policy check"
           }
         ]
       }

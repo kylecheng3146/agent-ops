@@ -21,7 +21,17 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["/old/agent-ops/hook-entry.js", "claude", "legacy"]
+            "args": [
+              "/old/agent-ops/hook-entry.js",
+              "claude",
+              "legacy",
+              "--managed-by=agent-ops"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["/user/hook.js", "claude", "custom"]
           }
         ]
       }

@@ -1,7 +1,6 @@
 import type { NormalizedHookEvent } from "../../hooks/events.js";
 import { normalizeHookEvent } from "../../hooks/normalize.js";
-
-const SAFE_SHELL_WORD = /^[A-Za-z0-9_./:=+@%,-]+$/;
+import { normalizeShellHookEvent } from "../../hooks/shell.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -12,15 +11,6 @@ export function claudeStopRecursionMarker(input: unknown): boolean {
     isRecord(input) &&
     input.hook_event_name === "Stop" &&
     input.stop_hook_active === true
-  );
-}
-
-function safeArgv(command: string): string[] | null {
-  const words = command.trim().split(/\s+/);
-  return (
-    words.length > 0 && words.every((word) => SAFE_SHELL_WORD.test(word))
-      ? words
-      : null
   );
 }
 
@@ -49,16 +39,10 @@ export function normalizeClaudeHookInput(
     isRecord(input.tool_input) &&
     typeof input.tool_input.command === "string"
   ) {
-    const argv = safeArgv(input.tool_input.command);
-    if (argv !== null && argv[0] !== undefined) {
-      return normalizeHookEvent({
-        event: "command",
-        projectRoot,
-        command: argv[0],
-        args: argv.slice(1),
-        scope: projectRoot
-      });
-    }
+    return normalizeShellHookEvent(
+      input.tool_input.command,
+      projectRoot
+    );
   }
   return normalizeHookEvent({
     event: "unsupported",

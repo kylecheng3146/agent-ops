@@ -69,6 +69,64 @@ test("high-confidence command guardrails block", async () => {
   assert.equal(result.code, "destructive-force-push");
 });
 
+test("high-confidence commands in a shell batch block", async () => {
+  const result = await dispatchHookEvent(
+    {
+      event: "command-batch",
+      projectRoot: "/repo",
+      commands: [
+        { command: "echo", args: ["ok"] },
+        {
+          command: "git",
+          args: ["push", "--force", "origin", "main"]
+        }
+      ],
+      scope: "/repo"
+    },
+    {
+      capabilities: ["command-policy"],
+      trusted: true
+    }
+  );
+
+  assert.equal(result.action, "block");
+  assert.equal(result.code, "destructive-force-push");
+});
+
+test("outer repository trust gates Stop verification", async () => {
+  let calls = 0;
+  const result = await dispatchHookEvent(
+    {
+      event: "stop",
+      projectRoot: "/repo"
+    },
+    {
+      capabilities: ["optional-stop-verify"],
+      trusted: false,
+      stopVerification: {
+        confirmedConfig: true,
+        trusted: true,
+        scopeMapped: true,
+        recursionMarker: false,
+        configHash: "a".repeat(64),
+        verify: async () => {
+          calls += 1;
+          return {
+            status: "PASS",
+            results: [
+              { commandId: "unit", exitCode: 0, testCount: 1 }
+            ]
+          };
+        }
+      }
+    }
+  );
+
+  assert.equal(result.status, "UNKNOWN");
+  assert.equal(result.code, "STOP_VERIFICATION_UNTRUSTED");
+  assert.equal(calls, 0);
+});
+
 test("unsupported events remain explicitly unsupported", async () => {
   const result = await runHookEntry(
     JSON.stringify({ event: "tool-use", projectRoot: "/repo" }),
