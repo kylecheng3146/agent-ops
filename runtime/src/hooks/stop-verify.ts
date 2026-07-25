@@ -47,6 +47,10 @@ function evidenceSupportsStatus(
   }
   return (
     results.length > 0 &&
+    results.some(
+      (result) =>
+        result.testCount !== null && result.testCount > 0
+    ) &&
     results.every(
       (result) =>
         result.exitCode === 0 &&

@@ -46,6 +46,12 @@ function parseShellWords(input: string): string[][] | null {
       escaped = true;
       continue;
     }
+    if (
+      quote !== "'" &&
+      (character === "$" || character === "`")
+    ) {
+      return null;
+    }
     if (quote !== null) {
       if (character === quote) {
         quote = null;
@@ -74,7 +80,6 @@ function parseShellWords(input: string): string[][] | null {
       continue;
     }
     if (
-      character === "`" ||
       character === "(" ||
       character === ")" ||
       character === "\0"

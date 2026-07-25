@@ -101,6 +101,10 @@ test("contradictory PASS evidence becomes UNKNOWN", async (t) => {
     {
       name: "zero tests",
       results: [{ commandId: "unit", exitCode: 0, testCount: 0 }]
+    },
+    {
+      name: "no parseable test count",
+      results: [{ commandId: "lint", exitCode: 0, testCount: null }]
     }
   ];
 

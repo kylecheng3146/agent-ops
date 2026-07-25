@@ -5,6 +5,7 @@ import { dispatchHookEvent } from "../../runtime/src/hooks/dispatch.js";
 import { runHookEntry } from "../../runtime/src/hooks/hook-entry.js";
 import { normalizeHookEvent } from "../../runtime/src/hooks/normalize.js";
 import { encodeHookOutput } from "../../runtime/src/hooks/output.js";
+import { normalizeShellHookEvent } from "../../runtime/src/hooks/shell.js";
 
 test("normalizes only fields used by hook policy", () => {
   assert.deepEqual(
@@ -91,6 +92,29 @@ test("high-confidence commands in a shell batch block", async () => {
 
   assert.equal(result.action, "block");
   assert.equal(result.code, "destructive-force-push");
+});
+
+test("shell command substitution remains explicitly unsupported", () => {
+  assert.deepEqual(
+    normalizeShellHookEvent(
+      "echo \"$(git push --force origin main)\"",
+      "/repo"
+    ),
+    {
+      event: "unsupported",
+      projectRoot: "/repo"
+    }
+  );
+  assert.deepEqual(
+    normalizeShellHookEvent(
+      "echo `git push --force origin main`",
+      "/repo"
+    ),
+    {
+      event: "unsupported",
+      projectRoot: "/repo"
+    }
+  );
 });
 
 test("outer repository trust gates Stop verification", async () => {
