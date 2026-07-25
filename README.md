@@ -9,6 +9,10 @@ This repository is in its foundation stage. The CLI, hook runtime, normative
 specification, and installation profiles are being developed in a reviewable
 feature branch before the first pre-1.0 release.
 
+The current CLI is an unreleased development interface. Its packed artifact is
+checked by `npm run package:check`; command behavior may change before the first
+tagged pre-1.0 release.
+
 ## Project principles
 
 - Define verifiable success before making changes.
@@ -22,6 +26,13 @@ feature branch before the first pre-1.0 release.
 
 No npm package has been published yet. Do not depend on the current repository
 as a stable interface until a tagged release is available.
+
+Documentation:
+
+- [English specification](docs/en/spec/README.md)
+- [繁體中文規範](docs/zh-TW/spec/README.md)
+- [English guides](docs/en/guides/quickstart.md)
+- [繁體中文指南](docs/zh-TW/guides/quickstart.md)
 
 ## Community
 

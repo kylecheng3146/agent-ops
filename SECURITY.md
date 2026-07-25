@@ -2,8 +2,10 @@
 
 ## Supported versions
 
-The project has not published a supported release yet. This policy will list
-supported release lines before version 1.0.0.
+The project has not published a supported release yet. Development branches
+and pre-1.0 artifacts are provided for evaluation and do not carry an SLA.
+Supported release lines and security-fix policy will be listed before version
+1.0.0.
 
 ## Reporting a vulnerability
 
