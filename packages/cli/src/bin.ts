@@ -6,12 +6,16 @@ import { createInterface } from "node:readline/promises";
 import { execFileSync } from "node:child_process";
 
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
-import type { AgentOpsConfig } from "../../../runtime/src/contracts.js";
+import type {
+  AgentOpsConfig,
+  InstallScope
+} from "../../../runtime/src/contracts.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { mergeConfigLayers } from "../../../runtime/src/config/merge.js";
 import { loadConfigFile } from "../../../runtime/src/config/load.js";
+import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
 import { FileTrustStore, calculateTrustBinding } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { sha256 } from "../../../runtime/src/fs/hash.js";
@@ -39,6 +43,10 @@ import {
   runUpdateCommand
 } from "./commands/update.js";
 import { errorEnvelope, type CliEnvelope } from "./output.js";
+import type {
+  ConfigLayer,
+  MergedConfig
+} from "../../../runtime/src/config/merge.js";
 
 const CLI_VERSION = "0.0.0-development";
 
@@ -50,23 +58,98 @@ const DEFAULT_CONFIG: AgentOpsConfig = {
   securityExceptions: []
 };
 
-async function loadEffectiveConfig(root: string): Promise<AgentOpsConfig> {
+function defaultConfigLayer() {
+  return {
+    source: "default" as const,
+    sourcePath: "built-in defaults",
+    config: DEFAULT_CONFIG
+  };
+}
+
+async function loadOptionalConfig(path: string) {
   try {
-    const loaded = await loadConfigFile(join(root, ".agent-ops", "config.json"));
-    return mergeConfigLayers([
-      {
-        source: "default",
-        sourcePath: "built-in defaults",
-        config: DEFAULT_CONFIG
-      },
-      {
-        source: "project",
-        sourcePath: loaded.sourcePath,
-        config: loaded.config
-      }
-    ]).config;
+    return await loadConfigFile(path);
+  } catch (error) {
+    if (
+      error instanceof AgentOpsError &&
+      error.code === "CONFIG_READ_FAILED" &&
+      typeof error.cause === "object" &&
+      error.cause !== null &&
+      "code" in error.cause &&
+      error.cause.code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function loadEffectiveConfig(
+  root: string,
+  scope: InstallScope
+): Promise<MergedConfig> {
+  const home = process.env.AGENT_OPS_HOME ?? homedir();
+  const userPath = join(home, ".agent-ops", "config.json");
+  const projectPath = join(root, ".agent-ops", "config.json");
+  const layers: ConfigLayer[] = [defaultConfigLayer()];
+  if (scope === "user") {
+    const user = await loadOptionalConfig(userPath);
+    if (user !== null) {
+      layers.push({
+        source: "user",
+        sourcePath: user.sourcePath,
+        config: user.config
+      });
+    }
+    return mergeConfigLayers(layers);
+  }
+  if (projectPath !== userPath) {
+    const user = await loadOptionalConfig(userPath);
+    if (user !== null) {
+      layers.push({
+        source: "user",
+        sourcePath: user.sourcePath,
+        config: user.config
+      });
+    }
+  }
+  const project = await loadOptionalConfig(projectPath);
+  if (project !== null) {
+    layers.push({
+      source: "project",
+      sourcePath: project.sourcePath,
+      config: project.config
+    });
+  }
+  return mergeConfigLayers(layers);
+}
+
+async function repositoryTrust(
+  root: string,
+  config: AgentOpsConfig
+): Promise<"TRUSTED" | "STALE" | "UNTRUSTED"> {
+  const home = process.env.AGENT_OPS_HOME ?? homedir();
+  const state = localStatePaths(home);
+  const remote = (() => {
+    try {
+      return execFileSync("git", ["config", "--get", "remote.origin.url"], {
+        cwd: root,
+        encoding: "utf8"
+      }).trim();
+    } catch {
+      return `local:${root}`;
+    }
+  })();
+  try {
+    const binding = await calculateTrustBinding({
+      repositoryPath: root,
+      remoteUrl: remote,
+      configHash: sha256(JSON.stringify(config)),
+      runtimeHash: sha256(CLI_VERSION)
+    });
+    return (await new FileTrustStore(state.trustStore, state.anchorDirectory).status(binding)).status;
   } catch {
-    return DEFAULT_CONFIG;
+    return "UNTRUSTED";
   }
 }
 
@@ -153,7 +236,10 @@ process.exitCode = await runCli(
               registry: new NpmRegistryClient(),
               isTTY,
               confirm: async (plan) =>
-                await confirmPlan(formatUpdatePlan(plan))
+                await confirmPlan(formatUpdatePlan(plan)),
+              ...(args.targetVersion === undefined
+                ? {}
+                : { targetVersion: args.targetVersion })
             });
           }
           const taskService = new TaskService(
@@ -177,17 +263,18 @@ process.exitCode = await runCli(
             });
           }
           if (args.command === "config") {
-            const config = await loadEffectiveConfig(root);
-            return explainConfigCommand(
-              mergeConfigLayers([{
-                source: "default",
-                sourcePath: "built-in defaults",
-                config
-              }])
-            );
+            return explainConfigCommand(await loadEffectiveConfig(
+              root,
+              args.scope === "user" ? "user" : "project"
+            ));
           }
           if (args.command === "verify") {
-            const config = await loadEffectiveConfig(root);
+            const merged = await loadEffectiveConfig(
+              root,
+              args.scope === "user" ? "user" : "project"
+            );
+            const config = merged.config;
+            const trustStatus = await repositoryTrust(root, config);
             return await runVerifyCommand({
               args,
               taskService,
@@ -221,12 +308,15 @@ process.exitCode = await runCli(
                 processRunner: new NodeVerificationProcessRunner(),
                 taskService,
                 evidenceStore: new FileEvidenceStore(root, root),
-                trusted: false
+                trusted: trustStatus === "TRUSTED"
               })
             });
           }
           if (args.command === "trust") {
-            const config = await loadEffectiveConfig(root);
+            const config = (await loadEffectiveConfig(
+              root,
+              args.scope === "user" ? "user" : "project"
+            )).config;
             const state = localStatePaths(
               process.env.AGENT_OPS_HOME ?? homedir()
             );

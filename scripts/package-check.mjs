@@ -63,11 +63,14 @@ try {
   }
   for (const name of scan.files.filter((value) => /\.(?:js|json|md)$/u.test(value))) {
     const content = run("tar", ["-xOf", join(root, tarball), name]);
-    if (
-      /(?:\/private\/tmp|frontend-wixgo|agent-ops-build|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})/u.test(
-        content
-      )
-    ) {
+    const forbiddenContent = [
+      /(?:^|[\s"'`(=])\/(?:Users|home|private|tmp|var|opt|workspace)\//iu,
+      /(?:frontend-wixgo|agent-ops-build|(?:^|[./])wixtar\.com)\b/iu,
+      /gh[pousr]_[A-Za-z0-9]{20,}/u,
+      /github_pat_[A-Za-z0-9_]{20,}/u,
+      /sk-[A-Za-z0-9_-]{20,}/u
+    ];
+    if (forbiddenContent.some((pattern) => pattern.test(content))) {
       throw new Error(`Packed content contains an internal path or credential pattern: ${name}`);
     }
   }
@@ -110,6 +113,11 @@ try {
       args: ["init", "--dry-run", "--scope", "project", "--harness", "both", "--profile", "core", "--json"],
       status: 0,
       code: "INIT_PLAN_READY"
+    },
+    {
+      args: ["update", "--target-version", "0.0.1", "--dry-run", "--json"],
+      status: 0,
+      code: "UPDATE_PLAN_READY"
     },
     { args: ["trust", "status", "--json"], status: 0, code: "TRUST_STATUS" },
     { args: ["doctor", "--json"], status: 1, code: "DOCTOR_UNKNOWN" },

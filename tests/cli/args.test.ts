@@ -190,6 +190,23 @@ test("parses repeated profiles and boolean flags", () => {
   );
 });
 
+test("parses an explicit offline update target", () => {
+  assert.deepEqual(parseArgs(["update", "--target-version", "0.0.1"]), {
+    command: "update",
+    profiles: [],
+    targetVersion: "0.0.1",
+    dryRun: false,
+    json: false,
+    yes: false
+  });
+  assert.throws(
+    () => parseArgs(["doctor", "--target-version", "0.0.1"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_OPTION_NOT_ALLOWED"
+  );
+});
+
 test("parses global help and version actions", () => {
   assert.deepEqual(parseArgs(["--help"]), {
     command: "help",

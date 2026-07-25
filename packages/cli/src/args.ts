@@ -37,6 +37,7 @@ export interface ParsedArgs {
   harness?: Harness;
   profiles: Profile[];
   taskId?: string;
+  targetVersion?: string;
   title?: string;
   criteria?: string[];
   evidence?: string[];
@@ -96,6 +97,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let scope: InstallScope | undefined;
   let harness: Harness | undefined;
   let taskId: string | undefined;
+  let targetVersion: string | undefined;
   let title: string | undefined;
   let sessionId: string | undefined;
   const profiles: Profile[] = [];
@@ -155,6 +157,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(token);
         }
         taskId = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--target-version": {
+        if (targetVersion !== undefined) {
+          duplicate(token);
+        }
+        targetVersion = readOptionValue(argv, index, token);
         index += 1;
         break;
       }
@@ -289,6 +299,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       harness !== undefined ||
       profiles.length > 0 ||
       taskId !== undefined ||
+      targetVersion !== undefined ||
       title !== undefined ||
       criteria.length > 0 ||
       evidence.length > 0 ||
@@ -337,6 +348,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "Task target options may be used only with task or verify."
+    );
+  }
+  if (command !== "update" && targetVersion !== undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--target-version may be used only with update."
     );
   }
   if (command === "task") {
@@ -417,6 +434,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(harness === undefined ? {} : { harness }),
     profiles,
     ...(taskId === undefined ? {} : { taskId }),
+    ...(targetVersion === undefined ? {} : { targetVersion }),
     ...(title === undefined ? {} : { title }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(evidence.length === 0 ? {} : { evidence }),

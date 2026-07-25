@@ -38,6 +38,7 @@ Options:
   --harness <both|claude|codex>
   --profile <core|advisory|guardrails>  Repeatable
   --task <id>
+  --target-version <version>          Update target version (offline-capable)
   --title <text>
   --criterion <json>                    Repeatable
   --evidence <criterion-id=reference>   Repeatable
