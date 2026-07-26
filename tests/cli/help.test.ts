@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { ParsedArgs } from "../../packages/cli/src/args.js";
 import { runCli, type CliIo, type CliServices } from "../../packages/cli/src/cli.js";
 import {
   okEnvelope,
@@ -69,6 +70,45 @@ test("version returns without invoking command services", async () => {
   assert.equal(calls, 0);
   assert.equal(stderr.length, 0);
   assert.deepEqual(stdout, ["1.2.3-test\n"]);
+});
+
+test("TTY with no arguments launches the branded interactive init wizard", async () => {
+  const { io, stdout, stderr } = createIo(true);
+  const answers = ["project", "both", "core"];
+  const questions: string[] = [];
+  let received: ParsedArgs | undefined;
+  io.prompt = async (question) => {
+    questions.push(question);
+    return answers.shift() ?? "";
+  };
+  const services = createServices(async (args) => {
+    received = args;
+    return okEnvelope("WIZARD_READY", { message: "ready" });
+  });
+
+  assert.equal(await runCli([], io, services), 0);
+  assert.equal(stderr.length, 0);
+  assert.match(stdout.join(""), /LOOP ENGINEERING TOOLKIT/u);
+  assert.match(stdout.join(""), /Safe setup for Codex \+ Claude Code/u);
+  assert.deepEqual(
+    {
+      command: received?.command,
+      scope: received?.scope,
+      harness: received?.harness,
+      profiles: received?.profiles
+    },
+    { command: "init", scope: "project", harness: "both", profiles: ["core"] }
+  );
+  assert.equal(questions.length, 3);
+});
+
+test("non-TTY with no arguments remains an explicit command error", async () => {
+  const { io, stdout, stderr } = createIo(false);
+
+  assert.equal(await runCli([], io, createServices()), 2);
+  assert.equal(stdout.length, 0);
+  assert.equal(stderr.length, 1);
+  assert.match(stderr[0] ?? "", /command, --help, or --version is required/u);
 });
 
 test("JSON help uses the stable output envelope", async () => {
