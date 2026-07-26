@@ -17,7 +17,23 @@ export interface CliServices {
   execute?(args: ParsedArgs): Promise<CliEnvelope<unknown>>;
 }
 
+const WELCOME_BANNER = [
+  "+--------------------------------------------------+",
+  "|          LOOP ENGINEERING TOOLKIT               |",
+  "|       Safe setup for Codex + Claude Code         |",
+  "+--------------------------------------------------+"
+].join("\n");
+
+export function renderWelcome(color: boolean): string {
+  const cyan = color ? "\u001b[36m" : "";
+  const bold = color ? "\u001b[1m" : "";
+  const reset = color ? "\u001b[0m" : "";
+  return `${cyan}${bold}${WELCOME_BANNER}${reset}\n\n`;
+}
+
 export const HELP_TEXT = `Usage: agent-ops <command> [options]
+
+Run \`agent-ops\` without arguments in a terminal to start the interactive setup wizard.
 
 Commands:
   init       Plan or install agent-ops
@@ -69,11 +85,20 @@ export async function runCli(
   io: CliIo,
   services: CliServices
 ): Promise<number> {
-  const json = wantsJson(argv);
+  const launchesWizard = argv.length === 0 && io.isTTY;
+  const effectiveArgv = launchesWizard ? ["init"] : argv;
+  if (launchesWizard) {
+    io.writeStdout(
+      renderWelcome(
+        process.env.NO_COLOR === undefined && process.env.TERM !== "dumb"
+      )
+    );
+  }
+  const json = wantsJson(effectiveArgv);
   let args: ParsedArgs;
 
   try {
-    args = parseArgs(argv);
+    args = parseArgs(effectiveArgv);
   } catch (error) {
     if (error instanceof CliArgumentError) {
       return writeAndReturn(

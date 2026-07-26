@@ -9,23 +9,29 @@ This repository is in its foundation stage. The CLI, hook runtime, normative
 specification, and installation profiles are being developed as a reviewable
 pre-1.0 interface.
 
-The CLI is published as `@kylecheng3146/agent-ops`. The current bootstrap
-release is `0.0.1`; command behavior may change before 1.0.
+The CLI is published as `@kylecheng3146/agent-ops` as a pre-1.0 interface;
+command behavior may change before 1.0.
 
 ## Quick start from npm
 
 Requires Node.js `>=22.14.0`. Install the published CLI globally:
 
 ```bash
-npm install --global @kylecheng3146/agent-ops@0.0.1
+npm install --global @kylecheng3146/agent-ops@latest
 agent-ops --version
 ```
 
-You can run it without a global install with `npx`:
+You can run it without a global install with `npx`. When the command runs in
+an interactive terminal without arguments, it opens the setup wizard
+automatically:
 
 ```bash
-npx --yes @kylecheng3146/agent-ops@0.0.1 --help
+npx --yes @kylecheng3146/agent-ops@latest
 ```
+
+Use `--help` for the complete command reference or provide explicit options in
+automation. The wizard never writes files until you review and confirm its
+installation plan.
 
 Preview a project installation before changing files:
 
@@ -106,9 +112,9 @@ the project configuration defines those workflows.
 
 ## Project status
 
-The `0.0.1` npm package is published as a pre-1.0 interface. Pin the package
-version in automation when reproducibility matters; review release notes before
-upgrading.
+A pre-1.0 npm package is published. Use `@latest` for the current release, or
+pin a specific version in automation when reproducibility matters; review
+release notes before upgrading.
 
 Documentation:
 
