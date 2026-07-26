@@ -6,17 +6,60 @@ verification, safe lifecycle hooks, and independent review into a repeatable
 engineering workflow.
 
 This repository is in its foundation stage. The CLI, hook runtime, normative
-specification, and installation profiles are being developed in a reviewable
-feature branch before the first pre-1.0 release.
+specification, and installation profiles are being developed as a reviewable
+pre-1.0 interface.
 
-The current CLI is an unreleased development interface. Its packed artifact is
-checked by `npm run package:check`; command behavior may change before the first
-tagged pre-1.0 release.
+The CLI is published as `@kylecheng3146/agent-ops`. The current bootstrap
+release is `0.0.1`; command behavior may change before 1.0.
+
+## Quick start from npm
+
+Requires Node.js `>=22.14.0`. Install the published CLI globally:
+
+```bash
+npm install --global @kylecheng3146/agent-ops@0.0.1
+agent-ops --version
+```
+
+You can run it without a global install with `npx`:
+
+```bash
+npx --yes @kylecheng3146/agent-ops@0.0.1 --help
+```
+
+Preview a project installation before changing files:
+
+```bash
+agent-ops init \
+  --dry-run --scope project --harness both --profile core --json
+```
+
+After reviewing the plan, apply it explicitly with `--yes`:
+
+```bash
+agent-ops init --scope project --harness both --profile core --yes
+```
+
+The remaining day-to-day checks are:
+
+```bash
+agent-ops trust status --json
+agent-ops doctor --json
+agent-ops config explain --json
+agent-ops update --dry-run --json
+agent-ops update --yes --json
+agent-ops uninstall --dry-run --json
+```
+
+Use `--scope user` with user-home installations. Keep `--dry-run` for any
+operation you want to inspect before applying; non-interactive automation should
+pass `--yes` only after reviewing the plan. Add `--json` when another tool will
+consume the result.
 
 ## Quick start from a source checkout
 
-Version 0.1.0 is prepared for release but has not yet been published to npm.
-Until the protected release workflow completes, use a source checkout:
+For development or to run the repository version directly, use a source
+checkout:
 
 ```bash
 git clone https://github.com/kylecheng3146/agent-ops.git
@@ -40,16 +83,17 @@ updates, and removal are separate commands:
 node dist/packages/cli/src/bin.js init --scope project --harness both --profile core --yes
 node dist/packages/cli/src/bin.js trust status --json
 node dist/packages/cli/src/bin.js doctor --json
-node dist/packages/cli/src/bin.js update --target-version 0.1.0 --dry-run --json
+node dist/packages/cli/src/bin.js config explain --json
+node dist/packages/cli/src/bin.js update --dry-run --json
 node dist/packages/cli/src/bin.js uninstall --dry-run --json
 ```
 
 The commands after `init --yes` are post-apply operations; `doctor` may report
 an unknown probe status until a repository-specific verification setup exists.
 
-Use `--scope user` with user-home installations. Do not install from npm until
-the `v0.1.0` tag has been published; the release workflow is the source of the
-published package and provenance record.
+For a full command reference, run `agent-ops --help`. The `task`, `verify`, and
+`review` commands support acceptance tracking and independent verification when
+the project configuration defines those workflows.
 
 ## Project principles
 
@@ -62,8 +106,9 @@ published package and provenance record.
 
 ## Project status
 
-No npm package has been published yet. Do not depend on the current repository
-as a stable interface until a tagged release is available.
+The `0.0.1` npm package is published as a pre-1.0 interface. Pin the package
+version in automation when reproducibility matters; review release notes before
+upgrading.
 
 Documentation:
 
