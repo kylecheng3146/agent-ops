@@ -337,6 +337,31 @@ test("uses UNKNOWN for absent probes and PASS for successful probes", async () =
   }
 });
 
+test("probes may report a status directly", async () => {
+  const root = await createInstallation();
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: {
+        hookRegistration: () => "PASS",
+        repositoryTrust: () => "UNKNOWN",
+        smokeAvailability: () => "FAIL"
+      }
+    });
+    assert.deepEqual(
+      [
+        checkStatus(report, "hook-registration"),
+        checkStatus(report, "repository-trust"),
+        checkStatus(report, "smoke-availability")
+      ],
+      ["PASS", "UNKNOWN", "FAIL"]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when an artifact path escapes through a symlink", async () => {
   const root = await createInstallation();
   const outside = await mkdtemp(join(tmpdir(), "agent-ops-outside-"));

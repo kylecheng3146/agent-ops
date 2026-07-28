@@ -41,7 +41,11 @@ export interface DoctorCheck {
   readonly message: string;
 }
 
-export type DoctorProbe = () => boolean | Promise<boolean>;
+export type DoctorProbeResult = boolean | DoctorStatus;
+
+export type DoctorProbe = () =>
+  | DoctorProbeResult
+  | Promise<DoctorProbeResult>;
 
 export interface DoctorProbes {
   readonly hookRegistration?: DoctorProbe;
@@ -316,9 +320,18 @@ async function checkProbe(
     return check(id, "UNKNOWN", "No probe was provided.");
   }
   try {
-    return (await probe())
-      ? check(id, "PASS", "Probe passed.")
-      : check(id, "FAIL", "Probe failed.");
+    const result = await probe();
+    const status: DoctorStatus =
+      typeof result === "boolean" ? (result ? "PASS" : "FAIL") : result;
+    return check(
+      id,
+      status,
+      status === "PASS"
+        ? "Probe passed."
+        : status === "FAIL"
+          ? "Probe failed."
+          : "Probe has nothing to verify yet."
+    );
   } catch {
     return check(id, "FAIL", "Probe failed.");
   }

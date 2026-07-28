@@ -1,6 +1,7 @@
 import type { AgentOpsConfig, Harness } from "../contracts.js";
 import { buildClaudeHookSettings } from "../adapters/claude/config.js";
 import { buildCodexHookConfig } from "../adapters/codex/config.js";
+import type { DoctorStatus } from "./doctor.js";
 import { resolveProfiles } from "./profiles.js";
 
 const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
@@ -89,9 +90,25 @@ export function hookRegistrationSatisfied(
 }
 
 /**
- * Smoke availability means the repository declares at least one verification
- * command doctor could run; the toolkit never invents one.
+ * Smoke availability stays UNKNOWN until the repository declares a
+ * verification command; the toolkit never invents one.
  */
-export function smokeAvailabilitySatisfied(config: AgentOpsConfig): boolean {
-  return config.verification.commands.length > 0;
+export function smokeAvailabilityStatus(
+  config: AgentOpsConfig
+): DoctorStatus {
+  return config.verification.commands.length > 0 ? "PASS" : "UNKNOWN";
+}
+
+/**
+ * Installation approval never grants trust, so an ungranted repository is
+ * unconfigured rather than broken. A stale binding is a real failure.
+ */
+export function repositoryTrustStatus(
+  trust: "TRUSTED" | "STALE" | "UNTRUSTED"
+): DoctorStatus {
+  return trust === "TRUSTED"
+    ? "PASS"
+    : trust === "STALE"
+      ? "FAIL"
+      : "UNKNOWN";
 }

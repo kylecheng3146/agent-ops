@@ -14,7 +14,8 @@ import type {
 } from "../../../runtime/src/contracts.js";
 import {
   hookRegistrationSatisfied,
-  smokeAvailabilitySatisfied
+  repositoryTrustStatus,
+  smokeAvailabilityStatus
 } from "../../../runtime/src/install/probes.js";
 import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
@@ -262,8 +263,10 @@ process.exitCode = await runCli(
                     )
                   }),
                 repositoryTrust: async () =>
-                  (await repositoryTrust(root, config)) === "TRUSTED",
-                smokeAvailability: () => smokeAvailabilitySatisfied(config)
+                  repositoryTrustStatus(
+                    await repositoryTrust(root, config)
+                  ),
+                smokeAvailability: () => smokeAvailabilityStatus(config)
               }
             });
           }

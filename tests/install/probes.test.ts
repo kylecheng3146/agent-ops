@@ -3,7 +3,8 @@ import test from "node:test";
 
 import {
   hookRegistrationSatisfied,
-  smokeAvailabilitySatisfied
+  repositoryTrustStatus,
+  smokeAvailabilityStatus
 } from "../../runtime/src/install/probes.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 
@@ -103,6 +104,12 @@ test("foreign handlers do not satisfy hook registration", () => {
   );
 });
 
+test("repository trust separates ungranted from stale bindings", () => {
+  assert.equal(repositoryTrustStatus("TRUSTED"), "PASS");
+  assert.equal(repositoryTrustStatus("STALE"), "FAIL");
+  assert.equal(repositoryTrustStatus("UNTRUSTED"), "UNKNOWN");
+});
+
 test("smoke availability follows configured verification commands", () => {
   const config: AgentOpsConfig = {
     schemaVersion: 1,
@@ -111,9 +118,9 @@ test("smoke availability follows configured verification commands", () => {
     pathMappings: [],
     securityExceptions: []
   };
-  assert.equal(smokeAvailabilitySatisfied(config), false);
+  assert.equal(smokeAvailabilityStatus(config), "UNKNOWN");
   assert.equal(
-    smokeAvailabilitySatisfied({
+    smokeAvailabilityStatus({
       ...config,
       verification: {
         commands: [
@@ -128,6 +135,6 @@ test("smoke availability follows configured verification commands", () => {
         ]
       }
     }),
-    true
+    "PASS"
   );
 });
