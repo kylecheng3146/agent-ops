@@ -4,7 +4,9 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
-- Release preparation for the first public pre-1.0 package is complete; publication remains gated by the protected workflow.
+## [0.1.2]
+
+- Fixed filesystem identity snapshots to preserve 64-bit Windows file indexes exactly.
 
 ## [0.1.0]
 
