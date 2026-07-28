@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -8,8 +9,14 @@ import { execFileSync } from "node:child_process";
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
 import type {
   AgentOpsConfig,
+  Harness,
   InstallScope
 } from "../../../runtime/src/contracts.js";
+import {
+  hookRegistrationSatisfied,
+  smokeAvailabilitySatisfied
+} from "../../../runtime/src/install/probes.js";
+import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -124,6 +131,25 @@ async function loadEffectiveConfig(
   return mergeConfigLayers(layers);
 }
 
+async function readOptionalJson(path: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+async function installedHarness(root: string): Promise<Harness> {
+  try {
+    return parseInstallManifest(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ).harness;
+  } catch {
+    // ponytail: no readable manifest means demand hooks for both harnesses.
+    return "both";
+  }
+}
+
 async function repositoryTrust(
   root: string,
   config: AgentOpsConfig
@@ -217,7 +243,29 @@ process.exitCode = await runCli(
             });
           }
           if (args.command === "doctor") {
-            return await runDoctorCommand({ root });
+            const config = (await loadEffectiveConfig(
+              root,
+              args.scope === "user" ? "user" : "project"
+            )).config;
+            return await runDoctorCommand({
+              root,
+              probes: {
+                hookRegistration: async () =>
+                  hookRegistrationSatisfied({
+                    harness: await installedHarness(root),
+                    profiles: config.profiles,
+                    claudeSettings: await readOptionalJson(
+                      join(root, ".claude", "settings.json")
+                    ),
+                    codexHooks: await readOptionalJson(
+                      join(root, ".codex", "hooks.json")
+                    )
+                  }),
+                repositoryTrust: async () =>
+                  (await repositoryTrust(root, config)) === "TRUSTED",
+                smokeAvailability: () => smokeAvailabilitySatisfied(config)
+              }
+            });
           }
           if (args.command === "uninstall") {
             return await runUninstallCommand({
