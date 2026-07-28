@@ -66,6 +66,21 @@ interface FileIdentity {
   inode: string;
 }
 
+/**
+ * Identity must come from bigint stats. Windows file indexes pack a sequence
+ * number above the 2^53 boundary, so a numeric `ino` silently rounds and an
+ * untouched file looks like it changed.
+ */
+export function fileIdentity(status: {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}): FileIdentity {
+  return {
+    device: status.dev.toString(),
+    inode: status.ino.toString()
+  };
+}
+
 interface ParentGuard {
   expectedParentPath: string;
   parentDevice: string;
@@ -110,10 +125,11 @@ async function captureParentGuard(parent: string): Promise<ParentGuard> {
       `Destination directory changed before mutation: ${parent}`
     );
   }
+  const identity = fileIdentity(status);
   return {
     expectedParentPath: canonicalPath,
-    parentDevice: status.dev.toString(),
-    parentInode: status.ino.toString()
+    parentDevice: identity.device,
+    parentInode: identity.inode
   };
 }
 
@@ -335,7 +351,7 @@ async function snapshotOperation(
 ): Promise<Snapshot> {
   const targetPath = await resolveContainedPath(root, operation.path);
   try {
-    const status = await lstat(targetPath);
+    const status = await lstat(targetPath, { bigint: true });
     if (!status.isFile()) {
       throw new AgentOpsError(
         "UNSUPPORTED_FILE_TYPE",
@@ -343,15 +359,16 @@ async function snapshotOperation(
       );
     }
     const content = await readFile(targetPath);
+    const identity = fileIdentity(status);
     return {
       operation,
       targetPath,
       existed: true,
       content,
-      mode: status.mode & 0o777,
+      mode: Number(status.mode) & 0o777,
       actualHash: sha256(content),
-      device: status.dev.toString(),
-      inode: status.ino.toString(),
+      device: identity.device,
+      inode: identity.inode,
       backupPath: null,
       createdDirectories: []
     };
@@ -401,10 +418,7 @@ async function currentIdentity(path: string): Promise<FileIdentity | null> {
         `A managed path is no longer a regular file: ${path}`
       );
     }
-    return {
-      device: status.dev.toString(),
-      inode: status.ino.toString()
-    };
+    return fileIdentity(status);
   } catch (error) {
     if (isMissing(error)) {
       return null;
