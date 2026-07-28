@@ -27,6 +27,7 @@ import {
 } from "../../runtime/src/fs/paths.js";
 import {
   AgentOpsError,
+  fileIdentity,
   FileTransaction,
   type TransactionPlan
 } from "../../runtime/src/fs/transaction.js";
@@ -590,4 +591,12 @@ test("formats and parses validated installation manifests", () => {
     (error: unknown) =>
       error instanceof AgentOpsError && error.code === "MANIFEST_INVALID"
   );
+});
+
+test("file identity keeps 64-bit Windows file indexes exact", () => {
+  const inode = 2n ** 53n + 1n;
+  assert.deepEqual(fileIdentity({ dev: 2n ** 60n + 3n, ino: inode }), {
+    device: "1152921504606846979",
+    inode: "9007199254740993"
+  });
 });
