@@ -164,6 +164,56 @@ test("yes applies only the fully specified plan and never grants trust", async (
   }
 });
 
+test("reports configured hooks in the plan and success message", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  try {
+    const dryRun = await runInitCommand(
+      options(
+        root,
+        [
+          "init",
+          "--scope",
+          "project",
+          "--harness",
+          "codex",
+          "--profile",
+          "advisory",
+          "--dry-run",
+          "--json"
+        ],
+        { hookRuntimePath: "/opt/agent-ops/hook-entry.js" }
+      )
+    );
+    assert.match(
+      dryRun.data?.text ?? "",
+      /Hooks:\n  - codex: \.codex\/hooks\.json \(SessionStart\)/u
+    );
+
+    const applied = await runInitCommand(
+      options(
+        root,
+        [
+          "init",
+          "--scope",
+          "project",
+          "--harness",
+          "codex",
+          "--profile",
+          "advisory",
+          "--yes"
+        ],
+        { hookRuntimePath: "/opt/agent-ops/hook-entry.js" }
+      )
+    );
+    assert.match(
+      applied.data?.message ?? "",
+      /Hooks configured:[\s\S]*codex: \.codex\/hooks\.json \(SessionStart\)/u
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("TTY cancellation leaves the complete plan unapplied", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
   let confirmations = 0;

@@ -4,6 +4,12 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.4]
+
+- Added an interactive init wizard with selectors for scope, harness, and multi-select profiles, including descriptions and a select-all option.
+- Added an interactive postinstall flow for direct package installs, while skipping CI and non-direct dependency installs.
+- Included configured hooks in install plans and successful installation messages.
+
 ## [0.1.3]
 
 - Added a banner and an arrow-key Yes/No selector to interactive `init`, `update`, `uninstall`, and `trust grant` confirmations. Decorative only: skipped for `--json`, non-interactive runs, and narrow terminals, with no runtime dependency added.

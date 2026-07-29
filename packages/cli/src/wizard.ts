@@ -9,6 +9,12 @@ import type {
   InstallScope,
   Profile
 } from "../../../runtime/src/contracts.js";
+import {
+  selectOption,
+  selectOptions,
+  type SelectChoice,
+  type SelectIo
+} from "./ui.js";
 
 const SCOPES = new Set<string>(["project", "user"]);
 const HARNESSES = new Set<string>(["both", "claude", "codex"]);
@@ -20,6 +26,35 @@ export interface WizardIo {
   output?: Writable;
   prompt?(question: string): Promise<string>;
 }
+
+const SCOPE_CHOICES: readonly SelectChoice<InstallScope>[] = [
+  { label: "project", value: "project" },
+  { label: "user", value: "user" }
+];
+const HARNESS_CHOICES: readonly SelectChoice<Harness>[] = [
+  { label: "both", value: "both" },
+  { label: "claude", value: "claude" },
+  { label: "codex", value: "codex" }
+];
+const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
+  {
+    label: "core",
+    value: "core",
+    description: "Base rules, task tracking, verification, and review guidance."
+  },
+  {
+    label: "advisory",
+    value: "advisory",
+    description: "Adds informational SessionStart summaries and local logs; never blocks."
+  },
+  {
+    label: "guardrails",
+    value: "guardrails",
+    description: "Blocks high-confidence unsafe commands and enables optional Stop verification."
+  }
+];
+const WIZARD_SUBTITLE =
+  "Safe setup for Codex + Claude Code with profile-driven rules, verification, and hooks.";
 
 interface PromptSession {
   question(prompt: string): Promise<string>;
@@ -107,6 +142,39 @@ export async function completeInitChoices(
       "CLI_INTERACTIVE_REQUIRED",
       "Non-interactive init requires --scope, --harness, and at least one --profile."
     );
+  }
+
+  if (io.input !== undefined && io.output !== undefined) {
+    const selectorIo: SelectIo = {
+      input: io.input as SelectIo["input"],
+      output: io.output as SelectIo["output"]
+    };
+    selectorIo.output.write(`${WIZARD_SUBTITLE}\n\n`);
+    const scope =
+      args.scope ?? await selectOption("Scope", SCOPE_CHOICES, selectorIo);
+    const harness =
+      args.harness ?? await selectOption("Harness", HARNESS_CHOICES, selectorIo);
+    const profiles =
+      args.profiles.length > 0
+        ? args.profiles
+        : await selectOptions<Profile>(
+            "Profiles (multi-select: ↑↓ move, Space toggle, Enter confirm)",
+            PROFILE_CHOICES,
+            selectorIo,
+            [],
+            {
+              selectAll: true,
+              selectAllLabel: "Select all",
+              selectAllDescription:
+                "Enable core, advisory, and guardrails together."
+            }
+          );
+    return {
+      ...args,
+      scope,
+      harness,
+      profiles
+    };
   }
 
   const session = await createPromptSession(io);
