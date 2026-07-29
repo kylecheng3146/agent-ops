@@ -111,12 +111,27 @@ export interface ManagedMarkerRecord extends ManagedPathRecord {
   endMarker: string;
 }
 
+export type HookEventName = "SessionStart" | "PreToolUse" | "Stop";
+
+/**
+ * Hook handlers live inside a settings file the harness owns, so the record
+ * tracks which events agent-ops registered rather than a whole-file hash.
+ */
+export interface ManagedHookRecord {
+  id: string;
+  path: string;
+  harness: "codex" | "claude";
+  events: HookEventName[];
+  owner: "agent-ops";
+}
+
 export interface InstallManifest {
   schemaVersion: typeof SCHEMA_VERSION;
   scope: InstallScope;
   harness: Harness;
   artifacts: ManagedPathRecord[];
   markers: ManagedMarkerRecord[];
+  hooks?: ManagedHookRecord[];
 }
 
 export interface ValidationError {

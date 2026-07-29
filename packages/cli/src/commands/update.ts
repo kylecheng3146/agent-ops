@@ -19,6 +19,7 @@ export interface UpdateCommandOptions {
   readonly registry?: RegistryClient;
   readonly targetVersion?: string;
   readonly isTTY: boolean;
+  readonly hookRuntimePath?: string;
   confirm(plan: UpdatePlan): Promise<boolean>;
 }
 
@@ -73,7 +74,10 @@ export async function runUpdateCommand(
       : { registry: options.registry }),
     ...(options.targetVersion === undefined
       ? {}
-      : { targetVersion: options.targetVersion })
+      : { targetVersion: options.targetVersion }),
+    ...(options.hookRuntimePath === undefined
+      ? {}
+      : { hookRuntimePath: options.hookRuntimePath })
   });
   if (options.args.dryRun) {
     return okEnvelope("UPDATE_PLAN_READY", {

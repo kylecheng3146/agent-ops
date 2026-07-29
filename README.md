@@ -94,8 +94,17 @@ node dist/packages/cli/src/bin.js update --dry-run --json
 node dist/packages/cli/src/bin.js uninstall --dry-run --json
 ```
 
-The commands after `init --yes` are post-apply operations; `doctor` may report
-an unknown probe status until a repository-specific verification setup exists.
+The commands after `init --yes` are post-apply operations. `doctor` reports
+`UNKNOWN` for a probe that has nothing to verify yet: `repository-trust` until
+`trust grant` runs, and `smoke-availability` until the configuration declares a
+verification command.
+
+Installing the `advisory` or `guardrails` profile also registers lifecycle
+hooks in `.claude/settings.json` and `.codex/hooks.json`. Only agent-ops owned
+handlers are added, foreign settings in those files are preserved, and
+`uninstall` removes exactly the handlers it registered. The hooks call
+`agent-ops hook <harness> <event>`, which always exits 0 so a toolkit failure
+can never block the harness.
 
 For a full command reference, run `agent-ops --help`. The `task`, `verify`, and
 `review` commands support acceptance tracking and independent verification when

@@ -26,6 +26,12 @@
       "items": {
         "$ref": "#/$defs/managedMarker"
       }
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/managedHook"
+      }
     }
   },
   "$defs": {
@@ -101,6 +107,33 @@
         },
         "endMarker": {
           "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "managedHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "harness", "events", "owner"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "harness": {
+          "enum": ["codex", "claude"]
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["SessionStart", "PreToolUse", "Stop"]
+          }
+        },
+        "owner": {
+          "const": "agent-ops"
         }
       }
     },

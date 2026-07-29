@@ -5,6 +5,9 @@ All notable changes to this unreleased project are documented here.
 ## [Unreleased]
 
 - Fixed a Windows-only flake where private-state locks failed because a cold PowerShell start exceeded the process identity timeout.
+- Added hook registration to `init` and `update`, writing agent-ops owned handlers into `.claude/settings.json` and `.codex/hooks.json` for profiles that enable lifecycle capabilities.
+- Added the `agent-ops hook <harness> <event>` runtime entry point and a Claude hook entry script, both fail-open.
+- Added hook removal to `uninstall`, which strips only owned handlers and preserves foreign settings.
 
 ## [0.1.2]
 

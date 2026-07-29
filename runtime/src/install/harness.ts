@@ -127,7 +127,9 @@ export function commonHarnessAdapters(): readonly HarnessInstallAdapter[] {
   });
 }
 
-function requestedHarnessIds(harness: Harness): readonly HarnessId[] {
+export function requestedHarnessIds(
+  harness: Harness
+): readonly HarnessId[] {
   return harness === "both" ? ["codex", "claude"] : [harness];
 }
 

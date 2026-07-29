@@ -12,6 +12,7 @@ import {
   COMMON_CLAUDE_BLOCK,
   type HarnessId
 } from "./harness.js";
+import { hookRegistrationPath } from "./hooks.js";
 
 export interface ExpectedManagedMarker {
   readonly id: string;
@@ -56,6 +57,30 @@ function manifestOwnershipError(): AgentOpsError {
   );
 }
 
+/**
+ * Hook records are optional: installations without hook capabilities, and
+ * manifests written before hook registration existed, carry none.
+ */
+function assertSupportedHookRecords(
+  manifest: InstallManifest,
+  harnesses: readonly HarnessId[]
+): void {
+  const selected = new Set<HarnessId>(harnesses);
+  const seen = new Set<string>();
+  for (const hook of manifest.hooks ?? []) {
+    if (
+      !selected.has(hook.harness) ||
+      seen.has(hook.harness) ||
+      hook.id !== `${hook.harness}-hooks` ||
+      hook.path !== hookRegistrationPath(hook.harness, manifest.scope) ||
+      hook.events.length === 0
+    ) {
+      throw manifestOwnershipError();
+    }
+    seen.add(hook.harness);
+  }
+}
+
 export function assertSupportedManifestOwnership(
   manifest: InstallManifest
 ): ReadonlyMap<string, ExpectedManagedMarker> {
@@ -94,6 +119,7 @@ export function assertSupportedManifestOwnership(
       throw manifestOwnershipError();
     }
   }
+  assertSupportedHookRecords(manifest, harnesses);
   return expectedMarkers;
 }
 

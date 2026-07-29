@@ -121,6 +121,25 @@ function hookRecord(
   return value.hooks as Record<string, readonly unknown[]>;
 }
 
+/**
+ * Removes every agent-ops owned handler and leaves foreign hooks untouched.
+ */
+export function stripCodexManagedHooks(
+  existing: unknown
+): CodexHookConfig {
+  const existingHooks = hookRecord(existing);
+  const hooks: Record<string, readonly CodexMatcherGroup[]> = {};
+  for (const [eventName, groups] of Object.entries(existingHooks)) {
+    const preserved = groups
+      .map(withoutOwnedHandlers)
+      .filter((group) => group !== null) as CodexMatcherGroup[];
+    if (preserved.length > 0) {
+      hooks[eventName] = preserved;
+    }
+  }
+  return { ...(existing as Record<string, unknown>), hooks };
+}
+
 export function mergeCodexHookConfig(
   existing: unknown,
   managed: CodexHookConfig

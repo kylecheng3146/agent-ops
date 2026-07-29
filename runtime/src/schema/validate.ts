@@ -4,6 +4,7 @@ import type {
   AgentTask,
   EvidenceRequirement,
   InstallManifest,
+  ManagedHookRecord,
   ManagedMarkerRecord,
   ManagedPathRecord,
   PathMapping,
@@ -25,6 +26,12 @@ const PROFILE_VALUES = new Set(["advisory", "core", "guardrails"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
 const HARNESS_VALUES = new Set(["both", "claude", "codex"]);
+const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
+const HOOK_EVENT_VALUES = new Set([
+  "SessionStart",
+  "PreToolUse",
+  "Stop"
+]);
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_EXIT_CODE = 4_294_967_295;
 
@@ -867,12 +874,70 @@ function validateManagedMarker(
   return success(value as unknown as ManagedMarkerRecord);
 }
 
+function validateManagedHook(
+  value: unknown,
+  path: string
+): ValidationResult<ManagedHookRecord> {
+  if (!isRecord(value)) {
+    return failure("INVALID_TYPE", path, "Expected a managed hook record.");
+  }
+  const unknown = unknownFieldFailure(
+    value,
+    ["events", "harness", "id", "owner", "path"],
+    path
+  );
+  if (unknown !== undefined) {
+    return unknown;
+  }
+  if (!isIdentifier(value.id)) {
+    return failure("INVALID_ID", `${path}.id`, "Invalid managed entry ID.");
+  }
+  if (!isSafeRelativePath(value.path) || value.path === ".") {
+    return failure(
+      "INVALID_RELATIVE_PATH",
+      `${path}.path`,
+      "Managed paths must be project-relative."
+    );
+  }
+  if (
+    typeof value.harness !== "string" ||
+    !HOOK_HARNESS_VALUES.has(value.harness)
+  ) {
+    return failure(
+      "INVALID_HARNESS",
+      `${path}.harness`,
+      "Hook records must name a single harness."
+    );
+  }
+  if (
+    !isStringArray(value.events) ||
+    value.events.length === 0 ||
+    new Set(value.events).size !== value.events.length ||
+    value.events.some((event) => !HOOK_EVENT_VALUES.has(event))
+  ) {
+    return failure(
+      "INVALID_HOOK_EVENTS",
+      `${path}.events`,
+      "Hook records must list distinct supported events."
+    );
+  }
+  if (value.owner !== "agent-ops") {
+    return failure(
+      "INVALID_OWNER",
+      `${path}.owner`,
+      "Managed entries must be owned by agent-ops."
+    );
+  }
+  return success(value as unknown as ManagedHookRecord);
+}
+
 export function validateManifest(
   value: unknown
 ): ValidationResult<InstallManifest> {
   const root = validateRoot(value, [
     "artifacts",
     "harness",
+    "hooks",
     "markers",
     "schemaVersion",
     "scope"
@@ -965,6 +1030,36 @@ export function validateManifest(
     entryIds.add(marker.value.id);
     markerBoundaries.add(startBoundary);
     markerBoundaries.add(endBoundary);
+  }
+
+  if (root.hooks !== undefined) {
+    if (!Array.isArray(root.hooks)) {
+      return failure("INVALID_TYPE", "$.hooks", "hooks must be an array.");
+    }
+    const hookPaths = new Set<string>();
+    for (const [index, hookValue] of root.hooks.entries()) {
+      const hook = validateManagedHook(hookValue, `$.hooks[${index}]`);
+      if (!hook.ok) {
+        return hook;
+      }
+      const hookPathKey = hook.value.path.toLowerCase();
+      if (entryIds.has(hook.value.id)) {
+        return failure(
+          "DUPLICATE_ID",
+          `$.hooks[${index}].id`,
+          `Duplicate manifest entry ID: ${hook.value.id}`
+        );
+      }
+      if (artifactPaths.has(hookPathKey) || hookPaths.has(hookPathKey)) {
+        return failure(
+          "DUPLICATE_OWNERSHIP",
+          `$.hooks[${index}].path`,
+          `Hook path is owned more than once: ${hook.value.path}`
+        );
+      }
+      entryIds.add(hook.value.id);
+      hookPaths.add(hookPathKey);
+    }
   }
   return success(root as unknown as InstallManifest);
 }

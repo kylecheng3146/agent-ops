@@ -34,6 +34,7 @@ export interface CreateUpdatePlanOptions {
   readonly targetVersion?: string;
   readonly registry?: RegistryClient;
   readonly packageName?: string;
+  readonly hookRuntimePath?: string;
 }
 
 export interface UpdatePlan {
@@ -201,6 +202,9 @@ export async function createUpdatePlan(
     profiles: configPreview.migrated.profiles,
     adapters: options.adapters,
     toolkitVersion: targetVersion,
+    ...(options.hookRuntimePath === undefined
+      ? {}
+      : { hookRuntimePath: options.hookRuntimePath }),
     existingConfig: {
       value: configPreview.migrated,
       sourceHash: configPreview.sourceHash
