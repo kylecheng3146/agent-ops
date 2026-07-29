@@ -3,7 +3,6 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -27,6 +26,7 @@ import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn
 import { runCli } from "./cli.js";
 import { loadEffectiveConfig, repositoryTrust } from "./context.js";
 import { runHookProcess } from "./hook-process.js";
+import { selectYesNo, writeBanner } from "./ui.js";
 import { CLI_VERSION } from "./version.js";
 import { createCommandRegistry } from "./commands/index.js";
 import { explainConfigCommand } from "./commands/config.js";
@@ -75,23 +75,21 @@ async function installedHarness(root: string): Promise<Harness> {
 async function confirmInit(
   plan: Parameters<typeof formatInstallPlan>[0]
 ): Promise<boolean> {
+  writeBanner({
+    isTTY: process.stdout.isTTY === true,
+    columns: process.stdout.columns,
+    write: (value) => process.stdout.write(value)
+  });
   return await confirmPlan(formatInstallPlan(plan));
 }
 
 async function confirmPlan(text: string): Promise<boolean> {
   process.stdout.write(text);
-  const prompt = createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  try {
-    const answer = await prompt.question(
-      "Apply this installation plan? [y/N]: "
-    );
-    return ["y", "yes"].includes(answer.trim().toLowerCase());
-  } finally {
-    prompt.close();
-  }
+  return await selectYesNo(
+    "Apply this installation plan?",
+    { input: process.stdin, output: process.stdout },
+    false
+  );
 }
 
 const argv = process.argv.slice(2);
