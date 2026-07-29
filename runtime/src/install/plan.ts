@@ -6,6 +6,7 @@ import {
   type Harness,
   type InstallManifest,
   type InstallScope,
+  type ManagedHookRecord,
   type ManagedMarkerRecord,
   type ManagedPathRecord,
   type Profile
@@ -27,10 +28,15 @@ import type { FileOperation } from "../fs/transaction.js";
 import { validateConfig } from "../schema/validate.js";
 import {
   planHarnessContributions,
+  requestedHarnessIds,
   type HarnessArtifact,
   type HarnessInstallAdapter,
   type HarnessManagedBlock
 } from "./harness.js";
+import {
+  hookRegistrationPath,
+  planHookRegistration
+} from "./hooks.js";
 import { resolveProfiles } from "./profiles.js";
 import type { Capability } from "./types.js";
 
@@ -45,6 +51,11 @@ export interface CreateInstallPlanOptions {
   readonly profiles: readonly Profile[];
   readonly adapters: readonly HarnessInstallAdapter[];
   readonly toolkitVersion?: string;
+  /**
+   * Absolute path to the hook runtime Claude settings should invoke. Hook
+   * registration is skipped when the caller cannot supply one.
+   */
+  readonly hookRuntimePath?: string;
   readonly existingConfig?: {
     readonly value: AgentOpsConfig;
     readonly sourceHash: string;
@@ -443,12 +454,41 @@ export async function createInstallPlan(
     contribution.blocks
   );
   operations.push(...plannedBlocks.operations);
+
+  const hooks: ManagedHookRecord[] = [];
+  if (options.hookRuntimePath !== undefined) {
+    for (const harness of requestedHarnessIds(options.harness)) {
+      const current = await readCurrentFile(
+        options.root,
+        hookRegistrationPath(harness, options.scope)
+      );
+      const planned = planHookRegistration({
+        harness,
+        scope: options.scope,
+        capabilities: resolved.capabilities,
+        runtimePath: options.hookRuntimePath,
+        currentSource: current?.content ?? null
+      });
+      if (planned === null) {
+        continue;
+      }
+      operations.push({
+        kind: "write",
+        path: planned.record.path,
+        content: planned.content,
+        expectedHash: current?.hash ?? null
+      });
+      hooks.push(planned.record);
+    }
+  }
+
   const manifest: InstallManifest = {
     schemaVersion: SCHEMA_VERSION,
     scope: options.scope,
     harness: options.harness,
     artifacts,
-    markers: plannedBlocks.records
+    markers: plannedBlocks.records,
+    ...(hooks.length === 0 ? {} : { hooks })
   };
   operations.push({
     kind: "write",

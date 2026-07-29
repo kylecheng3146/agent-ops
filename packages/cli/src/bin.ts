@@ -5,13 +5,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
-import type {
-  AgentOpsConfig,
-  Harness,
-  InstallScope
-} from "../../../runtime/src/contracts.js";
+import type { Harness } from "../../../runtime/src/contracts.js";
 import {
   hookRegistrationSatisfied,
   repositoryTrustStatus,
@@ -21,9 +18,6 @@ import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
-import { mergeConfigLayers } from "../../../runtime/src/config/merge.js";
-import { loadConfigFile } from "../../../runtime/src/config/load.js";
-import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
 import { FileTrustStore, calculateTrustBinding } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { sha256 } from "../../../runtime/src/fs/hash.js";
@@ -31,6 +25,9 @@ import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
 import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
 import { runCli } from "./cli.js";
+import { loadEffectiveConfig, repositoryTrust } from "./context.js";
+import { runHookProcess } from "./hook-process.js";
+import { CLI_VERSION } from "./version.js";
 import { createCommandRegistry } from "./commands/index.js";
 import { explainConfigCommand } from "./commands/config.js";
 import { runDoctorCommand } from "./commands/doctor.js";
@@ -50,87 +47,11 @@ import {
   formatUpdatePlan,
   runUpdateCommand
 } from "./commands/update.js";
-import { errorEnvelope, type CliEnvelope } from "./output.js";
-import type {
-  ConfigLayer,
-  MergedConfig
-} from "../../../runtime/src/config/merge.js";
+import { errorEnvelope } from "./output.js";
 
-const CLI_VERSION = "0.1.2";
-
-const DEFAULT_CONFIG: AgentOpsConfig = {
-  schemaVersion: 1,
-  profiles: [],
-  verification: { commands: [] },
-  pathMappings: [],
-  securityExceptions: []
-};
-
-function defaultConfigLayer() {
-  return {
-    source: "default" as const,
-    sourcePath: "built-in defaults",
-    config: DEFAULT_CONFIG
-  };
-}
-
-async function loadOptionalConfig(path: string) {
-  try {
-    return await loadConfigFile(path);
-  } catch (error) {
-    if (
-      error instanceof AgentOpsError &&
-      error.code === "CONFIG_READ_FAILED" &&
-      typeof error.cause === "object" &&
-      error.cause !== null &&
-      "code" in error.cause &&
-      error.cause.code === "ENOENT"
-    ) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function loadEffectiveConfig(
-  root: string,
-  scope: InstallScope
-): Promise<MergedConfig> {
-  const home = process.env.AGENT_OPS_HOME ?? homedir();
-  const userPath = join(home, ".agent-ops", "config.json");
-  const projectPath = join(root, ".agent-ops", "config.json");
-  const layers: ConfigLayer[] = [defaultConfigLayer()];
-  if (scope === "user") {
-    const user = await loadOptionalConfig(userPath);
-    if (user !== null) {
-      layers.push({
-        source: "user",
-        sourcePath: user.sourcePath,
-        config: user.config
-      });
-    }
-    return mergeConfigLayers(layers);
-  }
-  if (projectPath !== userPath) {
-    const user = await loadOptionalConfig(userPath);
-    if (user !== null) {
-      layers.push({
-        source: "user",
-        sourcePath: user.sourcePath,
-        config: user.config
-      });
-    }
-  }
-  const project = await loadOptionalConfig(projectPath);
-  if (project !== null) {
-    layers.push({
-      source: "project",
-      sourcePath: project.sourcePath,
-      config: project.config
-    });
-  }
-  return mergeConfigLayers(layers);
-}
+const HOOK_RUNTIME_PATH = fileURLToPath(
+  new URL("./hook-entry.js", import.meta.url)
+);
 
 async function readOptionalJson(path: string): Promise<unknown> {
   try {
@@ -148,35 +69,6 @@ async function installedHarness(root: string): Promise<Harness> {
   } catch {
     // ponytail: no readable manifest means demand hooks for both harnesses.
     return "both";
-  }
-}
-
-async function repositoryTrust(
-  root: string,
-  config: AgentOpsConfig
-): Promise<"TRUSTED" | "STALE" | "UNTRUSTED"> {
-  const home = process.env.AGENT_OPS_HOME ?? homedir();
-  const state = localStatePaths(home);
-  const remote = (() => {
-    try {
-      return execFileSync("git", ["config", "--get", "remote.origin.url"], {
-        cwd: root,
-        encoding: "utf8"
-      }).trim();
-    } catch {
-      return `local:${root}`;
-    }
-  })();
-  try {
-    const binding = await calculateTrustBinding({
-      repositoryPath: root,
-      remoteUrl: remote,
-      configHash: sha256(JSON.stringify(config)),
-      runtimeHash: sha256(CLI_VERSION)
-    });
-    return (await new FileTrustStore(state.trustStore, state.anchorDirectory).status(binding)).status;
-  } catch {
-    return "UNTRUSTED";
   }
 }
 
@@ -202,8 +94,21 @@ async function confirmPlan(text: string): Promise<boolean> {
   }
 }
 
+const argv = process.argv.slice(2);
+
+if (argv[0] === "hook") {
+  process.exitCode = await runHookProcess(
+    argv.slice(1),
+    {
+      stdin: process.stdin,
+      writeStdout: (value) => process.stdout.write(value),
+      writeStderr: (value) => process.stderr.write(value)
+    },
+    CLI_VERSION
+  );
+} else {
 process.exitCode = await runCli(
-  process.argv.slice(2),
+  argv,
   {
     isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true,
     input: process.stdin,
@@ -240,6 +145,7 @@ process.exitCode = await runCli(
               adapters: commonHarnessAdapters(),
               isTTY,
               toolkitVersion: CLI_VERSION,
+              hookRuntimePath: HOOK_RUNTIME_PATH,
               confirm: async (plan) => await confirmInit(plan)
             });
           }
@@ -264,7 +170,7 @@ process.exitCode = await runCli(
                   }),
                 repositoryTrust: async () =>
                   repositoryTrustStatus(
-                    await repositoryTrust(root, config)
+                    await repositoryTrust(root, config, CLI_VERSION)
                   ),
                 smokeAvailability: () => smokeAvailabilityStatus(config)
               }
@@ -286,6 +192,7 @@ process.exitCode = await runCli(
               adapters: commonHarnessAdapters(),
               registry: new NpmRegistryClient(),
               isTTY,
+              hookRuntimePath: HOOK_RUNTIME_PATH,
               confirm: async (plan) =>
                 await confirmPlan(formatUpdatePlan(plan)),
               ...(args.targetVersion === undefined
@@ -325,7 +232,11 @@ process.exitCode = await runCli(
               args.scope === "user" ? "user" : "project"
             );
             const config = merged.config;
-            const trustStatus = await repositoryTrust(root, config);
+            const trustStatus = await repositoryTrust(
+              root,
+              config,
+              CLI_VERSION
+            );
             return await runVerifyCommand({
               args,
               taskService,
@@ -406,3 +317,4 @@ process.exitCode = await runCli(
     )
   }
 );
+}

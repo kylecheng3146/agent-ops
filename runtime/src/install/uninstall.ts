@@ -16,6 +16,7 @@ import {
   FileTransaction,
   type FileOperation
 } from "../fs/transaction.js";
+import { planHookRemoval } from "./hooks.js";
 import {
   assertExpectedManagedBlock,
   assertSupportedManifestOwnership,
@@ -214,6 +215,27 @@ export async function createUninstallPlan(
       expectedMarkers
     )
   );
+  for (const hook of manifest.hooks ?? []) {
+    const current = await readCurrentFile(root, hook.path);
+    if (current === null) {
+      continue;
+    }
+    const removal = planHookRemoval(hook, current.content);
+    operations.push(
+      removal.content === null
+        ? {
+            kind: "remove",
+            path: hook.path,
+            expectedHash: current.hash
+          }
+        : {
+            kind: "write",
+            path: hook.path,
+            content: removal.content,
+            expectedHash: current.hash
+          }
+    );
+  }
   operations.push({
     kind: "remove",
     path: MANIFEST_PATH,
@@ -234,6 +256,7 @@ function allowedPaths(plan: UninstallPlan): Set<string> {
   return new Set([
     ...plan.manifest.artifacts.map(({ path }) => path.toLowerCase()),
     ...plan.manifest.markers.map(({ path }) => path.toLowerCase()),
+    ...(plan.manifest.hooks ?? []).map(({ path }) => path.toLowerCase()),
     MANIFEST_PATH
   ]);
 }
@@ -302,6 +325,18 @@ async function validateUninstalled(
       throw new AgentOpsError(
         "UNINSTALL_VALIDATION_FAILED",
         `Managed block still exists: ${marker.path}`
+      );
+    }
+  }
+  for (const hook of manifest.hooks ?? []) {
+    const current = await readCurrentFile(root, hook.path);
+    if (
+      current !== null &&
+      planHookRemoval(hook, current.content).content !== current.content
+    ) {
+      throw new AgentOpsError(
+        "UNINSTALL_VALIDATION_FAILED",
+        `Managed hook handlers still exist: ${hook.path}`
       );
     }
   }

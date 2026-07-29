@@ -147,6 +147,31 @@ function hookRecord(
   return settings.hooks as Record<string, readonly unknown[]>;
 }
 
+/**
+ * Removes every agent-ops owned handler and leaves foreign hooks untouched.
+ */
+export function stripClaudeManagedHooks(
+  existing: unknown
+): ClaudeHookSettings {
+  if (!isRecord(existing)) {
+    throw new AgentOpsError(
+      "CLAUDE_SETTINGS_INVALID",
+      "Claude settings must be a JSON object."
+    );
+  }
+  const existingHooks = hookRecord(existing);
+  const hooks: Record<string, readonly ClaudeMatcherGroup[]> = {};
+  for (const [eventName, groups] of Object.entries(existingHooks)) {
+    const preserved = groups
+      .map(withoutOwnedHandlers)
+      .filter((group) => group !== null) as ClaudeMatcherGroup[];
+    if (preserved.length > 0) {
+      hooks[eventName] = preserved;
+    }
+  }
+  return { ...existing, hooks };
+}
+
 export function mergeClaudeSettings(
   existing: unknown,
   managed: ClaudeHookSettings

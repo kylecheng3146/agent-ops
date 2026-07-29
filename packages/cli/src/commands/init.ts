@@ -18,6 +18,7 @@ export interface InitCommandOptions {
   readonly adapters: readonly HarnessInstallAdapter[];
   readonly isTTY: boolean;
   readonly toolkitVersion?: string;
+  readonly hookRuntimePath?: string;
   confirm(plan: InstallPlan): Promise<boolean>;
 }
 
@@ -77,7 +78,10 @@ export async function runInitCommand(
     adapters: options.adapters,
     ...(options.toolkitVersion === undefined
       ? {}
-      : { toolkitVersion: options.toolkitVersion })
+      : { toolkitVersion: options.toolkitVersion }),
+    ...(options.hookRuntimePath === undefined
+      ? {}
+      : { hookRuntimePath: options.hookRuntimePath })
   });
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {
