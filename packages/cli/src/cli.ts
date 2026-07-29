@@ -8,6 +8,7 @@ import {
 } from "./output.js";
 import { completeInitChoices, type WizardIo } from "./wizard.js";
 import type { CommandRegistry } from "./commands/index.js";
+import { BANNER } from "./ui.js";
 
 export interface CliIo extends OutputSink, WizardIo {}
 
@@ -17,18 +18,11 @@ export interface CliServices {
   execute?(args: ParsedArgs): Promise<CliEnvelope<unknown>>;
 }
 
-const WELCOME_BANNER = [
-  "+--------------------------------------------------+",
-  "|          LOOP ENGINEERING TOOLKIT               |",
-  "|       Safe setup for Codex + Claude Code         |",
-  "+--------------------------------------------------+"
-].join("\n");
-
 export function renderWelcome(color: boolean): string {
   const cyan = color ? "\u001b[36m" : "";
   const bold = color ? "\u001b[1m" : "";
   const reset = color ? "\u001b[0m" : "";
-  return `${cyan}${bold}${WELCOME_BANNER}${reset}\n\n`;
+  return `${cyan}${bold}${BANNER}${reset}\n\n`;
 }
 
 export const HELP_TEXT = `Usage: agent-ops <command> [options]

@@ -30,15 +30,42 @@ export interface InitCommandData {
 }
 
 export function formatInstallPlan(plan: InstallPlan): string {
+  const hooks = plan.manifest.hooks ?? [];
   return formatOperationPlan({
     title: "Installation plan",
     metadata: [
       `Scope: ${plan.scope}`,
       `Harness: ${plan.harness}`,
-      `Profiles: ${plan.profiles.join(", ")}`
+      `Profiles: ${plan.profiles.join(", ")}`,
+      ...(hooks.length === 0
+        ? ["Hooks: none selected"]
+        : [
+            "Hooks:",
+            ...hooks.map(
+              (hook) =>
+                `  - ${hook.harness}: ${hook.path} (${hook.events.join(
+                  ", "
+                )})`
+            )
+          ])
     ],
     operations: plan.operations
   });
+}
+
+function appliedMessage(plan: InstallPlan): string {
+  const hooks = plan.manifest.hooks ?? [];
+  if (hooks.length === 0) {
+    return "Loop Engineering Toolkit installation applied.\nHooks: none selected.";
+  }
+  return [
+    "Loop Engineering Toolkit installation applied.",
+    "Hooks configured:",
+    ...hooks.map(
+      (hook) =>
+        `- ${hook.harness}: ${hook.path} (${hook.events.join(", ")})`
+    )
+  ].join("\n");
 }
 
 function initError(
@@ -114,6 +141,6 @@ export async function runInitCommand(
   return okEnvelope("INIT_APPLIED", {
     applied: true,
     plan,
-    message: "Loop Engineering Toolkit installation applied."
+    message: appliedMessage(plan)
   });
 }

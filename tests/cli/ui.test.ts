@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { selectYesNo, writeBanner } from "../../packages/cli/src/ui.js";
+import {
+  selectOption,
+  selectOptions,
+  selectYesNo,
+  writeBanner
+} from "../../packages/cli/src/ui.js";
 
 class FakeOutput extends EventEmitter {
   chunks: string[] = [];
@@ -80,6 +85,101 @@ test("selectYesNo toggles with arrow keys and confirms on return", async () => {
   input.pressKey("left");
   input.pressKey("return");
   assert.equal(await resultPromise, true);
+  assert.equal(input.rawMode, false);
+});
+
+test("selectOption moves between choices and confirms on return", async () => {
+  const input = new FakeRawInput();
+  const output = new FakeOutput();
+  const resultPromise = selectOption(
+    "Scope",
+    [
+      { label: "project", value: "project" },
+      { label: "user", value: "user" }
+    ],
+    { input: input as never, output: output as never }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  input.pressKey("down");
+  input.pressKey("return");
+  assert.equal(await resultPromise, "user");
+  assert.match(output.text, /Scope/);
+  assert.equal(input.rawMode, false);
+});
+
+test("selectOptions toggles multiple choices with space", async () => {
+  const input = new FakeRawInput();
+  const output = new FakeOutput();
+  const resultPromise = selectOptions(
+    "Profiles",
+    [
+      { label: "core", value: "core" },
+      { label: "advisory", value: "advisory" },
+      { label: "guardrails", value: "guardrails" }
+    ],
+    { input: input as never, output: output as never },
+    ["core"]
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const initialRender = output.text.replace(/\u001b\[[0-9;]*m/gu, "");
+  assert.match(
+    initialRender,
+    /Profiles\n│  ❯ ● core\n│    ○ advisory\n│    ○ guardrails/u
+  );
+  input.pressKey("down");
+  const movedRender = output.text.replace(/\u001b\[[0-9;]*m/gu, "");
+  assert.match(movedRender, /│  ❯ ○ advisory/u);
+  input.pressKey("space");
+  input.pressKey("return");
+  assert.deepEqual(await resultPromise, ["core", "advisory"]);
+  assert.equal(input.rawMode, false);
+});
+
+test("selectOptions explains choices and supports selecting all", async () => {
+  const input = new FakeRawInput();
+  const output = new FakeOutput();
+  const resultPromise = selectOptions(
+    "Profiles (multi-select: ↑↓ move, Space toggle, Enter confirm)",
+    [
+      {
+        label: "core",
+        value: "core",
+        description: "Base rules, tasks, verification, and reviews."
+      },
+      {
+        label: "advisory",
+        value: "advisory",
+        description: "Informational lifecycle summaries and local logs."
+      },
+      {
+        label: "guardrails",
+        value: "guardrails",
+        description: "Blocks high-confidence unsafe commands and can verify on Stop."
+      }
+    ],
+    { input: input as never, output: output as never },
+    [],
+    {
+      selectAll: true,
+      selectAllDescription: "Enable core, advisory, and guardrails together."
+    }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  const initialRender = output.text.replace(/\u001b\[[0-9;]*m/gu, "");
+  assert.match(
+    initialRender,
+    /Profiles \(multi-select: ↑↓ move, Space toggle, Enter confirm\)\n│  ❯ ○ Select all\n│    Enable core, advisory, and guardrails together\.\n│    ○ core\n│    Base rules, tasks, verification, and reviews\./u
+  );
+  input.pressKey("return");
+  const emptySelectionRender = output.text.replace(/\u001b\[[0-9;]*m/gu, "");
+  assert.match(emptySelectionRender, /Choose at least one option with Space\./u);
+  input.pressKey("down");
+  const movedRender = output.text.replace(/\u001b\[[0-9;]*m/gu, "");
+  assert.match(movedRender, /│  ❯ ○ core/u);
+  input.pressKey("up");
+  input.pressKey("space");
+  input.pressKey("return");
+  assert.deepEqual(await resultPromise, ["core", "advisory", "guardrails"]);
   assert.equal(input.rawMode, false);
 });
 

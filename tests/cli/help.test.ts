@@ -88,8 +88,7 @@ test("TTY with no arguments launches the branded interactive init wizard", async
 
   assert.equal(await runCli([], io, services), 0);
   assert.equal(stderr.length, 0);
-  assert.match(stdout.join(""), /LOOP ENGINEERING TOOLKIT/u);
-  assert.match(stdout.join(""), /Safe setup for Codex \+ Claude Code/u);
+  assert.match(stdout.join(""), /__ _  __ _  ___ _ __/u);
   assert.deepEqual(
     {
       command: received?.command,
