@@ -359,7 +359,9 @@ async function readWindowsProcessIdentity(
       {
         encoding: "utf8",
         maxBuffer: 4096,
-        timeout: 2000,
+        // ponytail: cold PowerShell start on a loaded machine routinely
+        // passes two seconds; the lock budget above still bounds the wait.
+        timeout: 10_000,
         windowsHide: true
       }
     );
@@ -370,13 +372,48 @@ async function readWindowsProcessIdentity(
   }
 }
 
+export interface ProcessIdentityCacheEntry {
+  readonly checkedAt: number;
+  readonly identity: string | null;
+}
+
+/**
+ * A live process cannot change its own start time, so a successful self
+ * lookup never expires. Every other entry keeps the short TTL: foreign
+ * process IDs get recycled, and a failed self lookup must stay retryable
+ * instead of pinning the fallback identity for the whole run.
+ */
+export function reuseCachedProcessIdentity(
+  entry: ProcessIdentityCacheEntry | undefined,
+  processId: number,
+  selfProcessId: number,
+  now: number
+): boolean {
+  if (entry === undefined) {
+    return false;
+  }
+  if (
+    processId === selfProcessId &&
+    entry.identity !== null &&
+    !entry.identity.startsWith("runtime:")
+  ) {
+    return true;
+  }
+  return now - entry.checkedAt <= PROCESS_IDENTITY_CACHE_MS;
+}
+
 async function readProcessIdentity(
   processId: number
 ): Promise<string | null> {
   const cached = processIdentityCache.get(processId);
   if (
-    cached !== undefined &&
-    Date.now() - cached.checkedAt <= PROCESS_IDENTITY_CACHE_MS
+    reuseCachedProcessIdentity(
+      cached,
+      processId,
+      process.pid,
+      Date.now()
+    ) &&
+    cached !== undefined
   ) {
     return cached.identity;
   }

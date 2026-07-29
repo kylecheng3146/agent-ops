@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- Fixed a Windows-only flake where private-state locks failed because a cold PowerShell start exceeded the process identity timeout.
+
 ## [0.1.2]
 
 - Fixed filesystem identity snapshots to preserve 64-bit Windows file indexes exactly.
