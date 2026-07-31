@@ -6,7 +6,9 @@ import {
   COMMON_AGENTS_BLOCK,
   COMMON_CLAUDE_BLOCK,
   commonHarnessAdapters,
+  HARNESS_IDS,
   planHarnessContributions,
+  resolveHarnessSelection,
   type HarnessContribution,
   type HarnessId,
   type HarnessInstallAdapter,
@@ -67,7 +69,7 @@ test("selects exactly the requested concrete harness and passes context", async 
   ];
 
   const planned = await planHarnessContributions(
-    "claude",
+    ["claude"],
     CONTEXT,
     adapters
   );
@@ -84,7 +86,7 @@ test("aggregates both harnesses in codex then claude order", async () => {
     adapter("codex", calls)
   ];
 
-  const planned = await planHarnessContributions("both", CONTEXT, adapters);
+  const planned = await planHarnessContributions(["codex", "claude"], CONTEXT, adapters);
 
   assert.deepEqual(calls.map(({ id }) => id), ["codex", "claude"]);
   assert.deepEqual(planned, {
@@ -104,7 +106,7 @@ test("aggregates both harnesses in codex then claude order", async () => {
 test("fails with a stable error when a requested adapter is missing", async () => {
   await assert.rejects(
     () =>
-      planHarnessContributions("both", CONTEXT, [
+      planHarnessContributions(["codex", "claude"], CONTEXT, [
         {
           id: "codex",
           async plan() {
@@ -136,7 +138,7 @@ test("fails with a stable error when a requested adapter is duplicated", async (
   ];
 
   await assert.rejects(
-    () => planHarnessContributions("codex", CONTEXT, duplicateAdapters),
+    () => planHarnessContributions(["codex"], CONTEXT, duplicateAdapters),
     (error: unknown) =>
       error instanceof AgentOpsError &&
       error.code === "HARNESS_ADAPTER_DUPLICATE" &&
@@ -146,7 +148,7 @@ test("fails with a stable error when a requested adapter is duplicated", async (
 
 test("common adapters produce scoped routing blocks and managed rules", async () => {
   const project = await planHarnessContributions(
-    "both",
+    ["codex", "claude"],
     CONTEXT,
     commonHarnessAdapters()
   );
@@ -168,7 +170,7 @@ test("common adapters produce scoped routing blocks and managed rules", async ()
   );
 
   const user = await planHarnessContributions(
-    "both",
+    ["codex", "claude"],
     { ...CONTEXT, scope: "user" },
     commonHarnessAdapters()
   );
@@ -178,7 +180,7 @@ test("common adapters produce scoped routing blocks and managed rules", async ()
   );
 
   const advisory = await planHarnessContributions(
-    "codex",
+    ["codex"],
     {
       scope: "project",
       profiles: ["advisory"],
@@ -191,4 +193,43 @@ test("common adapters produce scoped routing blocks and managed rules", async ()
   assert.doesNotMatch(advisoryRules, /acceptance criteria/);
   assert.doesNotMatch(advisoryRules, /independent review/);
   assert.doesNotMatch(advisoryRules, /Repository commands require/);
+});
+
+test("identical contributions from two harnesses collapse into one entry", async () => {
+  const shared = {
+    artifacts: [
+      { id: "shared-rules", path: ".agent-ops/AGENTS.md", content: "shared" }
+    ],
+    blocks: [
+      {
+        id: "shared-routing",
+        path: "AGENTS.md",
+        version: 1,
+        content: "block"
+      }
+    ]
+  };
+  const planned = await planHarnessContributions(
+    ["codex", "claude"],
+    CONTEXT,
+    [
+      { id: "codex", async plan() { return shared; } },
+      { id: "claude", async plan() { return shared; } }
+    ]
+  );
+
+  assert.deepEqual(planned, shared);
+});
+
+test("resolves harness aliases and rejects unusable selections", () => {
+  assert.deepEqual(resolveHarnessSelection("both"), ["codex", "claude"]);
+  assert.deepEqual(resolveHarnessSelection("all"), [...HARNESS_IDS]);
+  assert.deepEqual(resolveHarnessSelection("claude"), ["claude"]);
+  assert.deepEqual(resolveHarnessSelection("codex, claude"), [
+    "codex",
+    "claude"
+  ]);
+  assert.equal(resolveHarnessSelection(""), null);
+  assert.equal(resolveHarnessSelection("codex,codex"), null);
+  assert.equal(resolveHarnessSelection("codex,opencode"), null);
 });

@@ -26,7 +26,7 @@ async function install(root: string): Promise<void> {
   const plan = await createInstallPlan({
     root,
     scope: "project",
-    harness: "both",
+    harness: ["codex", "claude"],
     profiles: ["core"],
     adapters: commonHarnessAdapters()
   });

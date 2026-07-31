@@ -6,9 +6,14 @@ import {
 } from "./args.js";
 import type {
   Harness,
+  HarnessId,
   InstallScope,
   Profile
 } from "../../../runtime/src/contracts.js";
+import {
+  HARNESS_IDS,
+  resolveHarnessSelection
+} from "../../../runtime/src/install/harness.js";
 import {
   selectOption,
   selectOptions,
@@ -17,8 +22,8 @@ import {
 } from "./ui.js";
 
 const SCOPES = new Set<string>(["project", "user"]);
-const HARNESSES = new Set<string>(["both", "claude", "codex"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
+const DEFAULT_HARNESS: readonly HarnessId[] = ["codex", "claude"];
 
 export interface WizardIo {
   isTTY: boolean;
@@ -31,11 +36,9 @@ const SCOPE_CHOICES: readonly SelectChoice<InstallScope>[] = [
   { label: "project", value: "project" },
   { label: "user", value: "user" }
 ];
-const HARNESS_CHOICES: readonly SelectChoice<Harness>[] = [
-  { label: "both", value: "both" },
-  { label: "claude", value: "claude" },
-  { label: "codex", value: "codex" }
-];
+const HARNESS_CHOICES: readonly SelectChoice<HarnessId>[] = HARNESS_IDS.map(
+  (id) => ({ label: id, value: id })
+);
 const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
   {
     label: "core",
@@ -108,6 +111,22 @@ function selectValue<T extends string>(
   return value as T;
 }
 
+function selectHarness(raw: string): Harness {
+  if (raw.trim() === "") {
+    return [...DEFAULT_HARNESS];
+  }
+  const selection = resolveHarnessSelection(raw);
+  if (selection === null) {
+    throw new CliArgumentError(
+      "CLI_INVALID_VALUE",
+      `Harness must be a unique comma-separated list of ${HARNESS_IDS.join(
+        ", "
+      )}.`
+    );
+  }
+  return selection;
+}
+
 function selectProfiles(raw: string): Profile[] {
   const values = raw.trim() === ""
     ? ["core"]
@@ -153,7 +172,18 @@ export async function completeInitChoices(
     const scope =
       args.scope ?? await selectOption("Scope", SCOPE_CHOICES, selectorIo);
     const harness =
-      args.harness ?? await selectOption("Harness", HARNESS_CHOICES, selectorIo);
+      args.harness ??
+      await selectOptions<HarnessId>(
+        "Harness (multi-select: ↑↓ move, Space toggle, Enter confirm)",
+        HARNESS_CHOICES,
+        selectorIo,
+        [...DEFAULT_HARNESS],
+        {
+          selectAll: true,
+          selectAllLabel: "Select all",
+          selectAllDescription: "Install for every supported harness."
+        }
+      );
     const profiles =
       args.profiles.length > 0
         ? args.profiles
@@ -189,11 +219,10 @@ export async function completeInitChoices(
       );
     const harness: Harness =
       args.harness ??
-      selectValue(
-        await session.question("Harness (both/claude/codex) [both]: "),
-        "both",
-        HARNESSES,
-        "harness"
+      selectHarness(
+        await session.question(
+          `Harness (${HARNESS_IDS.join(",")}) [${DEFAULT_HARNESS.join(",")}]: `
+        )
       );
     const profiles =
       args.profiles.length > 0

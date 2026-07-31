@@ -1,4 +1,4 @@
-import type { Harness } from "../../../../runtime/src/contracts.js";
+import type { Harness, HarnessId } from "../../../../runtime/src/contracts.js";
 import {
   buildReviewPacket,
   type ReviewCriterion,
@@ -32,8 +32,12 @@ export interface ReviewCommandData {
   readonly text: string;
 }
 
-function harness(value: Harness | undefined): "codex" | "claude" {
-  return value === "claude" ? "claude" : "codex";
+/**
+ * Review runs against one harness. Argument parsing already rejects a
+ * multi-harness selection here, so the first entry is the whole selection.
+ */
+function harness(value: Harness | undefined): HarnessId {
+  return value?.[0] ?? "codex";
 }
 
 export async function runReviewCommand(

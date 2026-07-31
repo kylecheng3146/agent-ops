@@ -535,14 +535,15 @@ test("bounds execution-related numeric values to safe integers", async () => {
 });
 
 test("JSON Schema documents expose the same top-level versioned fields", async () => {
+  // The manifest versions on its own track, so it declares its own const.
   const cases = [
-    ["config.schema.json", "valid-config.json"],
-    ["task.schema.json", "valid-task.json"],
-    ["evidence.schema.json", "valid-evidence.json"],
-    ["manifest.schema.json", "valid-manifest.json"]
+    ["config.schema.json", "valid-config.json", 1],
+    ["task.schema.json", "valid-task.json", 1],
+    ["evidence.schema.json", "valid-evidence.json", 1],
+    ["manifest.schema.json", "valid-manifest.json", 2]
   ] as const;
 
-  for (const [schemaName, fixtureName] of cases) {
+  for (const [schemaName, fixtureName, version] of cases) {
     const schema = (await readJsonSchema(schemaName)) as {
       additionalProperties?: boolean;
       properties?: Record<string, { const?: unknown }>;
@@ -554,7 +555,7 @@ test("JSON Schema documents expose the same top-level versioned fields", async (
     >;
 
     assert.equal(schema.additionalProperties, false, schemaName);
-    assert.equal(schema.properties?.schemaVersion?.const, 1, schemaName);
+    assert.equal(schema.properties?.schemaVersion?.const, version, schemaName);
     assert.deepEqual(
       [...(schema.required ?? [])].sort(),
       Object.keys(fixture).sort(),

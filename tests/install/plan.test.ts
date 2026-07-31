@@ -75,7 +75,7 @@ test("plans a complete project install without writing", async () => {
     const plan = await createInstallPlan({
       root,
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["guardrails", "advisory"],
       adapters: adapters()
     });
@@ -128,7 +128,7 @@ test("plans a complete project install without writing", async () => {
       markers: Array<{ path: string }>;
     };
     assert.equal(manifest.scope, "project");
-    assert.equal(manifest.harness, "both");
+    assert.deepEqual(manifest.harness, ["codex", "claude"]);
     assert.deepEqual(
       manifest.artifacts.map(({ path }) => path),
       [
@@ -152,7 +152,7 @@ test("plans user-scope instruction paths through adapter context", async () => {
     const plan = await createInstallPlan({
       root,
       scope: "user",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["advisory"],
       adapters: adapters()
     });
@@ -180,7 +180,7 @@ test("apply is transactional and a repeated init is idempotent", async () => {
     const first = await createInstallPlan({
       root,
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -194,7 +194,7 @@ test("apply is transactional and a repeated init is idempotent", async () => {
     const second = await createInstallPlan({
       root,
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -225,7 +225,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
     const first = await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -257,7 +257,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
     const second = await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -286,7 +286,7 @@ test("malformed managed markers fail before any write", async () => {
       createInstallPlan({
         root,
         scope: "project",
-        harness: "codex",
+        harness: ["codex"],
         profiles: ["core"],
         adapters: adapters()
       }),
@@ -325,7 +325,7 @@ test("duplicate contribution paths fail closed", async () => {
       createInstallPlan({
         root,
         scope: "project",
-        harness: "both",
+        harness: ["codex", "claude"],
         profiles: ["core"],
         adapters: conflicting
       }),
@@ -346,7 +346,7 @@ test("failed post-apply validation rolls every write back", async () => {
     const plan = await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: adapters()
     });

@@ -14,7 +14,7 @@ import type {
   VerificationCommand,
   VerificationEvidence
 } from "../contracts.js";
-import { SCHEMA_VERSION } from "../contracts.js";
+import { MANIFEST_SCHEMA_VERSION, SCHEMA_VERSION } from "../contracts.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -25,8 +25,8 @@ const WINDOWS_RESERVED_SEGMENT =
 const PROFILE_VALUES = new Set(["advisory", "core", "guardrails"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
-const HARNESS_VALUES = new Set(["both", "claude", "codex"]);
-const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
+const HARNESS_VALUES = new Set(["claude", "codex"]);
+const HOOK_HARNESS_VALUES = HARNESS_VALUES;
 const HOOK_EVENT_VALUES = new Set([
   "SessionStart",
   "PreToolUse",
@@ -81,16 +81,17 @@ function unknownFieldFailure(
 
 function validateRoot(
   value: unknown,
-  allowed: readonly string[]
+  allowed: readonly string[],
+  expectedVersion: number = SCHEMA_VERSION
 ): UnknownRecord | ValidationFailure {
   if (!isRecord(value)) {
     return failure("INVALID_TYPE", "$", "Expected an object.");
   }
-  if (value.schemaVersion !== SCHEMA_VERSION) {
+  if (value.schemaVersion !== expectedVersion) {
     return failure(
       "SCHEMA_VERSION_UNSUPPORTED",
       "$.schemaVersion",
-      `Expected schemaVersion ${SCHEMA_VERSION}.`
+      `Expected schemaVersion ${expectedVersion}.`
     );
   }
   return unknownFieldFailure(value, allowed, "$") ?? value;
@@ -934,22 +935,30 @@ function validateManagedHook(
 export function validateManifest(
   value: unknown
 ): ValidationResult<InstallManifest> {
-  const root = validateRoot(value, [
-    "artifacts",
-    "harness",
-    "hooks",
-    "markers",
-    "schemaVersion",
-    "scope"
-  ]);
+  const root = validateRoot(
+    value,
+    ["artifacts", "harness", "hooks", "markers", "schemaVersion", "scope"],
+    MANIFEST_SCHEMA_VERSION
+  );
   if (isFailure(root)) {
     return root;
   }
   if (typeof root.scope !== "string" || !SCOPE_VALUES.has(root.scope)) {
     return failure("INVALID_SCOPE", "$.scope", "Unsupported install scope.");
   }
-  if (typeof root.harness !== "string" || !HARNESS_VALUES.has(root.harness)) {
-    return failure("INVALID_HARNESS", "$.harness", "Unsupported harness.");
+  if (
+    !Array.isArray(root.harness) ||
+    root.harness.length === 0 ||
+    !root.harness.every(
+      (id) => typeof id === "string" && HARNESS_VALUES.has(id)
+    ) ||
+    new Set(root.harness).size !== root.harness.length
+  ) {
+    return failure(
+      "INVALID_HARNESS",
+      "$.harness",
+      "Harness must be a non-empty list of unique supported harnesses."
+    );
   }
   if (!Array.isArray(root.artifacts) || !Array.isArray(root.markers)) {
     return failure(

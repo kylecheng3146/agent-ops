@@ -28,7 +28,7 @@ async function install(root: string): Promise<void> {
     await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: commonHarnessAdapters(),
       toolkitVersion: "0.1.0"

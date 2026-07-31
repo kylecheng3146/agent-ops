@@ -6,8 +6,15 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
-import type { Harness } from "../../../runtime/src/contracts.js";
+import {
+  commonHarnessAdapters,
+  harnessDescriptor,
+  HARNESS_IDS
+} from "../../../runtime/src/install/harness.js";
+import type {
+  Harness,
+  HarnessId
+} from "../../../runtime/src/contracts.js";
 import {
   hookRegistrationSatisfied,
   repositoryTrustStatus,
@@ -61,14 +68,26 @@ async function readOptionalJson(path: string): Promise<unknown> {
   }
 }
 
+async function hookSources(
+  root: string
+): Promise<Partial<Record<HarnessId, unknown>>> {
+  const sources: Partial<Record<HarnessId, unknown>> = {};
+  for (const id of HARNESS_IDS) {
+    sources[id] = await readOptionalJson(
+      join(root, harnessDescriptor(id).hookPath)
+    );
+  }
+  return sources;
+}
+
 async function installedHarness(root: string): Promise<Harness> {
   try {
     return parseInstallManifest(
       await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
     ).harness;
   } catch {
-    // ponytail: no readable manifest means demand hooks for both harnesses.
-    return "both";
+    // ponytail: no readable manifest means demand hooks for every harness.
+    return [...HARNESS_IDS];
   }
 }
 
@@ -159,12 +178,7 @@ process.exitCode = await runCli(
                   hookRegistrationSatisfied({
                     harness: await installedHarness(root),
                     profiles: config.profiles,
-                    claudeSettings: await readOptionalJson(
-                      join(root, ".claude", "settings.json")
-                    ),
-                    codexHooks: await readOptionalJson(
-                      join(root, ".codex", "hooks.json")
-                    )
+                    sources: await hookSources(root)
                   }),
                 repositoryTrust: async () =>
                   repositoryTrustStatus(

@@ -96,7 +96,12 @@ test("TTY with no arguments launches the branded interactive init wizard", async
       harness: received?.harness,
       profiles: received?.profiles
     },
-    { command: "init", scope: "project", harness: "both", profiles: ["core"] }
+    {
+      command: "init",
+      scope: "project",
+      harness: ["codex", "claude"],
+      profiles: ["core"]
+    }
   );
   assert.equal(questions.length, 3);
 });
@@ -239,7 +244,7 @@ test("complete non-interactive args reach the injected command service", async (
   assert.deepEqual(envelope.data, {
     command: "init",
     scope: "project",
-    harness: "both",
+    harness: ["codex", "claude"],
     profiles: ["core"]
   });
 });

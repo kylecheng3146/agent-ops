@@ -7,11 +7,7 @@ import {
   managedBlockMarkers
 } from "../fs/managed-block.js";
 import { AgentOpsError } from "../fs/paths.js";
-import {
-  COMMON_AGENTS_BLOCK,
-  COMMON_CLAUDE_BLOCK,
-  type HarnessId
-} from "./harness.js";
+import { harnessDescriptor, type HarnessId } from "./harness.js";
 import { hookRegistrationPath } from "./hooks.js";
 
 export interface ExpectedManagedMarker {
@@ -22,31 +18,22 @@ export interface ExpectedManagedMarker {
   readonly content: string;
 }
 
-function selectedHarnesses(
-  manifest: InstallManifest
-): readonly HarnessId[] {
-  return manifest.harness === "both"
-    ? ["codex", "claude"]
-    : [manifest.harness];
-}
-
 function expectedMarker(
   manifest: InstallManifest,
   id: HarnessId
 ): ExpectedManagedMarker {
-  const isCodex = id === "codex";
+  const descriptor = harnessDescriptor(id);
   const markerId = `${id}-routing`;
   const markers = managedBlockMarkers(markerId, 1);
-  const instructionFile = isCodex ? "AGENTS.md" : "CLAUDE.md";
   return {
     id: markerId,
     path:
       manifest.scope === "project"
-        ? instructionFile
-        : `.${id}/${instructionFile}`,
+        ? descriptor.instructionFile
+        : `.${id}/${descriptor.instructionFile}`,
     startMarker: markers.start,
     endMarker: markers.end,
-    content: isCodex ? COMMON_AGENTS_BLOCK : COMMON_CLAUDE_BLOCK
+    content: descriptor.routingBlock
   };
 }
 
@@ -84,7 +71,7 @@ function assertSupportedHookRecords(
 export function assertSupportedManifestOwnership(
   manifest: InstallManifest
 ): ReadonlyMap<string, ExpectedManagedMarker> {
-  const harnesses = selectedHarnesses(manifest);
+  const harnesses = manifest.harness;
   const expectedArtifacts = new Map<string, string>([
     ["config", ".agent-ops/config.json"]
   ]);
@@ -92,7 +79,7 @@ export function assertSupportedManifestOwnership(
   for (const id of harnesses) {
     expectedArtifacts.set(
       `${id}-rules`,
-      `.agent-ops/${id === "codex" ? "AGENTS.md" : "CLAUDE.md"}`
+      `.agent-ops/${harnessDescriptor(id).instructionFile}`
     );
     const marker = expectedMarker(manifest, id);
     expectedMarkers.set(marker.id, marker);

@@ -63,10 +63,9 @@ const LEGACY_CODEX_HOOKS = {
 test("core-only installations have no hooks to register", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
-      claudeSettings: null,
-      codexHooks: null
+      sources: { claude: null, codex: null }
     }),
     true
   );
@@ -75,28 +74,25 @@ test("core-only installations have no hooks to register", () => {
 test("advisory installations require owned handlers in every harness", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core", "advisory"],
-      claudeSettings: CLAUDE_SETTINGS,
-      codexHooks: CODEX_HOOKS
+      sources: { claude: CLAUDE_SETTINGS, codex: CODEX_HOOKS }
     }),
     true
   );
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core", "advisory"],
-      claudeSettings: CLAUDE_SETTINGS,
-      codexHooks: null
+      sources: { claude: CLAUDE_SETTINGS, codex: null }
     }),
     false
   );
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "claude",
+      harness: ["claude"],
       profiles: ["core", "advisory"],
-      claudeSettings: CLAUDE_SETTINGS,
-      codexHooks: null
+      sources: { claude: CLAUDE_SETTINGS, codex: null }
     }),
     true
   );
@@ -105,10 +101,9 @@ test("advisory installations require owned handlers in every harness", () => {
 test("a legacy PATH-resolved codex handler needs an update", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core", "advisory"],
-      claudeSettings: null,
-      codexHooks: LEGACY_CODEX_HOOKS
+      sources: { claude: null, codex: LEGACY_CODEX_HOOKS }
     }),
     false
   );
@@ -117,16 +112,15 @@ test("a legacy PATH-resolved codex handler needs an update", () => {
 test("foreign handlers do not satisfy hook registration", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "claude",
+      harness: ["claude"],
       profiles: ["core", "advisory"],
-      claudeSettings: {
+      sources: { claude: {
         hooks: {
           SessionStart: [
             { hooks: [{ type: "command", command: "node", args: ["other.js"] }] }
           ]
         }
-      },
-      codexHooks: null
+      }, codex: null }
     }),
     false
   );

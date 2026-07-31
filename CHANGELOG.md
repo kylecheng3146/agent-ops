@@ -4,6 +4,11 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- Changed the harness selection from a single value to a list. `--harness` now takes a comma-separated list (`--harness codex,claude`) or one of the aliases `all` and `both`; `both` keeps its old meaning of codex plus claude. The interactive wizard asks for harnesses as a multi-select with a select-all entry instead of a single choice.
+- Changed the installation manifest to store `harness` as a list, on its own `schemaVersion` 2. Config, task, and evidence documents stay at version 1. A manifest written by an earlier release is migrated when it is read, and rewritten in the new shape the next time `init` or `update` writes it.
+- Replaced the two-harness branching in installation, hook registration, hook dispatch, ownership checks, and doctor probes with a harness registry, so each harness carries its own instruction file, hook path, and settings handling.
+- Removed `runtime/src/review/claude-runner.ts` and `runtime/src/review/codex-runner.ts`, which only forwarded to `runIndependentReview`. `agent-ops review` now rejects a multi-harness selection explicitly rather than silently reducing it.
+
 - Fixed Codex hook registration to invoke an absolute runtime path instead of the bare `agent-ops` command. The previous form was resolved through `PATH`, so a cloned repository could shadow it via `node_modules/.bin` and run arbitrary code on every hook event. Codex now matches Claude, which already used an absolute path. This replaces the earlier deliberate choice of PATH-relative commands for portability: an absolute path is regenerated on every `init` and `update`, so portability is recovered by re-running the installer rather than by trusting `PATH`.
 - Changed `doctor` to treat a legacy PATH-resolved Codex handler as unregistered, so an affected installation reports the need to run `agent-ops update`. Running `update` replaces the legacy handler rather than leaving it in place.
 

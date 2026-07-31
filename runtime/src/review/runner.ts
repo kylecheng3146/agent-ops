@@ -1,3 +1,4 @@
+import type { HarnessId } from "../contracts.js";
 import type { ReviewPacket } from "./packet.js";
 import {
   aggregateReviewResults,
@@ -7,7 +8,7 @@ import { redactSecrets } from "../security/redact.js";
 import { safeTaskText } from "../task/render.js";
 
 export interface ReviewInvocation {
-  readonly harness: "codex" | "claude";
+  readonly harness: HarnessId;
   readonly model: string;
   readonly effort: string;
   readonly packet: ReviewPacket;

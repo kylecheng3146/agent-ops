@@ -37,13 +37,13 @@ Preview a project installation before changing files:
 
 ```bash
 agent-ops init \
-  --dry-run --scope project --harness both --profile core --json
+  --dry-run --scope project --harness all --profile core --json
 ```
 
 After reviewing the plan, apply it explicitly with `--yes`:
 
 ```bash
-agent-ops init --scope project --harness both --profile core --yes
+agent-ops init --scope project --harness all --profile core --yes
 ```
 
 The remaining day-to-day checks are:
@@ -79,14 +79,14 @@ Preview a project installation before changing files:
 
 ```bash
 node dist/packages/cli/src/bin.js init \
-  --dry-run --scope project --harness both --profile core --json
+  --dry-run --scope project --harness all --profile core --json
 ```
 
 After reviewing the plan, apply it explicitly with `--yes`. Trust, diagnostics,
 updates, and removal are separate commands:
 
 ```bash
-node dist/packages/cli/src/bin.js init --scope project --harness both --profile core --yes
+node dist/packages/cli/src/bin.js init --scope project --harness all --profile core --yes
 node dist/packages/cli/src/bin.js trust status --json
 node dist/packages/cli/src/bin.js doctor --json
 node dist/packages/cli/src/bin.js config explain --json

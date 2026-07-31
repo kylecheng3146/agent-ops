@@ -1,20 +1,11 @@
 import type {
+  HarnessId,
   HookEventName,
   InstallScope,
   ManagedHookRecord
 } from "../contracts.js";
-import {
-  buildClaudeHookSettings,
-  mergeClaudeSettings,
-  stripClaudeManagedHooks
-} from "../adapters/claude/config.js";
-import {
-  buildCodexHookConfig,
-  mergeCodexHookConfig,
-  stripCodexManagedHooks
-} from "../adapters/codex/config.js";
 import { AgentOpsError } from "../fs/paths.js";
-import type { HarnessId } from "./harness.js";
+import { harnessDescriptor } from "./harness.js";
 import type { Capability } from "./types.js";
 
 export const CLAUDE_HOOK_PATH = ".claude/settings.json";
@@ -54,7 +45,7 @@ export function hookRegistrationPath(
   // ponytail: user scope resolves against AGENT_OPS_HOME, so the same
   // relative path serves both scopes.
   void scope;
-  return harness === "claude" ? CLAUDE_HOOK_PATH : CODEX_HOOK_PATH;
+  return harnessDescriptor(harness).hookPath;
 }
 
 /**
@@ -68,32 +59,18 @@ export function planHookRegistration(options: {
   readonly runtimePath: string;
   readonly currentSource: string | null;
 }): HookRegistrationPlan | null {
+  const descriptor = harnessDescriptor(options.harness);
   const path = hookRegistrationPath(options.harness, options.scope);
-  const managed =
-    options.harness === "claude"
-      ? buildClaudeHookSettings(
-          options.capabilities,
-          options.runtimePath
-        )
-      : buildCodexHookConfig(
-          options.capabilities,
-          options.runtimePath
-        );
+  const managed = descriptor.buildHooks(
+    options.capabilities,
+    options.runtimePath
+  );
   const events = Object.keys(managed.hooks) as HookEventName[];
   if (events.length === 0) {
     return null;
   }
   const existing = parseSettings(path, options.currentSource);
-  const merged =
-    options.harness === "claude"
-      ? mergeClaudeSettings(
-          existing,
-          managed as ReturnType<typeof buildClaudeHookSettings>
-        )
-      : mergeCodexHookConfig(
-          existing,
-          managed as ReturnType<typeof buildCodexHookConfig>
-        );
+  const merged = descriptor.mergeHooks(existing, managed);
   return {
     content: format(merged),
     record: {
@@ -115,9 +92,7 @@ function onlyManagedRemains(
   harness: HarnessId,
   value: Record<string, unknown>
 ): boolean {
-  const ownKeys = new Set(
-    harness === "codex" ? ["hooks", "description"] : ["hooks"]
-  );
+  const ownKeys = new Set(harnessDescriptor(harness).ownSettingsKeys);
   const hooks = value.hooks;
   return (
     Object.keys(value).every((key) => ownKeys.has(key)) &&
@@ -135,11 +110,9 @@ export function planHookRemoval(
   record: ManagedHookRecord,
   currentSource: string
 ): HookRemovalPlan {
+  const descriptor = harnessDescriptor(record.harness);
   const existing = parseSettings(record.path, currentSource);
-  const stripped =
-    record.harness === "claude"
-      ? stripClaudeManagedHooks(existing)
-      : stripCodexManagedHooks(existing);
+  const stripped = descriptor.stripHooks(existing);
   return {
     path: record.path,
     content: onlyManagedRemains(record.harness, stripped)

@@ -1,6 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 
 import {
+  MANIFEST_SCHEMA_VERSION,
   SCHEMA_VERSION,
   type AgentOpsConfig,
   type Harness,
@@ -28,7 +29,6 @@ import type { FileOperation } from "../fs/transaction.js";
 import { validateConfig } from "../schema/validate.js";
 import {
   planHarnessContributions,
-  requestedHarnessIds,
   type HarnessArtifact,
   type HarnessInstallAdapter,
   type HarnessManagedBlock
@@ -284,7 +284,9 @@ function assertCompatibleManifest(
 ): void {
   if (
     existing !== null &&
-    (existing.scope !== scope || existing.harness !== harness)
+    (existing.scope !== scope ||
+      existing.harness.length !== harness.length ||
+      !existing.harness.every((id) => harness.includes(id)))
   ) {
     throw new AgentOpsError(
       "INSTALL_ALREADY_CONFIGURED",
@@ -457,7 +459,7 @@ export async function createInstallPlan(
 
   const hooks: ManagedHookRecord[] = [];
   if (options.hookRuntimePath !== undefined) {
-    for (const harness of requestedHarnessIds(options.harness)) {
+    for (const harness of options.harness) {
       const current = await readCurrentFile(
         options.root,
         hookRegistrationPath(harness, options.scope)
@@ -483,7 +485,7 @@ export async function createInstallPlan(
   }
 
   const manifest: InstallManifest = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: MANIFEST_SCHEMA_VERSION,
     scope: options.scope,
     harness: options.harness,
     artifacts,

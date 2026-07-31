@@ -97,7 +97,20 @@ export interface VerificationEvidence {
 
 export type InstallScope = "project" | "user";
 
-export type Harness = "both" | "claude" | "codex";
+export type HarnessId = "claude" | "codex";
+
+/**
+ * A selection of harnesses, never empty. Releases up to 0.1.4 stored a single
+ * string with `"both"` standing in for two harnesses; that shape is migrated on
+ * read.
+ */
+export type Harness = HarnessId[];
+
+/**
+ * The manifest versions independently of config, tasks, and evidence: only its
+ * own shape changed when the harness selection became a list.
+ */
+export const MANIFEST_SCHEMA_VERSION = 2 as const;
 
 export interface ManagedPathRecord {
   id: string;
@@ -120,13 +133,13 @@ export type HookEventName = "SessionStart" | "PreToolUse" | "Stop";
 export interface ManagedHookRecord {
   id: string;
   path: string;
-  harness: "codex" | "claude";
+  harness: HarnessId;
   events: HookEventName[];
   owner: "agent-ops";
 }
 
 export interface InstallManifest {
-  schemaVersion: typeof SCHEMA_VERSION;
+  schemaVersion: typeof MANIFEST_SCHEMA_VERSION;
   scope: InstallScope;
   harness: Harness;
   artifacts: ManagedPathRecord[];

@@ -1,19 +1,13 @@
-import type { AgentOpsConfig, Harness } from "../contracts.js";
-import { buildClaudeHookSettings } from "../adapters/claude/config.js";
-import {
-  buildCodexHookConfig,
-  CODEX_MANAGED_MARKER
-} from "../adapters/codex/config.js";
+import type { AgentOpsConfig, Harness, HarnessId } from "../contracts.js";
 import type { DoctorStatus } from "./doctor.js";
+import { harnessDescriptor } from "./harness.js";
 import { resolveProfiles } from "./profiles.js";
-
-const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
 
 export interface HookRegistrationInput {
   readonly harness: Harness;
   readonly profiles: AgentOpsConfig["profiles"];
-  readonly claudeSettings: unknown;
-  readonly codexHooks: unknown;
+  /** Current hook settings per harness; a missing entry counts as absent. */
+  readonly sources: Partial<Record<HarnessId, unknown>>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,26 +37,6 @@ function hasManagedHandler(
   });
 }
 
-function isManagedClaudeHandler(handler: unknown): boolean {
-  return (
-    isRecord(handler) &&
-    Array.isArray(handler.args) &&
-    handler.args.includes(CLAUDE_HOOK_MARKER)
-  );
-}
-
-/**
- * Only the marker counts. A legacy PATH-resolved handler is deliberately not
- * satisfying, so doctor reports the install as needing an update.
- */
-function isManagedCodexHandler(handler: unknown): boolean {
-  return (
-    isRecord(handler) &&
-    typeof handler.command === "string" &&
-    handler.command.includes(CODEX_MANAGED_MARKER)
-  );
-}
-
 /**
  * Hook registration is satisfied when every hook event implied by the
  * installed profiles carries an agent-ops owned handler for every installed
@@ -72,29 +46,20 @@ export function hookRegistrationSatisfied(
   input: HookRegistrationInput
 ): boolean {
   const { capabilities } = resolveProfiles(input.profiles);
-  const claudeEvents = Object.keys(
-    buildClaudeHookSettings(capabilities, "probe").hooks
-  );
-  const codexEvents = Object.keys(
-    buildCodexHookConfig(capabilities, "probe").hooks
-  );
-  if (claudeEvents.length === 0 && codexEvents.length === 0) {
-    return true;
-  }
-  if (
-    input.harness !== "codex" &&
-    !hasManagedHandler(
-      input.claudeSettings,
-      claudeEvents,
-      isManagedClaudeHandler
-    )
-  ) {
-    return false;
-  }
-  return (
-    input.harness === "claude" ||
-    hasManagedHandler(input.codexHooks, codexEvents, isManagedCodexHandler)
-  );
+  return input.harness.every((id) => {
+    const descriptor = harnessDescriptor(id);
+    const events = Object.keys(
+      descriptor.buildHooks(capabilities, "probe").hooks
+    );
+    return (
+      events.length === 0 ||
+      hasManagedHandler(
+        input.sources[id],
+        events,
+        descriptor.isManagedHandler
+      )
+    );
+  });
 }
 
 /**

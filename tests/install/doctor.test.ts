@@ -90,9 +90,9 @@ async function createInstallation(): Promise<string> {
     writeFile(join(root, "AGENTS.md"), agentsSource)
   ]);
   const manifest: InstallManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     scope: "project",
-    harness: "codex",
+    harness: ["codex"],
     artifacts: [
       {
         id: "config",

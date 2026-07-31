@@ -22,7 +22,7 @@ test("parses init choices and deterministic defaults", () => {
     {
       command: "init",
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
       dryRun: false,
       json: false,
@@ -181,7 +181,7 @@ test("parses repeated profiles and boolean flags", () => {
     {
       command: "init",
       scope: "user",
-      harness: "claude",
+      harness: ["claude"],
       profiles: ["core", "guardrails"],
       dryRun: true,
       json: true,
@@ -316,11 +316,53 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
   assert.deepEqual(completed, {
     command: "init",
     scope: "user",
-    harness: "codex",
+    harness: ["codex"],
     profiles: ["core", "advisory"],
     dryRun: true,
     json: false,
     yes: false
   });
   assert.equal(questions.length, 3);
+});
+
+test("accepts harness lists, aliases, and rejects unusable selections", () => {
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "codex,claude", "--profile", "core"])
+      .harness,
+    ["codex", "claude"]
+  );
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "all", "--profile", "core"]).harness,
+    ["codex", "claude"]
+  );
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "both", "--profile", "core"]).harness,
+    ["codex", "claude"]
+  );
+
+  for (const value of ["codex,codex", "codex,cursor", ""]) {
+    assert.throws(
+      () => parseArgs(["init", "--harness", value, "--profile", "core"]),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_INVALID_VALUE",
+      value
+    );
+  }
+});
+
+test("review requires exactly one harness", () => {
+  assert.deepEqual(
+    parseArgs(["review", "--harness", "claude"]).harness,
+    ["claude"]
+  );
+  for (const value of ["all", "both", "codex,claude"]) {
+    assert.throws(
+      () => parseArgs(["review", "--harness", value]),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_INVALID_VALUE",
+      value
+    );
+  }
 });

@@ -1,11 +1,10 @@
 import type { AgentOpsConfig } from "../../../../runtime/src/contracts.js";
-import { normalizeClaudeHookInput } from "../../../../runtime/src/adapters/claude/input.js";
-import { claudeHookOutput } from "../../../../runtime/src/adapters/claude/output.js";
-import { normalizeCodexHookInput } from "../../../../runtime/src/adapters/codex/input.js";
-import { codexHookOutput } from "../../../../runtime/src/adapters/codex/output.js";
 import { dispatchHookEvent } from "../../../../runtime/src/hooks/dispatch.js";
 import { resolveProfiles } from "../../../../runtime/src/install/profiles.js";
-import type { HarnessId } from "../../../../runtime/src/install/harness.js";
+import {
+  harnessDescriptor,
+  type HarnessId
+} from "../../../../runtime/src/install/harness.js";
 
 export const HOOK_EVENTS = [
   "SessionStart",
@@ -44,19 +43,12 @@ export async function runHookCommand(
     } catch {
       return { exitCode: 0, stdout: "", stderr: "" };
     }
-    const event =
-      options.harness === "claude"
-        ? normalizeClaudeHookInput(input)
-        : normalizeCodexHookInput(input);
-    const result = await dispatchHookEvent(event, {
+    const descriptor = harnessDescriptor(options.harness);
+    const result = await dispatchHookEvent(descriptor.normalizeInput(input), {
       capabilities,
       trusted: options.trusted
     });
-    if (options.harness === "claude") {
-      return claudeHookOutput(options.event, result);
-    }
-    const codex = codexHookOutput(options.event, result);
-    return { exitCode: 0, stdout: codex.stdout, stderr: "" };
+    return descriptor.formatOutput(options.event, result);
   } catch {
     return { exitCode: 0, stdout: "", stderr: "" };
   }

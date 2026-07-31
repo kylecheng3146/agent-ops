@@ -1,3 +1,5 @@
+import type { HarnessId } from "../contracts.js";
+
 export type ReviewRole =
   | "mechanical"
   | "implementation"
@@ -6,7 +8,7 @@ export type ReviewRole =
 
 export interface ReviewRoleConfig {
   readonly role: ReviewRole;
-  readonly harness: "codex" | "claude";
+  readonly harness: HarnessId;
   readonly model: string;
   readonly effort: string;
 }

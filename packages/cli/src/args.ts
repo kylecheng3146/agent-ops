@@ -1,4 +1,9 @@
-import type { Harness, InstallScope, Profile } from "../../../runtime/src/contracts.js";
+import type {
+  Harness,
+  InstallScope,
+  Profile
+} from "../../../runtime/src/contracts.js";
+import { resolveHarnessSelection } from "../../../runtime/src/install/harness.js";
 
 export const COMMAND_NAMES = [
   "init",
@@ -14,7 +19,6 @@ export const COMMAND_NAMES = [
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
 const SCOPES = new Set<string>(["project", "user"]);
-const HARNESSES = new Set<string>(["both", "claude", "codex"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
 
 export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
@@ -91,6 +95,10 @@ function invalidValue(option: string, value: string): never {
   );
 }
 
+function parseHarness(option: string, value: string): Harness {
+  return resolveHarnessSelection(value) ?? invalidValue(option, value);
+}
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   let command: CliCommand | undefined;
   let action: CliAction | undefined;
@@ -133,10 +141,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(token);
         }
         const value = readOptionValue(argv, index, token);
-        if (!HARNESSES.has(value)) {
-          invalidValue(token, value);
-        }
-        harness = value as Harness;
+        harness = parseHarness(token, value);
         index += 1;
         break;
       }
@@ -423,8 +428,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review accepts harness, criteria, evidence, scope, dry-run, json, and yes options."
     );
   }
-  if (command === "review" && harness === "both") {
-    invalidValue("--harness", harness);
+  if (command === "review" && harness !== undefined && harness.length !== 1) {
+    invalidValue("--harness", harness.join(","));
   }
 
   return {
