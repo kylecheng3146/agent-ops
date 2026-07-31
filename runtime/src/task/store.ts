@@ -1,6 +1,9 @@
 import { lstat } from "node:fs/promises";
 
-import type { AgentTask } from "../contracts.js";
+import {
+  TASK_SCHEMA_VERSION,
+  type AgentTask
+} from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { validateTask } from "../schema/validate.js";
 import {
@@ -35,13 +38,13 @@ export interface SessionAttachment {
 }
 
 export interface TaskState {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: typeof TASK_SCHEMA_VERSION;
   readonly tasks: readonly StoredTaskRecord[];
   readonly sessions: readonly SessionAttachment[];
 }
 
 export interface MutableTaskState {
-  schemaVersion: 1;
+  schemaVersion: typeof TASK_SCHEMA_VERSION;
   tasks: StoredTaskRecord[];
   sessions: SessionAttachment[];
 }
@@ -262,7 +265,11 @@ function parseSession(value: unknown): SessionAttachment {
 
 function parseState(source: string | null): MutableTaskState {
   if (source === null) {
-    return { schemaVersion: 1, tasks: [], sessions: [] };
+    return {
+      schemaVersion: TASK_SCHEMA_VERSION,
+      tasks: [],
+      sessions: []
+    };
   }
   let value: unknown;
   try {
@@ -273,7 +280,7 @@ function parseState(source: string | null): MutableTaskState {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, ["schemaVersion", "sessions", "tasks"]) ||
-    value.schemaVersion !== 1 ||
+    value.schemaVersion !== TASK_SCHEMA_VERSION ||
     !Array.isArray(value.tasks) ||
     !Array.isArray(value.sessions)
   ) {
@@ -299,7 +306,11 @@ function parseState(source: string | null): MutableTaskState {
   ) {
     return invalidState("Session attachments must reference known tasks.");
   }
-  return { schemaVersion: 1, tasks, sessions };
+    return {
+      schemaVersion: TASK_SCHEMA_VERSION,
+      tasks,
+      sessions
+    };
 }
 
 function positiveMaxBytes(value: number | undefined): number {

@@ -36,6 +36,13 @@ export interface SecurityExceptionExplanation extends SourceExplanation {
 
 export interface ConfigExplanation {
   schemaVersion: number;
+  features: {
+    stopVerification: {
+      enabled: boolean;
+      source: ConfigSource;
+      sourcePath: string;
+    };
+  };
   profiles: ProfileExplanation[];
   verificationCommands: CommandExplanation[];
   pathMappings: MappingExplanation[];
@@ -45,6 +52,13 @@ export interface ConfigExplanation {
 export function explainConfig(merged: MergedConfig): ConfigExplanation {
   return {
     schemaVersion: merged.config.schemaVersion,
+    features: {
+      stopVerification: {
+        enabled: merged.config.features.stopVerification.enabled,
+        source: merged.provenance.features.source,
+        sourcePath: merged.provenance.features.sourcePath
+      }
+    },
     profiles: merged.provenance.profiles.map((entry) => ({
       id: entry.value,
       source: entry.source,

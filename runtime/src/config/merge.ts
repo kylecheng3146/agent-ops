@@ -1,4 +1,5 @@
 import type {
+  AgentOpsFeatures,
   AgentOpsConfig,
   PathMapping,
   Profile,
@@ -24,6 +25,7 @@ export interface EffectiveValue<T> {
 
 export interface ConfigProvenance {
   schemaVersion: EffectiveValue<number>;
+  features: EffectiveValue<AgentOpsFeatures>;
   profiles: EffectiveValue<Profile>[];
   verificationCommands: EffectiveValue<VerificationCommand>[];
   pathMappings: EffectiveValue<PathMapping>[];
@@ -232,9 +234,11 @@ export function mergeConfigLayers(
     EffectiveValue<SecurityException>
   >();
   let schemaVersion: EffectiveValue<number> | undefined;
+  let features: EffectiveValue<AgentOpsFeatures> | undefined;
 
   for (const layer of layers) {
     schemaVersion = effective(layer.config.schemaVersion, layer);
+    features = effective(layer.config.features, layer);
     for (const profile of layer.config.profiles) {
       profiles.set(profile, effective(profile, layer));
     }
@@ -270,7 +274,7 @@ export function mergeConfigLayers(
     }
   }
 
-  if (schemaVersion === undefined) {
+  if (schemaVersion === undefined || features === undefined) {
     throw new AgentOpsError(
       "CONFIG_LAYER_REQUIRED",
       "At least one configuration layer is required."
@@ -278,17 +282,19 @@ export function mergeConfigLayers(
   }
   const provenance: ConfigProvenance = {
     schemaVersion,
+    features,
     profiles: [...profiles.values()],
     verificationCommands: [...commands.values()],
     pathMappings: [...mappings.values()],
     securityExceptions: [...exceptions.values()]
   };
   const config: AgentOpsConfig = {
-    schemaVersion: 1,
+    schemaVersion: schemaVersion.value as AgentOpsConfig["schemaVersion"],
     profiles: provenance.profiles.map(({ value }) => value),
     verification: {
       commands: provenance.verificationCommands.map(({ value }) => value)
     },
+    features: provenance.features.value,
     pathMappings: provenance.pathMappings.map(({ value }) => value),
     securityExceptions: provenance.securityExceptions.map(({ value }) => value)
   };

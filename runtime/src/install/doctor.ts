@@ -23,6 +23,7 @@ import { harnessDescriptor } from "./harness.js";
 import { resolveProfiles } from "./profiles.js";
 import {
   inspectHarnessSurfaces,
+  inspectHarnessRegistrations,
   type HarnessSurfaceStatus
 } from "./surface-inspection.js";
 
@@ -44,6 +45,7 @@ export type DoctorCheckId =
   | "artifacts"
   | "markers"
   | "surface-inventory"
+  | "registration-drift"
   | "hook-registration"
   | "lifecycle-summary"
   | "repository-trust"
@@ -53,6 +55,7 @@ export interface DoctorCheck {
   readonly id: DoctorCheckId;
   readonly status: DoctorStatus;
   readonly message: string;
+  readonly code?: string;
 }
 
 export type DoctorProbeResult = boolean | DoctorStatus;
@@ -93,9 +96,12 @@ interface ConfigCheckResult {
 function check(
   id: DoctorCheckId,
   status: DoctorStatus,
-  message: string
+  message: string,
+  code?: string
 ): DoctorCheck {
-  return { id, status, message };
+  return code === undefined
+    ? { id, status, message }
+    : { id, status, message, code };
 }
 
 function parseNodeVersion(
@@ -492,6 +498,48 @@ async function checkSurfaceInventory(
   }
 }
 
+async function checkRegistrationDrift(
+  root: string,
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): Promise<DoctorCheck> {
+  if (manifest === undefined || config === undefined) {
+    return check(
+      "registration-drift",
+      "UNKNOWN",
+      "Hook registration drift cannot be assessed without a valid manifest and configuration."
+    );
+  }
+  try {
+    const statuses = await inspectHarnessRegistrations({
+      root,
+      manifest,
+      config
+    });
+    const drifted = statuses
+      .filter(({ registered }) => !registered)
+      .map(({ harness }) => harness);
+    return drifted.length === 0
+      ? check(
+          "registration-drift",
+          "PASS",
+          "Managed hook registrations match the desired capabilities."
+        )
+      : check(
+          "registration-drift",
+          "FAIL",
+          `Hook registration drift detected for ${drifted.join(", ")}; run agent-ops update.`,
+          "UPDATE_REQUIRED"
+        );
+  } catch {
+    return check(
+      "registration-drift",
+      "UNKNOWN",
+      "Hook registration drift could not be assessed safely."
+    );
+  }
+}
+
 export async function doctorInstallation(
   options: DoctorInstallationOptions
 ): Promise<DoctorReport> {
@@ -509,6 +557,11 @@ export async function doctorInstallation(
     await checkArtifacts(options.root, manifest.manifest),
     await checkMarkers(options.root, manifest.manifest),
     surfaceInventory.check,
+    await checkRegistrationDrift(
+      options.root,
+      manifest.manifest,
+      config.config
+    ),
     await checkProbe(
       "hook-registration",
       options.probes?.hookRegistration

@@ -105,7 +105,7 @@ function verifier(
 
 function config(): AgentOpsConfig {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profiles: ["core"],
     verification: {
       commands: [
@@ -115,6 +115,9 @@ function config(): AgentOpsConfig {
         }),
         verifier("lint", { kind: "exit-code" })
       ]
+    },
+    features: {
+      stopVerification: { enabled: false }
     },
     pathMappings: [
       { path: "src", verifierIds: ["unit"] }

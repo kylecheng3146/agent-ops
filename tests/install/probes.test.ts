@@ -65,11 +65,40 @@ const LEGACY_CODEX_HOOKS = {
   }
 };
 
+function hookConfig(
+  profiles: AgentOpsConfig["profiles"],
+  stopVerification = false
+): AgentOpsConfig {
+  return {
+    schemaVersion: 2,
+    profiles,
+    verification: {
+      commands: stopVerification
+        ? [
+            {
+              id: "test",
+              command: "node",
+              args: [],
+              cwd: ".",
+              required: true,
+              evidence: { kind: "exit-code" }
+            }
+          ]
+        : []
+    },
+    features: {
+      stopVerification: { enabled: stopVerification }
+    },
+    pathMappings: [],
+    securityExceptions: []
+  };
+}
+
 test("core-only installations have no hooks to register", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["codex", "claude"],
-      profiles: ["core"],
+      config: hookConfig(["core"]),
       sources: { claude: null, codex: null }
     }),
     true
@@ -80,7 +109,7 @@ test("an empty profile list has no hooks to register", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["codex", "claude", "opencode"],
-      profiles: [],
+      config: hookConfig([]),
       sources: {}
     }),
     true
@@ -91,7 +120,7 @@ test("advisory installations require owned handlers in every harness", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["codex", "claude"],
-      profiles: ["core", "advisory"],
+      config: hookConfig(["core", "advisory"]),
       sources: { claude: CLAUDE_SETTINGS, codex: CODEX_HOOKS }
     }),
     true
@@ -99,7 +128,7 @@ test("advisory installations require owned handlers in every harness", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["codex", "claude"],
-      profiles: ["core", "advisory"],
+      config: hookConfig(["core", "advisory"]),
       sources: { claude: CLAUDE_SETTINGS, codex: null }
     }),
     false
@@ -107,7 +136,7 @@ test("advisory installations require owned handlers in every harness", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["claude"],
-      profiles: ["core", "advisory"],
+      config: hookConfig(["core", "advisory"]),
       sources: { claude: CLAUDE_SETTINGS, codex: null }
     }),
     true
@@ -118,7 +147,7 @@ test("a legacy PATH-resolved codex handler needs an update", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["codex"],
-      profiles: ["core", "advisory"],
+      config: hookConfig(["core", "advisory"]),
       sources: { claude: null, codex: LEGACY_CODEX_HOOKS }
     }),
     false
@@ -129,7 +158,7 @@ test("foreign handlers do not satisfy hook registration", () => {
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["claude"],
-      profiles: ["core", "advisory"],
+      config: hookConfig(["core", "advisory"]),
       sources: { claude: {
         hooks: {
           SessionStart: [
@@ -151,7 +180,7 @@ test("opencode registration is checked against the capability-implied plugin hoo
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["opencode"],
-      profiles: ["core", "advisory", "guardrails"],
+      config: hookConfig(["core", "advisory", "guardrails"]),
       sources: { opencode: source }
     }),
     true
@@ -159,7 +188,7 @@ test("opencode registration is checked against the capability-implied plugin hoo
   assert.equal(
     hookRegistrationSatisfied({
       harness: ["opencode"],
-      profiles: ["core", "guardrails"],
+      config: hookConfig(["core", "guardrails"]),
       sources: { opencode: source.replace("tool.execute.before", "foreign") }
     }),
     false
@@ -190,9 +219,12 @@ test("repository trust separates ungranted from stale bindings", () => {
 
 test("smoke availability follows configured verification commands", () => {
   const config: AgentOpsConfig = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profiles: ["core"],
     verification: { commands: [] },
+    features: {
+      stopVerification: { enabled: false }
+    },
     pathMappings: [],
     securityExceptions: []
   };

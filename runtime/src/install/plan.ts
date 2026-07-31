@@ -1,8 +1,9 @@
 import { lstat, readFile } from "node:fs/promises";
 
 import {
+  CONFIG_SCHEMA_VERSION,
   MANIFEST_SCHEMA_VERSION,
-  SCHEMA_VERSION,
+  type AgentOpsFeatures,
   type AgentOpsConfig,
   type Harness,
   type HarnessId,
@@ -47,7 +48,10 @@ import {
   planHookRegistration,
   planHookRemoval
 } from "./hooks.js";
-import { resolveProfiles } from "./profiles.js";
+import {
+  resolveCapabilities,
+  resolveProfiles
+} from "./profiles.js";
 import type { Capability, HookTargetSelection } from "./types.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
@@ -136,15 +140,21 @@ function formatConfig(
   profiles: readonly Profile[],
   existing?: {
     readonly verification: unknown;
+    readonly features: AgentOpsFeatures;
     readonly pathMappings: unknown;
     readonly securityExceptions: unknown;
   }
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: CONFIG_SCHEMA_VERSION,
       profiles,
       verification: existing?.verification ?? { commands: [] },
+      features: existing?.features ?? {
+        stopVerification: {
+          enabled: false
+        }
+      },
       pathMappings: existing?.pathMappings ?? [],
       securityExceptions: existing?.securityExceptions ?? []
     },
@@ -177,6 +187,7 @@ async function planConfig(
   let existingConfig:
     | {
         readonly verification: unknown;
+        readonly features: AgentOpsFeatures;
         readonly pathMappings: unknown;
         readonly securityExceptions: unknown;
       }
@@ -521,7 +532,10 @@ export async function createInstallPlan(
       "Toolkit version must be a valid semantic version."
     );
   }
-  const resolved = resolveProfiles(options.profiles);
+  const resolved =
+    options.existingConfig === undefined
+      ? resolveProfiles(options.profiles)
+      : resolveCapabilities(options.existingConfig.value);
   const existing = await readExistingManifest(options.root);
   assertCompatibleManifest(
     existing?.manifest ?? null,

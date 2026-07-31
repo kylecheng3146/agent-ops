@@ -6,8 +6,10 @@ import test from "node:test";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import {
   PROFILE_CAPABILITIES,
+  resolveCapabilities,
   resolveProfiles
 } from "../../runtime/src/install/profiles.js";
+import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import {
   COMMON_AGENTS_BLOCK,
   COMMON_CLAUDE_BLOCK
@@ -20,15 +22,14 @@ const ALL_CAPABILITIES = [
   "review",
   "lifecycle-summary",
   "local-log",
-  "command-policy",
-  "optional-stop-verify"
+  "command-policy"
 ];
 
 test("defines the exact capabilities for each installation profile", () => {
   assert.deepEqual(PROFILE_CAPABILITIES, {
     core: ["rules", "task", "verify", "review"],
     advisory: ["lifecycle-summary", "local-log"],
-    guardrails: ["command-policy", "optional-stop-verify"]
+    guardrails: ["command-policy"]
   });
 });
 
@@ -40,14 +41,59 @@ test("guardrails implies core while advisory remains independent", () => {
       "task",
       "verify",
       "review",
-      "command-policy",
-      "optional-stop-verify"
+      "command-policy"
     ]
   });
   assert.deepEqual(resolveProfiles(["advisory"]), {
     profiles: ["advisory"],
     capabilities: ["lifecycle-summary", "local-log"]
   });
+});
+
+test("resolves optional Stop verification only from the explicit feature", () => {
+  const base: AgentOpsConfig = {
+    schemaVersion: 2,
+    profiles: ["guardrails"],
+    verification: { commands: [] },
+    features: {
+      stopVerification: { enabled: false }
+    },
+    pathMappings: [],
+    securityExceptions: []
+  };
+  assert.deepEqual(resolveCapabilities(base).capabilities, [
+    "rules",
+    "task",
+    "verify",
+    "review",
+    "command-policy"
+  ]);
+  assert.deepEqual(
+    resolveCapabilities({
+      ...base,
+      verification: {
+        commands: [
+          {
+            id: "test",
+            command: "node",
+            args: [],
+            cwd: ".",
+            required: true,
+            evidence: { kind: "exit-code" }
+          }
+        ]
+      },
+      features: { stopVerification: { enabled: true } }
+    }).capabilities,
+    [
+      "rules",
+      "task",
+      "verify",
+      "review",
+      "command-policy",
+      "optional-stop-verify"
+    ]
+  );
 });
 
 test("deduplicates and returns profiles and capabilities in canonical order", () => {

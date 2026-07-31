@@ -53,7 +53,7 @@ const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
   {
     label: "guardrails",
     value: "guardrails",
-    description: "Blocks high-confidence unsafe commands and enables optional Stop verification."
+    description: "Blocks high-confidence unsafe commands; Stop verification is a separate opt-in feature."
   }
 ];
 const WIZARD_SUBTITLE =

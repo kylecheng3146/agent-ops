@@ -28,6 +28,7 @@ import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileTrustStore, calculateTrustBinding } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
+import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
 import { sha256 } from "../../../runtime/src/fs/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
@@ -198,7 +199,7 @@ process.exitCode = await runCli(
                 hookRegistration: async () =>
                   hookRegistrationSatisfied({
                     harness: await installedHarness(root),
-                    profiles: config.profiles,
+                    config,
                     sources: await hookSources(
                       root,
                       args.scope === "user" ? "user" : "project"
@@ -334,7 +335,7 @@ process.exitCode = await runCli(
             const binding = await calculateTrustBinding({
               repositoryPath: root,
               remoteUrl: remote,
-              configHash: sha256(JSON.stringify(config)),
+              configHash: calculateConfigHash(config),
               runtimeHash: sha256(CLI_VERSION)
             });
             return await runTrustCommand({

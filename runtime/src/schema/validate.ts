@@ -14,7 +14,12 @@ import type {
   VerificationCommand,
   VerificationEvidence
 } from "../contracts.js";
-import { MANIFEST_SCHEMA_VERSION, SCHEMA_VERSION } from "../contracts.js";
+import {
+  CONFIG_SCHEMA_VERSION,
+  EVIDENCE_SCHEMA_VERSION,
+  MANIFEST_SCHEMA_VERSION,
+  TASK_SCHEMA_VERSION
+} from "../contracts.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -83,7 +88,7 @@ function unknownFieldFailure(
 function validateRoot(
   value: unknown,
   allowed: readonly string[],
-  expectedVersion: number = SCHEMA_VERSION
+  expectedVersion: number
 ): UnknownRecord | ValidationFailure {
   if (!isRecord(value)) {
     return failure("INVALID_TYPE", "$", "Expected an object.");
@@ -450,12 +455,13 @@ function validateSecurityException(
 
 export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig> {
   const root = validateRoot(value, [
+    "features",
     "pathMappings",
     "profiles",
     "schemaVersion",
     "securityExceptions",
     "verification"
-  ]);
+  ], CONFIG_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
   }
@@ -490,6 +496,44 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   }
   if (!hasUniqueStrings(root.profiles as string[])) {
     return failure("DUPLICATE_ID", "$.profiles", "Profiles must be unique.");
+  }
+
+  if (!isRecord(root.features)) {
+    return failure(
+      "INVALID_TYPE",
+      "$.features",
+      "features must be an object."
+    );
+  }
+  const featuresUnknown = unknownFieldFailure(
+    root.features,
+    ["stopVerification"],
+    "$.features"
+  );
+  if (featuresUnknown !== undefined) {
+    return featuresUnknown;
+  }
+  if (!isRecord(root.features.stopVerification)) {
+    return failure(
+      "INVALID_TYPE",
+      "$.features.stopVerification",
+      "stopVerification must be an object."
+    );
+  }
+  const stopVerificationUnknown = unknownFieldFailure(
+    root.features.stopVerification,
+    ["enabled"],
+    "$.features.stopVerification"
+  );
+  if (stopVerificationUnknown !== undefined) {
+    return stopVerificationUnknown;
+  }
+  if (typeof root.features.stopVerification.enabled !== "boolean") {
+    return failure(
+      "INVALID_FEATURE",
+      "$.features.stopVerification.enabled",
+      "stopVerification.enabled must be a boolean."
+    );
   }
 
   if (!isRecord(root.verification)) {
@@ -532,6 +576,17 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
       );
     }
     commandIds.add(command.value.id);
+  }
+
+  if (
+    root.features.stopVerification.enabled === true &&
+    root.verification.commands.length === 0
+  ) {
+    return failure(
+      "STOP_VERIFICATION_COMMANDS_REQUIRED",
+      "$.features.stopVerification.enabled",
+      "Stop verification requires at least one verification command."
+    );
   }
 
   if (!Array.isArray(root.pathMappings)) {
@@ -619,7 +674,11 @@ function validateCriterion(
 }
 
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
-  const root = validateRoot(value, ["criteria", "id", "schemaVersion", "title"]);
+  const root = validateRoot(
+    value,
+    ["criteria", "id", "schemaVersion", "title"],
+    TASK_SCHEMA_VERSION
+  );
   if (isFailure(root)) {
     return root;
   }
@@ -708,7 +767,7 @@ export function validateEvidence(
     "taskId",
     "testCount",
     "toolVersions"
-  ]);
+  ], EVIDENCE_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
   }

@@ -15,8 +15,8 @@ function formatDoctorReport(report: DoctorReport): string {
   const surfaces = report.surfaces ?? [];
   return `${[
     "Installation doctor",
-    ...report.checks.map(({ id, status, message }) =>
-      `- ${status} ${id}: ${message}`
+    ...report.checks.map(({ id, status, message, code }) =>
+      `- ${status} ${id}${code === undefined ? "" : ` [${code}]`}: ${message}`
     ),
     ...(surfaces.length === 0
       ? []

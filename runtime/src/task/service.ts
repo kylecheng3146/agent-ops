@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  SCHEMA_VERSION,
+  TASK_SCHEMA_VERSION,
   type AcceptanceCriterion,
   type AgentTask
 } from "../contracts.js";
@@ -155,7 +155,7 @@ export class TaskService {
 
   async create(input: CreateTaskInput): Promise<StoredTaskRecord> {
     const task: AgentTask = {
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: TASK_SCHEMA_VERSION,
       id: this.#generateId(),
       title: input.title,
       criteria: [...input.criteria]
@@ -220,7 +220,7 @@ export class TaskService {
       return cloneRecord(
         findTask(
           {
-            schemaVersion: 1,
+            schemaVersion: TASK_SCHEMA_VERSION,
             tasks: [...state.tasks],
             sessions: [...state.sessions]
           },

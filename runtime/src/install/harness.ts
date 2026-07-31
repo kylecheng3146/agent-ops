@@ -535,8 +535,8 @@ function managedRules(
   }
   if (context.capabilities.includes("command-policy")) {
     lines.push(
-      "Command policy guards high-confidence unsafe actions. Optional Stop",
-      "verification never marks a task complete by itself.",
+      "Command policy guards high-confidence unsafe actions. Explicitly enabled",
+      "Stop verification is report-only and never marks a task complete by itself.",
       ""
     );
   }

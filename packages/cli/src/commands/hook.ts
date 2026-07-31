@@ -1,6 +1,6 @@
 import type { AgentOpsConfig } from "../../../../runtime/src/contracts.js";
 import { dispatchHookEvent } from "../../../../runtime/src/hooks/dispatch.js";
-import { resolveProfiles } from "../../../../runtime/src/install/profiles.js";
+import { resolveCapabilities } from "../../../../runtime/src/install/profiles.js";
 import {
   harnessDescriptor,
   type HarnessId
@@ -36,7 +36,10 @@ export async function runHookCommand(
   options: HookCommandOptions
 ): Promise<HookCommandOutput> {
   try {
-    const { capabilities } = resolveProfiles(options.config.profiles);
+    const { capabilities } =
+      options.config.profiles.length === 0
+        ? { capabilities: [] as const }
+        : resolveCapabilities(options.config);
     let input: unknown;
     try {
       input = JSON.parse(options.stdin) as unknown;

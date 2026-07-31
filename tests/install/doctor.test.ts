@@ -37,7 +37,7 @@ const MANAGED_BLOCK =
 const LEGACY_MANAGED_BLOCK =
   `${START_MARKER}\n${LEGACY_MANAGED_BODY}\n${END_MARKER}\n`;
 const CONFIG = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   profiles: ["core"],
   verification: {
     commands: [
@@ -51,6 +51,9 @@ const CONFIG = {
       }
     ]
   },
+  features: {
+    stopVerification: { enabled: false }
+  },
   pathMappings: [{ path: "src", verifierIds: ["test"] }],
   securityExceptions: []
 };
@@ -62,6 +65,7 @@ const CHECK_IDS: readonly DoctorCheckId[] = [
   "artifacts",
   "markers",
   "surface-inventory",
+  "registration-drift",
   "hook-registration",
   "lifecycle-summary",
   "repository-trust",
@@ -203,6 +207,71 @@ test("reports stable passing checks without changing the installation", async ()
       CHECK_IDS.map(() => "PASS")
     );
     assert.deepEqual(await snapshotDirectory(root), before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reports desired capability drift as UPDATE_REQUIRED", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-drift-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["codex"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const configSource = `${JSON.stringify({
+      schemaVersion: 2,
+      profiles: ["guardrails"],
+      verification: {
+        commands: [
+          {
+            id: "test",
+            command: "node",
+            args: [],
+            cwd: ".",
+            required: true,
+            evidence: { kind: "exit-code" }
+          }
+        ]
+      },
+      features: {
+        stopVerification: { enabled: true }
+      },
+      pathMappings: [],
+      securityExceptions: []
+    }, null, 2)}\n`;
+    const manifest = await readManifest(root);
+    await writeFile(join(root, ".agent-ops", "config.json"), configSource);
+    await writeFile(
+      join(root, ".agent-ops", "manifest.json"),
+      formatInstallManifest({
+        ...manifest,
+        artifacts: manifest.artifacts.map((artifact) =>
+          artifact.path === ".agent-ops/config.json"
+            ? { ...artifact, hash: sha256(configSource) }
+            : artifact
+        )
+      })
+    );
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "registration-drift"), "FAIL");
+    const drift = report.checks.find(
+      (candidate) => candidate.id === "registration-drift"
+    );
+    assert.equal(drift?.code, "UPDATE_REQUIRED");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -498,9 +567,12 @@ test("treats an empty profile list as no lifecycle capability", async () => {
       })
     );
     const configSource = `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       profiles: [],
       verification: { commands: [] },
+      features: {
+        stopVerification: { enabled: false }
+      },
       pathMappings: [],
       securityExceptions: []
     }, null, 2)}\n`;

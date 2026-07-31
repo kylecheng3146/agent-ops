@@ -1,11 +1,11 @@
 import type { AgentOpsConfig, Harness, HarnessId } from "../contracts.js";
 import type { DoctorStatus } from "./doctor.js";
 import { harnessDescriptor } from "./harness.js";
-import { resolveProfiles } from "./profiles.js";
+import { resolveCapabilities } from "./profiles.js";
 
 export interface HookRegistrationInput {
   readonly harness: Harness;
-  readonly profiles: AgentOpsConfig["profiles"];
+  readonly config: AgentOpsConfig;
   /** Current hook settings per harness; a missing entry counts as absent. */
   readonly sources: Partial<Record<HarnessId, unknown>>;
 }
@@ -19,9 +19,9 @@ export function hookRegistrationSatisfied(
   input: HookRegistrationInput
 ): boolean {
   const capabilities =
-    input.profiles.length === 0
+    input.config.profiles.length === 0
       ? []
-      : resolveProfiles(input.profiles).capabilities;
+      : resolveCapabilities(input.config).capabilities;
   return input.harness.every((id) => {
     const descriptor = harnessDescriptor(id);
     return descriptor.control.hookRegistered(input.sources[id], capabilities);

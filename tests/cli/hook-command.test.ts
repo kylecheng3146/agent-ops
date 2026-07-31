@@ -10,9 +10,12 @@ import {
 
 function config(profiles: AgentOpsConfig["profiles"]): AgentOpsConfig {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profiles,
     verification: { commands: [] },
+    features: {
+      stopVerification: { enabled: false }
+    },
     pathMappings: [],
     securityExceptions: []
   };

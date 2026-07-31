@@ -43,7 +43,7 @@ function firstErrorCode(result: { errors: { code: string }[] }): string {
   return result.errors[0]?.code ?? "";
 }
 
-test("accepts fully valid version 1 fixtures", async () => {
+test("accepts fully valid versioned fixtures", async () => {
   const [config, taskFixture, evidence, manifest] = await Promise.all([
     readJsonFixture("valid-config.json"),
     readJsonFixture("valid-task.json"),
@@ -110,12 +110,36 @@ test("rejects shell execution without explicit acknowledgement", async () => {
   assert.match(firstErrorCode(result), /SHELL_ACK_REQUIRED/);
 });
 
+test("requires verification commands when Stop verification is enabled", async () => {
+  const config = cloneJson(
+    await readJsonFixture("valid-config.json")
+  ) as {
+    verification: { commands: unknown[] };
+    features: { stopVerification: { enabled: boolean } };
+  };
+  config.verification.commands = [];
+  config.features.stopVerification.enabled = true;
+
+  assert.equal(
+    firstErrorCode(validateConfig(config)),
+    "STOP_VERIFICATION_COMMANDS_REQUIRED"
+  );
+  const schema = await compileJsonSchema("config.schema.json");
+  assert.equal(schema(config), false);
+});
+
 test("prioritizes shell acknowledgement for the mandated minimal input", () => {
   const result = validateConfig({
-    schemaVersion: 1,
+    schemaVersion: 2,
     verification: {
       commands: [{ id: "test", command: "npm test", shell: true }]
-    }
+    },
+    profiles: [],
+    features: {
+      stopVerification: { enabled: false }
+    },
+    pathMappings: [],
+    securityExceptions: []
   });
 
   assert.equal(result.ok, false);
@@ -581,7 +605,7 @@ test("bounds execution-related numeric values to safe integers", async () => {
 test("JSON Schema documents expose the same top-level versioned fields", async () => {
   // The manifest versions on its own track, so it declares its own const.
   const cases = [
-    ["config.schema.json", "valid-config.json", 1],
+    ["config.schema.json", "valid-config.json", 2],
     ["task.schema.json", "valid-task.json", 1],
     ["evidence.schema.json", "valid-evidence.json", 1],
     ["manifest.schema.json", "valid-manifest.json", 2]

@@ -94,8 +94,7 @@ test("plans a complete project install without writing", async () => {
       "review",
       "lifecycle-summary",
       "local-log",
-      "command-policy",
-      "optional-stop-verify"
+      "command-policy"
     ]);
 
     const agents = writeOperation(plan, "AGENTS.md");
@@ -331,7 +330,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
     await applyInstallPlan(root, first);
     const configPath = join(root, ".agent-ops", "config.json");
     const configured = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       profiles: ["core"],
       verification: {
         commands: [
@@ -344,6 +343,9 @@ test("replanning preserves user-authored verifier configuration", async () => {
             evidence: { kind: "test-count", minimum: 1 }
           }
         ]
+      },
+      features: {
+        stopVerification: { enabled: false }
       },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []

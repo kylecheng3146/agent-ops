@@ -6,13 +6,14 @@ import type {
   AgentOpsConfig,
   InstallScope
 } from "../../../runtime/src/contracts.js";
+import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
+import { sha256 } from "../../../runtime/src/fs/hash.js";
 import { loadConfigFile } from "../../../runtime/src/config/load.js";
 import {
   mergeConfigLayers,
   type ConfigLayer,
   type MergedConfig
 } from "../../../runtime/src/config/merge.js";
-import { sha256 } from "../../../runtime/src/fs/hash.js";
 import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import {
@@ -21,9 +22,14 @@ import {
 } from "../../../runtime/src/security/trust.js";
 
 export const DEFAULT_CONFIG: AgentOpsConfig = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   profiles: [],
   verification: { commands: [] },
+  features: {
+    stopVerification: {
+      enabled: false
+    }
+  },
   pathMappings: [],
   securityExceptions: []
 };
@@ -116,7 +122,7 @@ export async function repositoryTrust(
     const binding = await calculateTrustBinding({
       repositoryPath: root,
       remoteUrl: repositoryRemoteUrl(root),
-      configHash: sha256(JSON.stringify(config)),
+      configHash: calculateConfigHash(config),
       runtimeHash: sha256(cliVersion)
     });
     return (

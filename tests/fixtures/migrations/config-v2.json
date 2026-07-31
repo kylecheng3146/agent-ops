@@ -7,10 +7,11 @@
         "id": "test",
         "command": "npm",
         "args": ["test"],
-        "cwd": "../outside",
+        "cwd": ".",
         "required": true,
         "evidence": {
-          "kind": "exit-code"
+          "kind": "test-count",
+          "minimum": 1
         }
       }
     ]
@@ -20,6 +21,11 @@
       "enabled": false
     }
   },
-  "pathMappings": [],
+  "pathMappings": [
+    {
+      "path": "src",
+      "verifierIds": ["test"]
+    }
+  ],
   "securityExceptions": []
 }

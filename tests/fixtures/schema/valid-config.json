@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "profiles": ["core", "guardrails"],
   "verification": {
     "commands": [
@@ -27,6 +27,11 @@
         }
       }
     ]
+  },
+  "features": {
+    "stopVerification": {
+      "enabled": false
+    }
   },
   "pathMappings": [
     {

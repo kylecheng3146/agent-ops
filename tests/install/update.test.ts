@@ -111,7 +111,8 @@ test("migrates a manifest-owned version 0 config during update", async () => {
     });
 
     assert.deepEqual(plan.migrationSteps, [
-      { fromVersion: 0, toVersion: 1 }
+      { fromVersion: 0, toVersion: 1 },
+      { fromVersion: 1, toVersion: 2 }
     ]);
     const configOperation = plan.installation.operations.find(
       ({ path }) => path === ".agent-ops/config.json"
@@ -120,23 +121,111 @@ test("migrates a manifest-owned version 0 config during update", async () => {
     if (configOperation?.kind !== "write") {
       assert.fail("update plan must write the migrated config");
     }
-    const expectedVersionOne = {
-      schemaVersion: 1,
+    const expectedVersionTwo = {
+      schemaVersion: 2,
       profiles: ["core"],
       verification: { commands },
+      features: {
+        stopVerification: { enabled: false }
+      },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
     };
     assert.deepEqual(
       JSON.parse(configOperation.content) as unknown,
-      expectedVersionOne
+      expectedVersionTwo
     );
 
     await applyUpdatePlan(root, plan);
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")) as unknown,
-      expectedVersionOne
+      expectedVersionTwo
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("disables owned Stop handlers while preserving foreign handlers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-stop-"));
+  try {
+    await installHarnesses(root, "project", ["codex"]);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const hookPath = join(root, ".codex", "hooks.json");
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      profiles: string[];
+      verification: { commands: unknown[] };
+      features: { stopVerification: { enabled: boolean } };
+      pathMappings: unknown[];
+      securityExceptions: unknown[];
+      schemaVersion: number;
+    };
+    config.verification.commands = [
+      {
+        id: "test",
+        command: "node",
+        args: [],
+        cwd: ".",
+        required: true,
+        evidence: { kind: "exit-code" }
+      }
+    ];
+    config.features.stopVerification.enabled = true;
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    const settings = JSON.parse(await readFile(hookPath, "utf8")) as {
+      hooks: Record<string, unknown[]>;
+    };
+    settings.hooks.Stop = [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: "foreign-stop"
+          }
+        ]
+      }
+    ];
+    await writeFile(hookPath, `${JSON.stringify(settings, null, 2)}\n`);
+
+    await applyUpdatePlan(
+      root,
+      await createUpdatePlan({
+        root,
+        adapters: commonHarnessAdapters(),
+        targetVersion: "0.2.0"
+      })
+    );
+    const enabledSettings = JSON.parse(
+      await readFile(hookPath, "utf8")
+    ) as { hooks: Record<string, unknown[]> };
+    assert.ok(enabledSettings.hooks.Stop?.length);
+    assert.match(
+      JSON.stringify(enabledSettings.hooks.Stop),
+      /foreign-stop/
+    );
+
+    config.features.stopVerification.enabled = false;
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+    await applyUpdatePlan(root, plan);
+
+    const disabledSettings = JSON.parse(
+      await readFile(hookPath, "utf8")
+    ) as { hooks: Record<string, unknown[]> };
+    assert.equal(disabledSettings.hooks.Stop?.length, 1);
+    assert.match(
+      JSON.stringify(disabledSettings.hooks.Stop),
+      /foreign-stop/
+    );
+    const manifest = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { hooks?: { events: string[] }[] };
+    assert.deepEqual(manifest.hooks?.[0]?.events, ["PreToolUse"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -346,7 +435,9 @@ test("explicit target update is offline and preserves verifier config", async ()
 
     assert.equal(registryCalls, 0);
     assert.equal(plan.targetVersion, "0.2.0");
-    assert.deepEqual(plan.migrationSteps, []);
+    assert.deepEqual(plan.migrationSteps, [
+      { fromVersion: 1, toVersion: 2 }
+    ]);
     const rulesOperation = plan.installation.operations.find(
       ({ path }) => path === ".agent-ops/AGENTS.md"
     );
@@ -356,10 +447,13 @@ test("explicit target update is offline and preserves verifier config", async ()
     }
     assert.match(rulesOperation.content, /Toolkit version: 0\.2\.0/);
     await applyUpdatePlan(root, plan);
-    assert.deepEqual(
-      JSON.parse(await readFile(configPath, "utf8")),
-      configured
-    );
+    assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {
+      ...configured,
+      schemaVersion: 2,
+      features: {
+        stopVerification: { enabled: false }
+      }
+    });
     assert.match(
       await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
       /Toolkit version: 0\.2\.0/

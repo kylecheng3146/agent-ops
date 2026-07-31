@@ -1,14 +1,26 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 
-import type { HarnessId, InstallScope, Profile } from "../contracts.js";
+import type {
+  AgentOpsConfig,
+  HarnessId,
+  HookEventName,
+  InstallManifest,
+  InstallScope,
+  Profile
+} from "../contracts.js";
 import { resolveContainedPath } from "../fs/paths.js";
 import {
   harnessDescriptor,
+  harnessSurfaceByPath,
   harnessSurfaces
 } from "./harness.js";
-import { resolveProfiles } from "./profiles.js";
+import {
+  resolveCapabilities,
+  resolveProfiles
+} from "./profiles.js";
 import type { Capability, HarnessSurface } from "./types.js";
+import { isWritableSurface } from "./surfaces.js";
 
 const MAX_SURFACE_FILE_BYTES = 1024 * 1024;
 
@@ -26,6 +38,13 @@ export interface SurfaceInspectionOptions {
   readonly scope: InstallScope;
   readonly harness: readonly HarnessId[];
   readonly profiles: readonly Profile[];
+}
+
+export interface HarnessRegistrationStatus {
+  readonly harness: HarnessId;
+  readonly registered: boolean;
+  readonly desiredEvents: readonly HookEventName[];
+  readonly recordedEvents: readonly HookEventName[];
 }
 
 interface SurfaceRead {
@@ -123,6 +142,158 @@ async function readSurface(
   } finally {
     await handle.close();
   }
+}
+
+function sameEvents(
+  left: readonly HookEventName[],
+  right: readonly HookEventName[]
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((event) => right.includes(event))
+  );
+}
+
+function desiredCapabilities(
+  config: AgentOpsConfig
+): readonly Capability[] {
+  return config.profiles.length === 0
+    ? []
+    : resolveCapabilities(config).capabilities;
+}
+
+function managedJsonCount(
+  source: string | null,
+  isManagedHandler: ((handler: unknown) => boolean) | undefined
+): number {
+  if (source === null) {
+    return 0;
+  }
+  return jsonHandlerCounts(source, isManagedHandler)?.managed ?? 0;
+}
+
+export async function inspectHarnessRegistrations(options: {
+  readonly root: string;
+  readonly manifest: InstallManifest;
+  readonly config: AgentOpsConfig;
+}): Promise<readonly HarnessRegistrationStatus[]> {
+  const capabilities = desiredCapabilities(options.config);
+  const statuses: HarnessRegistrationStatus[] = [];
+  for (const harness of options.manifest.harness) {
+    const descriptor = harnessDescriptor(harness);
+    const control = descriptor.control;
+    const hookRecord = options.manifest.hooks?.find(
+      ({ harness: recordHarness }) => recordHarness === harness
+    );
+    const recordedEvents = hookRecord?.events ?? [];
+    const desiredEvents =
+      control.buildHooks === undefined
+        ? []
+        : (Object.keys(
+            control.buildHooks(capabilities, "probe").hooks
+          ) as HookEventName[]);
+
+    if (control.buildHooks !== undefined) {
+      const surfaces = harnessSurfaces(
+        harness,
+        options.manifest.scope,
+        options.root
+      );
+      const writableJsonSurfaces = surfaces.filter(
+        (surface) =>
+          isWritableSurface(surface) && surface.representation === "json"
+      );
+      let managedCount = 0;
+      for (const surface of writableJsonSurfaces) {
+        try {
+          const read = await readSurface(options.root, surface);
+          managedCount += managedJsonCount(
+            read?.source ?? null,
+            control.isManagedHandler
+          );
+        } catch {
+          // An unsafe surface is treated as drift below when it is selected.
+          managedCount += 1;
+        }
+      }
+
+      const selectedSurface =
+        hookRecord === undefined
+          ? writableJsonSurfaces.find(
+              (surface) => surface.access === "managed-default"
+            )
+          : harnessSurfaceByPath(
+              harness,
+              options.manifest.scope,
+              hookRecord.path,
+              options.root
+            );
+      let source: string | null = null;
+      if (selectedSurface !== undefined) {
+        try {
+          source = (await readSurface(options.root, selectedSurface))?.source ??
+            null;
+        } catch {
+          source = null;
+        }
+      }
+      const registered =
+        hookRecord === undefined
+          ? desiredEvents.length === 0 && managedCount === 0
+          : selectedSurface !== undefined &&
+            sameEvents(desiredEvents, recordedEvents) &&
+            (desiredEvents.length === 0
+              ? managedCount === 0
+              : source !== null &&
+                control.hookRegistered(source, capabilities));
+      statuses.push({
+        harness,
+        registered,
+        desiredEvents,
+        recordedEvents
+      });
+      continue;
+    }
+
+    const pluginArtifact = options.manifest.artifacts.find(
+      ({ id }) => id === "opencode-plugin"
+    );
+    const hasDesiredPlugin = control.registrations.some((registration) =>
+      capabilities.includes(registration.capability)
+    );
+    let registered = !hasDesiredPlugin && pluginArtifact === undefined;
+    if (hasDesiredPlugin && pluginArtifact !== undefined) {
+      const discovered = harnessSurfaces(
+        harness,
+        options.manifest.scope,
+        options.root
+      ).find((surface) => surface.id === "opencode-plugin");
+      const selectedSurface =
+        discovered === undefined
+          ? undefined
+          : { ...discovered, path: pluginArtifact.path };
+      try {
+        const source =
+          selectedSurface === undefined
+            ? null
+            : (await readSurface(options.root, selectedSurface))?.source ?? null;
+        registered =
+          source !== null && control.hookRegistered(source, capabilities);
+      } catch {
+        registered = false;
+      }
+    }
+    if (!hasDesiredPlugin && pluginArtifact !== undefined) {
+      registered = false;
+    }
+    statuses.push({
+      harness,
+      registered,
+      desiredEvents,
+      recordedEvents
+    });
+  }
+  return statuses;
 }
 
 function jsonHandlerCounts(

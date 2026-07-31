@@ -1,5 +1,5 @@
 import type { AgentOpsConfig } from "../contracts.js";
-import { SCHEMA_VERSION } from "../contracts.js";
+import { CONFIG_SCHEMA_VERSION } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
 
@@ -35,6 +35,21 @@ const MIGRATIONS = new Map<number, Migration>([
         verification: { commands: clone(commands) }
       };
     }
+  ],
+  [
+    1,
+    (input) => {
+      const { schemaVersion: _schemaVersion, ...rest } = input;
+      return {
+        ...rest,
+        schemaVersion: CONFIG_SCHEMA_VERSION,
+        features: {
+          stopVerification: {
+            enabled: false
+          }
+        }
+      };
+    }
   ]
 ]);
 
@@ -56,17 +71,17 @@ export function previewConfigMigration(
   input: unknown
 ): ConfigMigrationPreview {
   const sourceVersion = schemaVersionOf(input);
-  if (sourceVersion > SCHEMA_VERSION) {
+  if (sourceVersion > CONFIG_SCHEMA_VERSION) {
     throw new AgentOpsError(
       "CONFIG_SCHEMA_FUTURE",
-      `Config schemaVersion ${sourceVersion} is newer than supported version ${SCHEMA_VERSION}.`
+      `Config schemaVersion ${sourceVersion} is newer than supported version ${CONFIG_SCHEMA_VERSION}.`
     );
   }
 
   let migrated: unknown = clone(input);
   let version = sourceVersion;
   const steps: MigrationStep[] = [];
-  while (version < SCHEMA_VERSION) {
+  while (version < CONFIG_SCHEMA_VERSION) {
     const migration = MIGRATIONS.get(version);
     if (migration === undefined || !isRecord(migrated)) {
       throw new AgentOpsError(

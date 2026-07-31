@@ -1,4 +1,4 @@
-import type { Profile } from "../contracts.js";
+import type { AgentOpsConfig, Profile } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { Capability, ResolvedProfiles } from "./types.js";
 
@@ -7,7 +7,7 @@ const PROFILE_ORDER = ["core", "advisory", "guardrails"] as const;
 export const PROFILE_CAPABILITIES = {
   core: ["rules", "task", "verify", "review"],
   advisory: ["lifecycle-summary", "local-log"],
-  guardrails: ["command-policy", "optional-stop-verify"]
+  guardrails: ["command-policy"]
 } as const satisfies Record<Profile, readonly Capability[]>;
 
 export function resolveProfiles(
@@ -41,4 +41,14 @@ export function resolveProfiles(
   }
 
   return { profiles: [...profiles], capabilities };
+}
+
+export function resolveCapabilities(
+  config: AgentOpsConfig
+): ResolvedProfiles {
+  const resolved = resolveProfiles(config.profiles);
+  if (config.features.stopVerification.enabled) {
+    resolved.capabilities.push("optional-stop-verify");
+  }
+  return resolved;
 }

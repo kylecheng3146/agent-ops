@@ -6,7 +6,12 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
-export const SCHEMA_VERSION = 1 as const;
+export const CONFIG_SCHEMA_VERSION = 2 as const;
+export const TASK_SCHEMA_VERSION = 1 as const;
+export const EVIDENCE_SCHEMA_VERSION = 1 as const;
+
+/** @deprecated Use the document-specific schema version constants. */
+export const SCHEMA_VERSION = CONFIG_SCHEMA_VERSION;
 
 export type Profile = "advisory" | "core" | "guardrails";
 
@@ -58,10 +63,17 @@ export interface SecurityException {
   reason: string;
 }
 
+export interface AgentOpsFeatures {
+  stopVerification: {
+    enabled: boolean;
+  };
+}
+
 export interface AgentOpsConfig {
-  schemaVersion: typeof SCHEMA_VERSION;
+  schemaVersion: typeof CONFIG_SCHEMA_VERSION;
   profiles: Profile[];
   verification: VerificationConfig;
+  features: AgentOpsFeatures;
   pathMappings: PathMapping[];
   securityExceptions: SecurityException[];
 }
@@ -73,14 +85,14 @@ export interface AcceptanceCriterion {
 }
 
 export interface AgentTask {
-  schemaVersion: typeof SCHEMA_VERSION;
+  schemaVersion: typeof TASK_SCHEMA_VERSION;
   id: string;
   title: string;
   criteria: AcceptanceCriterion[];
 }
 
 export interface VerificationEvidence {
-  schemaVersion: typeof SCHEMA_VERSION;
+  schemaVersion: typeof EVIDENCE_SCHEMA_VERSION;
   taskId: string;
   criterionId: string;
   commandId: string;
