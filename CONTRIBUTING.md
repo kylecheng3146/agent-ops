@@ -35,7 +35,8 @@ throwaway project, preview and apply `agent-ops init --scope project
 `.opencode/plugins/agent-ops.js` and the shared managed instruction artifacts
 changed, and verify that `opencode.json` was untouched. Repeat with
 `--profile guardrails` using a harmless bash command and confirm that
-`agent-ops doctor --json` reports the lifecycle-summary caveat as `DEGRADED`.
+`agent-ops doctor --json` reports lifecycle-summary as `UNSUPPORTED` while
+advisory runtime wiring is absent.
 Do not use a destructive command for this smoke check.
 
 Changes to workflows, release policy, issue forms, or pull request governance

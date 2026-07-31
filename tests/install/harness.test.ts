@@ -7,6 +7,7 @@ import {
   COMMON_CLAUDE_BLOCK,
   commonHarnessAdapters,
   HARNESS_IDS,
+  harnessDescriptor,
   planHarnessContributions,
   resolveHarnessSelection,
   type HarnessContribution,
@@ -269,4 +270,98 @@ test("resolves harness aliases and rejects unusable selections", () => {
     "codex",
     "opencode"
   ]);
+});
+
+test("every harness exposes control and runtime adapter contracts", () => {
+  for (const id of HARNESS_IDS) {
+    const descriptor = harnessDescriptor(id);
+    assert.equal(typeof descriptor.control.plan, "function", id);
+    assert.equal(typeof descriptor.control.hookRegistered, "function", id);
+    assert.ok(descriptor.control.registrations.length > 0, id);
+    assert.equal(typeof descriptor.runtime.normalizeInput, "function", id);
+    assert.equal(typeof descriptor.runtime.formatOutput, "function", id);
+    assert.equal(
+      typeof descriptor.runtime.formatRuntimeFailure,
+      "function",
+      id
+    );
+    for (const registration of descriptor.control.registrations) {
+      assert.ok(registration.surfaceId.length > 0, id);
+      assert.ok(registration.nativeEvent.length > 0, id);
+      assert.ok(registration.normalizedEvent.length > 0, id);
+      assert.ok(registration.capability.length > 0, id);
+      const failure = descriptor.runtime.formatRuntimeFailure(
+        registration.nativeEvent,
+        registration.capability
+      );
+      assert.equal(failure.exitCode, 0, id);
+      if (registration.runtimeFailure === "fail-closed") {
+        assert.match(failure.stdout, /deny/, id);
+      } else {
+        assert.doesNotMatch(failure.stdout, /deny/, id);
+      }
+    }
+  }
+});
+
+test("support declarations match the current real hook fidelity", () => {
+  const supportByHarness = Object.fromEntries(
+    HARNESS_IDS.map((id) => [
+      id,
+      Object.fromEntries(
+        harnessDescriptor(id).control.registrations.map((registration) => [
+          registration.capability,
+          {
+            support: registration.support,
+            runtimeFailure: registration.runtimeFailure
+          }
+        ])
+      )
+    ])
+  );
+
+  assert.deepEqual(supportByHarness, {
+    codex: {
+      "lifecycle-summary": {
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      },
+      "command-policy": {
+        support: "unknown",
+        runtimeFailure: "native-unknown"
+      },
+      "optional-stop-verify": {
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    },
+    claude: {
+      "lifecycle-summary": {
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      },
+      "command-policy": {
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      "optional-stop-verify": {
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    },
+    opencode: {
+      "lifecycle-summary": {
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      },
+      "command-policy": {
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      "optional-stop-verify": {
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    }
+  });
 });

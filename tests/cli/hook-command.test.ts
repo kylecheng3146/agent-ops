@@ -3,6 +3,10 @@ import test from "node:test";
 
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { runHookCommand } from "../../packages/cli/src/commands/hook.js";
+import {
+  HARNESS_IDS,
+  harnessDescriptor
+} from "../../runtime/src/install/harness.js";
 
 function config(profiles: AgentOpsConfig["profiles"]): AgentOpsConfig {
   return {
@@ -93,4 +97,52 @@ test("an empty profile list cannot crash the hook", async () => {
     }),
     { exitCode: 0, stdout: "", stderr: "" }
   );
+});
+
+test("every supported registration is reachable through the real hook command", async () => {
+  for (const harness of HARNESS_IDS) {
+    const descriptor = harnessDescriptor(harness);
+    for (const registration of descriptor.control.registrations) {
+      if (registration.support !== "supported") {
+        continue;
+      }
+      assert.equal(
+        registration.normalizedEvent,
+        "command",
+        `${harness}:${registration.capability}`
+      );
+      assert.equal(
+        registration.nativeEvent,
+        "PreToolUse",
+        `${harness}:${registration.capability}`
+      );
+      const stdin =
+        harness === "claude"
+          ? JSON.stringify({
+              hook_event_name: "PreToolUse",
+              cwd: "/repo",
+              tool_name: "Bash",
+              tool_input: { command: "git push --force origin main" }
+            })
+          : JSON.stringify({
+              event: "PreToolUse",
+              projectRoot: "/repo",
+              input: { tool: "bash" },
+              output: { args: { command: "git push --force origin main" } }
+            });
+      const output = await runHookCommand({
+        harness,
+        event: registration.nativeEvent,
+        stdin,
+        config: config(["core", "guardrails"]),
+        trusted: true
+      });
+      assert.doesNotMatch(
+        output.stdout,
+        /HOOK_NOOP|UNAVAILABLE/,
+        `${harness}:${registration.capability}`
+      );
+      assert.match(output.stdout, /deny/, `${harness}:${registration.capability}`);
+    }
+  }
 });

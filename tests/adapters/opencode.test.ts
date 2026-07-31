@@ -8,6 +8,7 @@ import {
   isOpencodeManagedPlugin
 } from "../../runtime/src/adapters/opencode/config.js";
 import {
+  OPENCODE_CAPABILITY_REGISTRATIONS,
   OPENCODE_PLUGIN_HOOKS,
   OPENCODE_SESSION_START_FIDELITY,
   OPENCODE_SUPPORTED_EVENTS
@@ -74,6 +75,38 @@ test("declares opencode hooks and generates a managed plugin source", () => {
     Stop: "event:session.idle"
   });
   assert.equal(OPENCODE_SESSION_START_FIDELITY, "app-init");
+  assert.deepEqual(
+    OPENCODE_CAPABILITY_REGISTRATIONS.map(({ capability, nativeEvent, surfaceId, support, runtimeFailure }) => ({
+      capability,
+      nativeEvent,
+      surfaceId,
+      support,
+      runtimeFailure
+    })),
+    [
+      {
+        capability: "lifecycle-summary",
+        nativeEvent: "SessionStart",
+        surfaceId: "opencode-plugin",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      },
+      {
+        capability: "command-policy",
+        nativeEvent: "PreToolUse",
+        surfaceId: "opencode-plugin",
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      {
+        capability: "optional-stop-verify",
+        nativeEvent: "Stop",
+        surfaceId: "opencode-plugin",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    ]
+  );
   assert.deepEqual(
     opencodePluginTarget("project"),
     {

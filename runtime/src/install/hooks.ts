@@ -62,15 +62,15 @@ export function planHookRegistration(options: {
 }): HookRegistrationPlan | null {
   const descriptor = harnessDescriptor(options.harness);
   if (
-    descriptor.buildHooks === undefined ||
-    descriptor.mergeHooks === undefined
+    descriptor.control.buildHooks === undefined ||
+    descriptor.control.mergeHooks === undefined
   ) {
     // File-backed adapters (currently opencode) track their plugin as a
     // managed artifact rather than as a ManagedHookRecord.
     return null;
   }
   const path = hookRegistrationPath(options.harness, options.scope);
-  const managed = descriptor.buildHooks(
+  const managed = descriptor.control.buildHooks(
     options.capabilities,
     options.runtimePath
   );
@@ -79,7 +79,7 @@ export function planHookRegistration(options: {
     return null;
   }
   const existing = parseSettings(path, options.currentSource);
-  const merged = descriptor.mergeHooks(existing, managed);
+  const merged = descriptor.control.mergeHooks(existing, managed);
   return {
     content: format(merged),
     disclosure: "opaque",
@@ -103,7 +103,9 @@ function onlyManagedRemains(
   harness: HarnessId,
   value: Record<string, unknown>
 ): boolean {
-  const ownKeys = new Set(harnessDescriptor(harness).ownSettingsKeys ?? []);
+  const ownKeys = new Set(
+    harnessDescriptor(harness).control.ownSettingsKeys ?? []
+  );
   const hooks = value.hooks;
   return (
     Object.keys(value).every((key) => ownKeys.has(key)) &&
@@ -122,14 +124,14 @@ export function planHookRemoval(
   currentSource: string
 ): HookRemovalPlan {
   const descriptor = harnessDescriptor(record.harness);
-  if (descriptor.stripHooks === undefined) {
+  if (descriptor.control.stripHooks === undefined) {
     throw new AgentOpsError(
       "HOOK_REMOVAL_UNSUPPORTED",
       `Harness hook records are not supported for ${record.harness}.`
     );
   }
   const existing = parseSettings(record.path, currentSource);
-  const stripped = descriptor.stripHooks(existing);
+  const stripped = descriptor.control.stripHooks(existing);
   return {
     path: record.path,
     disclosure: "opaque",

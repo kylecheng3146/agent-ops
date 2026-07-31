@@ -133,9 +133,10 @@ scope, the opencode plugin is placed under
 inside the managed user root. The shims call `agent-ops hook <harness> <event>`
 through the installed absolute runtime path. Advisory failures remain
 fail-open; command-policy failures are fail-closed where the native harness
-can block the tool. Because opencode initializes its lifecycle plugin at app
-startup rather than once per session, `doctor` reports its lifecycle-summary
-check as `DEGRADED`.
+can block the tool. Until the shared advisory dispatcher is wired into the
+real hook process, `doctor` reports lifecycle-summary as `UNSUPPORTED`; after
+that wiring, opencode's app-scoped initialization remains `DEGRADED` rather
+than claiming per-session coverage.
 
 The generated `AGENTS.md` and `CLAUDE.md` routing blocks are supplemental: they
 load the managed baseline while leaving project-specific instructions in those

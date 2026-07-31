@@ -44,11 +44,14 @@ export async function runHookCommand(
       return { exitCode: 0, stdout: "", stderr: "" };
     }
     const descriptor = harnessDescriptor(options.harness);
-    const result = await dispatchHookEvent(descriptor.normalizeInput(input), {
-      capabilities,
-      trusted: options.trusted
-    });
-    return descriptor.formatOutput(options.event, result);
+    const result = await dispatchHookEvent(
+      descriptor.runtime.normalizeInput(input),
+      {
+        capabilities,
+        trusted: options.trusted
+      }
+    );
+    return descriptor.runtime.formatOutput(options.event, result);
   } catch {
     return { exitCode: 0, stdout: "", stderr: "" };
   }

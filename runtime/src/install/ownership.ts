@@ -37,12 +37,12 @@ function expectedMarker(
     id: markerId,
     path:
       manifest.scope === "project"
-        ? descriptor.instructionFile
-        : `.${id}/${descriptor.instructionFile}`,
+        ? descriptor.control.instructionFile
+        : `.${id}/${descriptor.control.instructionFile}`,
     startMarker: markers.start,
     endMarker: markers.end,
-    content: descriptor.routing.desired,
-    legacyContent: descriptor.routing.legacy
+    content: descriptor.control.routing.desired,
+    legacyContent: descriptor.control.routing.legacy
   };
 }
 
@@ -77,7 +77,7 @@ function assertSupportedHookRecords(
     if (
       !selected.has(hook.harness) ||
       seen.has(hook.harness) ||
-      harnessDescriptor(hook.harness).buildHooks === undefined ||
+      harnessDescriptor(hook.harness).control.buildHooks === undefined ||
       hook.id !== `${hook.harness}-hooks` ||
       hook.path !== hookRegistrationPath(hook.harness, manifest.scope, root) ||
       hook.events.length === 0
@@ -116,7 +116,7 @@ export function assertSupportedManifestOwnership(
   }
   for (const id of harnesses) {
     const descriptor = harnessDescriptor(id);
-    const artifactPath = `.agent-ops/${descriptor.instructionFile}`;
+    const artifactPath = `.agent-ops/${descriptor.control.instructionFile}`;
     const artifactKey = pathKey(artifactPath);
     const artifactEntry = expectedArtifactPaths.get(artifactKey);
     const artifactIds = artifactEntry?.ids ?? new Set<string>();
@@ -132,8 +132,8 @@ export function assertSupportedManifestOwnership(
 
     const markerPath =
       manifest.scope === "project"
-        ? descriptor.instructionFile
-        : `.${id}/${descriptor.instructionFile}`;
+        ? descriptor.control.instructionFile
+        : `.${id}/${descriptor.control.instructionFile}`;
     const markerKey = pathKey(markerPath);
     expectedMarkerPaths.add(markerKey);
     const currentId = routingBlockId(id, manifest.scope, descriptor);

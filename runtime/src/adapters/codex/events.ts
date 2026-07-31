@@ -1,3 +1,5 @@
+import type { CapabilityRegistrationSpec } from "../../install/types.js";
+
 export const CODEX_SUPPORTED_EVENTS = [
   "SessionStart",
   "PreToolUse",
@@ -14,3 +16,30 @@ export function codexMatcherSupport(
 ): CodexMatcherSupport {
   return event === "PreToolUse" ? "tool-name" : "unsupported";
 }
+
+export const CODEX_CAPABILITY_REGISTRATIONS = [
+  {
+    capability: "lifecycle-summary",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    surfaceId: "codex-hooks",
+    support: "unsupported",
+    runtimeFailure: "fail-open"
+  },
+  {
+    capability: "command-policy",
+    normalizedEvent: "command",
+    nativeEvent: "PreToolUse",
+    surfaceId: "codex-hooks",
+    support: "unknown",
+    runtimeFailure: "native-unknown"
+  },
+  {
+    capability: "optional-stop-verify",
+    normalizedEvent: "stop",
+    nativeEvent: "Stop",
+    surfaceId: "codex-hooks",
+    support: "unsupported",
+    runtimeFailure: "fail-open"
+  }
+] as const satisfies readonly CapabilityRegistrationSpec[];

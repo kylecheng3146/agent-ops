@@ -30,32 +30,44 @@ export async function runDoctorCommand(
   const hasUnknown = report.checks.some(
     ({ status }) => status === "UNKNOWN"
   );
+  const hasUnsupported = report.checks.some(
+    ({ status }) => status === "UNSUPPORTED"
+  );
   const hasDegraded = report.checks.some(
     ({ status }) => status === "DEGRADED"
   );
   const code = hasFailure
     ? "DOCTOR_FAILED"
-    : hasUnknown
+    : hasUnsupported
+      ? "DOCTOR_UNSUPPORTED"
+      : hasUnknown
       ? "DOCTOR_UNKNOWN"
       : hasDegraded
         ? "DOCTOR_DEGRADED"
         : "DOCTOR_OK";
   const message = hasFailure
     ? "Installation diagnostics found failures."
-    : hasUnknown
+    : hasUnsupported
+      ? "Installation diagnostics found unsupported capabilities."
+      : hasUnknown
       ? "Installation diagnostics contain unknown checks."
       : hasDegraded
         ? "Installation diagnostics found degraded checks."
         : "Installation diagnostics passed.";
   return {
     code,
-    status: hasFailure || hasUnknown || hasDegraded ? "error" : "ok",
+    status:
+      hasFailure || hasUnsupported || hasUnknown || hasDegraded
+        ? "error"
+        : "ok",
     data: {
       report,
       message,
       text: formatDoctorReport(report)
     },
     errors:
-      hasFailure || hasUnknown || hasDegraded ? [{ code, message }] : []
+      hasFailure || hasUnsupported || hasUnknown || hasDegraded
+        ? [{ code, message }]
+        : []
   };
 }

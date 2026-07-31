@@ -9,6 +9,7 @@ import {
   mergeClaudeSettings
 } from "../../runtime/src/adapters/claude/config.js";
 import {
+  CLAUDE_CAPABILITY_REGISTRATIONS,
   CLAUDE_SUPPORTED_EVENTS,
   claudeNonInteractiveTrust
 } from "../../runtime/src/adapters/claude/events.js";
@@ -204,4 +205,36 @@ test("surfaces non-interactive trust limitations", () => {
   ]);
   assert.equal(claudeNonInteractiveTrust(false), "interactive-dialog");
   assert.equal(claudeNonInteractiveTrust(true), "dialog-skipped");
+  assert.deepEqual(
+    CLAUDE_CAPABILITY_REGISTRATIONS.map(({ capability, nativeEvent, surfaceId, support, runtimeFailure }) => ({
+      capability,
+      nativeEvent,
+      surfaceId,
+      support,
+      runtimeFailure
+    })),
+    [
+      {
+        capability: "lifecycle-summary",
+        nativeEvent: "SessionStart",
+        surfaceId: "claude-settings",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      },
+      {
+        capability: "command-policy",
+        nativeEvent: "PreToolUse",
+        surfaceId: "claude-settings",
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      {
+        capability: "optional-stop-verify",
+        nativeEvent: "Stop",
+        surfaceId: "claude-settings",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    ]
+  );
 });

@@ -10,6 +10,7 @@ import {
   mergeClaudeSettings,
   stripClaudeManagedHooks
 } from "../adapters/claude/config.js";
+import { CLAUDE_CAPABILITY_REGISTRATIONS } from "../adapters/claude/events.js";
 import { normalizeClaudeHookInput } from "../adapters/claude/input.js";
 import { claudeHookOutput } from "../adapters/claude/output.js";
 import {
@@ -18,6 +19,7 @@ import {
   mergeCodexHookConfig,
   stripCodexManagedHooks
 } from "../adapters/codex/config.js";
+import { CODEX_CAPABILITY_REGISTRATIONS } from "../adapters/codex/events.js";
 import { normalizeCodexHookInput } from "../adapters/codex/input.js";
 import { codexHookOutput } from "../adapters/codex/output.js";
 import {
@@ -25,11 +27,15 @@ import {
   isOpencodePluginRegistered,
   opencodePluginTarget
 } from "../adapters/opencode/config.js";
+import { OPENCODE_CAPABILITY_REGISTRATIONS } from "../adapters/opencode/events.js";
 import { normalizeOpencodeHookInput } from "../adapters/opencode/input.js";
 import { opencodeHookOutput } from "../adapters/opencode/output.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { HookResult, NormalizedHookEvent } from "../hooks/events.js";
-import type { Capability } from "./types.js";
+import type {
+  Capability,
+  CapabilityRegistrationSpec
+} from "./types.js";
 
 export type { HarnessId } from "../contracts.js";
 
@@ -77,29 +83,7 @@ export interface HarnessContribution {
   readonly blocks: readonly HarnessManagedBlock[];
 }
 
-export interface HarnessInstallAdapter {
-  readonly id: HarnessId;
-  plan(context: HarnessPlanContext): Promise<HarnessContribution>;
-}
-
-export interface HookProcessOutput {
-  readonly exitCode: 0;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-export interface HarnessHookSettings {
-  readonly hooks: Readonly<Record<string, readonly unknown[]>>;
-  readonly [key: string]: unknown;
-}
-
-/**
- * Harness-specific behavior is kept in one registry entry. JSON hook
- * settings use the build/merge/strip functions; file-backed plugins use only
- * hookRegistered because their source is already a managed artifact.
- */
-export interface HarnessDescriptor {
-  readonly id: HarnessId;
+export interface HarnessControlAdapter {
   readonly instructionFile: string;
   readonly routing: HarnessRoutingSpec;
   readonly hookPath: string;
@@ -116,12 +100,48 @@ export interface HarnessDescriptor {
   ) => unknown;
   readonly stripHooks?: (existing: unknown) => Record<string, unknown>;
   readonly isManagedHandler?: (handler: unknown) => boolean;
-  hookRegistered(
+  readonly registrations: readonly CapabilityRegistrationSpec[];
+  readonly hookRegistered: (
     source: unknown,
     capabilities: readonly Capability[]
-  ): boolean;
-  normalizeInput(input: unknown): NormalizedHookEvent;
-  formatOutput(event: HookEventName, result: HookResult): HookProcessOutput;
+  ) => boolean;
+  readonly plan: (
+    context: HarnessPlanContext
+  ) => Promise<HarnessContribution>;
+}
+
+export interface HarnessRuntimeAdapter {
+  readonly normalizeInput: (input: unknown) => NormalizedHookEvent;
+  readonly formatOutput: (
+    event: HookEventName,
+    result: HookResult
+  ) => HookProcessOutput;
+  readonly formatRuntimeFailure: (
+    event: HookEventName,
+    capability: Capability
+  ) => HookProcessOutput;
+}
+
+export interface HarnessInstallAdapter {
+  readonly id: HarnessId;
+  plan(context: HarnessPlanContext): Promise<HarnessContribution>;
+}
+
+export interface HookProcessOutput {
+  readonly exitCode: 0;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export interface HarnessHookSettings {
+  readonly hooks: Readonly<Record<string, readonly unknown[]>>;
+  readonly [key: string]: unknown;
+}
+
+export interface HarnessDescriptor {
+  readonly id: HarnessId;
+  readonly control: HarnessControlAdapter;
+  readonly runtime: HarnessRuntimeAdapter;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -143,18 +163,18 @@ function parseJsonSource(source: unknown): unknown {
 }
 
 function jsonHookRegistered(
-  descriptor: HarnessDescriptor,
+  control: HarnessControlAdapter,
   source: unknown,
   capabilities: readonly Capability[]
 ): boolean {
   if (
-    descriptor.buildHooks === undefined ||
-    descriptor.isManagedHandler === undefined
+    control.buildHooks === undefined ||
+    control.isManagedHandler === undefined
   ) {
     return false;
   }
   const events = Object.keys(
-    descriptor.buildHooks(capabilities, "probe").hooks
+    control.buildHooks(capabilities, "probe").hooks
   );
   if (events.length === 0) {
     return true;
@@ -172,10 +192,24 @@ function jsonHookRegistered(
         (group) =>
           isRecord(group) &&
           Array.isArray(group.hooks) &&
-          group.hooks.some(descriptor.isManagedHandler as (value: unknown) => boolean)
+          group.hooks.some(control.isManagedHandler as (value: unknown) => boolean)
       )
     );
   });
+}
+
+function runtimeFailureResult(
+  capability: Capability,
+  registrations: readonly CapabilityRegistrationSpec[]
+): HookResult {
+  const runtimeFailure = registrations.find(
+    (registration) => registration.capability === capability
+  )?.runtimeFailure;
+  return {
+    action: runtimeFailure === "fail-closed" ? "block" : "continue",
+    status: "UNKNOWN",
+    code: `${capability.replaceAll("-", "_").toUpperCase()}_UNAVAILABLE`
+  };
 }
 
 function createJsonDescriptor(options: {
@@ -194,18 +228,40 @@ function createJsonDescriptor(options: {
   ) => unknown;
   readonly stripHooks: (existing: unknown) => Record<string, unknown>;
   readonly isManagedHandler: (handler: unknown) => boolean;
+  readonly registrations: readonly CapabilityRegistrationSpec[];
   readonly normalizeInput: (input: unknown) => NormalizedHookEvent;
   readonly formatOutput: (
     event: HookEventName,
     result: HookResult
   ) => HookProcessOutput;
 }): HarnessDescriptor {
-  const descriptor: HarnessDescriptor = {
-    ...options,
+  const control: HarnessControlAdapter = {
+    instructionFile: options.instructionFile,
+    routing: options.routing,
+    hookPath: options.hookPath,
+    ownSettingsKeys: options.ownSettingsKeys,
+    buildHooks: options.buildHooks,
+    mergeHooks: options.mergeHooks,
+    stripHooks: options.stripHooks,
+    isManagedHandler: options.isManagedHandler,
+    registrations: options.registrations,
+    plan: (context) => planCommonHarnessContribution(options.id, context),
     hookRegistered: (source, capabilities) =>
-      jsonHookRegistered(descriptor, source, capabilities)
+      jsonHookRegistered(control, source, capabilities)
   };
-  return descriptor;
+  return {
+    id: options.id,
+    control,
+    runtime: {
+      normalizeInput: options.normalizeInput,
+      formatOutput: options.formatOutput,
+      formatRuntimeFailure: (event, capability) =>
+        options.formatOutput(
+          event,
+          runtimeFailureResult(capability, options.registrations)
+        )
+    }
+  };
 }
 
 const AGENTS_ROUTING: HarnessRoutingSpec = {
@@ -241,6 +297,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
       isRecord(handler) &&
       typeof handler.command === "string" &&
       handler.command.includes(CODEX_MANAGED_MARKER),
+    registrations: CODEX_CAPABILITY_REGISTRATIONS,
     normalizeInput: normalizeCodexHookInput,
     formatOutput: (event, result) => {
       const output = codexHookOutput(event, result);
@@ -263,19 +320,31 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
       isRecord(handler) &&
       Array.isArray(handler.args) &&
       handler.args.includes(CLAUDE_HOOK_MARKER),
+    registrations: CLAUDE_CAPABILITY_REGISTRATIONS,
     normalizeInput: normalizeClaudeHookInput,
     formatOutput: (event, result) => claudeHookOutput(event, result)
   }),
   opencode: {
     id: "opencode",
-    instructionFile: "AGENTS.md",
-    routing: AGENTS_ROUTING,
-    hookPath: opencodePluginTarget("project").path,
-    hookPathForScope: (scope, root) => opencodePluginTarget(scope, root).path,
-    hookRegistered: (source, capabilities) =>
-      isOpencodePluginRegistered(source, capabilities),
-    normalizeInput: normalizeOpencodeHookInput,
-    formatOutput: (event, result) => opencodeHookOutput(event, result)
+    control: {
+      instructionFile: "AGENTS.md",
+      routing: AGENTS_ROUTING,
+      hookPath: opencodePluginTarget("project").path,
+      hookPathForScope: (scope, root) => opencodePluginTarget(scope, root).path,
+      registrations: OPENCODE_CAPABILITY_REGISTRATIONS,
+      plan: (context) => planCommonHarnessContribution("opencode", context),
+      hookRegistered: (source, capabilities) =>
+        isOpencodePluginRegistered(source, capabilities)
+    },
+    runtime: {
+      normalizeInput: normalizeOpencodeHookInput,
+      formatOutput: (event, result) => opencodeHookOutput(event, result),
+      formatRuntimeFailure: (event, capability) =>
+        opencodeHookOutput(
+          event,
+          runtimeFailureResult(capability, OPENCODE_CAPABILITY_REGISTRATIONS)
+        )
+    }
   }
 };
 
@@ -296,7 +365,8 @@ export function harnessHookPath(
   root?: string
 ): string {
   const descriptor = harnessDescriptor(id);
-  return descriptor.hookPathForScope?.(scope, root) ?? descriptor.hookPath;
+  return descriptor.control.hookPathForScope?.(scope, root) ??
+    descriptor.control.hookPath;
 }
 
 export function isHarnessId(value: string): value is HarnessId {
@@ -325,8 +395,8 @@ export function resolveHarnessSelection(value: string): Harness | null {
     : null;
 }
 
-export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.routing.desired;
-export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.routing.desired;
+export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.control.routing.desired;
+export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.control.routing.desired;
 
 function managedRules(
   descriptor: HarnessDescriptor,
@@ -375,7 +445,7 @@ function managedRules(
     );
   }
   lines.push(
-    `This file is routed from the active ${descriptor.instructionFile}.`,
+    `This file is routed from the active ${descriptor.control.instructionFile}.`,
     ""
   );
   return lines.join("\n");
@@ -386,7 +456,7 @@ function instructionStem(instructionFile: string): string {
 }
 
 export function rulesArtifactId(descriptor: HarnessDescriptor): string {
-  return `${instructionStem(descriptor.instructionFile)}-rules`;
+  return `${instructionStem(descriptor.control.instructionFile)}-rules`;
 }
 
 export function routingBlockId(
@@ -394,7 +464,7 @@ export function routingBlockId(
   scope: InstallScope,
   descriptor = harnessDescriptor(id)
 ): string {
-  return scope === "project" && descriptor.instructionFile === "AGENTS.md"
+  return scope === "project" && descriptor.control.instructionFile === "AGENTS.md"
     ? "agents-routing"
     : `${id}-routing`;
 }
@@ -415,49 +485,55 @@ function dedupeByPath<
   return kept;
 }
 
+async function planCommonHarnessContribution(
+  id: HarnessId,
+  context: HarnessPlanContext
+): Promise<HarnessContribution> {
+  const descriptor = harnessDescriptor(id);
+  const artifacts: HarnessArtifact[] = [
+    {
+      id: rulesArtifactId(descriptor),
+      path: `.agent-ops/${descriptor.control.instructionFile}`,
+      content: managedRules(descriptor, context)
+    }
+  ];
+  if (id === "opencode" && context.runtimePath !== undefined) {
+    const plugin = buildOpencodePlugin(
+      context.capabilities,
+      context.runtimePath
+    );
+    if (plugin !== null) {
+      artifacts.push({
+        id: "opencode-plugin",
+        path:
+          context.opencodePluginPath ??
+          opencodePluginTarget(context.scope, context.root).path,
+        content: plugin
+      });
+    }
+  }
+  return {
+    artifacts,
+    blocks: [
+      {
+        id: routingBlockId(id, context.scope, descriptor),
+        path:
+          context.scope === "project"
+            ? descriptor.control.instructionFile
+            : `.${id}/${descriptor.control.instructionFile}`,
+        version: 1,
+        content: descriptor.control.routing.desired
+      }
+    ]
+  };
+}
+
 export function commonHarnessAdapters(): readonly HarnessInstallAdapter[] {
   return HARNESS_IDS.map((id) => {
     const descriptor = harnessDescriptor(id);
     return {
       id,
-      async plan(context) {
-        const artifacts: HarnessArtifact[] = [
-          {
-            id: rulesArtifactId(descriptor),
-            path: `.agent-ops/${descriptor.instructionFile}`,
-            content: managedRules(descriptor, context)
-          }
-        ];
-        if (id === "opencode" && context.runtimePath !== undefined) {
-          const plugin = buildOpencodePlugin(
-            context.capabilities,
-            context.runtimePath
-          );
-          if (plugin !== null) {
-            artifacts.push({
-              id: "opencode-plugin",
-              path:
-                context.opencodePluginPath ??
-                opencodePluginTarget(context.scope, context.root).path,
-              content: plugin
-            });
-          }
-        }
-        return {
-          artifacts,
-          blocks: [
-            {
-              id: routingBlockId(id, context.scope, descriptor),
-              path:
-                context.scope === "project"
-                  ? descriptor.instructionFile
-                  : `.${id}/${descriptor.instructionFile}`,
-              version: 1,
-              content: descriptor.routing.desired
-            }
-          ]
-        };
-      }
+      plan: (context) => descriptor.control.plan(context)
     };
   });
 }

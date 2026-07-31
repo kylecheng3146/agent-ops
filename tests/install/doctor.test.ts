@@ -78,7 +78,7 @@ function passingProbes(): DoctorProbes {
 function checkStatus(
   report: DoctorReport,
   id: DoctorCheckId
-): "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED" {
+): "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED" | "UNSUPPORTED" {
   const check = report.checks.find(
     (candidate: { readonly id: DoctorCheckId }) => candidate.id === id
   );
@@ -189,7 +189,14 @@ test("reports stable passing checks without changing the installation", async ()
     );
     assert.deepEqual(
       report.checks.map(
-        (check: { readonly status: "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED" }) =>
+        (check: {
+          readonly status:
+            | "PASS"
+            | "FAIL"
+            | "UNKNOWN"
+            | "DEGRADED"
+            | "UNSUPPORTED"
+        }) =>
           check.status
       ),
       CHECK_IDS.map(() => "PASS")
@@ -447,7 +454,7 @@ test("fails closed when an artifact path escapes through a symlink", async () =>
   }
 });
 
-test("reports opencode lifecycle summaries as degraded app-init behavior", async () => {
+test("reports unwired lifecycle summaries as unsupported behavior", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-opencode-"));
   try {
     await applyInstallPlan(
@@ -469,8 +476,8 @@ test("reports opencode lifecycle summaries as degraded app-init behavior", async
     const lifecycle = report.checks.find(
       (candidate: { readonly id: string }) => candidate.id === "lifecycle-summary"
     );
-    assert.equal(lifecycle?.status, "DEGRADED");
-    assert.match(lifecycle?.message ?? "", /app init/i);
+    assert.equal(lifecycle?.status, "UNSUPPORTED");
+    assert.match(lifecycle?.message ?? "", /advisory runtime|not dispatched/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

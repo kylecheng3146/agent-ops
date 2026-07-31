@@ -1,3 +1,5 @@
+import type { CapabilityRegistrationSpec } from "../../install/types.js";
+
 export const CLAUDE_SUPPORTED_EVENTS = [
   "SessionStart",
   "PreToolUse",
@@ -16,3 +18,30 @@ export function claudeNonInteractiveTrust(
 ): ClaudeNonInteractiveTrust {
   return printMode ? "dialog-skipped" : "interactive-dialog";
 }
+
+export const CLAUDE_CAPABILITY_REGISTRATIONS = [
+  {
+    capability: "lifecycle-summary",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    surfaceId: "claude-settings",
+    support: "unsupported",
+    runtimeFailure: "fail-open"
+  },
+  {
+    capability: "command-policy",
+    normalizedEvent: "command",
+    nativeEvent: "PreToolUse",
+    surfaceId: "claude-settings",
+    support: "supported",
+    runtimeFailure: "fail-closed"
+  },
+  {
+    capability: "optional-stop-verify",
+    normalizedEvent: "stop",
+    nativeEvent: "Stop",
+    surfaceId: "claude-settings",
+    support: "unsupported",
+    runtimeFailure: "fail-open"
+  }
+] as const satisfies readonly CapabilityRegistrationSpec[];

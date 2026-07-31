@@ -24,7 +24,7 @@ export function hookRegistrationSatisfied(
       : resolveProfiles(input.profiles).capabilities;
   return input.harness.every((id) => {
     const descriptor = harnessDescriptor(id);
-    return descriptor.hookRegistered(input.sources[id], capabilities);
+    return descriptor.control.hookRegistered(input.sources[id], capabilities);
   });
 }
 

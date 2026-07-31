@@ -8,6 +8,10 @@ import {
 } from "../../runtime/src/install/probes.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { buildOpencodePlugin } from "../../runtime/src/adapters/opencode/config.js";
+import {
+  HARNESS_IDS,
+  harnessDescriptor
+} from "../../runtime/src/install/harness.js";
 
 const CLAUDE_SETTINGS = {
   hooks: {
@@ -160,6 +164,22 @@ test("opencode registration is checked against the capability-implied plugin hoo
     }),
     false
   );
+});
+
+test("registration probes are owned by the control adapter", () => {
+  for (const id of HARNESS_IDS) {
+    const descriptor = harnessDescriptor(id);
+    assert.equal(typeof descriptor.control.hookRegistered, "function", id);
+    assert.ok(
+      descriptor.control.registrations.every(
+        ({ surfaceId, capability, nativeEvent }) =>
+          surfaceId.length > 0 &&
+          capability.length > 0 &&
+          nativeEvent.length > 0
+      ),
+      id
+    );
+  }
 });
 
 test("repository trust separates ungranted from stale bindings", () => {

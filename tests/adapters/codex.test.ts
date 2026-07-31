@@ -9,6 +9,7 @@ import {
   mergeCodexHookConfig
 } from "../../runtime/src/adapters/codex/config.js";
 import {
+  CODEX_CAPABILITY_REGISTRATIONS,
   CODEX_SUPPORTED_EVENTS,
   codexMatcherSupport
 } from "../../runtime/src/adapters/codex/events.js";
@@ -220,4 +221,36 @@ test("declares only documented event and matcher support", () => {
   assert.equal(codexMatcherSupport("PreToolUse"), "tool-name");
   assert.equal(codexMatcherSupport("Stop"), "unsupported");
   assert.equal(codexMatcherSupport("UserPromptSubmit"), "unsupported");
+  assert.deepEqual(
+    CODEX_CAPABILITY_REGISTRATIONS.map(({ capability, nativeEvent, surfaceId, support, runtimeFailure }) => ({
+      capability,
+      nativeEvent,
+      surfaceId,
+      support,
+      runtimeFailure
+    })),
+    [
+      {
+        capability: "lifecycle-summary",
+        nativeEvent: "SessionStart",
+        surfaceId: "codex-hooks",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      },
+      {
+        capability: "command-policy",
+        nativeEvent: "PreToolUse",
+        surfaceId: "codex-hooks",
+        support: "unknown",
+        runtimeFailure: "native-unknown"
+      },
+      {
+        capability: "optional-stop-verify",
+        nativeEvent: "Stop",
+        surfaceId: "codex-hooks",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    ]
+  );
 });

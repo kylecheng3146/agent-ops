@@ -19,9 +19,10 @@ User scope 下，Codex 與 opencode 的 routing file 分別位於 `.codex/` 與
 若 `$XDG_CONFIG_HOME` 指向 managed user root 內的目錄，則改用
 `$XDG_CONFIG_HOME/opencode/plugins/`。若 OpenCode 設定了
 `$OPENCODE_CONFIG_DIR`，則 plugin 會放在其 `plugins/` 目錄。只有 profile
-有暗示時才會註冊 advisory 與 guardrail hook。Opencode 的 lifecycle-summary 從 plugin
-initialization 開始，因此 `doctor` 會將該檢查回報為 `DEGRADED`，不宣稱
-具備 per-session coverage。
+有暗示時才會註冊 advisory 與 guardrail hook。在 shared advisory dispatcher
+接到真正的 hook process 前，`doctor` 會將 lifecycle-summary 回報為
+`UNSUPPORTED`；接線後，Opencode 的 lifecycle-summary 仍從 plugin initialization
+開始，因此會維持 `DEGRADED`，不宣稱具備 per-session coverage。
 
 若要縮減既有 installation，請將目標清單傳給
 `agent-ops update --harness`；shared path 會繼續受管理，被移除 harness

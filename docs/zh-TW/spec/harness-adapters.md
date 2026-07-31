@@ -6,11 +6,12 @@ English source version: 2026-07-31. Revalidate: when the English specification o
 
 ## HARNESS-ADAPTER-001
 
-Adapter MUST 保留原生 harness 語意，並將未支援行為標示為 UNKNOWN。
+Adapter MUST 保留原生 harness 語意，並為每項 capability 宣告
+supported、degraded、unsupported 或 unknown。
 
 - Trigger: 將可攜 lifecycle 或 review 行為映射到原生 harness。
 - Action: 保持 ownership 狹窄、保留使用者設定並記錄限制。
-- Evidence: adapter 測試涵蓋既有設定與未支援結果。
+- Evidence: adapter 測試涵蓋既有設定、support 宣告與原生 failure 行為。
 - Positive: `Codex blocking outcome 未確認原生 denial 時保持 UNKNOWN。`
 - Negative: `假設 Claude exit semantics 適用 Codex。`
 
@@ -39,7 +40,27 @@ Adapter MUST 具備冪等性，且 MUST NOT 刪除使用者擁有的 handler。
 OpenCode shim MUST 從選定的 project directory 呼叫 absolute runtime path；runtime 不可用時，MUST 對 advisory event fail open，並對 command-policy event fail closed。
 
 - Trigger: 產生的 plugin 呼叫 `agent-ops`，或收到無效的 runtime decision。
-- Action: 將 normalization 留在 adapter；deny decision 要 throw policy reason；因 plugin initialization 是 app-scoped 而非 per-session，lifecycle-summary 必須標示為 degraded。
-- Evidence: shim import 測試涵蓋 allow、deny 與 missing-runtime；doctor 對 opencode lifecycle summary 回報 `DEGRADED`。
+- Action: 將 normalization 與 native output encoding 留在 runtime adapter；deny
+  decision 要 throw policy reason；在 shared runtime 提供 advisory implementation
+  前，lifecycle-summary 必須標示為 unsupported。該 implementation 接線後，
+  plugin initialization 仍是 app-scoped 而非 per-session，因此 per-session
+  lifecycle fidelity 仍為 degraded。
+- Evidence: shim import 測試涵蓋 allow、deny 與 missing-runtime；目前 doctor
+  對尚未接線的 lifecycle summary 回報 `UNSUPPORTED`。
 - Positive: `runtime 不可用時不阻擋 SessionStart，但會在 bash tool 執行前阻擋它。`
 - Negative: `退回 PATH-resolved 的 agent-ops executable，或宣稱 app initialization 等同於 per-session Stop。`
+
+## HARNESS-ADAPTER-005
+
+每個 descriptor MUST 分離 control 與 runtime adapter。control adapter 負責
+installation plan、routing、ownership、probe 與 in-memory capability
+registration matrix；runtime adapter 負責 native input decode、normalized
+event、native output encode 與 runtime-failure output。
+
+- Trigger: 新增 harness surface 或 generic capability。
+- Action: 在所屬 harness 加入 capability-to-native registration，包含 support
+  level 與 runtime-failure mode；不得將 native event 加入 universal union。
+- Evidence: 每個宣告為 `supported` 的 registration 都經由真實 CLI hook process
+  執行，未支援的 Stop/lifecycle registration 不得回報 enforcement success。
+- Positive: `Claude command-policy 經由 runHookCommand 抵達 native PreToolUse denial。`
+- Negative: `dispatchHookEvent 尚未提供 advisory implementation 卻將 SessionStart 標為 supported。`

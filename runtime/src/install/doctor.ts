@@ -19,13 +19,19 @@ import {
   assertSupportedManifestOwnership
 } from "./ownership.js";
 import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
+import { harnessDescriptor } from "./harness.js";
 import { resolveProfiles } from "./profiles.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MINIMUM_NODE_VERSION = [22, 14, 0] as const;
 const MAX_DOCTOR_FILE_BYTES = 1024 * 1024;
 
-export type DoctorStatus = "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED";
+export type DoctorStatus =
+  | "PASS"
+  | "FAIL"
+  | "UNKNOWN"
+  | "DEGRADED"
+  | "UNSUPPORTED";
 
 export type DoctorCheckId =
   | "node-version"
@@ -372,17 +378,63 @@ function checkLifecycleSummary(
     resolveProfiles(config.profiles).capabilities.includes(
       "lifecycle-summary"
     );
-  if (!hasLifecycleSummary || !manifest.harness.includes("opencode")) {
+  if (!hasLifecycleSummary) {
     return check(
       "lifecycle-summary",
       "PASS",
       "Lifecycle summary has no harness-specific degradation."
     );
   }
+  const registrations = manifest.harness.map((id) => ({
+    id,
+    registration: harnessDescriptor(id).control.registrations.find(
+      (candidate) => candidate.capability === "lifecycle-summary"
+    )
+  }));
+  const missing = registrations
+    .filter(({ registration }) => registration === undefined)
+    .map(({ id }) => id);
+  if (missing.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "UNKNOWN",
+      `Lifecycle summary registration is missing for ${missing.join(", ")}.`
+    );
+  }
+  const unsupported = registrations
+    .filter(({ registration }) => registration?.support === "unsupported")
+    .map(({ id }) => id);
+  if (unsupported.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "UNSUPPORTED",
+      `Lifecycle summary is not dispatched for ${unsupported.join(", ")}; advisory runtime wiring is unavailable.`
+    );
+  }
+  const degraded = registrations
+    .filter(({ registration }) => registration?.support === "degraded")
+    .map(({ id }) => id);
+  if (degraded.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "DEGRADED",
+      `Lifecycle summary is degraded for ${degraded.join(", ")}.`
+    );
+  }
+  const unknown = registrations
+    .filter(({ registration }) => registration?.support === "unknown")
+    .map(({ id }) => id);
+  if (unknown.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "UNKNOWN",
+      `Lifecycle summary support is unknown for ${unknown.join(", ")}.`
+    );
+  }
   return check(
     "lifecycle-summary",
-    "DEGRADED",
-    "opencode initializes lifecycle-summary at app init rather than once per session."
+    "PASS",
+    "Lifecycle summary is reachable for every selected harness."
   );
 }
 

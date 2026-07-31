@@ -7,11 +7,13 @@ when either vendor reference changes.
 
 ## HARNESS-ADAPTER-001
 
-An adapter MUST preserve native harness semantics and MUST label unsupported behavior as UNKNOWN.
+An adapter MUST preserve native harness semantics and MUST declare each
+capability as supported, degraded, unsupported, or unknown.
 
 - Trigger: Mapping portable lifecycle or review behavior into a native harness.
 - Action: Keep ownership narrow, retain user configuration, and document limitations.
-- Evidence: Adapter tests cover existing configuration and unsupported outcomes.
+- Evidence: Adapter tests cover existing configuration, support declarations,
+  and native failure outcomes.
 - Positive: `A Codex blocking outcome remains UNKNOWN when native denial is unconfirmed.`
 - Negative: `Assume Claude exit semantics apply to Codex.`
 
@@ -44,7 +46,29 @@ advisory events, and MUST fail closed for command-policy events when the
 runtime is unavailable.
 
 - Trigger: The generated plugin invokes `agent-ops` or receives an invalid runtime decision.
-- Action: Keep normalization in the adapter, throw the policy reason for a deny decision, and report lifecycle-summary as degraded because plugin initialization is app-scoped rather than per-session.
-- Evidence: Shim import tests cover allow, deny, and missing-runtime behavior; doctor reports `DEGRADED` for opencode lifecycle summaries.
+- Action: Keep normalization and native output encoding in the runtime adapter,
+  throw the policy reason for a deny decision, and report lifecycle-summary as
+  unsupported until the shared runtime supplies an advisory implementation.
+  Once that implementation is wired, app-scoped plugin initialization remains
+  degraded for per-session lifecycle fidelity.
+- Evidence: Shim import tests cover allow, deny, and missing-runtime behavior;
+  doctor reports `UNSUPPORTED` for the currently unwired lifecycle summary.
 - Positive: `A missing runtime does not block SessionStart but blocks a bash tool before execution.`
 - Negative: `Fall back to a PATH-resolved agent-ops executable or claim app initialization is a per-session Stop-equivalent.`
+
+## HARNESS-ADAPTER-005
+
+Each descriptor MUST expose separate control and runtime adapters. The control
+adapter owns installation planning, routing, ownership, probes, and the
+in-memory capability registration matrix. The runtime adapter owns native input
+decoding, normalized events, native output encoding, and runtime-failure output.
+
+- Trigger: Adding a harness surface or a generic capability.
+- Action: Add the capability-to-native registration to the owning harness,
+  including its support level and runtime-failure mode; do not add native
+  events to a universal union.
+- Evidence: Every declared `supported` registration is exercised through the
+  real CLI hook process, and unsupported Stop/lifecycle registrations are not
+  reported as enforcement success.
+- Positive: `Claude command-policy reaches a native PreToolUse denial through runHookCommand.`
+- Negative: `Mark SessionStart supported while dispatchHookEvent has no advisory implementation.`

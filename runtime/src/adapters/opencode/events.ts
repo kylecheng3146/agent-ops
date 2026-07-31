@@ -1,3 +1,5 @@
+import type { CapabilityRegistrationSpec } from "../../install/types.js";
+
 export const OPENCODE_SUPPORTED_EVENTS = [
   "SessionStart",
   "PreToolUse",
@@ -29,3 +31,30 @@ export const OPENCODE_STOP_BLOCKING = "UNKNOWN" as const;
  * SessionStart is a degraded approximation rather than an equivalent.
  */
 export const OPENCODE_SESSION_START_FIDELITY = "app-init" as const;
+
+export const OPENCODE_CAPABILITY_REGISTRATIONS = [
+  {
+    capability: "lifecycle-summary",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    surfaceId: "opencode-plugin",
+    support: "unsupported",
+    runtimeFailure: "fail-open"
+  },
+  {
+    capability: "command-policy",
+    normalizedEvent: "command",
+    nativeEvent: "PreToolUse",
+    surfaceId: "opencode-plugin",
+    support: "supported",
+    runtimeFailure: "fail-closed"
+  },
+  {
+    capability: "optional-stop-verify",
+    normalizedEvent: "stop",
+    nativeEvent: "Stop",
+    surfaceId: "opencode-plugin",
+    support: "unsupported",
+    runtimeFailure: "fail-open"
+  }
+] as const satisfies readonly CapabilityRegistrationSpec[];

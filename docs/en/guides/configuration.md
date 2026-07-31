@@ -21,9 +21,11 @@ and `.opencode/`; the global opencode plugin is placed under
 when that variable points inside the managed user root. If OpenCode is
 configured with `$OPENCODE_CONFIG_DIR`, the plugin is placed under its
 `plugins/` directory instead. Advisory and guardrail hooks are registered
-only when the selected profile implies them.
-Opencode lifecycle-summary starts at plugin initialization, so `doctor`
-reports that check as `DEGRADED` rather than claiming per-session coverage.
+only when the selected profile implies them. Until the shared advisory
+dispatcher is wired into the real hook process, `doctor` reports
+lifecycle-summary as `UNSUPPORTED`; after that wiring, opencode lifecycle
+summary starts at plugin initialization and remains `DEGRADED` rather than
+claiming per-session coverage.
 
 To narrow an existing installation, pass the desired list to `agent-ops update
 --harness`; shared paths remain managed while removed harness-owned artifacts,
