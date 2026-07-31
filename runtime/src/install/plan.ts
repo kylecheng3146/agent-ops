@@ -5,6 +5,7 @@ import {
   SCHEMA_VERSION,
   type AgentOpsConfig,
   type Harness,
+  type HarnessId,
   type InstallManifest,
   type InstallScope,
   type ManagedHookRecord,
@@ -30,6 +31,8 @@ import type { FileOperation } from "../fs/transaction.js";
 import { validateConfig } from "../schema/validate.js";
 import {
   planHarnessContributions,
+  harnessDescriptor,
+  selectHarnessHookSurface,
   type HarnessArtifact,
   type HarnessInstallAdapter,
   type HarnessManagedBlock
@@ -41,12 +44,11 @@ import {
 } from "./ownership.js";
 import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
 import {
-  hookRegistrationPath,
   planHookRegistration,
   planHookRemoval
 } from "./hooks.js";
 import { resolveProfiles } from "./profiles.js";
-import type { Capability } from "./types.js";
+import type { Capability, HookTargetSelection } from "./types.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MANIFEST_PATH = ".agent-ops/manifest.json";
@@ -64,6 +66,8 @@ export interface CreateInstallPlanOptions {
    * registration is skipped when the caller cannot supply one.
    */
   readonly hookRuntimePath?: string;
+  /** Explicit writable hook surfaces, keyed by harness. */
+  readonly hookTargets?: readonly HookTargetSelection[];
   /**
    * Update may reconcile an existing managed installation when the selected
    * harness set or capability-implied hooks changes. Init keeps the existing
@@ -528,6 +532,34 @@ export async function createInstallPlan(
   const existingOpencodePluginPath = existing?.manifest.artifacts.find(
     ({ id }) => id === "opencode-plugin"
   )?.path;
+  const explicitHookTargets = new Map<HarnessId, string>();
+  for (const target of options.hookTargets ?? []) {
+    if (
+      explicitHookTargets.has(target.harness) ||
+      !options.harness.includes(target.harness)
+    ) {
+      throw new AgentOpsError(
+        "HOOK_TARGET_INVALID",
+        `Hook target must name one selected harness exactly once: ${target.harness}.`
+      );
+    }
+    if (harnessDescriptor(target.harness).control.buildHooks === undefined) {
+      throw new AgentOpsError(
+        "HOOK_TARGET_UNSUPPORTED",
+        `Harness hook targets are not supported for ${target.harness}.`
+      );
+    }
+    explicitHookTargets.set(target.harness, target.surfaceId);
+  }
+  if (
+    options.hookRuntimePath === undefined &&
+    explicitHookTargets.size > 0
+  ) {
+    throw new AgentOpsError(
+      "HOOK_TARGET_REQUIRES_RUNTIME",
+      "An explicit hook target requires a hook runtime path."
+    );
+  }
   const contribution = await planHarnessContributions(
     options.harness,
     {
@@ -643,10 +675,23 @@ export async function createInstallPlan(
   const hooks: ManagedHookRecord[] = [];
   if (options.hookRuntimePath !== undefined) {
     for (const harness of options.harness) {
-      const hookPath =
-        harness === "opencode" && existingOpencodePluginPath !== undefined
-          ? existingOpencodePluginPath
-          : hookRegistrationPath(harness, options.scope, options.root);
+      if (harnessDescriptor(harness).control.buildHooks === undefined) {
+        continue;
+      }
+      const existingHook = existing?.manifest.hooks?.find(
+        ({ harness: recordHarness }) => recordHarness === harness
+      );
+      const selectedSurface = selectHarnessHookSurface({
+        harness,
+        scope: options.scope,
+        root: options.root,
+        ...(explicitHookTargets.has(harness)
+          ? { surfaceId: explicitHookTargets.get(harness) }
+          : existingHook === undefined
+            ? {}
+            : { persistedPath: existingHook.path })
+      });
+      const hookPath = selectedSurface.path;
       const current = await readCurrentFile(
         options.root,
         hookPath
@@ -654,6 +699,7 @@ export async function createInstallPlan(
       const planned = planHookRegistration({
         harness,
         scope: options.scope,
+        path: hookPath,
         capabilities: resolved.capabilities,
         runtimePath: options.hookRuntimePath,
         currentSource: current?.content ?? null

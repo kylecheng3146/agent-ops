@@ -81,6 +81,26 @@ test("keeps the opencode plugin out of managed hook records", async () => {
   assert.equal(schema(manifest), false);
 });
 
+test("accepts a project-local Claude hook path in manifest v2", async () => {
+  const manifest = cloneJson(
+    await readJsonFixture("valid-manifest.json")
+  ) as {
+    hooks?: unknown[];
+  };
+  manifest.hooks = [
+    {
+      id: "claude-hooks",
+      path: ".claude/settings.local.json",
+      harness: "claude",
+      events: ["PreToolUse"],
+      owner: "agent-ops"
+    }
+  ];
+  assert.equal(validateManifest(manifest).ok, true);
+  const schema = await compileJsonSchema("manifest.schema.json");
+  assert.equal(schema(manifest), true);
+});
+
 test("rejects shell execution without explicit acknowledgement", async () => {
   const result = validateConfig(
     await readJsonFixture("invalid-shell-ack.json")

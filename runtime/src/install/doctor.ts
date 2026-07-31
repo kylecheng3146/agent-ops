@@ -21,6 +21,10 @@ import {
 import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
 import { harnessDescriptor } from "./harness.js";
 import { resolveProfiles } from "./profiles.js";
+import {
+  inspectHarnessSurfaces,
+  type HarnessSurfaceStatus
+} from "./surface-inspection.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MINIMUM_NODE_VERSION = [22, 14, 0] as const;
@@ -39,6 +43,7 @@ export type DoctorCheckId =
   | "config"
   | "artifacts"
   | "markers"
+  | "surface-inventory"
   | "hook-registration"
   | "lifecycle-summary"
   | "repository-trust"
@@ -70,6 +75,7 @@ export interface DoctorInstallationOptions {
 
 export interface DoctorReport {
   readonly checks: readonly DoctorCheck[];
+  readonly surfaces?: readonly HarnessSurfaceStatus[];
   readonly manifest?: InstallManifest;
   readonly config?: AgentOpsConfig;
 }
@@ -438,17 +444,71 @@ function checkLifecycleSummary(
   );
 }
 
+async function checkSurfaceInventory(
+  root: string,
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): Promise<{
+  readonly check: DoctorCheck;
+  readonly surfaces: readonly HarnessSurfaceStatus[];
+}> {
+  if (manifest === undefined || config === undefined) {
+    return {
+      check: check(
+        "surface-inventory",
+        "UNKNOWN",
+        "Harness surfaces cannot be inventoried without a valid manifest and configuration."
+      ),
+      surfaces: []
+    };
+  }
+  try {
+    const surfaces = await inspectHarnessSurfaces({
+      root,
+      scope: manifest.scope,
+      harness: manifest.harness,
+      profiles: config.profiles
+    });
+    const unknown = surfaces.filter(({ status }) => status === "unknown");
+    return {
+      check: check(
+        "surface-inventory",
+        unknown.length > 0 ? "UNKNOWN" : "PASS",
+        unknown.length > 0
+          ? `${unknown.length} harness surface(s) could not be inspected.`
+          : "Harness surfaces were inventoried without exposing settings values."
+      ),
+      surfaces
+    };
+  } catch {
+    return {
+      check: check(
+        "surface-inventory",
+        "UNKNOWN",
+        "Harness surfaces could not be inspected safely."
+      ),
+      surfaces: []
+    };
+  }
+}
+
 export async function doctorInstallation(
   options: DoctorInstallationOptions
 ): Promise<DoctorReport> {
   const manifest = await checkManifest(options.root);
   const config = await checkConfig(options.root);
+  const surfaceInventory = await checkSurfaceInventory(
+    options.root,
+    manifest.manifest,
+    config.config
+  );
   const checks: DoctorCheck[] = [
     checkNodeVersion(options.nodeVersion ?? process.versions.node),
     manifest.check,
     config.check,
     await checkArtifacts(options.root, manifest.manifest),
     await checkMarkers(options.root, manifest.manifest),
+    surfaceInventory.check,
     await checkProbe(
       "hook-registration",
       options.probes?.hookRegistration
@@ -465,6 +525,7 @@ export async function doctorInstallation(
   ];
   return {
     checks,
+    surfaces: surfaceInventory.surfaces,
     ...(manifest.manifest === undefined
       ? {}
       : { manifest: manifest.manifest }),

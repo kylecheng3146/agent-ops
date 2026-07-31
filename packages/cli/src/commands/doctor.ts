@@ -12,11 +12,29 @@ export interface DoctorCommandData {
 }
 
 function formatDoctorReport(report: DoctorReport): string {
+  const surfaces = report.surfaces ?? [];
   return `${[
     "Installation doctor",
-    ...report.checks.map(
-      ({ id, status, message }) => `- ${status} ${id}: ${message}`
-    )
+    ...report.checks.map(({ id, status, message }) =>
+      `- ${status} ${id}: ${message}`
+    ),
+    ...(surfaces.length === 0
+      ? []
+      : [
+          "Surfaces:",
+          ...surfaces.map(
+            ({
+              harness,
+              surfaceId,
+              path,
+              status,
+              managedHandlerCount,
+              foreignHandlerCount
+            }) =>
+              `- ${status} ${harness}/${surfaceId}: ${path} ` +
+              `(managed ${managedHandlerCount}, foreign ${foreignHandlerCount})`
+          )
+        ])
   ].join("\n")}\n`;
 }
 

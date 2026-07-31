@@ -1,4 +1,5 @@
 import type { HarnessInstallAdapter } from "../../../../runtime/src/install/harness.js";
+import type { HookTargetSelection } from "../../../../runtime/src/install/types.js";
 import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import {
   createInstallPlan,
@@ -23,6 +24,7 @@ export interface InitCommandOptions {
   readonly isTTY: boolean;
   readonly toolkitVersion?: string;
   readonly hookRuntimePath?: string;
+  readonly hookTargets?: readonly HookTargetSelection[];
   confirm(plan: InstallPlan): Promise<boolean>;
 }
 
@@ -112,7 +114,10 @@ export async function runInitCommand(
       : { toolkitVersion: options.toolkitVersion }),
     ...(options.hookRuntimePath === undefined
       ? {}
-      : { hookRuntimePath: options.hookRuntimePath })
+      : { hookRuntimePath: options.hookRuntimePath }),
+    ...((options.hookTargets ?? args.hookTargets) === undefined
+      ? {}
+      : { hookTargets: options.hookTargets ?? args.hookTargets })
   });
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {

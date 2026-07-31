@@ -61,6 +61,7 @@ const CHECK_IDS: readonly DoctorCheckId[] = [
   "config",
   "artifacts",
   "markers",
+  "surface-inventory",
   "hook-registration",
   "lifecycle-summary",
   "repository-trust",

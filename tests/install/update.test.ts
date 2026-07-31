@@ -407,6 +407,42 @@ test("update without a runtime path preserves existing selected hooks", async ()
   }
 });
 
+test("update reuses an existing non-default hook target", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-target-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["claude"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+        hookTargets: [{ harness: "claude", surfaceId: "project-local" }]
+      })
+    );
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    assert.deepEqual(plan.installation.manifest.hooks?.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+    assert.equal(
+      plan.installation.operations.some(
+        ({ path }) => path === ".claude/settings.json"
+      ),
+      false
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("reinitializing an opencode install removes stale capability artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
   try {

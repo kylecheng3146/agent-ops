@@ -11,11 +11,11 @@ import {
   harnessDescriptor,
   harnessHookPath,
   routingBlockId,
+  selectHarnessHookSurface,
   rulesArtifactId,
   type HarnessId
 } from "./harness.js";
 import { isOpencodePluginPath } from "../adapters/opencode/config.js";
-import { hookRegistrationPath } from "./hooks.js";
 
 export interface ExpectedManagedMarker {
   readonly id: string;
@@ -79,9 +79,18 @@ function assertSupportedHookRecords(
       seen.has(hook.harness) ||
       harnessDescriptor(hook.harness).control.buildHooks === undefined ||
       hook.id !== `${hook.harness}-hooks` ||
-      hook.path !== hookRegistrationPath(hook.harness, manifest.scope, root) ||
       hook.events.length === 0
     ) {
+      throw manifestOwnershipError();
+    }
+    try {
+      selectHarnessHookSurface({
+        harness: hook.harness,
+        scope: manifest.scope,
+        root,
+        persistedPath: hook.path
+      });
+    } catch {
       throw manifestOwnershipError();
     }
     seen.add(hook.harness);

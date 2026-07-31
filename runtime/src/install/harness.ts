@@ -13,6 +13,7 @@ import {
 import { CLAUDE_CAPABILITY_REGISTRATIONS } from "../adapters/claude/events.js";
 import { normalizeClaudeHookInput } from "../adapters/claude/input.js";
 import { claudeHookOutput } from "../adapters/claude/output.js";
+import { claudeSurfaces } from "../adapters/claude/surfaces.js";
 import {
   buildCodexHookConfig,
   CODEX_MANAGED_MARKER,
@@ -22,6 +23,7 @@ import {
 import { CODEX_CAPABILITY_REGISTRATIONS } from "../adapters/codex/events.js";
 import { normalizeCodexHookInput } from "../adapters/codex/input.js";
 import { codexHookOutput } from "../adapters/codex/output.js";
+import { codexSurfaces } from "../adapters/codex/surfaces.js";
 import {
   buildOpencodePlugin,
   isOpencodePluginRegistered,
@@ -30,12 +32,19 @@ import {
 import { OPENCODE_CAPABILITY_REGISTRATIONS } from "../adapters/opencode/events.js";
 import { normalizeOpencodeHookInput } from "../adapters/opencode/input.js";
 import { opencodeHookOutput } from "../adapters/opencode/output.js";
+import { opencodeSurfaces } from "../adapters/opencode/surfaces.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { HookResult, NormalizedHookEvent } from "../hooks/events.js";
 import type {
   Capability,
-  CapabilityRegistrationSpec
+  CapabilityRegistrationSpec,
+  HarnessSurface
 } from "./types.js";
+import {
+  findSurfaceById,
+  findSurfaceByPath,
+  isWritableSurface
+} from "./surfaces.js";
 
 export type { HarnessId } from "../contracts.js";
 
@@ -88,6 +97,10 @@ export interface HarnessControlAdapter {
   readonly routing: HarnessRoutingSpec;
   readonly hookPath: string;
   readonly hookPathForScope?: (scope: InstallScope, root?: string) => string;
+  readonly surfaces: (
+    scope: InstallScope,
+    root?: string
+  ) => readonly HarnessSurface[];
   /** Settings keys that may remain when only our JSON hook file is left. */
   readonly ownSettingsKeys?: readonly string[];
   readonly buildHooks?: (
@@ -217,6 +230,10 @@ function createJsonDescriptor(options: {
   readonly instructionFile: string;
   readonly routing: HarnessRoutingSpec;
   readonly hookPath: string;
+  readonly surfaces: (
+    scope: InstallScope,
+    root?: string
+  ) => readonly HarnessSurface[];
   readonly ownSettingsKeys: readonly string[];
   readonly buildHooks: (
     capabilities: readonly Capability[],
@@ -239,6 +256,7 @@ function createJsonDescriptor(options: {
     instructionFile: options.instructionFile,
     routing: options.routing,
     hookPath: options.hookPath,
+    surfaces: options.surfaces,
     ownSettingsKeys: options.ownSettingsKeys,
     buildHooks: options.buildHooks,
     mergeHooks: options.mergeHooks,
@@ -286,6 +304,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
     instructionFile: "AGENTS.md",
     routing: AGENTS_ROUTING,
     hookPath: ".codex/hooks.json",
+    surfaces: codexSurfaces,
     ownSettingsKeys: ["hooks", "description"],
     buildHooks: (capabilities, runtimePath) =>
       buildCodexHookConfig(capabilities, runtimePath),
@@ -309,6 +328,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
     instructionFile: "CLAUDE.md",
     routing: CLAUDE_ROUTING,
     hookPath: ".claude/settings.json",
+    surfaces: claudeSurfaces,
     ownSettingsKeys: ["hooks"],
     buildHooks: (capabilities, runtimePath) =>
       buildClaudeHookSettings(capabilities, runtimePath),
@@ -331,6 +351,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
       routing: AGENTS_ROUTING,
       hookPath: opencodePluginTarget("project").path,
       hookPathForScope: (scope, root) => opencodePluginTarget(scope, root).path,
+      surfaces: opencodeSurfaces,
       registrations: OPENCODE_CAPABILITY_REGISTRATIONS,
       plan: (context) => planCommonHarnessContribution("opencode", context),
       hookRegistered: (source, capabilities) =>
@@ -367,6 +388,81 @@ export function harnessHookPath(
   const descriptor = harnessDescriptor(id);
   return descriptor.control.hookPathForScope?.(scope, root) ??
     descriptor.control.hookPath;
+}
+
+export function harnessSurfaces(
+  id: HarnessId,
+  scope: InstallScope,
+  root?: string
+): readonly HarnessSurface[] {
+  return harnessDescriptor(id).control.surfaces(scope, root);
+}
+
+export function harnessSurfaceById(
+  id: HarnessId,
+  scope: InstallScope,
+  surfaceId: string,
+  root?: string
+): HarnessSurface | undefined {
+  return harnessSurfaces(id, scope, root).find(
+    (surface) => surface.id === surfaceId
+  );
+}
+
+export function harnessSurfaceByPath(
+  id: HarnessId,
+  scope: InstallScope,
+  path: string,
+  root?: string
+): HarnessSurface | undefined {
+  return harnessSurfaces(id, scope, root).find(
+    (surface) => surface.path === path
+  );
+}
+
+export function selectHarnessHookSurface(options: {
+  readonly harness: HarnessId;
+  readonly scope: InstallScope;
+  readonly root?: string;
+  readonly surfaceId?: string;
+  readonly persistedPath?: string;
+}): HarnessSurface {
+  const descriptor = harnessDescriptor(options.harness);
+  if (descriptor.control.buildHooks === undefined) {
+    throw new AgentOpsError(
+      "HOOK_TARGET_UNSUPPORTED",
+      `Harness hook targets are not supported for ${options.harness}.`
+    );
+  }
+  const surfaces = harnessSurfaces(
+    options.harness,
+    options.scope,
+    options.root
+  );
+  const selected =
+    options.surfaceId === undefined
+      ? options.persistedPath === undefined
+        ? surfaces.find(
+            (surface) =>
+              surface.access === "managed-default" &&
+              surface.representation === "json"
+          )
+        : findSurfaceByPath(surfaces, options.persistedPath)
+      : findSurfaceById(surfaces, options.surfaceId);
+  if (
+    selected === undefined ||
+    selected.scope !== options.scope ||
+    !isWritableSurface(selected) ||
+    selected.representation !== "json"
+  ) {
+    const requested =
+      options.surfaceId ?? options.persistedPath ?? "default surface";
+    throw new AgentOpsError(
+      "HOOK_TARGET_INVALID",
+      `Harness hook target is not a writable ${options.scope} surface: ${options.harness}=${requested}.`
+    );
+  }
+  return selected;
 }
 
 export function isHarnessId(value: string): value is HarnessId {

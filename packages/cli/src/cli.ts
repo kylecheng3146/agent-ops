@@ -47,6 +47,7 @@ Commands:
 Options:
   --scope <project|user>
   --harness <all|both|claude|codex|opencode|comma-separated>  Init/update
+  --hook-target <harness=surface-id>  Repeatable advanced init/update option
   --profile <core|advisory|guardrails>  Repeatable
   --task <id>
   --target-version <version>          Update target version (offline-capable)

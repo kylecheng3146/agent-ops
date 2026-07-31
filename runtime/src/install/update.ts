@@ -16,6 +16,7 @@ import { applyInstallPlan } from "./apply.js";
 import { doctorInstallation, type DoctorStatus } from "./doctor.js";
 import type { HarnessInstallAdapter } from "./harness.js";
 import type { Harness } from "../contracts.js";
+import type { HookTargetSelection } from "./types.js";
 import {
   createInstallPlan,
   type InstallPlan
@@ -36,6 +37,7 @@ export interface CreateUpdatePlanOptions {
   readonly registry?: RegistryClient;
   readonly packageName?: string;
   readonly hookRuntimePath?: string;
+  readonly hookTargets?: readonly HookTargetSelection[];
   /** Select a new harness set; update reconciles removed managed paths. */
   readonly harness?: Harness;
 }
@@ -213,6 +215,9 @@ export async function createUpdatePlan(
     ...(options.hookRuntimePath === undefined
       ? {}
       : { hookRuntimePath: options.hookRuntimePath }),
+    ...(options.hookTargets === undefined
+      ? {}
+      : { hookTargets: options.hookTargets }),
     existingConfig: {
       value: configPreview.migrated,
       sourceHash: configPreview.sourceHash

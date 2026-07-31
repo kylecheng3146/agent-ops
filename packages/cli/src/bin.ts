@@ -79,11 +79,15 @@ async function hookSources(
   const recordedOpencodePluginPath = manifest?.artifacts.find(
     ({ id }) => id === "opencode-plugin"
   )?.path;
+  const recordedHookPaths = new Map(
+    (manifest?.hooks ?? []).map(({ harness, path }) => [harness, path])
+  );
   for (const id of HARNESS_IDS) {
     const path =
       id === "opencode" && recordedOpencodePluginPath !== undefined
         ? recordedOpencodePluginPath
-        : harnessHookPath(id, scope, root);
+        : recordedHookPaths.get(id) ??
+          harnessHookPath(id, scope, root);
     sources[id] = await readOptionalText(
       join(root, path)
     );
@@ -177,6 +181,9 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              ...(args.hookTargets === undefined
+                ? {}
+                : { hookTargets: args.hookTargets }),
               confirm: async (plan) => await confirmInit(plan)
             });
           }
@@ -222,6 +229,9 @@ process.exitCode = await runCli(
               registry: new NpmRegistryClient(),
               isTTY,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              ...(args.hookTargets === undefined
+                ? {}
+                : { hookTargets: args.hookTargets }),
               confirm: async (plan) =>
                 await confirmPlan(formatUpdatePlan(plan)),
               ...(args.targetVersion === undefined

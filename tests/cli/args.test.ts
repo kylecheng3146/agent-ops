@@ -191,6 +191,51 @@ test("parses repeated profiles and boolean flags", () => {
   );
 });
 
+test("parses repeatable explicit hook targets", () => {
+  assert.deepEqual(
+    parseArgs([
+      "init",
+      "--scope",
+      "project",
+      "--harness",
+      "claude,codex",
+      "--hook-target",
+      "claude=project-local",
+      "--hook-target",
+      "codex=codex-hooks",
+      "--profile",
+      "guardrails"
+    ]).hookTargets,
+    [
+      { harness: "claude", surfaceId: "project-local" },
+      { harness: "codex", surfaceId: "codex-hooks" }
+    ]
+  );
+  for (const argv of [
+    ["init", "--hook-target", "claude"],
+    ["init", "--hook-target", "claude="],
+    [
+      "init",
+      "--hook-target",
+      "claude=project-local",
+      "--hook-target",
+      "claude=claude-settings"
+    ],
+    ["doctor", "--hook-target", "claude=project-local"]
+  ]) {
+    assert.throws(
+      () => parseArgs(argv),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "CLI_INVALID_VALUE" ||
+          error.code === "CLI_DUPLICATE_OPTION" ||
+          error.code === "CLI_OPTION_NOT_ALLOWED"),
+      argv.join(" ")
+    );
+  }
+});
+
 test("parses an explicit offline update target", () => {
   assert.deepEqual(parseArgs(["update", "--target-version", "0.0.1"]), {
     command: "update",

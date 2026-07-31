@@ -1,4 +1,5 @@
 import type { HarnessInstallAdapter } from "../../../../runtime/src/install/harness.js";
+import type { HookTargetSelection } from "../../../../runtime/src/install/types.js";
 import {
   applyUpdatePlan,
   createUpdatePlan,
@@ -24,6 +25,7 @@ export interface UpdateCommandOptions {
   readonly targetVersion?: string;
   readonly isTTY: boolean;
   readonly hookRuntimePath?: string;
+  readonly hookTargets?: readonly HookTargetSelection[];
   confirm(plan: UpdatePlan): Promise<boolean>;
 }
 
@@ -85,7 +87,10 @@ export async function runUpdateCommand(
       : { targetVersion: options.targetVersion }),
     ...(options.hookRuntimePath === undefined
       ? {}
-      : { hookRuntimePath: options.hookRuntimePath })
+      : { hookRuntimePath: options.hookRuntimePath }),
+    ...((options.hookTargets ?? options.args.hookTargets) === undefined
+      ? {}
+      : { hookTargets: options.hookTargets ?? options.args.hookTargets })
   });
   if (options.args.dryRun) {
     return okEnvelope("UPDATE_PLAN_READY", {

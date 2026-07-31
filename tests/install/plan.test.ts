@@ -10,9 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type {
-  HarnessId,
-  HarnessInstallAdapter
+import {
+  commonHarnessAdapters,
+  type HarnessId,
+  type HarnessInstallAdapter
 } from "../../runtime/src/install/harness.js";
 import {
   createInstallPlan,
@@ -168,6 +169,104 @@ test("plans user-scope instruction paths through adapter context", async () => {
         ".claude/CLAUDE.md"
       ]
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("selects an explicit Claude project-local hook target", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-target-"));
+  try {
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      hookTargets: [{ harness: "claude", surfaceId: "project-local" }]
+    });
+    assert.deepEqual(plan.manifest.hooks?.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+    assert.equal(
+      plan.operations.some(
+        ({ kind, path }) =>
+          kind === "write" && path === ".claude/settings.local.json"
+      ),
+      true
+    );
+    await applyInstallPlan(root, plan);
+    assert.match(
+      await readFile(join(root, ".claude", "settings.local.json"), "utf8"),
+      /--managed-by=agent-ops/u
+    );
+    await assert.rejects(readFile(join(root, ".claude", "settings.json")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("moving a hook target removes only owned handlers and persists the path", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-target-"));
+  try {
+    const first = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    await applyInstallPlan(root, first);
+    const sharedPath = join(root, ".claude", "settings.json");
+    await writeFile(
+      sharedPath,
+      `${JSON.stringify({
+        permissions: { allow: ["foreign-permission"] },
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [{ type: "command", command: "foreign-command" }]
+            },
+            ...((JSON.parse(await readFile(sharedPath, "utf8")) as {
+              hooks: Record<string, unknown[]>;
+            }).hooks.PreToolUse ?? [])
+          ]
+        }
+      }, null, 2)}\n`
+    );
+
+    const moved = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      hookTargets: [{ harness: "claude", surfaceId: "project-local" }]
+    });
+    assert.deepEqual(moved.manifest.hooks?.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+    assert.equal(
+      moved.operations.some(
+        ({ kind, path }) => kind === "write" && path === ".claude/settings.json"
+      ),
+      true
+    );
+    await applyInstallPlan(root, moved);
+    assert.match(await readFile(sharedPath, "utf8"), /foreign-command/u);
+    assert.match(
+      await readFile(join(root, ".claude", "settings.local.json"), "utf8"),
+      /--managed-by=agent-ops/u
+    );
+    const persisted = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { hooks: { path: string }[] };
+    assert.deepEqual(persisted.hooks.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -56,6 +56,7 @@ export function hookRegistrationPath(
 export function planHookRegistration(options: {
   readonly harness: HarnessId;
   readonly scope: InstallScope;
+  readonly path?: string;
   readonly capabilities: readonly Capability[];
   readonly runtimePath: string;
   readonly currentSource: string | null;
@@ -69,7 +70,7 @@ export function planHookRegistration(options: {
     // managed artifact rather than as a ManagedHookRecord.
     return null;
   }
-  const path = hookRegistrationPath(options.harness, options.scope);
+  const path = options.path ?? hookRegistrationPath(options.harness, options.scope);
   const managed = descriptor.control.buildHooks(
     options.capabilities,
     options.runtimePath
