@@ -1,4 +1,5 @@
 import { CliArgumentError, parseArgs, type ParsedArgs } from "./args.js";
+import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
 import {
   errorEnvelope,
   okEnvelope,
@@ -45,7 +46,7 @@ Commands:
 
 Options:
   --scope <project|user>
-  --harness <both|claude|codex>
+  --harness <all|both|claude|codex|opencode|comma-separated>  Init/update
   --profile <core|advisory|guardrails>  Repeatable
   --task <id>
   --target-version <version>          Update target version (offline-capable)
@@ -163,6 +164,14 @@ export async function runCli(
         errorEnvelope(error.code, error.message),
         args.json,
         2
+      );
+    }
+    if (error instanceof AgentOpsError) {
+      return writeAndReturn(
+        io,
+        errorEnvelope(error.code, error.message),
+        args.json,
+        1
       );
     }
     return writeAndReturn(

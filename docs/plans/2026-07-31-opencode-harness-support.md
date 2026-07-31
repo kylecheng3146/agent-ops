@@ -1,7 +1,7 @@
 # Add opencode as a third harness
 
 Date: 2026-07-31
-Status: planned
+Status: implemented
 
 ## Goal
 
@@ -57,7 +57,9 @@ Source: opencode.ai/docs/rules, opencode.ai/docs/config, opencode.ai/docs/plugin
 
 - Instruction file is `AGENTS.md` — the same filename codex uses.
 - Config is `opencode.json` (project) or `~/.config/opencode/opencode.json`
-  (user), with an `instructions: []` array of paths and globs.
+  (user), with an `instructions: []` array of paths and globs. User installs
+  also honor `$XDG_CONFIG_HOME/opencode/` and `$OPENCODE_CONFIG_DIR/` when
+  those directories resolve inside the managed user root.
 - There is no command-type hook. Extension happens through JS/TS plugin
   modules auto-loaded from `.opencode/plugins/` (project) or
   `~/.config/opencode/plugins/` (user). No config entry is needed for local
@@ -155,13 +157,15 @@ unchanged apart from the manifest shape.
      `session-start`; everything else to `unsupported`.
    - `output.ts` — emit the decision JSON the shim consumes.
    - `config.ts` — `opencodePluginTarget(scope)` returning
-     `.opencode/plugins/agent-ops.js`, plus `buildOpencodePlugin(capabilities, runtimePath)`
-     returning the shim source, and `hookRegistered(source, capabilities)`
-     comparing against that source.
+     `.opencode/plugins/agent-ops.js` (or the managed user config directory),
+     plus `buildOpencodePlugin(capabilities, runtimePath)` returning the shim
+     source, and `hookRegistered(source, capabilities)` comparing against that
+     source.
 3. The shim, kept minimal and dependency-injected so it is testable under node:
    it takes `$` from the plugin context, spawns
-   `node <absoluteRuntimePath> opencode <event> --managed-by=agent-ops`, writes
-   the raw input as JSON to stdin, and parses one JSON decision from stdout.
+   `node <absoluteRuntimePath> opencode <event> --managed-by=agent-ops`, from
+   the selected project directory, writes the raw input as JSON to stdin, and
+   parses one JSON decision from stdout.
    A `deny` decision throws with the policy reason. If the runtime path is
    missing, advisory events (`session-start`, `stop`) fail open and guardrail
    events (`tool.execute.before`) fail closed — never a PATH fallback.

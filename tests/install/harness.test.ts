@@ -103,6 +103,26 @@ test("aggregates both harnesses in codex then claude order", async () => {
   assert.equal(calls[1]?.context, CONTEXT);
 });
 
+test("deduplicates the shared project AGENTS contribution for codex and opencode", async () => {
+  const planned = await planHarnessContributions(
+    ["codex", "opencode"],
+    { ...CONTEXT, runtimePath: "/opt/agent-ops/hook-entry.js" },
+    commonHarnessAdapters()
+  );
+
+  assert.deepEqual(
+    planned.artifacts.map(({ id, path }) => ({ id, path })),
+    [
+      { id: "agents-rules", path: ".agent-ops/AGENTS.md" },
+      { id: "opencode-plugin", path: ".opencode/plugins/agent-ops.js" }
+    ]
+  );
+  assert.deepEqual(
+    planned.blocks.map(({ id, path }) => ({ id, path })),
+    [{ id: "agents-routing", path: "AGENTS.md" }]
+  );
+});
+
 test("fails with a stable error when a requested adapter is missing", async () => {
   await assert.rejects(
     () =>
@@ -170,13 +190,27 @@ test("common adapters produce scoped routing blocks and managed rules", async ()
   );
 
   const user = await planHarnessContributions(
-    ["codex", "claude"],
-    { ...CONTEXT, scope: "user" },
+    ["codex", "claude", "opencode"],
+    { ...CONTEXT, root: "/tmp/agent-ops-home", scope: "user" },
     commonHarnessAdapters()
   );
   assert.deepEqual(
     user.blocks.map(({ path }) => path),
-    [".codex/AGENTS.md", ".claude/CLAUDE.md"]
+    [".codex/AGENTS.md", ".claude/CLAUDE.md", ".opencode/AGENTS.md"]
+  );
+  const userOpencode = await planHarnessContributions(
+    ["opencode"],
+    {
+      ...CONTEXT,
+      root: "/tmp/agent-ops-home",
+      scope: "user",
+      runtimePath: "/opt/agent-ops/hook-entry.js"
+    },
+    commonHarnessAdapters()
+  );
+  assert.equal(
+    userOpencode.artifacts.find(({ id }) => id === "opencode-plugin")?.path,
+    ".config/opencode/plugins/agent-ops.js"
   );
 
   const advisory = await planHarnessContributions(
@@ -231,5 +265,8 @@ test("resolves harness aliases and rejects unusable selections", () => {
   ]);
   assert.equal(resolveHarnessSelection(""), null);
   assert.equal(resolveHarnessSelection("codex,codex"), null);
-  assert.equal(resolveHarnessSelection("codex,opencode"), null);
+  assert.deepEqual(resolveHarnessSelection("codex,opencode"), [
+    "codex",
+    "opencode"
+  ]);
 });

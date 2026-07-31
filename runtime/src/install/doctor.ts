@@ -18,12 +18,14 @@ import {
   assertExpectedManagedBlock,
   assertSupportedManifestOwnership
 } from "./ownership.js";
+import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
+import { resolveProfiles } from "./profiles.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MINIMUM_NODE_VERSION = [22, 14, 0] as const;
 const MAX_DOCTOR_FILE_BYTES = 1024 * 1024;
 
-export type DoctorStatus = "PASS" | "FAIL" | "UNKNOWN";
+export type DoctorStatus = "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED";
 
 export type DoctorCheckId =
   | "node-version"
@@ -32,6 +34,7 @@ export type DoctorCheckId =
   | "artifacts"
   | "markers"
   | "hook-registration"
+  | "lifecycle-summary"
   | "repository-trust"
   | "smoke-availability";
 
@@ -189,7 +192,7 @@ async function checkManifest(root: string): Promise<ManifestCheckResult> {
     const manifest = parseInstallManifest(
       await readContainedText(root, PROJECT_MANIFEST_PATH)
     );
-    assertSupportedManifestOwnership(manifest);
+    assertSupportedManifestOwnership(manifest, root);
     return {
       check: check("manifest", "PASS", "Installation manifest is valid."),
       manifest
@@ -256,7 +259,11 @@ async function checkArtifacts(
   for (const artifact of manifest.artifacts) {
     try {
       const content = await readContained(root, artifact.path);
-      if (sha256(content) !== artifact.hash) {
+      if (
+        sha256(content) !== artifact.hash ||
+        (artifact.id === "opencode-plugin" &&
+          !isOpencodeManagedPlugin(content.toString("utf8")))
+      ) {
         failures.push(artifact.path);
       }
     } catch {
@@ -286,7 +293,7 @@ async function checkMarkers(
 
   const failures: string[] = [];
   const expectedMarkers =
-    assertSupportedManifestOwnership(manifest);
+    assertSupportedManifestOwnership(manifest, root);
   for (const marker of manifest.markers) {
     try {
       const source = await readContainedText(root, marker.path);
@@ -337,6 +344,36 @@ async function checkProbe(
   }
 }
 
+function checkLifecycleSummary(
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): DoctorCheck {
+  if (manifest === undefined || config === undefined) {
+    return check(
+      "lifecycle-summary",
+      "UNKNOWN",
+      "Lifecycle summary cannot be assessed without a valid manifest and configuration."
+    );
+  }
+  const hasLifecycleSummary =
+    config.profiles.length > 0 &&
+    resolveProfiles(config.profiles).capabilities.includes(
+      "lifecycle-summary"
+    );
+  if (!hasLifecycleSummary || !manifest.harness.includes("opencode")) {
+    return check(
+      "lifecycle-summary",
+      "PASS",
+      "Lifecycle summary has no harness-specific degradation."
+    );
+  }
+  return check(
+    "lifecycle-summary",
+    "DEGRADED",
+    "opencode initializes lifecycle-summary at app init rather than once per session."
+  );
+}
+
 export async function doctorInstallation(
   options: DoctorInstallationOptions
 ): Promise<DoctorReport> {
@@ -352,6 +389,7 @@ export async function doctorInstallation(
       "hook-registration",
       options.probes?.hookRegistration
     ),
+    checkLifecycleSummary(manifest.manifest, config.config),
     await checkProbe(
       "repository-trust",
       options.probes?.repositoryTrust

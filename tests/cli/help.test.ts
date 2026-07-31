@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import type { ParsedArgs } from "../../packages/cli/src/args.js";
 import { runCli, type CliIo, type CliServices } from "../../packages/cli/src/cli.js";
 import {
@@ -70,6 +71,30 @@ test("version returns without invoking command services", async () => {
   assert.equal(calls, 0);
   assert.equal(stderr.length, 0);
   assert.deepEqual(stdout, ["1.2.3-test\n"]);
+});
+
+test("CLI preserves stable AgentOpsError codes and messages", async () => {
+  const { io, stdout, stderr } = createIo(false);
+  const services = createServices(async () => {
+    throw new AgentOpsError(
+      "INSTALL_ALREADY_CONFIGURED",
+      "Use update to change the scope or harness of an existing installation."
+    );
+  });
+
+  assert.equal(await runCli(["doctor", "--json"], io, services), 1);
+  assert.equal(stderr.length, 0);
+  assert.deepEqual(parseEnvelope(stdout), {
+    code: "INSTALL_ALREADY_CONFIGURED",
+    status: "error",
+    data: null,
+    errors: [
+      {
+        code: "INSTALL_ALREADY_CONFIGURED",
+        message: "Use update to change the scope or harness of an existing installation."
+      }
+    ]
+  });
 });
 
 test("TTY with no arguments launches the branded interactive init wizard", async () => {

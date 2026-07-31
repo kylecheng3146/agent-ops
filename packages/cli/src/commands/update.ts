@@ -35,6 +35,7 @@ export function formatUpdatePlan(plan: UpdatePlan): string {
     title: "Update plan",
     metadata: [
       `Target version: ${plan.targetVersion}`,
+      `Harness: ${plan.installation.harness.join(", ")}`,
       `Schema migrations: ${
         plan.migrationSteps.length === 0
           ? "none"
@@ -69,6 +70,9 @@ export async function runUpdateCommand(
   const plan = await createUpdatePlan({
     root: options.root,
     adapters: options.adapters,
+    ...(options.args.harness === undefined
+      ? {}
+      : { harness: options.args.harness }),
     ...(options.registry === undefined
       ? {}
       : { registry: options.registry }),

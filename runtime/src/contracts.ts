@@ -97,7 +97,7 @@ export interface VerificationEvidence {
 
 export type InstallScope = "project" | "user";
 
-export type HarnessId = "claude" | "codex";
+export type HarnessId = "claude" | "codex" | "opencode";
 
 /**
  * A selection of harnesses, never empty. Releases up to 0.1.4 stored a single

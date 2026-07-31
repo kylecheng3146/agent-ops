@@ -13,8 +13,9 @@ import {
 } from "../fs/paths.js";
 import type { RegistryClient } from "../registry/npm.js";
 import { applyInstallPlan } from "./apply.js";
-import { doctorInstallation } from "./doctor.js";
+import { doctorInstallation, type DoctorStatus } from "./doctor.js";
 import type { HarnessInstallAdapter } from "./harness.js";
+import type { Harness } from "../contracts.js";
 import {
   createInstallPlan,
   type InstallPlan
@@ -35,6 +36,8 @@ export interface CreateUpdatePlanOptions {
   readonly registry?: RegistryClient;
   readonly packageName?: string;
   readonly hookRuntimePath?: string;
+  /** Select a new harness set; update reconciles removed managed paths. */
+  readonly harness?: Harness;
 }
 
 export interface UpdatePlan {
@@ -142,7 +145,7 @@ async function previewManagedConfig(
 function statusOf(
   report: Awaited<ReturnType<typeof doctorInstallation>>,
   id: "config" | "manifest" | "markers" | "node-version"
-): "FAIL" | "PASS" | "UNKNOWN" | undefined {
+): DoctorStatus | undefined {
   return report.checks.find((candidate) => candidate.id === id)?.status;
 }
 
@@ -198,10 +201,11 @@ export async function createUpdatePlan(
   const installation = await createInstallPlan({
     root: options.root,
     scope: report.manifest.scope,
-    harness: report.manifest.harness,
+    harness: options.harness ?? report.manifest.harness,
     profiles: configPreview.migrated.profiles,
     adapters: options.adapters,
     toolkitVersion: targetVersion,
+    allowHarnessChange: true,
     ...(options.hookRuntimePath === undefined
       ? {}
       : { hookRuntimePath: options.hookRuntimePath }),

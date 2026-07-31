@@ -10,33 +10,6 @@ export interface HookRegistrationInput {
   readonly sources: Partial<Record<HarnessId, unknown>>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function hasManagedHandler(
-  source: unknown,
-  events: readonly string[],
-  isManaged: (handler: unknown) => boolean
-): boolean {
-  if (!isRecord(source) || !isRecord(source.hooks)) {
-    return false;
-  }
-  const registered = source.hooks;
-  return events.every((event) => {
-    const groups = registered[event];
-    return (
-      Array.isArray(groups) &&
-      groups.some(
-        (group) =>
-          isRecord(group) &&
-          Array.isArray(group.hooks) &&
-          group.hooks.some(isManaged)
-      )
-    );
-  });
-}
-
 /**
  * Hook registration is satisfied when every hook event implied by the
  * installed profiles carries an agent-ops owned handler for every installed
@@ -45,20 +18,13 @@ function hasManagedHandler(
 export function hookRegistrationSatisfied(
   input: HookRegistrationInput
 ): boolean {
-  const { capabilities } = resolveProfiles(input.profiles);
+  const capabilities =
+    input.profiles.length === 0
+      ? []
+      : resolveProfiles(input.profiles).capabilities;
   return input.harness.every((id) => {
     const descriptor = harnessDescriptor(id);
-    const events = Object.keys(
-      descriptor.buildHooks(capabilities, "probe").hooks
-    );
-    return (
-      events.length === 0 ||
-      hasManagedHandler(
-        input.sources[id],
-        events,
-        descriptor.isManagedHandler
-      )
-    );
+    return descriptor.hookRegistered(input.sources[id], capabilities);
   });
 }
 

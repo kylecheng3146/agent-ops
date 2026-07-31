@@ -16,12 +16,15 @@ import test from "node:test";
 import type { InstallManifest } from "../../runtime/src/contracts.js";
 import { sha256 } from "../../runtime/src/fs/hash.js";
 import { formatInstallManifest } from "../../runtime/src/fs/manifest.js";
+import { applyInstallPlan } from "../../runtime/src/install/apply.js";
+import { commonHarnessAdapters } from "../../runtime/src/install/harness.js";
 import {
   doctorInstallation,
   type DoctorCheckId,
   type DoctorProbes,
   type DoctorReport
 } from "../../runtime/src/install/doctor.js";
+import { createInstallPlan } from "../../runtime/src/install/plan.js";
 
 const START_MARKER = "<!-- agent-ops:start codex-routing v1 -->";
 const END_MARKER = "<!-- agent-ops:end codex-routing -->";
@@ -55,6 +58,7 @@ const CHECK_IDS: readonly DoctorCheckId[] = [
   "artifacts",
   "markers",
   "hook-registration",
+  "lifecycle-summary",
   "repository-trust",
   "smoke-availability"
 ];
@@ -70,7 +74,7 @@ function passingProbes(): DoctorProbes {
 function checkStatus(
   report: DoctorReport,
   id: DoctorCheckId
-): "PASS" | "FAIL" | "UNKNOWN" {
+): "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED" {
   const check = report.checks.find(
     (candidate: { readonly id: DoctorCheckId }) => candidate.id === id
   );
@@ -179,7 +183,7 @@ test("reports stable passing checks without changing the installation", async ()
     );
     assert.deepEqual(
       report.checks.map(
-        (check: { readonly status: "PASS" | "FAIL" | "UNKNOWN" }) =>
+        (check: { readonly status: "PASS" | "FAIL" | "UNKNOWN" | "DEGRADED" }) =>
           check.status
       ),
       CHECK_IDS.map(() => "PASS")
@@ -396,5 +400,84 @@ test("fails closed when an artifact path escapes through a symlink", async () =>
   } finally {
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("reports opencode lifecycle summaries as degraded app-init behavior", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-opencode-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["opencode"],
+        profiles: ["advisory"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+    const lifecycle = report.checks.find(
+      (candidate: { readonly id: string }) => candidate.id === "lifecycle-summary"
+    );
+    assert.equal(lifecycle?.status, "DEGRADED");
+    assert.match(lifecycle?.message ?? "", /app init/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("treats an empty profile list as no lifecycle capability", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-empty-profile-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["opencode"],
+        profiles: ["core"],
+        adapters: commonHarnessAdapters()
+      })
+    );
+    const configSource = `${JSON.stringify({
+      schemaVersion: 1,
+      profiles: [],
+      verification: { commands: [] },
+      pathMappings: [],
+      securityExceptions: []
+    }, null, 2)}\n`;
+    const manifest = await readManifest(root);
+    const updatedManifest: InstallManifest = {
+      ...manifest,
+      artifacts: manifest.artifacts.map((artifact) =>
+        artifact.path === ".agent-ops/config.json"
+          ? { ...artifact, hash: sha256(configSource) }
+          : artifact
+      )
+    };
+    await writeFile(
+      join(root, ".agent-ops", "config.json"),
+      configSource
+    );
+    await writeFile(
+      join(root, ".agent-ops", "manifest.json"),
+      formatInstallManifest(updatedManifest)
+    );
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+    assert.equal(checkStatus(report, "config"), "PASS");
+    assert.equal(checkStatus(report, "lifecycle-summary"), "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

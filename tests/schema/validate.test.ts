@@ -57,6 +57,30 @@ test("accepts fully valid version 1 fixtures", async () => {
   assert.equal(validateManifest(manifest).ok, true);
 });
 
+test("keeps the opencode plugin out of managed hook records", async () => {
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    harness: string[];
+    hooks?: unknown[];
+  };
+  manifest.harness = ["opencode"];
+  manifest.hooks = [
+    {
+      id: "opencode-hooks",
+      path: ".opencode/plugins/agent-ops.js",
+      harness: "opencode",
+      events: ["PreToolUse"],
+      owner: "agent-ops"
+    }
+  ];
+
+  const result = validateManifest(manifest);
+  assert.equal(result.ok, false);
+  assert.equal(firstErrorCode(result), "INVALID_HARNESS");
+
+  const schema = await compileJsonSchema("manifest.schema.json");
+  assert.equal(schema(manifest), false);
+});
+
 test("rejects shell execution without explicit acknowledgement", async () => {
   const result = validateConfig(
     await readJsonFixture("invalid-shell-ack.json")

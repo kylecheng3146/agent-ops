@@ -23,7 +23,7 @@ import {
 
 const SCOPES = new Set<string>(["project", "user"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
-const DEFAULT_HARNESS: readonly HarnessId[] = ["codex", "claude"];
+const DEFAULT_HARNESS: readonly HarnessId[] = [];
 
 export interface WizardIo {
   isTTY: boolean;
@@ -57,7 +57,7 @@ const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
   }
 ];
 const WIZARD_SUBTITLE =
-  "Safe setup for Codex + Claude Code with profile-driven rules, verification, and hooks.";
+  "Safe setup for Codex, Claude Code, and opencode with profile-driven rules, verification, and hooks.";
 
 interface PromptSession {
   question(prompt: string): Promise<string>;
@@ -113,7 +113,10 @@ function selectValue<T extends string>(
 
 function selectHarness(raw: string): Harness {
   if (raw.trim() === "") {
-    return [...DEFAULT_HARNESS];
+    throw new CliArgumentError(
+      "CLI_INVALID_VALUE",
+      "Choose at least one harness."
+    );
   }
   const selection = resolveHarnessSelection(raw);
   if (selection === null) {
@@ -163,7 +166,12 @@ export async function completeInitChoices(
     );
   }
 
-  if (io.input !== undefined && io.output !== undefined) {
+  const canUseRawSelectors =
+    io.input !== undefined &&
+    io.output !== undefined &&
+    typeof (io.input as SelectIo["input"]).setRawMode === "function" &&
+    (io.input as SelectIo["input"]).isTTY === true;
+  if (canUseRawSelectors) {
     const selectorIo: SelectIo = {
       input: io.input as SelectIo["input"],
       output: io.output as SelectIo["output"]
@@ -221,7 +229,7 @@ export async function completeInitChoices(
       args.harness ??
       selectHarness(
         await session.question(
-          `Harness (${HARNESS_IDS.join(",")}) [${DEFAULT_HARNESS.join(",")}]: `
+          `Harness (${HARNESS_IDS.join(",")}): `
         )
       );
     const profiles =

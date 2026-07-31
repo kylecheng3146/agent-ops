@@ -17,7 +17,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": {
-        "enum": ["codex", "claude"]
+        "enum": ["codex", "claude", "opencode"]
       }
     },
     "artifacts": {

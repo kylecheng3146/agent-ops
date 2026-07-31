@@ -7,6 +7,7 @@ import {
   smokeAvailabilityStatus
 } from "../../runtime/src/install/probes.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
+import { buildOpencodePlugin } from "../../runtime/src/adapters/opencode/config.js";
 
 const CLAUDE_SETTINGS = {
   hooks: {
@@ -71,6 +72,17 @@ test("core-only installations have no hooks to register", () => {
   );
 });
 
+test("an empty profile list has no hooks to register", () => {
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["codex", "claude", "opencode"],
+      profiles: [],
+      sources: {}
+    }),
+    true
+  );
+});
+
 test("advisory installations require owned handlers in every harness", () => {
   assert.equal(
     hookRegistrationSatisfied({
@@ -121,6 +133,30 @@ test("foreign handlers do not satisfy hook registration", () => {
           ]
         }
       }, codex: null }
+    }),
+    false
+  );
+});
+
+test("opencode registration is checked against the capability-implied plugin hooks", () => {
+  const source = buildOpencodePlugin(
+    ["lifecycle-summary", "command-policy", "optional-stop-verify"],
+    "/opt/agent-ops/hook-entry.js"
+  );
+  assert.ok(source !== null);
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["opencode"],
+      profiles: ["core", "advisory", "guardrails"],
+      sources: { opencode: source }
+    }),
+    true
+  );
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["opencode"],
+      profiles: ["core", "guardrails"],
+      sources: { opencode: source.replace("tool.execute.before", "foreign") }
     }),
     false
   );

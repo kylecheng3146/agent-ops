@@ -7,6 +7,7 @@ test("package exposes a Node 22 CLI without runtime dependencies", async () => {
   assert.equal(pkg.name, "@kylecheng3146/agent-ops");
   assert.equal(pkg.engines.node, ">=22.14.0");
   assert.equal(pkg.bin["agent-ops"], "dist/packages/cli/src/bin.js");
+  assert.match(pkg.description, /Codex.*Claude Code.*opencode/u);
   assert.deepEqual(pkg.dependencies ?? {}, {});
 });
 

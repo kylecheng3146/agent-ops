@@ -22,6 +22,7 @@ import {
   assertSupportedManifestOwnership,
   type ExpectedManagedMarker
 } from "./ownership.js";
+import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
 
 const MANIFEST_PATH = ".agent-ops/manifest.json";
 const MAX_UNINSTALL_FILE_BYTES = 1024 * 1024;
@@ -192,7 +193,7 @@ export async function createUninstallPlan(
   }
   const manifest = parseInstallManifest(currentManifest.content);
   const expectedMarkers =
-    assertSupportedManifestOwnership(manifest);
+    assertSupportedManifestOwnership(manifest, root);
   const operations: FileOperation[] = [];
   for (const artifact of manifest.artifacts) {
     const current = await readCurrentFile(root, artifact.path);
@@ -200,6 +201,15 @@ export async function createUninstallPlan(
       throw new AgentOpsError(
         "MANAGED_ARTIFACT_CHANGED",
         `Managed artifact changed after installation: ${artifact.path}`
+      );
+    }
+    if (
+      artifact.id === "opencode-plugin" &&
+      !isOpencodeManagedPlugin(current.content)
+    ) {
+      throw new AgentOpsError(
+        "MANIFEST_OWNERSHIP_INVALID",
+        `The recorded opencode plugin is not an agent-ops managed plugin: ${artifact.path}`
       );
     }
     operations.push({

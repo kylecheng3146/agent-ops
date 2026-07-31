@@ -1,4 +1,7 @@
-import type { HarnessId } from "../../../runtime/src/install/harness.js";
+import {
+  HARNESS_IDS,
+  type HarnessId
+} from "../../../runtime/src/install/harness.js";
 import {
   runHookCommand,
   HOOK_EVENTS,
@@ -6,7 +9,7 @@ import {
 } from "./commands/hook.js";
 import { loadEffectiveConfig, repositoryTrust } from "./context.js";
 
-const HARNESSES = new Set<string>(["codex", "claude"]);
+const HARNESSES = new Set<string>(HARNESS_IDS);
 const MAX_HOOK_INPUT_BYTES = 1024 * 1024;
 
 export interface HookProcessIo {
@@ -50,7 +53,7 @@ export async function runHookProcess(
     !(HOOK_EVENTS as readonly string[]).includes(event)
   ) {
     io.writeStderr(
-      "Usage: agent-ops hook <codex|claude> <SessionStart|PreToolUse|Stop>\n"
+      `Usage: agent-ops hook <${HARNESS_IDS.join("|")}> <SessionStart|PreToolUse|Stop>\n`
     );
     return 0;
   }

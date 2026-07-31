@@ -19,3 +19,14 @@ A review result MUST preserve PASS, FAIL, or NOT_RUN and MUST NOT convert NOT_RU
 - Evidence: The result states harness, configured model or limitation, effort, and reason.
 - Positive: `NOT_RUN: login required; prompt is copyable.`
 - Negative: `No reviewer ran, but mark the change PASS.`
+
+## REVIEW-HARNESS-001
+
+A review invocation MUST resolve to exactly one concrete harness, even when an
+installation supports multiple harnesses.
+
+- Trigger: Running `review` with a harness selection.
+- Action: Select one of `codex`, `claude`, or `opencode`; keep multi-harness installation separate from review execution.
+- Evidence: Argument parsing rejects `all`, `both`, and comma-separated multi-harness values for review.
+- Positive: `review --harness opencode` resolves one harness.
+- Negative: `Run one review invocation against every installed harness implicitly.`

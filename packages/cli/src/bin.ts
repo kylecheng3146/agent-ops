@@ -8,12 +8,14 @@ import { fileURLToPath } from "node:url";
 
 import {
   commonHarnessAdapters,
-  harnessDescriptor,
+  harnessHookPath,
   HARNESS_IDS
 } from "../../../runtime/src/install/harness.js";
 import type {
   Harness,
-  HarnessId
+  HarnessId,
+  InstallManifest,
+  InstallScope
 } from "../../../runtime/src/contracts.js";
 import {
   hookRegistrationSatisfied,
@@ -60,35 +62,47 @@ const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
 );
 
-async function readOptionalJson(path: string): Promise<unknown> {
+async function readOptionalText(path: string): Promise<string | null> {
   try {
-    return JSON.parse(await readFile(path, "utf8")) as unknown;
+    return await readFile(path, "utf8");
   } catch {
     return null;
   }
 }
 
 async function hookSources(
-  root: string
+  root: string,
+  scope: InstallScope
 ): Promise<Partial<Record<HarnessId, unknown>>> {
   const sources: Partial<Record<HarnessId, unknown>> = {};
+  const manifest = await installedManifest(root);
+  const recordedOpencodePluginPath = manifest?.artifacts.find(
+    ({ id }) => id === "opencode-plugin"
+  )?.path;
   for (const id of HARNESS_IDS) {
-    sources[id] = await readOptionalJson(
-      join(root, harnessDescriptor(id).hookPath)
+    const path =
+      id === "opencode" && recordedOpencodePluginPath !== undefined
+        ? recordedOpencodePluginPath
+        : harnessHookPath(id, scope, root);
+    sources[id] = await readOptionalText(
+      join(root, path)
     );
   }
   return sources;
 }
 
-async function installedHarness(root: string): Promise<Harness> {
+async function installedManifest(root: string): Promise<InstallManifest | null> {
   try {
     return parseInstallManifest(
       await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
-    ).harness;
+    );
   } catch {
-    // ponytail: no readable manifest means demand hooks for every harness.
-    return [...HARNESS_IDS];
+    return null;
   }
+}
+
+async function installedHarness(root: string): Promise<Harness> {
+  return (await installedManifest(root))?.harness ?? [...HARNESS_IDS];
 }
 
 async function confirmInit(
@@ -178,7 +192,10 @@ process.exitCode = await runCli(
                   hookRegistrationSatisfied({
                     harness: await installedHarness(root),
                     profiles: config.profiles,
-                    sources: await hookSources(root)
+                    sources: await hookSources(
+                      root,
+                      args.scope === "user" ? "user" : "project"
+                    )
                   }),
                 repositoryTrust: async () =>
                   repositoryTrustStatus(

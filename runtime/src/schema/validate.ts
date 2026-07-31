@@ -25,8 +25,9 @@ const WINDOWS_RESERVED_SEGMENT =
 const PROFILE_VALUES = new Set(["advisory", "core", "guardrails"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
-const HARNESS_VALUES = new Set(["claude", "codex"]);
-const HOOK_HARNESS_VALUES = HARNESS_VALUES;
+const HARNESS_VALUES = new Set(["claude", "codex", "opencode"]);
+// opencode's plugin is a managed artifact, not a ManagedHookRecord entry.
+const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
 const HOOK_EVENT_VALUES = new Set([
   "SessionStart",
   "PreToolUse",

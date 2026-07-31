@@ -124,7 +124,7 @@ test("uninstall command dry-runs then removes only managed content", async () =>
     assert.match(dryRun.data?.text ?? "", /Uninstall plan/);
     assert.match(
       await readFile(join(root, "AGENTS.md"), "utf8"),
-      /agent-ops:start codex-routing/
+      /agent-ops:start agents-routing/
     );
 
     const applied = await runUninstallCommand({

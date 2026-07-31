@@ -5,7 +5,7 @@ import type {
   ManagedHookRecord
 } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
-import { harnessDescriptor } from "./harness.js";
+import { harnessDescriptor, harnessHookPath } from "./harness.js";
 import type { Capability } from "./types.js";
 
 export const CLAUDE_HOOK_PATH = ".claude/settings.json";
@@ -40,12 +40,12 @@ function parseSettings(
 
 export function hookRegistrationPath(
   harness: HarnessId,
-  scope: InstallScope
+  scope: InstallScope,
+  root?: string
 ): string {
   // ponytail: user scope resolves against AGENT_OPS_HOME, so the same
-  // relative path serves both scopes.
-  void scope;
-  return harnessDescriptor(harness).hookPath;
+  // root can resolve a scope-specific harness path.
+  return harnessHookPath(harness, scope, root);
 }
 
 /**
@@ -60,6 +60,14 @@ export function planHookRegistration(options: {
   readonly currentSource: string | null;
 }): HookRegistrationPlan | null {
   const descriptor = harnessDescriptor(options.harness);
+  if (
+    descriptor.buildHooks === undefined ||
+    descriptor.mergeHooks === undefined
+  ) {
+    // File-backed adapters (currently opencode) track their plugin as a
+    // managed artifact rather than as a ManagedHookRecord.
+    return null;
+  }
   const path = hookRegistrationPath(options.harness, options.scope);
   const managed = descriptor.buildHooks(
     options.capabilities,
@@ -92,7 +100,7 @@ function onlyManagedRemains(
   harness: HarnessId,
   value: Record<string, unknown>
 ): boolean {
-  const ownKeys = new Set(harnessDescriptor(harness).ownSettingsKeys);
+  const ownKeys = new Set(harnessDescriptor(harness).ownSettingsKeys ?? []);
   const hooks = value.hooks;
   return (
     Object.keys(value).every((key) => ownKeys.has(key)) &&
@@ -111,6 +119,12 @@ export function planHookRemoval(
   currentSource: string
 ): HookRemovalPlan {
   const descriptor = harnessDescriptor(record.harness);
+  if (descriptor.stripHooks === undefined) {
+    throw new AgentOpsError(
+      "HOOK_REMOVAL_UNSUPPORTED",
+      `Harness hook records are not supported for ${record.harness}.`
+    );
+  }
   const existing = parseSettings(record.path, currentSource);
   const stripped = descriptor.stripHooks(existing);
   return {

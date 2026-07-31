@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import {
@@ -325,6 +326,43 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
   assert.equal(questions.length, 3);
 });
 
+test("TTY wizard requires an explicit harness when no default is selected", async () => {
+  const answers = ["project", "", "core"];
+
+  await assert.rejects(
+    completeInitChoices(parseArgs(["init"]), {
+      isTTY: true,
+      prompt: async () => answers.shift() ?? ""
+    }),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_INVALID_VALUE" &&
+      error.message === "Choose at least one harness."
+  );
+});
+
+test("TTY-like input does not infer a harness when raw mode is unavailable", async () => {
+  const input = new PassThrough();
+  Object.assign(input, { isTTY: true });
+  const output = new PassThrough();
+  const completion = completeInitChoices(parseArgs(["init"]), {
+    isTTY: true,
+    input,
+    output
+  });
+  setTimeout(() => input.write("project\n"), 10);
+  setTimeout(() => input.write("\n"), 30);
+  setTimeout(() => input.end("core\n"), 50);
+
+  await assert.rejects(
+    completion,
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_INVALID_VALUE" &&
+      error.message === "Choose at least one harness."
+  );
+});
+
 test("accepts harness lists, aliases, and rejects unusable selections", () => {
   assert.deepEqual(
     parseArgs(["init", "--harness", "codex,claude", "--profile", "core"])
@@ -333,11 +371,15 @@ test("accepts harness lists, aliases, and rejects unusable selections", () => {
   );
   assert.deepEqual(
     parseArgs(["init", "--harness", "all", "--profile", "core"]).harness,
-    ["codex", "claude"]
+    ["codex", "claude", "opencode"]
   );
   assert.deepEqual(
     parseArgs(["init", "--harness", "both", "--profile", "core"]).harness,
     ["codex", "claude"]
+  );
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "opencode", "--profile", "core"]).harness,
+    ["opencode"]
   );
 
   for (const value of ["codex,codex", "codex,cursor", ""]) {
