@@ -236,13 +236,15 @@ export async function createUninstallPlan(
         ? {
             kind: "remove",
             path: hook.path,
-            expectedHash: current.hash
+            expectedHash: current.hash,
+            disclosure: removal.disclosure
           }
         : {
             kind: "write",
             path: hook.path,
             content: removal.content,
-            expectedHash: current.hash
+            expectedHash: current.hash,
+            disclosure: removal.disclosure
           }
     );
   }

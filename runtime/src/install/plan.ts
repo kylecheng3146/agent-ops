@@ -665,7 +665,8 @@ export async function createInstallPlan(
         kind: "write",
         path: planned.record.path,
         content: planned.content,
-        expectedHash: current?.hash ?? null
+        expectedHash: current?.hash ?? null,
+        disclosure: planned.disclosure
       });
       hooks.push(planned.record);
     }
@@ -696,13 +697,15 @@ export async function createInstallPlan(
           ? {
               kind: "remove",
               path: hook.path,
-              expectedHash: current.hash
+              expectedHash: current.hash,
+              disclosure: removal.disclosure
             }
           : {
               kind: "write",
               path: hook.path,
               content: removal.content,
-              expectedHash: current.hash
+              expectedHash: current.hash,
+              disclosure: removal.disclosure
             }
       );
     }

@@ -31,5 +31,8 @@ initialization 開始，因此 `doctor` 會將該檢查回報為 `DEGRADED`，�
 `agent-ops update` 遷移；若 managed block 曾被修改，指令會 fail closed，
 直到該變更被檢查。
 
+Dry-run 的 human 與 JSON plan 不會輸出原始 harness settings 內容，只提供
+expected hash、content hash 與安全摘要；internal apply plan 仍保留完整合併後的設定。
+
 新增驗證命令時使用[驗收與證據規則](../../en/spec/acceptance-and-evidence.md)，
 設定 Codex、Claude Code 或 opencode 行為時使用[adapter 規則](../../en/spec/harness-adapters.md)。

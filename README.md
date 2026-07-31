@@ -143,6 +143,10 @@ files authoritative. Existing installations with the previous canonical
 wording are migrated by `agent-ops update`; changed managed blocks still fail
 closed.
 
+Dry-run plans keep harness settings writes opaque: human and JSON output expose
+only the expected hash, content hash, and a safe summary. The internal plan
+still retains the complete merged settings for transactional apply.
+
 For a full command reference, run `agent-ops --help`. The `task`, `verify`, and
 `review` commands support acceptance tracking and independent verification when
 the project configuration defines those workflows.

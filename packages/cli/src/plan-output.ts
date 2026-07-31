@@ -1,4 +1,4 @@
-import type { FileOperation } from "../../../runtime/src/fs/transaction.js";
+import type { PublicFileOperation } from "./public-plan.js";
 
 function escapeTerminalText(value: string): string {
   return value.replace(
@@ -18,7 +18,7 @@ function escapeTerminalText(value: string): string {
 export function formatOperationPlan(options: {
   readonly title: string;
   readonly metadata: readonly string[];
-  readonly operations: readonly FileOperation[];
+  readonly operations: readonly PublicFileOperation[];
 }): string {
   const lines = [
     options.title,
@@ -31,13 +31,20 @@ export function formatOperationPlan(options: {
       `  expected: ${operation.expectedHash ?? "<absent>"}`
     );
     if (operation.kind === "write") {
-      lines.push(
-        "  content:",
-        ...operation.content
-          .replace(/\n$/u, "")
-          .split("\n")
-          .map((line) => `    ${escapeTerminalText(line)}`)
-      );
+      if ("contentHash" in operation) {
+        lines.push(
+          `  content: <opaque ${escapeTerminalText(operation.contentHash)}>`,
+          `  summary: ${escapeTerminalText(operation.summary)}`
+        );
+      } else {
+        lines.push(
+          "  content:",
+          ...operation.content
+            .replace(/\n$/u, "")
+            .split("\n")
+            .map((line) => `    ${escapeTerminalText(line)}`)
+        );
+      }
     }
   }
   return `${lines.join("\n")}\n`;

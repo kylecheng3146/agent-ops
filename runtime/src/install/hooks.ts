@@ -14,6 +14,7 @@ export const CODEX_HOOK_PATH = ".codex/hooks.json";
 export interface HookRegistrationPlan {
   readonly record: ManagedHookRecord;
   readonly content: string;
+  readonly disclosure: "opaque";
 }
 
 function format(value: unknown): string {
@@ -81,6 +82,7 @@ export function planHookRegistration(options: {
   const merged = descriptor.mergeHooks(existing, managed);
   return {
     content: format(merged),
+    disclosure: "opaque",
     record: {
       id: `${options.harness}-hooks`,
       path,
@@ -94,6 +96,7 @@ export function planHookRegistration(options: {
 export interface HookRemovalPlan {
   readonly path: string;
   readonly content: string | null;
+  readonly disclosure: "opaque";
 }
 
 function onlyManagedRemains(
@@ -129,6 +132,7 @@ export function planHookRemoval(
   const stripped = descriptor.stripHooks(existing);
   return {
     path: record.path,
+    disclosure: "opaque",
     content: onlyManagedRemains(record.harness, stripped)
       ? null
       : format(stripped)

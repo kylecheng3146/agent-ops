@@ -11,6 +11,10 @@ import {
   type CliEnvelope
 } from "../output.js";
 import { formatOperationPlan } from "../plan-output.js";
+import {
+  toPublicUpdatePlan,
+  type PublicUpdatePlan
+} from "../public-plan.js";
 
 export interface UpdateCommandOptions {
   readonly args: ParsedArgs;
@@ -25,7 +29,7 @@ export interface UpdateCommandOptions {
 
 export interface UpdateCommandData {
   readonly applied: boolean;
-  readonly plan: UpdatePlan;
+  readonly plan: PublicUpdatePlan;
   readonly message: string;
   readonly text?: string;
 }
@@ -47,7 +51,7 @@ export function formatUpdatePlan(plan: UpdatePlan): string {
               .join(", ")
       }`
     ],
-    operations: plan.installation.operations
+    operations: toPublicUpdatePlan(plan).installation.operations
   });
 }
 
@@ -59,7 +63,7 @@ function updateError(
   return {
     code,
     status: "error",
-    data: { applied: false, plan, message },
+    data: { applied: false, plan: toPublicUpdatePlan(plan), message },
     errors: [{ code, message }]
   };
 }
@@ -86,7 +90,7 @@ export async function runUpdateCommand(
   if (options.args.dryRun) {
     return okEnvelope("UPDATE_PLAN_READY", {
       applied: false,
-      plan,
+      plan: toPublicUpdatePlan(plan),
       message: "Update plan calculated; no files were changed.",
       text: formatUpdatePlan(plan)
     });
@@ -111,7 +115,7 @@ export async function runUpdateCommand(
   await applyUpdatePlan(options.root, plan);
   return okEnvelope("UPDATE_APPLIED", {
     applied: true,
-    plan,
+    plan: toPublicUpdatePlan(plan),
     message: `Managed installation updated to ${plan.targetVersion}.`
   });
 }

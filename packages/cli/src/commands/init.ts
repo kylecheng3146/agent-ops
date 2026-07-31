@@ -11,6 +11,10 @@ import {
   type CliEnvelope
 } from "../output.js";
 import { formatOperationPlan } from "../plan-output.js";
+import {
+  toPublicInstallPlan,
+  type PublicInstallPlan
+} from "../public-plan.js";
 
 export interface InitCommandOptions {
   readonly args: ParsedArgs;
@@ -24,7 +28,7 @@ export interface InitCommandOptions {
 
 export interface InitCommandData {
   readonly applied: boolean;
-  readonly plan: InstallPlan;
+  readonly plan: PublicInstallPlan;
   readonly message: string;
   readonly text?: string;
 }
@@ -49,7 +53,7 @@ export function formatInstallPlan(plan: InstallPlan): string {
             )
           ])
     ],
-    operations: plan.operations
+    operations: toPublicInstallPlan(plan).operations
   });
 }
 
@@ -76,7 +80,7 @@ function initError(
   return {
     code,
     status: "error",
-    data: { applied: false, plan, message },
+    data: { applied: false, plan: toPublicInstallPlan(plan), message },
     errors: [{ code, message }]
   };
 }
@@ -113,7 +117,7 @@ export async function runInitCommand(
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {
       applied: false,
-      plan,
+      plan: toPublicInstallPlan(plan),
       message: "Installation plan calculated; no files were written.",
       text: formatInstallPlan(plan)
     });
@@ -140,7 +144,7 @@ export async function runInitCommand(
   await applyInstallPlan(options.root, plan);
   return okEnvelope("INIT_APPLIED", {
     applied: true,
-    plan,
+    plan: toPublicInstallPlan(plan),
     message: appliedMessage(plan)
   });
 }

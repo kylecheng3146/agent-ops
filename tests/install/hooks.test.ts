@@ -50,6 +50,7 @@ test("registration preserves foreign settings and hooks", () => {
     })
   });
   assert.notEqual(planned, null);
+  assert.equal(planned?.disclosure, "opaque");
   const settings = JSON.parse(planned?.content ?? "") as {
     model: string;
     hooks: Record<string, { hooks: { args?: string[] }[] }[]>;
@@ -107,6 +108,7 @@ test("removal strips only owned handlers", () => {
     claudeRecord(),
     registered?.content ?? ""
   );
+  assert.equal(removal.disclosure, "opaque");
   const settings = JSON.parse(removal.content ?? "") as {
     hooks: Record<string, { hooks: { args?: string[] }[] }[]>;
   };

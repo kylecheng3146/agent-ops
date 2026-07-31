@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
-  rm
+  rm,
+  writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +36,31 @@ async function install(root: string): Promise<void> {
       profiles: ["core"],
       adapters: commonHarnessAdapters(),
       toolkitVersion: "0.1.0"
+    })
+  );
+}
+
+async function installClaudeWithSensitiveSettings(root: string): Promise<void> {
+  await mkdir(join(root, ".claude"), { recursive: true });
+  await writeFile(
+    join(root, ".claude", "settings.json"),
+    JSON.stringify({
+      permissions: {
+        allow: ["FAKE_SECRET_SENTINEL", "FAKE_FOREIGN_COMMAND"]
+      },
+      hooks: {}
+    })
+  );
+  await applyInstallPlan(
+    root,
+    await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      toolkitVersion: "0.1.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
     })
   );
 }
@@ -139,6 +166,45 @@ test("uninstall command dry-runs then removes only managed content", async () =>
     await assert.rejects(readFile(join(root, "AGENTS.md")));
     await assert.rejects(
       readFile(join(root, ".agent-ops", "manifest.json"))
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("public update and uninstall envelopes hide foreign Claude settings values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
+  try {
+    await installClaudeWithSensitiveSettings(root);
+    const update = await runUpdateCommand({
+      args: parseArgs(["update", "--dry-run", "--json"]),
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      isTTY: false,
+      confirm: async () => false
+    });
+    const uninstall = await runUninstallCommand({
+      args: parseArgs(["uninstall", "--dry-run", "--json"]),
+      root,
+      isTTY: false,
+      confirm: async () => false
+    });
+
+    for (const envelope of [update, uninstall]) {
+      const serialized = JSON.stringify(envelope);
+      assert.doesNotMatch(
+        serialized,
+        /FAKE_SECRET_SENTINEL|FAKE_FOREIGN_COMMAND/u
+      );
+      assert.doesNotMatch(
+        envelope.data?.text ?? "",
+        /FAKE_SECRET_SENTINEL|FAKE_FOREIGN_COMMAND/u
+      );
+    }
+    assert.match(
+      await readFile(join(root, ".claude", "settings.json"), "utf8"),
+      /FAKE_SECRET_SENTINEL/u
     );
   } finally {
     await rm(root, { recursive: true, force: true });

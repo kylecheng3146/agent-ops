@@ -33,6 +33,10 @@ Installations using the previous canonical routing wording are migrated by
 `agent-ops update`. If a managed block was edited, the command fails closed
 until the change is reviewed.
 
+Dry-run human and JSON plans omit raw harness settings content. They expose the
+expected hash, content hash, and a safe summary while the internal apply plan
+retains the complete merged settings.
+
 Use the [acceptance and evidence rules](../spec/acceptance-and-evidence.md)
 when adding verification commands, and the [adapter rules](../spec/harness-adapters.md)
 when configuring Codex, Claude Code, or opencode behavior.

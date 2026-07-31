@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -7,7 +8,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
@@ -136,6 +137,40 @@ test("migrates a manifest-owned version 0 config during update", async () => {
       JSON.parse(await readFile(configPath, "utf8")) as unknown,
       expectedVersionOne
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("internal update plans retain foreign settings for apply but mark them opaque", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await mkdir(join(root, ".claude"), { recursive: true });
+    await writeFile(
+      join(root, ".claude", "settings.json"),
+      await readFile(
+        resolve("tests", "fixtures", "claude", "settings-sensitive.json"),
+        "utf8"
+      )
+    );
+    await installHarnesses(root, "project", ["claude"]);
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    const operation = plan.installation.operations.find(
+      ({ path }) => path === ".claude/settings.json"
+    );
+    assert.equal(operation?.kind, "write");
+    if (operation?.kind !== "write") {
+      assert.fail("expected a Claude settings update");
+    }
+    assert.match(operation.content, /FAKE_SECRET_SENTINEL/u);
+    assert.match(operation.content, /FAKE_FOREIGN_COMMAND/u);
+    assert.equal(operation.disclosure, "opaque");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

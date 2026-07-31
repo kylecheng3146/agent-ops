@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   rm,
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { parseArgs } from "../../packages/cli/src/args.js";
@@ -17,6 +18,7 @@ import {
 import type {
   HarnessInstallAdapter
 } from "../../runtime/src/install/harness.js";
+import { commonHarnessAdapters } from "../../runtime/src/install/harness.js";
 
 function codexAdapter(): HarnessInstallAdapter {
   return {
@@ -94,6 +96,56 @@ test("dry-run returns the complete plan without writing", async () => {
     assert.match(result.data?.text ?? "", /expected: <absent>/);
     assert.match(result.data?.text ?? "", /content:/);
     await assert.rejects(readFile(join(root, ".agent-ops", "config.json")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("public init plans hide foreign Claude settings values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  try {
+    await mkdir(join(root, ".claude"), { recursive: true });
+    await writeFile(
+      join(root, ".claude", "settings.json"),
+      await readFile(
+        resolve("tests", "fixtures", "claude", "settings-sensitive.json"),
+        "utf8"
+      )
+    );
+
+    const result = await runInitCommand({
+      args: parseArgs([
+        "init",
+        "--scope",
+        "project",
+        "--harness",
+        "claude",
+        "--profile",
+        "advisory",
+        "--dry-run",
+        "--json"
+      ]),
+      root,
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      isTTY: false,
+      confirm: async () => false
+    });
+
+    const serialized = JSON.stringify(result);
+    assert.doesNotMatch(
+      serialized,
+      /FAKE_SECRET_SENTINEL|FAKE_FOREIGN_COMMAND/u
+    );
+    const operation = result.data?.plan.operations.find(
+      ({ path }) => path === ".claude/settings.json"
+    );
+    assert.equal(operation?.kind, "write");
+    if (operation?.kind !== "write") {
+      assert.fail("expected a Claude settings write");
+    }
+    assert.equal("content" in operation, false);
+    assert.equal("contentHash" in operation, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

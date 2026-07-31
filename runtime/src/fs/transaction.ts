@@ -17,17 +17,21 @@ import {
 
 export { AgentOpsError } from "./paths.js";
 
+export type OperationDisclosure = "full" | "opaque";
+
 export interface WriteOperation {
   kind: "write";
   path: string;
   content: string;
   expectedHash: string | null;
+  disclosure?: OperationDisclosure;
 }
 
 export interface RemoveOperation {
   kind: "remove";
   path: string;
   expectedHash: string | null;
+  disclosure?: OperationDisclosure;
 }
 
 export type FileOperation = RemoveOperation | WriteOperation;
@@ -300,7 +304,16 @@ function assertTransactionPlan(plan: unknown): asserts plan is TransactionPlan {
     if (operation.kind === "write") {
       if (
         typeof operation.content !== "string" ||
-        !hasOnlyKeys(operation, ["kind", "path", "content", "expectedHash"])
+        (operation.disclosure !== undefined &&
+          operation.disclosure !== "full" &&
+          operation.disclosure !== "opaque") ||
+        !hasOnlyKeys(operation, [
+          "kind",
+          "path",
+          "content",
+          "expectedHash",
+          "disclosure"
+        ])
       ) {
         throw new AgentOpsError(
           "INVALID_TRANSACTION_PLAN",
@@ -311,7 +324,10 @@ function assertTransactionPlan(plan: unknown): asserts plan is TransactionPlan {
     }
     if (
       operation.kind !== "remove" ||
-      !hasOnlyKeys(operation, ["kind", "path", "expectedHash"])
+      (operation.disclosure !== undefined &&
+        operation.disclosure !== "full" &&
+        operation.disclosure !== "opaque") ||
+      !hasOnlyKeys(operation, ["kind", "path", "expectedHash", "disclosure"])
     ) {
       throw new AgentOpsError(
         "INVALID_TRANSACTION_PLAN",
