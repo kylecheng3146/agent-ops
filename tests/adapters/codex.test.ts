@@ -28,13 +28,14 @@ async function fixture(): Promise<unknown> {
   ) as unknown;
 }
 
+const RUNTIME_PATH = "/opt/agent-ops/hook-entry.js";
+
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
   const existing = await fixture();
-  const managed = buildCodexHookConfig([
-    "lifecycle-summary",
-    "command-policy",
-    "optional-stop-verify"
-  ]);
+  const managed = buildCodexHookConfig(
+    ["lifecycle-summary", "command-policy", "optional-stop-verify"],
+    RUNTIME_PATH
+  );
 
   const merged = mergeCodexHookConfig(existing, managed);
 
@@ -48,12 +49,18 @@ test("merges only agent-ops groups and preserves unrelated Codex hooks", async (
   assert.match(serialized, /mixed-user-policy check/);
   assert.match(serialized, /user-audit append/);
   assert.doesNotMatch(serialized, /agent-ops hook codex legacy/);
-  assert.match(serialized, /agent-ops hook codex PreToolUse/);
-  assert.match(serialized, /agent-ops hook codex SessionStart/);
-  assert.match(serialized, /agent-ops hook codex Stop/);
+  for (const event of ["PreToolUse", "SessionStart", "Stop"]) {
+    assert.match(
+      serialized,
+      new RegExp(
+        `node \\\\"${RUNTIME_PATH}\\\\" codex ${event} --managed-by=agent-ops`
+      ),
+      event
+    );
+  }
 });
 
-test("uses one hooks.json representation and portable commands per layer", () => {
+test("uses one hooks.json representation and an absolute runtime path", () => {
   assert.deepEqual(codexHookTarget("project"), {
     path: ".codex/hooks.json",
     representation: "json",
@@ -65,12 +72,47 @@ test("uses one hooks.json representation and portable commands per layer", () =>
     requiresProjectTrust: false
   });
 
-  const serialized = JSON.stringify(
-    buildCodexHookConfig(["command-policy"])
+  const expected =
+    `node "${RUNTIME_PATH}" codex PreToolUse --managed-by=agent-ops`;
+  const config = buildCodexHookConfig(["command-policy"], RUNTIME_PATH);
+  const hook = config.hooks.PreToolUse?.[0]?.hooks[0];
+  assert.equal(hook?.command, expected);
+  // The command is one shell string, so the path stays quoted and PATH is
+  // never consulted for the agent-ops binary.
+  assert.equal(hook?.commandWindows, expected);
+});
+
+test("rejects runtime paths that break the quoted command", () => {
+  for (const invalid of ["", '/opt/a"b/hook.js', "/opt/a\0b/hook.js"]) {
+    assert.throws(
+      () => buildCodexHookConfig(["command-policy"], invalid),
+      /Codex hook runtime path is invalid/,
+      JSON.stringify(invalid)
+    );
+  }
+});
+
+test("still recognizes the pre-0.1.5 PATH-resolved handler as owned", () => {
+  const legacy = {
+    hooks: {
+      SessionStart: [
+        {
+          hooks: [
+            { type: "command", command: "agent-ops hook codex SessionStart" }
+          ]
+        }
+      ]
+    }
+  };
+  const merged = mergeCodexHookConfig(
+    legacy,
+    buildCodexHookConfig(["lifecycle-summary"], RUNTIME_PATH)
   );
-  assert.match(serialized, /agent-ops hook codex PreToolUse/);
-  assert.doesNotMatch(serialized, /(?:\/Users\/|\/home\/|~\/|\.cmd\b)/);
-  assert.match(serialized, /"commandWindows":"agent-ops hook codex PreToolUse"/);
+  assert.equal(merged.hooks.SessionStart?.length, 1);
+  assert.doesNotMatch(
+    JSON.stringify(merged),
+    /"command":"agent-ops hook codex SessionStart"/
+  );
 });
 
 test("normalizes only documented Codex common fields", () => {

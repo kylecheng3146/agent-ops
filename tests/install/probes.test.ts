@@ -36,6 +36,22 @@ const CODEX_HOOKS = {
         hooks: [
           {
             type: "command",
+            command:
+              'node "/opt/agent-ops/hook-entry.js" codex SessionStart --managed-by=agent-ops'
+          }
+        ]
+      }
+    ]
+  }
+};
+
+const LEGACY_CODEX_HOOKS = {
+  hooks: {
+    SessionStart: [
+      {
+        hooks: [
+          {
+            type: "command",
             command: "agent-ops hook codex SessionStart"
           }
         ]
@@ -83,6 +99,18 @@ test("advisory installations require owned handlers in every harness", () => {
       codexHooks: null
     }),
     true
+  );
+});
+
+test("a legacy PATH-resolved codex handler needs an update", () => {
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: "codex",
+      profiles: ["core", "advisory"],
+      claudeSettings: null,
+      codexHooks: LEGACY_CODEX_HOOKS
+    }),
+    false
   );
 });
 

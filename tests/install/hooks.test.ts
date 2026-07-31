@@ -82,7 +82,9 @@ test("codex registration targets its own hook file", () => {
   assert.equal(planned?.record.path, CODEX_HOOK_PATH);
   assert.deepEqual(planned?.record.events, ["PreToolUse"]);
   assert.equal(
-    planned?.content.includes("agent-ops hook codex PreToolUse"),
+    planned?.content.includes(
+      `node \\"${RUNTIME_PATH}\\" codex PreToolUse --managed-by=agent-ops`
+    ),
     true
   );
 });

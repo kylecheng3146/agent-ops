@@ -1,11 +1,13 @@
 import type { AgentOpsConfig, Harness } from "../contracts.js";
 import { buildClaudeHookSettings } from "../adapters/claude/config.js";
-import { buildCodexHookConfig } from "../adapters/codex/config.js";
+import {
+  buildCodexHookConfig,
+  CODEX_MANAGED_MARKER
+} from "../adapters/codex/config.js";
 import type { DoctorStatus } from "./doctor.js";
 import { resolveProfiles } from "./profiles.js";
 
 const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
-const CODEX_COMMAND_PREFIX = "agent-ops hook codex ";
 
 export interface HookRegistrationInput {
   readonly harness: Harness;
@@ -49,11 +51,15 @@ function isManagedClaudeHandler(handler: unknown): boolean {
   );
 }
 
+/**
+ * Only the marker counts. A legacy PATH-resolved handler is deliberately not
+ * satisfying, so doctor reports the install as needing an update.
+ */
 function isManagedCodexHandler(handler: unknown): boolean {
   return (
     isRecord(handler) &&
     typeof handler.command === "string" &&
-    handler.command.startsWith(CODEX_COMMAND_PREFIX)
+    handler.command.includes(CODEX_MANAGED_MARKER)
   );
 }
 
@@ -69,7 +75,9 @@ export function hookRegistrationSatisfied(
   const claudeEvents = Object.keys(
     buildClaudeHookSettings(capabilities, "probe").hooks
   );
-  const codexEvents = Object.keys(buildCodexHookConfig(capabilities).hooks);
+  const codexEvents = Object.keys(
+    buildCodexHookConfig(capabilities, "probe").hooks
+  );
   if (claudeEvents.length === 0 && codexEvents.length === 0) {
     return true;
   }

@@ -75,7 +75,10 @@ export function planHookRegistration(options: {
           options.capabilities,
           options.runtimePath
         )
-      : buildCodexHookConfig(options.capabilities);
+      : buildCodexHookConfig(
+          options.capabilities,
+          options.runtimePath
+        );
   const events = Object.keys(managed.hooks) as HookEventName[];
   if (events.length === 0) {
     return null;
