@@ -67,6 +67,11 @@ export interface HarnessManagedBlock {
   readonly content: string;
 }
 
+export interface HarnessRoutingSpec {
+  readonly desired: string;
+  readonly legacy: readonly string[];
+}
+
 export interface HarnessContribution {
   readonly artifacts: readonly HarnessArtifact[];
   readonly blocks: readonly HarnessManagedBlock[];
@@ -96,7 +101,7 @@ export interface HarnessHookSettings {
 export interface HarnessDescriptor {
   readonly id: HarnessId;
   readonly instructionFile: string;
-  readonly routingBlock: string;
+  readonly routing: HarnessRoutingSpec;
   readonly hookPath: string;
   readonly hookPathForScope?: (scope: InstallScope, root?: string) => string;
   /** Settings keys that may remain when only our JSON hook file is left. */
@@ -176,7 +181,7 @@ function jsonHookRegistered(
 function createJsonDescriptor(options: {
   readonly id: HarnessId;
   readonly instructionFile: string;
-  readonly routingBlock: string;
+  readonly routing: HarnessRoutingSpec;
   readonly hookPath: string;
   readonly ownSettingsKeys: readonly string[];
   readonly buildHooks: (
@@ -203,12 +208,27 @@ function createJsonDescriptor(options: {
   return descriptor;
 }
 
+const AGENTS_ROUTING: HarnessRoutingSpec = {
+  desired:
+    "## Loop Engineering\n\nLoad `.agent-ops/AGENTS.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.\n",
+  legacy: [
+    "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.\n"
+  ]
+};
+
+const CLAUDE_ROUTING: HarnessRoutingSpec = {
+  desired:
+    "## Loop Engineering\n\nLoad `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.\n",
+  legacy: [
+    "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.\n"
+  ]
+};
+
 const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
   codex: createJsonDescriptor({
     id: "codex",
     instructionFile: "AGENTS.md",
-    routingBlock:
-      "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.\n",
+    routing: AGENTS_ROUTING,
     hookPath: ".codex/hooks.json",
     ownSettingsKeys: ["hooks", "description"],
     buildHooks: (capabilities, runtimePath) =>
@@ -230,8 +250,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
   claude: createJsonDescriptor({
     id: "claude",
     instructionFile: "CLAUDE.md",
-    routingBlock:
-      "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.\n",
+    routing: CLAUDE_ROUTING,
     hookPath: ".claude/settings.json",
     ownSettingsKeys: ["hooks"],
     buildHooks: (capabilities, runtimePath) =>
@@ -250,8 +269,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
   opencode: {
     id: "opencode",
     instructionFile: "AGENTS.md",
-    routingBlock:
-      "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.\n",
+    routing: AGENTS_ROUTING,
     hookPath: opencodePluginTarget("project").path,
     hookPathForScope: (scope, root) => opencodePluginTarget(scope, root).path,
     hookRegistered: (source, capabilities) =>
@@ -307,8 +325,8 @@ export function resolveHarnessSelection(value: string): Harness | null {
     : null;
 }
 
-export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.routingBlock;
-export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.routingBlock;
+export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.routing.desired;
+export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.routing.desired;
 
 function managedRules(
   descriptor: HarnessDescriptor,
@@ -435,7 +453,7 @@ export function commonHarnessAdapters(): readonly HarnessInstallAdapter[] {
                   ? descriptor.instructionFile
                   : `.${id}/${descriptor.instructionFile}`,
               version: 1,
-              content: descriptor.routingBlock
+              content: descriptor.routing.desired
             }
           ]
         };

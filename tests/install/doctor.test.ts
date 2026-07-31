@@ -29,9 +29,13 @@ import { createInstallPlan } from "../../runtime/src/install/plan.js";
 const START_MARKER = "<!-- agent-ops:start codex-routing v1 -->";
 const END_MARKER = "<!-- agent-ops:end codex-routing -->";
 const MANAGED_BODY =
+  "## Loop Engineering\n\nLoad `.agent-ops/AGENTS.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const LEGACY_MANAGED_BODY =
   "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
 const MANAGED_BLOCK =
   `${START_MARKER}\n${MANAGED_BODY}\n${END_MARKER}\n`;
+const LEGACY_MANAGED_BLOCK =
+  `${START_MARKER}\n${LEGACY_MANAGED_BODY}\n${END_MARKER}\n`;
 const CONFIG = {
   schemaVersion: 1,
   profiles: ["core"],
@@ -82,12 +86,14 @@ function checkStatus(
   return check.status;
 }
 
-async function createInstallation(): Promise<string> {
+async function createInstallation(
+  managedBlock = MANAGED_BLOCK
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-"));
   await mkdir(join(root, ".agent-ops"), { recursive: true });
   const configSource = `${JSON.stringify(CONFIG, null, 2)}\n`;
   const rulesSource = "# Managed rules\n";
-  const agentsSource = `# User instructions\n\n${MANAGED_BLOCK}`;
+  const agentsSource = `# User instructions\n\n${managedBlock}`;
   await Promise.all([
     writeFile(join(root, ".agent-ops", "config.json"), configSource),
     writeFile(join(root, ".agent-ops", "AGENTS.md"), rulesSource),
@@ -220,6 +226,44 @@ test("fails markers when managed block content changes", async () => {
       `# User instructions\n\n${START_MARKER}\ntampered body\n${END_MARKER}\n`
     );
 
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "markers"), "FAIL");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("recognizes an exact legacy routing block as managed but needing migration", async () => {
+  const root = await createInstallation(LEGACY_MANAGED_BLOCK);
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "markers"), "DEGRADED");
+    const markerCheck = report.checks.find(
+      (candidate) => candidate.id === "markers"
+    );
+    assert.match(markerCheck?.message ?? "", /legacy|migrat/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a changed legacy routing block instead of treating it as managed", async () => {
+  const changedLegacy = LEGACY_MANAGED_BLOCK.replace(
+    "canonical Loop Engineering specification",
+    "changed Loop Engineering specification"
+  );
+  const root = await createInstallation(changedLegacy);
+  try {
     const report = await doctorInstallation({
       root,
       nodeVersion: "22.14.0",

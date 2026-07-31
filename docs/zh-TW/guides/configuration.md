@@ -6,8 +6,10 @@
 `codex,opencode` 這類逗號分隔的子集。`both` 仍是 legacy Codex 加 Claude
 selection 的 input alias。
 
-Project Codex 與 opencode installation 共用 managed `AGENTS.md` routing
-block 與 `.agent-ops/AGENTS.md` rules artifact。Opencode 另外取得
+Project Codex 與 opencode installation 共用 managed supplemental
+`AGENTS.md` routing block 與 `.agent-ops/AGENTS.md` rules artifact。該 block
+只載入 managed baseline，並保留 project-specific instructions 的權威性。
+Claude 使用對應的 `CLAUDE.md` route 與 `.agent-ops/CLAUDE.md` artifact。Opencode 另外取得
 agent-ops 擁有的 `.opencode/plugins/agent-ops.js`；不會修改 `opencode.json`。
 Plugin 使用安裝時的 absolute runtime path 產生，因此請透過
 `agent-ops update` 更新，不要手動編輯。
@@ -24,6 +26,10 @@ initialization 開始，因此 `doctor` 會將該檢查回報為 `DEGRADED`，�
 若要縮減既有 installation，請將目標清單傳給
 `agent-ops update --harness`；shared path 會繼續受管理，被移除 harness
 擁有的 artifact、marker 與 hook 則會被安全同步。
+
+使用舊版 canonical routing wording 的 installation 會由
+`agent-ops update` 遷移；若 managed block 曾被修改，指令會 fail closed，
+直到該變更被檢查。
 
 新增驗證命令時使用[驗收與證據規則](../../en/spec/acceptance-and-evidence.md)，
 設定 Codex、Claude Code 或 opencode 行為時使用[adapter 規則](../../en/spec/harness-adapters.md)。

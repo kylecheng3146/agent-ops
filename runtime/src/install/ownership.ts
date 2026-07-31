@@ -23,6 +23,7 @@ export interface ExpectedManagedMarker {
   readonly startMarker: string;
   readonly endMarker: string;
   readonly content: string;
+  readonly legacyContent: readonly string[];
 }
 
 function expectedMarker(
@@ -40,7 +41,8 @@ function expectedMarker(
         : `.${id}/${descriptor.instructionFile}`,
     startMarker: markers.start,
     endMarker: markers.end,
-    content: descriptor.routingBlock
+    content: descriptor.routing.desired,
+    legacyContent: descriptor.routing.legacy
   };
 }
 
@@ -215,7 +217,7 @@ export function assertExpectedManagedBlock(
   source: string,
   marker: ManagedMarkerRecord,
   expected: ExpectedManagedMarker
-): void {
+): "desired" | "legacy" {
   const startIndex = source.indexOf(marker.startMarker);
   const endIndex = source.indexOf(marker.endMarker);
   if (
@@ -228,19 +230,28 @@ export function assertExpectedManagedBlock(
       `Managed block boundaries changed after installation: ${marker.path}`
     );
   }
-  const expectedBlock = applyManagedBlock("", {
-    id: expected.id,
-    version: 1,
-    content: expected.content
-  }).replace(/\n$/u, "");
   const currentBlock = source.slice(
     startIndex,
     endIndex + marker.endMarker.length
   );
-  if (currentBlock !== expectedBlock) {
-    throw new AgentOpsError(
-      "MANAGED_BLOCK_CHANGED",
-      `Managed block content changed after installation: ${marker.path}`
-    );
+  const candidates: readonly ["desired" | "legacy", string][] = [
+    ["desired", expected.content],
+    ...expected.legacyContent.map(
+      (content): ["desired" | "legacy", string] => ["legacy", content]
+    )
+  ];
+  for (const [kind, content] of candidates) {
+    const expectedBlock = applyManagedBlock("", {
+      id: expected.id,
+      version: 1,
+      content
+    }).replace(/\n$/u, "");
+    if (currentBlock === expectedBlock) {
+      return kind;
+    }
   }
+  throw new AgentOpsError(
+    "MANAGED_BLOCK_CHANGED",
+    `Managed block content changed after installation: ${marker.path}`
+  );
 }

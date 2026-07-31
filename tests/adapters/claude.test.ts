@@ -5,7 +5,6 @@ import test from "node:test";
 
 import {
   buildClaudeHookSettings,
-  claudeRoutingBlock,
   claudeSettingsTarget,
   mergeClaudeSettings
 } from "../../runtime/src/adapters/claude/config.js";
@@ -92,15 +91,6 @@ test("prefers direct exec and keeps paths with spaces as one argument", () => {
     timeout: 30
   });
   assert.equal("shell" in (handler ?? {}), false);
-});
-
-test("provides a bounded CLAUDE.md routing block as context, not policy", () => {
-  const block = claudeRoutingBlock();
-
-  assert.match(block, /\.agent-ops\/CLAUDE\.md/);
-  assert.match(block, /context/i);
-  assert.doesNotMatch(block, /system prompt|hard override/i);
-  assert.ok(block.length < 500);
 });
 
 test("normalizes only fields used by Claude hook policy", () => {

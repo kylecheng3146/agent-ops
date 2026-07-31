@@ -23,6 +23,23 @@ import {
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { sha256 } from "../../runtime/src/fs/hash.js";
 
+const CODEX_START = "<!-- agent-ops:start agents-routing v1 -->";
+const CODEX_END = "<!-- agent-ops:end agents-routing -->";
+const CODEX_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
+const CLAUDE_START = "<!-- agent-ops:start claude-routing v1 -->";
+const CLAUDE_END = "<!-- agent-ops:end claude-routing -->";
+const CLAUDE_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
+
+function managedBlock(
+  start: string,
+  body: string,
+  end: string
+): string {
+  return `${start}\n${body}\n${end}\n`;
+}
+
 async function install(root: string): Promise<void> {
   const plan = await createInstallPlan({
     root,
@@ -63,6 +80,31 @@ test("uninstall removes only managed files and blocks", async () => {
     ]) {
       await assert.rejects(readFile(join(root, path)));
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("uninstall removes exact legacy routing blocks and preserves surrounding bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    const claudePath = join(root, "CLAUDE.md");
+    await writeFile(
+      agentsPath,
+      `before-agents\n\n${managedBlock(CODEX_START, CODEX_LEGACY_BODY, CODEX_END)}\nafter-agents\n`
+    );
+    await writeFile(
+      claudePath,
+      `before-claude\n\n${managedBlock(CLAUDE_START, CLAUDE_LEGACY_BODY, CLAUDE_END)}\nafter-claude\n`
+    );
+
+    const plan = await createUninstallPlan(root);
+    await applyUninstallPlan(root, plan);
+
+    assert.equal(await readFile(agentsPath, "utf8"), "before-agents\n\nafter-agents\n");
+    assert.equal(await readFile(claudePath, "utf8"), "before-claude\n\nafter-claude\n");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -412,7 +454,7 @@ test("changed managed block content fails closed before removal", async () => {
     const changed = (
       await readFile(agentsPath, "utf8")
     ).replace(
-      "Use `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.",
+      "Load `.agent-ops/AGENTS.md` as the agent-ops managed baseline.",
       "User content moved inside a managed block."
     );
     await writeFile(agentsPath, changed);

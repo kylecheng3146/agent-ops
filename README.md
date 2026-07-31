@@ -137,6 +137,12 @@ can block the tool. Because opencode initializes its lifecycle plugin at app
 startup rather than once per session, `doctor` reports its lifecycle-summary
 check as `DEGRADED`.
 
+The generated `AGENTS.md` and `CLAUDE.md` routing blocks are supplemental: they
+load the managed baseline while leaving project-specific instructions in those
+files authoritative. Existing installations with the previous canonical
+wording are migrated by `agent-ops update`; changed managed blocks still fail
+closed.
+
 For a full command reference, run `agent-ops --help`. The `task`, `verify`, and
 `review` commands support acceptance tracking and independent verification when
 the project configuration defines those workflows.

@@ -22,6 +22,27 @@ import {
 } from "../../runtime/src/install/update.js";
 import type { RegistryClient } from "../../runtime/src/registry/npm.js";
 
+const CODEX_START = "<!-- agent-ops:start agents-routing v1 -->";
+const CODEX_END = "<!-- agent-ops:end agents-routing -->";
+const CODEX_DESIRED_BODY =
+  "## Loop Engineering\n\nLoad `.agent-ops/AGENTS.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const CODEX_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
+const CLAUDE_START = "<!-- agent-ops:start claude-routing v1 -->";
+const CLAUDE_END = "<!-- agent-ops:end claude-routing -->";
+const CLAUDE_DESIRED_BODY =
+  "## Loop Engineering\n\nLoad `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const CLAUDE_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
+
+function managedBlock(
+  start: string,
+  body: string,
+  end: string
+): string {
+  return `${start}\n${body}\n${end}\n`;
+}
+
 async function install(root: string): Promise<void> {
   await applyInstallPlan(
     root,
@@ -114,6 +135,132 @@ test("migrates a manifest-owned version 0 config during update", async () => {
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")) as unknown,
       expectedVersionOne
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("updates an exact legacy Codex routing block and preserves surrounding bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    const source = [
+      "# User instructions before",
+      "",
+      managedBlock(CODEX_START, CODEX_LEGACY_BODY, CODEX_END).trimEnd(),
+      "",
+      "User instructions after",
+      ""
+    ].join("\n");
+    await writeFile(agentsPath, source);
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+
+    const operation = plan.installation.operations.find(
+      ({ path }) => path === "AGENTS.md"
+    );
+    assert.equal(operation?.kind, "write");
+    if (operation?.kind !== "write") {
+      assert.fail("legacy routing update must rewrite AGENTS.md");
+    }
+    assert.equal(
+      operation.content,
+      [
+        "# User instructions before",
+        "",
+        managedBlock(CODEX_START, CODEX_DESIRED_BODY, CODEX_END).trimEnd(),
+        "",
+        "User instructions after",
+        ""
+      ].join("\n")
+    );
+
+    await applyUpdatePlan(root, plan);
+    assert.equal(await readFile(agentsPath, "utf8"), operation.content);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("migrates Codex and Claude legacy routing blocks in one update", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["codex", "claude"],
+        profiles: ["core"],
+        adapters: commonHarnessAdapters(),
+        toolkitVersion: "0.1.0"
+      })
+    );
+    const agentsPath = join(root, "AGENTS.md");
+    const claudePath = join(root, "CLAUDE.md");
+    await writeFile(
+      agentsPath,
+      `before-agents\n${managedBlock(CODEX_START, CODEX_LEGACY_BODY, CODEX_END)}after-agents\n`
+    );
+    await writeFile(
+      claudePath,
+      `before-claude\n${managedBlock(CLAUDE_START, CLAUDE_LEGACY_BODY, CLAUDE_END)}after-claude\n`
+    );
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+    const routingWrites = plan.installation.operations.filter(
+      ({ kind, path }) =>
+        kind === "write" && (path === "AGENTS.md" || path === "CLAUDE.md")
+    );
+    assert.equal(routingWrites.length, 2);
+
+    await applyUpdatePlan(root, plan);
+    assert.equal(
+      await readFile(agentsPath, "utf8"),
+      `before-agents\n${managedBlock(CODEX_START, CODEX_DESIRED_BODY, CODEX_END)}after-agents\n`
+    );
+    assert.equal(
+      await readFile(claudePath, "utf8"),
+      `before-claude\n${managedBlock(CLAUDE_START, CLAUDE_DESIRED_BODY, CLAUDE_END)}after-claude\n`
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("changed legacy routing content fails closed during update", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    await writeFile(
+      agentsPath,
+      managedBlock(
+        CODEX_START,
+        CODEX_LEGACY_BODY.replace("canonical", "user-edited"),
+        CODEX_END
+      )
+    );
+
+    await assert.rejects(
+      createUpdatePlan({
+        root,
+        adapters: commonHarnessAdapters(),
+        targetVersion: "0.2.0"
+      }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "UPDATE_INSTALLATION_INVALID"
     );
   } finally {
     await rm(root, { recursive: true, force: true });

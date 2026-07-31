@@ -292,6 +292,7 @@ async function checkMarkers(
   }
 
   const failures: string[] = [];
+  const legacyPaths: string[] = [];
   const expectedMarkers =
     assertSupportedManifestOwnership(manifest, root);
   for (const marker of manifest.markers) {
@@ -302,18 +303,29 @@ async function checkMarkers(
         failures.push(marker.path);
         continue;
       }
-      assertExpectedManagedBlock(source, marker, expected);
+      const match = assertExpectedManagedBlock(source, marker, expected);
+      if (match === "legacy") {
+        legacyPaths.push(marker.path);
+      }
     } catch {
       failures.push(marker.path);
     }
   }
-  return failures.length === 0
-    ? check("markers", "PASS", "All managed block markers are intact.")
-    : check(
-        "markers",
-        "FAIL",
-        `Managed block markers failed verification: ${failures.join(", ")}.`
-      );
+  if (failures.length > 0) {
+    return check(
+      "markers",
+      "FAIL",
+      `Managed block markers failed verification: ${failures.join(", ")}.`
+    );
+  }
+  if (legacyPaths.length > 0) {
+    return check(
+      "markers",
+      "DEGRADED",
+      `Legacy managed routing blocks need migration: ${legacyPaths.join(", ")}.`
+    );
+  }
+  return check("markers", "PASS", "All managed block markers are intact.");
 }
 
 async function checkProbe(

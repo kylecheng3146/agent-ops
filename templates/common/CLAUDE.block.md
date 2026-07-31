@@ -1,3 +1,4 @@
 ## Loop Engineering
 
-Use `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.
+Load `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.
+Project-specific instructions in this file remain authoritative.

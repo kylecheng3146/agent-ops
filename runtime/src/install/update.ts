@@ -174,7 +174,11 @@ export async function createUpdatePlan(
     "manifest",
     "markers"
   ] as const) {
-    if (statusOf(report, id) !== "PASS") {
+    const status = statusOf(report, id);
+    if (
+      status !== "PASS" &&
+      !(id === "markers" && status === "DEGRADED")
+    ) {
       throw new AgentOpsError(
         "UPDATE_INSTALLATION_INVALID",
         `Update requires a passing ${id} doctor check.`

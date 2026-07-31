@@ -41,15 +41,6 @@ export function claudeSettingsTarget(
       };
 }
 
-export function claudeRoutingBlock(): string {
-  return [
-    "## Loop Engineering",
-    "",
-    "Load `.agent-ops/CLAUDE.md` as concise project context.",
-    ""
-  ].join("\n");
-}
-
 function commandHook(
   event: ClaudeSupportedEvent,
   runtimePath: string
