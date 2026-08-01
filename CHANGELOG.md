@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.5]
+
 - Wired real advisory SessionStart dispatch and explicit Stop verification through
   the hook process. Stop is disabled by default, requires current repository
   trust and configured commands, emits bounded report-only evidence, and never
