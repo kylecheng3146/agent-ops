@@ -524,7 +524,7 @@ test("fails closed when an artifact path escapes through a symlink", async () =>
   }
 });
 
-test("reports unwired lifecycle summaries as unsupported behavior", async () => {
+test("reports OpenCode lifecycle summaries as degraded behavior", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-opencode-"));
   try {
     await applyInstallPlan(
@@ -546,8 +546,8 @@ test("reports unwired lifecycle summaries as unsupported behavior", async () => 
     const lifecycle = report.checks.find(
       (candidate: { readonly id: string }) => candidate.id === "lifecycle-summary"
     );
-    assert.equal(lifecycle?.status, "UNSUPPORTED");
-    assert.match(lifecycle?.message ?? "", /advisory runtime|not dispatched/i);
+    assert.equal(lifecycle?.status, "DEGRADED");
+    assert.match(lifecycle?.message ?? "", /degraded/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

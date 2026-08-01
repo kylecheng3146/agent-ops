@@ -41,12 +41,11 @@ OpenCode shim MUST 從選定的 project directory 呼叫 absolute runtime path�
 
 - Trigger: 產生的 plugin 呼叫 `agent-ops`，或收到無效的 runtime decision。
 - Action: 將 normalization 與 native output encoding 留在 runtime adapter；deny
-  decision 要 throw policy reason；在 shared runtime 提供 advisory implementation
-  前，lifecycle-summary 必須標示為 unsupported。該 implementation 接線後，
-  plugin initialization 仍是 app-scoped 而非 per-session，因此 per-session
-  lifecycle fidelity 仍為 degraded。
-- Evidence: shim import 測試涵蓋 allow、deny 與 missing-runtime；目前 doctor
-  對尚未接線的 lifecycle summary 回報 `UNSUPPORTED`。
+  decision 要 throw policy reason；lifecycle-summary 經由 shared advisory
+  implementation 執行。Plugin initialization 仍是 app-scoped 而非 per-session，
+  因此 per-session lifecycle fidelity 仍為 degraded。
+- Evidence: shim import 測試涵蓋 allow、deny 與 missing-runtime；doctor 對
+  OpenCode lifecycle support 回報 `DEGRADED`。
 - Positive: `runtime 不可用時不阻擋 SessionStart，但會在 bash tool 執行前阻擋它。`
 - Negative: `退回 PATH-resolved 的 agent-ops executable，或宣稱 app initialization 等同於 per-session Stop。`
 
@@ -64,3 +63,15 @@ event、native output encode 與 runtime-failure output。
   執行，未支援的 Stop/lifecycle registration 不得回報 enforcement success。
 - Positive: `Claude command-policy 經由 runHookCommand 抵達 native PreToolUse denial。`
 - Negative: `dispatchHookEvent 尚未提供 advisory implementation 卻將 SessionStart 標為 supported。`
+
+目前 registration matrix 刻意不對稱：
+
+| Capability | Codex | Claude Code | OpenCode |
+| --- | --- | --- | --- |
+| lifecycle-summary | supported | supported | degraded |
+| command-policy | unknown | supported | supported |
+| optional-stop-verify | unsupported | supported | degraded |
+
+Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 disabled。
+每個 Stop 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠
+不是 task-completion evidence。

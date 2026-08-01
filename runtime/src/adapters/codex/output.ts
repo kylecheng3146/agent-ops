@@ -13,6 +13,16 @@ export function codexHookOutput(
   event: CodexSupportedEvent,
   result: HookResult
 ): CodexHookProcessOutput {
+  if (event === "Stop" && result.evidence !== undefined) {
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        continue: true,
+        systemMessage: `agent-ops: ${result.code}`,
+        evidence: result.evidence
+      })
+    };
+  }
   if (result.action === "continue" && result.status === "PASS") {
     return { exitCode: 0, stdout: "" };
   }

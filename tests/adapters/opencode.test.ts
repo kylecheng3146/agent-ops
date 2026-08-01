@@ -88,7 +88,7 @@ test("declares opencode hooks and generates a managed plugin source", () => {
         capability: "lifecycle-summary",
         nativeEvent: "SessionStart",
         surfaceId: "opencode-plugin",
-        support: "unsupported",
+        support: "degraded",
         runtimeFailure: "fail-open"
       },
       {
@@ -102,7 +102,7 @@ test("declares opencode hooks and generates a managed plugin source", () => {
         capability: "optional-stop-verify",
         nativeEvent: "Stop",
         surfaceId: "opencode-plugin",
-        support: "unsupported",
+        support: "degraded",
         runtimeFailure: "fail-open"
       }
     ]
@@ -201,5 +201,28 @@ test("emits a deny decision only for a blocked bash hook", () => {
       }).stdout
     ),
     { decision: "allow", reason: "STOP_VERIFICATION_UNAVAILABLE" }
+  );
+  assert.deepEqual(
+    JSON.parse(
+      opencodeHookOutput("Stop", {
+        action: "continue",
+        status: "PASS",
+        code: "STOP_VERIFICATION_FINISHED",
+        evidence: {
+          commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+          configHash: "a".repeat(64),
+          timestamp: "2026-08-01T00:00:00.000Z"
+        }
+      }).stdout
+    ),
+    {
+      decision: "allow",
+      reason: "STOP_VERIFICATION_FINISHED",
+      evidence: {
+        commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+        configHash: "a".repeat(64),
+        timestamp: "2026-08-01T00:00:00.000Z"
+      }
+    }
   );
 });

@@ -38,7 +38,7 @@ export const OPENCODE_CAPABILITY_REGISTRATIONS = [
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",
     surfaceId: "opencode-plugin",
-    support: "unsupported",
+    support: "degraded",
     runtimeFailure: "fail-open"
   },
   {
@@ -54,7 +54,7 @@ export const OPENCODE_CAPABILITY_REGISTRATIONS = [
     normalizedEvent: "stop",
     nativeEvent: "Stop",
     surfaceId: "opencode-plugin",
-    support: "unsupported",
+    support: "degraded",
     runtimeFailure: "fail-open"
   }
 ] as const satisfies readonly CapabilityRegistrationSpec[];

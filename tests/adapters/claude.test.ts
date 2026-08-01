@@ -180,17 +180,29 @@ test("preserves Claude event-specific JSON decisions", () => {
       stderr: ""
     }
   );
+});
+
+test("reports Stop evidence without a blocking decision", () => {
   assert.deepEqual(
     claudeHookOutput("Stop", {
-      action: "block",
-      status: "FAIL",
-      code: "STOP_FAILED"
+      action: "continue",
+      status: "PASS",
+      code: "STOP_VERIFICATION_FINISHED",
+      evidence: {
+        commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+        configHash: "a".repeat(64),
+        timestamp: "2026-08-01T00:00:00.000Z"
+      }
     }),
     {
       exitCode: 0,
       stdout: JSON.stringify({
-        decision: "block",
-        reason: "STOP_FAILED"
+        systemMessage: "agent-ops: STOP_VERIFICATION_FINISHED",
+        evidence: {
+          commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+          configHash: "a".repeat(64),
+          timestamp: "2026-08-01T00:00:00.000Z"
+        }
       }),
       stderr: ""
     }
@@ -218,7 +230,7 @@ test("surfaces non-interactive trust limitations", () => {
         capability: "lifecycle-summary",
         nativeEvent: "SessionStart",
         surfaceId: "claude-settings",
-        support: "unsupported",
+        support: "supported",
         runtimeFailure: "fail-open"
       },
       {
@@ -232,7 +244,7 @@ test("surfaces non-interactive trust limitations", () => {
         capability: "optional-stop-verify",
         nativeEvent: "Stop",
         surfaceId: "claude-settings",
-        support: "unsupported",
+        support: "supported",
         runtimeFailure: "fail-open"
       }
     ]

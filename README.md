@@ -121,9 +121,9 @@ The commands after `init --yes` are post-apply operations. `doctor` reports
 `trust grant` runs, and `smoke-availability` until the configuration declares a
 verification command.
 
-Installing the `advisory` or `guardrails` profile also registers lifecycle
-hooks for the selected harnesses. Claude Code and Codex use their native JSON
-settings files; opencode uses the agent-ops-owned
+Installing the `advisory` or `guardrails` profile registers the lifecycle and
+command-policy hooks implied by those profiles for the selected harnesses.
+Claude Code and Codex use their native JSON settings files; opencode uses the agent-ops-owned
 `.opencode/plugins/agent-ops.js` shim and never changes `opencode.json`. Only
 agent-ops-owned handlers and artifacts are managed, foreign settings are
 preserved, and `uninstall` removes exactly the content it registered. At user
@@ -132,11 +132,40 @@ scope, the opencode plugin is placed under
 `$XDG_CONFIG_HOME/opencode/` or `$OPENCODE_CONFIG_DIR/` when that location is
 inside the managed user root. The shims call `agent-ops hook <harness> <event>`
 through the installed absolute runtime path. Advisory failures remain
-fail-open; command-policy failures are fail-closed where the native harness
-can block the tool. Until the shared advisory dispatcher is wired into the
-real hook process, `doctor` reports lifecycle-summary as `UNSUPPORTED`; after
-that wiring, opencode's app-scoped initialization remains `DEGRADED` rather
-than claiming per-session coverage.
+fail-open; command-policy failures are fail-closed only where the native
+harness can block the tool. Claude and Codex lifecycle summaries are
+`supported`; OpenCode's app-scoped initialization is `degraded` rather than
+per-session coverage. Codex command denial remains `unknown` until native
+blocking is confirmed.
+
+`guardrails` enables command policy only; it does not imply Stop verification.
+Stop verification is an explicit, disabled-by-default config feature. Enable it
+only with confirmed commands, for example the relevant config fragment is:
+
+```json
+{
+  "features": { "stopVerification": { "enabled": true } },
+  "verification": {
+    "commands": [
+      {
+        "id": "unit",
+        "command": "npm",
+        "args": ["test"],
+        "cwd": ".",
+        "required": true,
+        "evidence": { "kind": "test-count", "minimum": 1 }
+      }
+    ]
+  }
+}
+```
+
+After changing Stop configuration, run `agent-ops update` so native
+registrations match the config, then `agent-ops trust grant` to bind the
+current config. Stop is report-only: `PASS`, `FAIL`, and `UNKNOWN` continue
+the harness, emit bounded command evidence, and never complete a task.
+Config v1 migrates to config v2 with Stop disabled; migration invalidates the
+old trust binding, and pre-v1 binaries cannot read the migrated config.
 
 The generated `AGENTS.md` and `CLAUDE.md` routing blocks are supplemental: they
 load the managed baseline while leaving project-specific instructions in those
@@ -145,8 +174,12 @@ wording are migrated by `agent-ops update`; changed managed blocks still fail
 closed.
 
 Dry-run plans keep harness settings writes opaque: human and JSON output expose
-only the expected hash, content hash, and a safe summary. The internal plan
-still retains the complete merged settings for transactional apply.
+only the expected hash, content hash, and a safe summary. Use
+`--hook-target <harness>=<surface-id>` when selecting a non-default discovered
+surface; project-local Claude settings are never selected implicitly. The
+internal plan still retains the complete merged settings for transactional
+apply. The routing migration is one-way once applied; review the release notes
+before attempting a downgrade.
 
 For a full command reference, run `agent-ops --help`. The `task`, `verify`, and
 `review` commands support acceptance tracking and independent verification when

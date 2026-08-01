@@ -323,7 +323,7 @@ test("support declarations match the current real hook fidelity", () => {
   assert.deepEqual(supportByHarness, {
     codex: {
       "lifecycle-summary": {
-        support: "unsupported",
+        support: "supported",
         runtimeFailure: "fail-open"
       },
       "command-policy": {
@@ -337,7 +337,7 @@ test("support declarations match the current real hook fidelity", () => {
     },
     claude: {
       "lifecycle-summary": {
-        support: "unsupported",
+        support: "supported",
         runtimeFailure: "fail-open"
       },
       "command-policy": {
@@ -345,13 +345,13 @@ test("support declarations match the current real hook fidelity", () => {
         runtimeFailure: "fail-closed"
       },
       "optional-stop-verify": {
-        support: "unsupported",
+        support: "supported",
         runtimeFailure: "fail-open"
       }
     },
     opencode: {
       "lifecycle-summary": {
-        support: "unsupported",
+        support: "degraded",
         runtimeFailure: "fail-open"
       },
       "command-policy": {
@@ -359,7 +359,7 @@ test("support declarations match the current real hook fidelity", () => {
         runtimeFailure: "fail-closed"
       },
       "optional-stop-verify": {
-        support: "unsupported",
+        support: "degraded",
         runtimeFailure: "fail-open"
       }
     }

@@ -4,6 +4,14 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- Wired real advisory SessionStart dispatch and explicit Stop verification through
+  the hook process. Stop is disabled by default, requires current repository
+  trust and configured commands, emits bounded report-only evidence, and never
+  completes a task. Config v1 migrates to config v2 and requires one
+  `agent-ops trust grant`; the manifest remains schema v2. Claude and Codex
+  lifecycle support is `supported`, OpenCode is `degraded`, and Codex command
+  blocking remains `unknown`.
+
 - Changed the harness selection from a single value to a list. `--harness` now takes a comma-separated list (`--harness codex,claude`) or one of the aliases `all` and `both`; `both` keeps its old meaning of codex plus claude. The interactive wizard asks for harnesses as a multi-select with a select-all entry instead of a single choice.
 - Changed the installation manifest to store `harness` as a list, on its own `schemaVersion` 2. Config, task, and evidence documents stay at version 1. A manifest written by an earlier release is migrated when it is read, and rewritten in the new shape the next time `init` or `update` writes it.
 - Replaced the two-harness branching in installation, hook registration, hook dispatch, ownership checks, and doctor probes with a harness registry, so each harness carries its own instruction file, hook path, and settings handling.

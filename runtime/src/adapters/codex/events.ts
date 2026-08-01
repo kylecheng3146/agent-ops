@@ -23,7 +23,7 @@ export const CODEX_CAPABILITY_REGISTRATIONS = [
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",
     surfaceId: "codex-hooks",
-    support: "unsupported",
+    support: "supported",
     runtimeFailure: "fail-open"
   },
   {

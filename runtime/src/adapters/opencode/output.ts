@@ -10,6 +10,7 @@ export interface OpencodeHookProcessOutput {
 export interface OpencodeDecision {
   readonly decision: "allow" | "deny";
   readonly reason?: string;
+  readonly evidence?: HookResult["evidence"];
 }
 
 /**
@@ -24,7 +25,15 @@ export function opencodeHookOutput(
   const decision: OpencodeDecision =
     event === "PreToolUse" && result.action === "block"
       ? { decision: "deny", reason: result.code }
-      : { decision: "allow", ...(result.status === "PASS" ? {} : { reason: result.code }) };
+      : {
+          decision: "allow",
+          ...(result.status === "PASS" && event !== "Stop"
+            ? {}
+            : { reason: result.code }),
+          ...(event === "Stop" && result.evidence !== undefined
+            ? { evidence: result.evidence }
+            : {})
+        };
   return {
     exitCode: 0,
     stdout: JSON.stringify(decision),

@@ -47,12 +47,11 @@ runtime is unavailable.
 
 - Trigger: The generated plugin invokes `agent-ops` or receives an invalid runtime decision.
 - Action: Keep normalization and native output encoding in the runtime adapter,
-  throw the policy reason for a deny decision, and report lifecycle-summary as
-  unsupported until the shared runtime supplies an advisory implementation.
-  Once that implementation is wired, app-scoped plugin initialization remains
+  throw the policy reason for a deny decision, and run lifecycle-summary through
+  the shared advisory implementation. App-scoped plugin initialization remains
   degraded for per-session lifecycle fidelity.
 - Evidence: Shim import tests cover allow, deny, and missing-runtime behavior;
-  doctor reports `UNSUPPORTED` for the currently unwired lifecycle summary.
+  doctor reports OpenCode lifecycle support as `DEGRADED`.
 - Positive: `A missing runtime does not block SessionStart but blocks a bash tool before execution.`
 - Negative: `Fall back to a PATH-resolved agent-ops executable or claim app initialization is a per-session Stop-equivalent.`
 
@@ -72,3 +71,15 @@ decoding, normalized events, native output encoding, and runtime-failure output.
   reported as enforcement success.
 - Positive: `Claude command-policy reaches a native PreToolUse denial through runHookCommand.`
 - Negative: `Mark SessionStart supported while dispatchHookEvent has no advisory implementation.`
+
+The current registration matrix is intentionally asymmetric:
+
+| Capability | Codex | Claude Code | OpenCode |
+| --- | --- | --- | --- |
+| lifecycle-summary | supported | supported | degraded |
+| command-policy | unknown | supported | supported |
+| optional-stop-verify | unsupported | supported | degraded |
+
+Stop verification is explicit, trusted, report-only, and disabled by default.
+Every Stop result continues the native harness and may carry only bounded
+command evidence; it is never task-completion evidence.

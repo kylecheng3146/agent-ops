@@ -25,7 +25,7 @@ export const CLAUDE_CAPABILITY_REGISTRATIONS = [
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",
     surfaceId: "claude-settings",
-    support: "unsupported",
+    support: "supported",
     runtimeFailure: "fail-open"
   },
   {
@@ -41,7 +41,7 @@ export const CLAUDE_CAPABILITY_REGISTRATIONS = [
     normalizedEvent: "stop",
     nativeEvent: "Stop",
     surfaceId: "claude-settings",
-    support: "unsupported",
+    support: "supported",
     runtimeFailure: "fail-open"
   }
 ] as const satisfies readonly CapabilityRegistrationSpec[];

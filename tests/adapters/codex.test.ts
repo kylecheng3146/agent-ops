@@ -208,6 +208,30 @@ test("encodes only documented Codex output behavior", () => {
       })
     }
   );
+  assert.deepEqual(
+    codexHookOutput("Stop", {
+      action: "continue",
+      status: "PASS",
+      code: "STOP_VERIFICATION_FINISHED",
+      evidence: {
+        commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+        configHash: "a".repeat(64),
+        timestamp: "2026-08-01T00:00:00.000Z"
+      }
+    }),
+    {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        continue: true,
+        systemMessage: "agent-ops: STOP_VERIFICATION_FINISHED",
+        evidence: {
+          commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+          configHash: "a".repeat(64),
+          timestamp: "2026-08-01T00:00:00.000Z"
+        }
+      })
+    }
+  );
   assert.equal(CODEX_NON_ZERO_EXIT_BEHAVIOR, "UNKNOWN");
   assert.equal(CODEX_PRE_TOOL_BLOCKING, "UNKNOWN");
 });
@@ -234,7 +258,7 @@ test("declares only documented event and matcher support", () => {
         capability: "lifecycle-summary",
         nativeEvent: "SessionStart",
         surfaceId: "codex-hooks",
-        support: "unsupported",
+        support: "supported",
         runtimeFailure: "fail-open"
       },
       {

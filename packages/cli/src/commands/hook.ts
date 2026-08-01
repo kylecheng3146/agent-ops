@@ -1,5 +1,10 @@
 import type { AgentOpsConfig } from "../../../../runtime/src/contracts.js";
+import { runLifecycleAdvisory } from "../../../../runtime/src/hooks/advisory.js";
 import { dispatchHookEvent } from "../../../../runtime/src/hooks/dispatch.js";
+import type {
+  HookDispatchOptions,
+  StopVerificationOptions
+} from "../../../../runtime/src/hooks/events.js";
 import { resolveCapabilities } from "../../../../runtime/src/install/profiles.js";
 import {
   harnessDescriptor,
@@ -20,6 +25,8 @@ export interface HookCommandOptions {
   readonly stdin: string;
   readonly config: AgentOpsConfig;
   readonly trusted: boolean;
+  readonly advisory?: HookDispatchOptions["advisory"];
+  readonly stopVerification?: StopVerificationOptions;
 }
 
 export interface HookCommandOutput {
@@ -47,13 +54,21 @@ export async function runHookCommand(
       return { exitCode: 0, stdout: "", stderr: "" };
     }
     const descriptor = harnessDescriptor(options.harness);
-    const result = await dispatchHookEvent(
-      descriptor.runtime.normalizeInput(input),
-      {
-        capabilities,
-        trusted: options.trusted
-      }
+    const normalized = descriptor.runtime.normalizeInput(input);
+    const stopRegistration = descriptor.control.registrations.find(
+      ({ capability }) => capability === "optional-stop-verify"
     );
+    const stopVerification =
+      options.stopVerification !== undefined &&
+      stopRegistration?.support !== "unsupported"
+        ? options.stopVerification
+        : undefined;
+    const result = await dispatchHookEvent(normalized, {
+      capabilities,
+      trusted: options.trusted,
+      advisory: options.advisory ?? runLifecycleAdvisory,
+      ...(stopVerification === undefined ? {} : { stopVerification })
+    });
     return descriptor.runtime.formatOutput(options.event, result);
   } catch {
     return { exitCode: 0, stdout: "", stderr: "" };
