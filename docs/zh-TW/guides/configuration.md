@@ -26,6 +26,24 @@ harness surface 並套用選定的 target policy；若不是 managed default，�
 Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initialization
 開始，因此誠實標示為 `degraded`。
 
+### Runtime-failure 保護措施
+
+只有 `command-policy` 具有 fail-closed failure mode。當已安裝的 config 被分類
+為無效時，Claude Code 可在原生 `PreToolUse` 輸出文件化的 denial shape。受管理的
+OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface
+上 throw 文件化的 command-policy denial 或 unavailable-runtime error。Codex 明確
+不執行強制措施（`unknown`）。這些是 agent-ops 的 output 與 plugin contract，不
+證明 host 會實際遵守 denial。所有 adapter 的 `SessionStart` 與 `Stop` failure path
+都維持 fail-open。
+
+Claude 的無效 config fallback 有四項防護：(1) 缺少 project configuration 時保持
+fail-open，因此只有無效的 `.agent-ops/config.json` 能進入 fallback；(2) manifest
+必須安全地證明目前 harness 已安裝；(3) 使用者可在啟動 host 前於 shell export
+`AGENT_OPS_DISABLE=1`，暫時恢復 fail-open；(4) Claude Code denial 會列出 config
+path，並告知使用者修正它或暫時設定該 shell variable。此 variable 只從
+hook-process environment 讀取，不能由 agent-ops configuration、manifest 或
+managed file 設定。
+
 `guardrails` 只安裝 command policy，不會啟用 Stop verification。Stop 是獨立的
 config v2 feature，必須明確啟用且至少提供一個已確認的 command：
 
@@ -54,9 +72,13 @@ agent-ops update
 agent-ops trust grant
 ```
 
-未執行 `update` 時，doctor 會回報 `UPDATE_REQUIRED`；未重新 grant trust
-時，trust-gated hook 仍會是 stale。Stop 是 report-only：`PASS`、`FAIL` 與
-`UNKNOWN` 都會讓 harness 繼續，只輸出有界的 command ID、exit code、test-count、
+未執行 `update` 時，doctor 可因 registration drift 回報 `UPDATE_REQUIRED`。另
+外，toolkit upgrade 或 effective profile 或 capability change 使完整的
+path-independent managed rules artifact 改變時，`artifact-staleness` 會回報帶有
+`UPDATE_REQUIRED` 的 `DEGRADED`。`agent-ops update` 會重新產生 artifact 並清除
+這個結果；artifact 缺失或 hash 不符時，`artifacts` check 仍為 `FAIL`。未重新
+grant trust 時，trust-gated hook 仍會是 stale。Stop 是 report-only：`PASS`、`FAIL`
+與 `UNKNOWN` 都會讓 harness 繼續，只輸出有界的 command ID、exit code、test-count、
 config-hash 與 timestamp evidence，且永遠不會完成 task。Config v1 會決定性遷移
 為 Stop disabled 的 v2；舊 binary 無法讀取遷移後的 config，routing migration
 一旦套用即為單向，降版前請先閱讀 release notes。

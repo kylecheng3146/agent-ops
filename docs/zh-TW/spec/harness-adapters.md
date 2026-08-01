@@ -1,6 +1,6 @@
 # Harness Adapter
 
-English source version: 2026-07-31. Revalidate: when the English specification or either vendor reference changes.
+English source version: 2026-08-01. Revalidate: when the English specification or either vendor reference changes.
 
 本文件所述 OpenCode plugin 行為已於 2026-07-31 依據[官方 plugin 文件](https://opencode.ai/docs/plugins/)與[Bun shell 文件](https://bun.sh/docs/runtime/shell)檢查。
 
@@ -37,17 +37,17 @@ Adapter MUST 具備冪等性，且 MUST NOT 刪除使用者擁有的 handler。
 
 ## HARNESS-ADAPTER-004
 
-OpenCode shim MUST 從選定的 project directory 呼叫 absolute runtime path；runtime 不可用時，MUST 對 advisory event fail open，並對 command-policy event fail closed。
+OpenCode shim MUST 從選定的 project directory 呼叫 absolute runtime path；runtime 不可用時，MUST 對 advisory event fail open，並 MUST throw 文件化的 command-policy error。
 
 - Trigger: 產生的 plugin 呼叫 `agent-ops`，或收到無效的 runtime decision。
 - Action: 將 normalization 與 native output encoding 留在 runtime adapter；deny
-  decision 要 throw policy reason；lifecycle-summary 經由 shared advisory
-  implementation 執行。Plugin initialization 仍是 app-scoped 而非 per-session，
-  因此 per-session lifecycle fidelity 仍為 degraded。
-- Evidence: shim import 測試涵蓋 allow、deny 與 missing-runtime；doctor 對
-  OpenCode lifecycle support 回報 `DEGRADED`。
-- Positive: `runtime 不可用時不阻擋 SessionStart，但會在 bash tool 執行前阻擋它。`
-- Negative: `退回 PATH-resolved 的 agent-ops executable，或宣稱 app initialization 等同於 per-session Stop。`
+  decision 要 throw 文件化的 policy reason；lifecycle-summary 經由 shared
+  advisory implementation 執行。Plugin initialization 仍是 app-scoped 而非
+  per-session，因此 per-session lifecycle fidelity 仍為 degraded。
+- Evidence: shim import 測試涵蓋 allow、deny 與 missing-runtime；denial fixture
+  只斷言 output shape；doctor 對 OpenCode lifecycle support 回報 `DEGRADED`。
+- Positive: `runtime 不可用時，SessionStart 維持 fail-open，而生成的 plugin 會在 Bash pre-tool hook 中 throw 文件化的 command-policy error。`
+- Negative: `退回 PATH-resolved 的 agent-ops executable、宣稱 OpenCode host 一定會遵守 thrown denial，或宣稱 app initialization 等同於 per-session Stop。`
 
 ## HARNESS-ADAPTER-005
 
@@ -60,8 +60,9 @@ event、native output encode 與 runtime-failure output。
 - Action: 在所屬 harness 加入 capability-to-native registration，包含 support
   level 與 runtime-failure mode；不得將 native event 加入 universal union。
 - Evidence: 每個宣告為 `supported` 的 registration 都經由真實 CLI hook process
-  執行，未支援的 Stop/lifecycle registration 不得回報 enforcement success。
-- Positive: `Claude command-policy 經由 runHookCommand 抵達 native PreToolUse denial。`
+  執行；denial-shape fixture 只斷言文件化的 wire shape，不證明 host runtime
+  enforcement；未支援的 Stop/lifecycle registration 不得回報 enforcement success。
+- Positive: `fail-closed 的 Claude command-policy runtime failure 會透過 runHookCommand 產生文件化的 PreToolUse denial shape。`
 - Negative: `dispatchHookEvent 尚未提供 advisory implementation 卻將 SessionStart 標為 supported。`
 
 目前 registration matrix 刻意不對稱：
@@ -71,6 +72,13 @@ event、native output encode 與 runtime-failure output。
 | lifecycle-summary | supported | supported | degraded |
 | command-policy | unknown | supported | supported |
 | optional-stop-verify | unsupported | supported | degraded |
+
+Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安裝的 config
+被分類為無效時，Claude Code 可輸出文件化的 `PreToolUse` denial shape；受管理的
+OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface 上 throw 文件化的
+denial 或 unavailable-runtime error。Codex 維持 `unknown` 且絕不輸出 denial。
+Fixture test 只斷言這些 wire 與 plugin shape；它們不證明 host 會實際遵守 denial。
+每個 `SessionStart` 與 `Stop` failure path 都維持 fail-open。
 
 Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 disabled。
 每個 Stop 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠

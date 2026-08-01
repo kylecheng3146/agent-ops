@@ -121,6 +121,12 @@ The commands after `init --yes` are post-apply operations. `doctor` reports
 `trust grant` runs, and `smoke-availability` until the configuration declares a
 verification command.
 
+`artifact-staleness` reports `DEGRADED` with `UPDATE_REQUIRED` when a toolkit
+upgrade or effective profile or capability change makes intact managed rules
+differ from the current baseline. Run `agent-ops update` to regenerate them.
+Missing, altered, or hash-mismatched managed artifacts remain `FAIL` under
+`artifacts`.
+
 Installing the `advisory` or `guardrails` profile registers the lifecycle and
 command-policy hooks implied by those profiles for the selected harnesses.
 Claude Code and Codex use their native JSON settings files; opencode uses the agent-ops-owned
@@ -132,11 +138,22 @@ scope, the opencode plugin is placed under
 `$XDG_CONFIG_HOME/opencode/` or `$OPENCODE_CONFIG_DIR/` when that location is
 inside the managed user root. The shims call `agent-ops hook <harness> <event>`
 through the installed absolute runtime path. Advisory failures remain
-fail-open; command-policy failures are fail-closed only where the native
-harness can block the tool. Claude and Codex lifecycle summaries are
-`supported`; OpenCode's app-scoped initialization is `degraded` rather than
-per-session coverage. Codex command denial remains `unknown` until native
-blocking is confirmed.
+fail-open. Runtime-failure enforcement is deliberately narrow: Claude Code can
+emit its documented `PreToolUse` denial shape for a classified invalid installed
+configuration, and the managed OpenCode `tool.execute.before` plugin throws
+its documented command-policy denial or unavailable-runtime error for its
+supported Bash surface. Codex command policy is `unknown` and explicitly
+non-enforcing. These are output and plugin contracts, not proof that a host
+honors a denial. Claude and Codex lifecycle summaries are `supported`; OpenCode's
+app-scoped initialization is `degraded` rather than per-session coverage.
+
+Claude's invalid-config fallback has four safeguards: only an invalid (not
+absent) `.agent-ops/config.json` can reach it; a safely read manifest must list
+the current harness; `AGENT_OPS_DISABLE=1` must not be set; and Claude's denial
+reason names the config file with a repair or temporary shell-disable remedy.
+`AGENT_OPS_DISABLE=1` is a human-shell recovery variable only. Agent-ops never
+reads it from configuration, a manifest, or another file it writes. Every
+`SessionStart` and `Stop` failure path remains fail-open.
 
 `guardrails` enables command policy only; it does not imply Stop verification.
 Stop verification is an explicit, disabled-by-default config feature. Enable it
@@ -172,6 +189,15 @@ load the managed baseline while leaving project-specific instructions in those
 files authoritative. Existing installations with the previous canonical
 wording are migrated by `agent-ops update`; changed managed blocks still fail
 closed.
+
+### Rejected proposals and deliberate boundaries
+
+The following proposals are deliberately rejected: emitting a model-visible
+`SessionStart` advisory summary, inspecting user-authored Markdown link
+integrity in `doctor`, and creating backups for agent-authored rule edits.
+Transactional backups remain limited to agent-ops apply operations. Agent-ops
+also does not add a git-workflow instruction to the generated baseline, which
+stays project-neutral.
 
 Dry-run plans keep harness settings writes opaque: human and JSON output expose
 only the expected hash, content hash, and a safe summary. Use

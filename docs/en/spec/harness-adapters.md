@@ -42,18 +42,19 @@ capabilities and MUST track generated source as one whole-file artifact.
 
 The opencode shim MUST invoke the absolute runtime path from the selected
 project directory, MUST fail open for
-advisory events, and MUST fail closed for command-policy events when the
+advisory events, and MUST throw its documented command-policy error when the
 runtime is unavailable.
 
 - Trigger: The generated plugin invokes `agent-ops` or receives an invalid runtime decision.
 - Action: Keep normalization and native output encoding in the runtime adapter,
-  throw the policy reason for a deny decision, and run lifecycle-summary through
-  the shared advisory implementation. App-scoped plugin initialization remains
-  degraded for per-session lifecycle fidelity.
+  throw its documented policy reason for a deny decision, and run
+  lifecycle-summary through the shared advisory implementation. App-scoped
+  plugin initialization remains degraded for per-session lifecycle fidelity.
 - Evidence: Shim import tests cover allow, deny, and missing-runtime behavior;
-  doctor reports OpenCode lifecycle support as `DEGRADED`.
-- Positive: `A missing runtime does not block SessionStart but blocks a bash tool before execution.`
-- Negative: `Fall back to a PATH-resolved agent-ops executable or claim app initialization is a per-session Stop-equivalent.`
+  denial fixtures assert output shape only; doctor reports OpenCode lifecycle
+  support as `DEGRADED`.
+- Positive: `When the runtime is unavailable, SessionStart stays fail-open and the generated plugin throws its documented command-policy error for a Bash pre-tool hook.`
+- Negative: `Fall back to a PATH-resolved agent-ops executable, claim an OpenCode host honors a thrown denial, or claim app initialization is a per-session Stop-equivalent.`
 
 ## HARNESS-ADAPTER-005
 
@@ -67,9 +68,10 @@ decoding, normalized events, native output encoding, and runtime-failure output.
   including its support level and runtime-failure mode; do not add native
   events to a universal union.
 - Evidence: Every declared `supported` registration is exercised through the
-  real CLI hook process, and unsupported Stop/lifecycle registrations are not
-  reported as enforcement success.
-- Positive: `Claude command-policy reaches a native PreToolUse denial through runHookCommand.`
+  real CLI hook process; denial-shape fixtures assert documented wire shapes,
+  not host runtime enforcement; unsupported Stop/lifecycle registrations are
+  not reported as enforcement success.
+- Positive: `A fail-closed Claude command-policy runtime failure produces the documented PreToolUse denial shape through runHookCommand.`
 - Negative: `Mark SessionStart supported while dispatchHookEvent has no advisory implementation.`
 
 The current registration matrix is intentionally asymmetric:
@@ -79,6 +81,14 @@ The current registration matrix is intentionally asymmetric:
 | lifecycle-summary | supported | supported | degraded |
 | command-policy | unknown | supported | supported |
 | optional-stop-verify | unsupported | supported | degraded |
+
+For runtime-failure handling, only `command-policy` is fail-closed. Claude
+Code can emit its documented `PreToolUse` denial shape for a classified invalid
+installed configuration; the managed OpenCode `tool.execute.before` plugin can
+throw its documented denial or unavailable-runtime error for its supported Bash
+surface. Codex remains `unknown` and never emits a denial. Fixture tests assert
+these wire and plugin shapes only; they do not prove that a host honors a
+denial. Every `SessionStart` and `Stop` failure path remains fail-open.
 
 Stop verification is explicit, trusted, report-only, and disabled by default.
 Every Stop result continues the native harness and may carry only bounded
