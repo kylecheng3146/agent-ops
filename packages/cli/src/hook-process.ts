@@ -147,8 +147,6 @@ async function readInstalledManifestForHarness(
       if (
         !opened.isFile() ||
         opened.size > BigInt(MAX_HOOK_MANIFEST_BYTES) ||
-        opened.dev !== before.dev ||
-        opened.ino !== before.ino ||
         after.dev !== before.dev ||
         after.ino !== before.ino
       ) {
