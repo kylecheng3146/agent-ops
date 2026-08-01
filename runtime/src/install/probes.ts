@@ -1,60 +1,13 @@
-import type { AgentOpsConfig, Harness } from "../contracts.js";
-import { buildClaudeHookSettings } from "../adapters/claude/config.js";
-import { buildCodexHookConfig } from "../adapters/codex/config.js";
+import type { AgentOpsConfig, Harness, HarnessId } from "../contracts.js";
 import type { DoctorStatus } from "./doctor.js";
-import { resolveProfiles } from "./profiles.js";
-
-const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
-const CODEX_COMMAND_PREFIX = "agent-ops hook codex ";
+import { harnessDescriptor } from "./harness.js";
+import { resolveCapabilities } from "./profiles.js";
 
 export interface HookRegistrationInput {
   readonly harness: Harness;
-  readonly profiles: AgentOpsConfig["profiles"];
-  readonly claudeSettings: unknown;
-  readonly codexHooks: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function hasManagedHandler(
-  source: unknown,
-  events: readonly string[],
-  isManaged: (handler: unknown) => boolean
-): boolean {
-  if (!isRecord(source) || !isRecord(source.hooks)) {
-    return false;
-  }
-  const registered = source.hooks;
-  return events.every((event) => {
-    const groups = registered[event];
-    return (
-      Array.isArray(groups) &&
-      groups.some(
-        (group) =>
-          isRecord(group) &&
-          Array.isArray(group.hooks) &&
-          group.hooks.some(isManaged)
-      )
-    );
-  });
-}
-
-function isManagedClaudeHandler(handler: unknown): boolean {
-  return (
-    isRecord(handler) &&
-    Array.isArray(handler.args) &&
-    handler.args.includes(CLAUDE_HOOK_MARKER)
-  );
-}
-
-function isManagedCodexHandler(handler: unknown): boolean {
-  return (
-    isRecord(handler) &&
-    typeof handler.command === "string" &&
-    handler.command.startsWith(CODEX_COMMAND_PREFIX)
-  );
+  readonly config: AgentOpsConfig;
+  /** Current hook settings per harness; a missing entry counts as absent. */
+  readonly sources: Partial<Record<HarnessId, unknown>>;
 }
 
 /**
@@ -65,28 +18,14 @@ function isManagedCodexHandler(handler: unknown): boolean {
 export function hookRegistrationSatisfied(
   input: HookRegistrationInput
 ): boolean {
-  const { capabilities } = resolveProfiles(input.profiles);
-  const claudeEvents = Object.keys(
-    buildClaudeHookSettings(capabilities, "probe").hooks
-  );
-  const codexEvents = Object.keys(buildCodexHookConfig(capabilities).hooks);
-  if (claudeEvents.length === 0 && codexEvents.length === 0) {
-    return true;
-  }
-  if (
-    input.harness !== "codex" &&
-    !hasManagedHandler(
-      input.claudeSettings,
-      claudeEvents,
-      isManagedClaudeHandler
-    )
-  ) {
-    return false;
-  }
-  return (
-    input.harness === "claude" ||
-    hasManagedHandler(input.codexHooks, codexEvents, isManagedCodexHandler)
-  );
+  const capabilities =
+    input.config.profiles.length === 0
+      ? []
+      : resolveCapabilities(input.config).capabilities;
+  return input.harness.every((id) => {
+    const descriptor = harnessDescriptor(id);
+    return descriptor.control.hookRegistered(input.sources[id], capabilities);
+  });
 }
 
 /**

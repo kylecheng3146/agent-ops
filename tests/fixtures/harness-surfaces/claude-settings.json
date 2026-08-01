@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": ["foreign-permission-entry"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "foreign-hook-command"
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "/opt/agent-ops/hook-entry.js",
+              "claude",
+              "PreToolUse",
+              "--managed-by=agent-ops"
+            ],
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

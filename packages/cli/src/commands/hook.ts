@@ -1,11 +1,15 @@
 import type { AgentOpsConfig } from "../../../../runtime/src/contracts.js";
-import { normalizeClaudeHookInput } from "../../../../runtime/src/adapters/claude/input.js";
-import { claudeHookOutput } from "../../../../runtime/src/adapters/claude/output.js";
-import { normalizeCodexHookInput } from "../../../../runtime/src/adapters/codex/input.js";
-import { codexHookOutput } from "../../../../runtime/src/adapters/codex/output.js";
+import { runLifecycleAdvisory } from "../../../../runtime/src/hooks/advisory.js";
 import { dispatchHookEvent } from "../../../../runtime/src/hooks/dispatch.js";
-import { resolveProfiles } from "../../../../runtime/src/install/profiles.js";
-import type { HarnessId } from "../../../../runtime/src/install/harness.js";
+import type {
+  HookDispatchOptions,
+  StopVerificationOptions
+} from "../../../../runtime/src/hooks/events.js";
+import { resolveCapabilities } from "../../../../runtime/src/install/profiles.js";
+import {
+  harnessDescriptor,
+  type HarnessId
+} from "../../../../runtime/src/install/harness.js";
 
 export const HOOK_EVENTS = [
   "SessionStart",
@@ -21,6 +25,8 @@ export interface HookCommandOptions {
   readonly stdin: string;
   readonly config: AgentOpsConfig;
   readonly trusted: boolean;
+  readonly advisory?: HookDispatchOptions["advisory"];
+  readonly stopVerification?: StopVerificationOptions;
 }
 
 export interface HookCommandOutput {
@@ -37,26 +43,33 @@ export async function runHookCommand(
   options: HookCommandOptions
 ): Promise<HookCommandOutput> {
   try {
-    const { capabilities } = resolveProfiles(options.config.profiles);
+    const { capabilities } =
+      options.config.profiles.length === 0
+        ? { capabilities: [] as const }
+        : resolveCapabilities(options.config);
     let input: unknown;
     try {
       input = JSON.parse(options.stdin) as unknown;
     } catch {
       return { exitCode: 0, stdout: "", stderr: "" };
     }
-    const event =
-      options.harness === "claude"
-        ? normalizeClaudeHookInput(input)
-        : normalizeCodexHookInput(input);
-    const result = await dispatchHookEvent(event, {
+    const descriptor = harnessDescriptor(options.harness);
+    const normalized = descriptor.runtime.normalizeInput(input);
+    const stopRegistration = descriptor.control.registrations.find(
+      ({ capability }) => capability === "optional-stop-verify"
+    );
+    const stopVerification =
+      options.stopVerification !== undefined &&
+      stopRegistration?.support !== "unsupported"
+        ? options.stopVerification
+        : undefined;
+    const result = await dispatchHookEvent(normalized, {
       capabilities,
-      trusted: options.trusted
+      trusted: options.trusted,
+      advisory: options.advisory ?? runLifecycleAdvisory,
+      ...(stopVerification === undefined ? {} : { stopVerification })
     });
-    if (options.harness === "claude") {
-      return claudeHookOutput(options.event, result);
-    }
-    const codex = codexHookOutput(options.event, result);
-    return { exitCode: 0, stdout: codex.stdout, stderr: "" };
+    return descriptor.runtime.formatOutput(options.event, result);
   } catch {
     return { exitCode: 0, stdout: "", stderr: "" };
   }

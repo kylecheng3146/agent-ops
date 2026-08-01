@@ -18,12 +18,25 @@ import {
   assertExpectedManagedBlock,
   assertSupportedManifestOwnership
 } from "./ownership.js";
+import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
+import { harnessDescriptor } from "./harness.js";
+import { resolveProfiles } from "./profiles.js";
+import {
+  inspectHarnessSurfaces,
+  inspectHarnessRegistrations,
+  type HarnessSurfaceStatus
+} from "./surface-inspection.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MINIMUM_NODE_VERSION = [22, 14, 0] as const;
 const MAX_DOCTOR_FILE_BYTES = 1024 * 1024;
 
-export type DoctorStatus = "PASS" | "FAIL" | "UNKNOWN";
+export type DoctorStatus =
+  | "PASS"
+  | "FAIL"
+  | "UNKNOWN"
+  | "DEGRADED"
+  | "UNSUPPORTED";
 
 export type DoctorCheckId =
   | "node-version"
@@ -31,7 +44,10 @@ export type DoctorCheckId =
   | "config"
   | "artifacts"
   | "markers"
+  | "surface-inventory"
+  | "registration-drift"
   | "hook-registration"
+  | "lifecycle-summary"
   | "repository-trust"
   | "smoke-availability";
 
@@ -39,6 +55,7 @@ export interface DoctorCheck {
   readonly id: DoctorCheckId;
   readonly status: DoctorStatus;
   readonly message: string;
+  readonly code?: string;
 }
 
 export type DoctorProbeResult = boolean | DoctorStatus;
@@ -61,6 +78,7 @@ export interface DoctorInstallationOptions {
 
 export interface DoctorReport {
   readonly checks: readonly DoctorCheck[];
+  readonly surfaces?: readonly HarnessSurfaceStatus[];
   readonly manifest?: InstallManifest;
   readonly config?: AgentOpsConfig;
 }
@@ -78,9 +96,12 @@ interface ConfigCheckResult {
 function check(
   id: DoctorCheckId,
   status: DoctorStatus,
-  message: string
+  message: string,
+  code?: string
 ): DoctorCheck {
-  return { id, status, message };
+  return code === undefined
+    ? { id, status, message }
+    : { id, status, message, code };
 }
 
 function parseNodeVersion(
@@ -189,7 +210,7 @@ async function checkManifest(root: string): Promise<ManifestCheckResult> {
     const manifest = parseInstallManifest(
       await readContainedText(root, PROJECT_MANIFEST_PATH)
     );
-    assertSupportedManifestOwnership(manifest);
+    assertSupportedManifestOwnership(manifest, root);
     return {
       check: check("manifest", "PASS", "Installation manifest is valid."),
       manifest
@@ -256,7 +277,11 @@ async function checkArtifacts(
   for (const artifact of manifest.artifacts) {
     try {
       const content = await readContained(root, artifact.path);
-      if (sha256(content) !== artifact.hash) {
+      if (
+        sha256(content) !== artifact.hash ||
+        (artifact.id === "opencode-plugin" &&
+          !isOpencodeManagedPlugin(content.toString("utf8")))
+      ) {
         failures.push(artifact.path);
       }
     } catch {
@@ -285,8 +310,9 @@ async function checkMarkers(
   }
 
   const failures: string[] = [];
+  const legacyPaths: string[] = [];
   const expectedMarkers =
-    assertSupportedManifestOwnership(manifest);
+    assertSupportedManifestOwnership(manifest, root);
   for (const marker of manifest.markers) {
     try {
       const source = await readContainedText(root, marker.path);
@@ -295,18 +321,29 @@ async function checkMarkers(
         failures.push(marker.path);
         continue;
       }
-      assertExpectedManagedBlock(source, marker, expected);
+      const match = assertExpectedManagedBlock(source, marker, expected);
+      if (match === "legacy") {
+        legacyPaths.push(marker.path);
+      }
     } catch {
       failures.push(marker.path);
     }
   }
-  return failures.length === 0
-    ? check("markers", "PASS", "All managed block markers are intact.")
-    : check(
-        "markers",
-        "FAIL",
-        `Managed block markers failed verification: ${failures.join(", ")}.`
-      );
+  if (failures.length > 0) {
+    return check(
+      "markers",
+      "FAIL",
+      `Managed block markers failed verification: ${failures.join(", ")}.`
+    );
+  }
+  if (legacyPaths.length > 0) {
+    return check(
+      "markers",
+      "DEGRADED",
+      `Legacy managed routing blocks need migration: ${legacyPaths.join(", ")}.`
+    );
+  }
+  return check("markers", "PASS", "All managed block markers are intact.");
 }
 
 async function checkProbe(
@@ -337,21 +374,199 @@ async function checkProbe(
   }
 }
 
+function checkLifecycleSummary(
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): DoctorCheck {
+  if (manifest === undefined || config === undefined) {
+    return check(
+      "lifecycle-summary",
+      "UNKNOWN",
+      "Lifecycle summary cannot be assessed without a valid manifest and configuration."
+    );
+  }
+  const hasLifecycleSummary =
+    config.profiles.length > 0 &&
+    resolveProfiles(config.profiles).capabilities.includes(
+      "lifecycle-summary"
+    );
+  if (!hasLifecycleSummary) {
+    return check(
+      "lifecycle-summary",
+      "PASS",
+      "Lifecycle summary has no harness-specific degradation."
+    );
+  }
+  const registrations = manifest.harness.map((id) => ({
+    id,
+    registration: harnessDescriptor(id).control.registrations.find(
+      (candidate) => candidate.capability === "lifecycle-summary"
+    )
+  }));
+  const missing = registrations
+    .filter(({ registration }) => registration === undefined)
+    .map(({ id }) => id);
+  if (missing.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "UNKNOWN",
+      `Lifecycle summary registration is missing for ${missing.join(", ")}.`
+    );
+  }
+  const unsupported = registrations
+    .filter(({ registration }) => registration?.support === "unsupported")
+    .map(({ id }) => id);
+  if (unsupported.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "UNSUPPORTED",
+      `Lifecycle summary is not dispatched for ${unsupported.join(", ")}; advisory runtime wiring is unavailable.`
+    );
+  }
+  const degraded = registrations
+    .filter(({ registration }) => registration?.support === "degraded")
+    .map(({ id }) => id);
+  if (degraded.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "DEGRADED",
+      `Lifecycle summary is degraded for ${degraded.join(", ")}.`
+    );
+  }
+  const unknown = registrations
+    .filter(({ registration }) => registration?.support === "unknown")
+    .map(({ id }) => id);
+  if (unknown.length > 0) {
+    return check(
+      "lifecycle-summary",
+      "UNKNOWN",
+      `Lifecycle summary support is unknown for ${unknown.join(", ")}.`
+    );
+  }
+  return check(
+    "lifecycle-summary",
+    "PASS",
+    "Lifecycle summary is reachable for every selected harness."
+  );
+}
+
+async function checkSurfaceInventory(
+  root: string,
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): Promise<{
+  readonly check: DoctorCheck;
+  readonly surfaces: readonly HarnessSurfaceStatus[];
+}> {
+  if (manifest === undefined || config === undefined) {
+    return {
+      check: check(
+        "surface-inventory",
+        "UNKNOWN",
+        "Harness surfaces cannot be inventoried without a valid manifest and configuration."
+      ),
+      surfaces: []
+    };
+  }
+  try {
+    const surfaces = await inspectHarnessSurfaces({
+      root,
+      scope: manifest.scope,
+      harness: manifest.harness,
+      profiles: config.profiles
+    });
+    const unknown = surfaces.filter(({ status }) => status === "unknown");
+    return {
+      check: check(
+        "surface-inventory",
+        unknown.length > 0 ? "UNKNOWN" : "PASS",
+        unknown.length > 0
+          ? `${unknown.length} harness surface(s) could not be inspected.`
+          : "Harness surfaces were inventoried without exposing settings values."
+      ),
+      surfaces
+    };
+  } catch {
+    return {
+      check: check(
+        "surface-inventory",
+        "UNKNOWN",
+        "Harness surfaces could not be inspected safely."
+      ),
+      surfaces: []
+    };
+  }
+}
+
+async function checkRegistrationDrift(
+  root: string,
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): Promise<DoctorCheck> {
+  if (manifest === undefined || config === undefined) {
+    return check(
+      "registration-drift",
+      "UNKNOWN",
+      "Hook registration drift cannot be assessed without a valid manifest and configuration."
+    );
+  }
+  try {
+    const statuses = await inspectHarnessRegistrations({
+      root,
+      manifest,
+      config
+    });
+    const drifted = statuses
+      .filter(({ registered }) => !registered)
+      .map(({ harness }) => harness);
+    return drifted.length === 0
+      ? check(
+          "registration-drift",
+          "PASS",
+          "Managed hook registrations match the desired capabilities."
+        )
+      : check(
+          "registration-drift",
+          "FAIL",
+          `Hook registration drift detected for ${drifted.join(", ")}; run agent-ops update.`,
+          "UPDATE_REQUIRED"
+        );
+  } catch {
+    return check(
+      "registration-drift",
+      "UNKNOWN",
+      "Hook registration drift could not be assessed safely."
+    );
+  }
+}
+
 export async function doctorInstallation(
   options: DoctorInstallationOptions
 ): Promise<DoctorReport> {
   const manifest = await checkManifest(options.root);
   const config = await checkConfig(options.root);
+  const surfaceInventory = await checkSurfaceInventory(
+    options.root,
+    manifest.manifest,
+    config.config
+  );
   const checks: DoctorCheck[] = [
     checkNodeVersion(options.nodeVersion ?? process.versions.node),
     manifest.check,
     config.check,
     await checkArtifacts(options.root, manifest.manifest),
     await checkMarkers(options.root, manifest.manifest),
+    surfaceInventory.check,
+    await checkRegistrationDrift(
+      options.root,
+      manifest.manifest,
+      config.config
+    ),
     await checkProbe(
       "hook-registration",
       options.probes?.hookRegistration
     ),
+    checkLifecycleSummary(manifest.manifest, config.config),
     await checkProbe(
       "repository-trust",
       options.probes?.repositoryTrust
@@ -363,6 +578,7 @@ export async function doctorInstallation(
   ];
   return {
     checks,
+    surfaces: surfaceInventory.surfaces,
     ...(manifest.manifest === undefined
       ? {}
       : { manifest: manifest.manifest }),

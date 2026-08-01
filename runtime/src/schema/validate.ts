@@ -14,7 +14,12 @@ import type {
   VerificationCommand,
   VerificationEvidence
 } from "../contracts.js";
-import { SCHEMA_VERSION } from "../contracts.js";
+import {
+  CONFIG_SCHEMA_VERSION,
+  EVIDENCE_SCHEMA_VERSION,
+  MANIFEST_SCHEMA_VERSION,
+  TASK_SCHEMA_VERSION
+} from "../contracts.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -25,7 +30,8 @@ const WINDOWS_RESERVED_SEGMENT =
 const PROFILE_VALUES = new Set(["advisory", "core", "guardrails"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
-const HARNESS_VALUES = new Set(["both", "claude", "codex"]);
+const HARNESS_VALUES = new Set(["claude", "codex", "opencode"]);
+// opencode's plugin is a managed artifact, not a ManagedHookRecord entry.
 const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
 const HOOK_EVENT_VALUES = new Set([
   "SessionStart",
@@ -81,16 +87,17 @@ function unknownFieldFailure(
 
 function validateRoot(
   value: unknown,
-  allowed: readonly string[]
+  allowed: readonly string[],
+  expectedVersion: number
 ): UnknownRecord | ValidationFailure {
   if (!isRecord(value)) {
     return failure("INVALID_TYPE", "$", "Expected an object.");
   }
-  if (value.schemaVersion !== SCHEMA_VERSION) {
+  if (value.schemaVersion !== expectedVersion) {
     return failure(
       "SCHEMA_VERSION_UNSUPPORTED",
       "$.schemaVersion",
-      `Expected schemaVersion ${SCHEMA_VERSION}.`
+      `Expected schemaVersion ${expectedVersion}.`
     );
   }
   return unknownFieldFailure(value, allowed, "$") ?? value;
@@ -448,12 +455,13 @@ function validateSecurityException(
 
 export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig> {
   const root = validateRoot(value, [
+    "features",
     "pathMappings",
     "profiles",
     "schemaVersion",
     "securityExceptions",
     "verification"
-  ]);
+  ], CONFIG_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
   }
@@ -488,6 +496,44 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   }
   if (!hasUniqueStrings(root.profiles as string[])) {
     return failure("DUPLICATE_ID", "$.profiles", "Profiles must be unique.");
+  }
+
+  if (!isRecord(root.features)) {
+    return failure(
+      "INVALID_TYPE",
+      "$.features",
+      "features must be an object."
+    );
+  }
+  const featuresUnknown = unknownFieldFailure(
+    root.features,
+    ["stopVerification"],
+    "$.features"
+  );
+  if (featuresUnknown !== undefined) {
+    return featuresUnknown;
+  }
+  if (!isRecord(root.features.stopVerification)) {
+    return failure(
+      "INVALID_TYPE",
+      "$.features.stopVerification",
+      "stopVerification must be an object."
+    );
+  }
+  const stopVerificationUnknown = unknownFieldFailure(
+    root.features.stopVerification,
+    ["enabled"],
+    "$.features.stopVerification"
+  );
+  if (stopVerificationUnknown !== undefined) {
+    return stopVerificationUnknown;
+  }
+  if (typeof root.features.stopVerification.enabled !== "boolean") {
+    return failure(
+      "INVALID_FEATURE",
+      "$.features.stopVerification.enabled",
+      "stopVerification.enabled must be a boolean."
+    );
   }
 
   if (!isRecord(root.verification)) {
@@ -530,6 +576,17 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
       );
     }
     commandIds.add(command.value.id);
+  }
+
+  if (
+    root.features.stopVerification.enabled === true &&
+    root.verification.commands.length === 0
+  ) {
+    return failure(
+      "STOP_VERIFICATION_COMMANDS_REQUIRED",
+      "$.features.stopVerification.enabled",
+      "Stop verification requires at least one verification command."
+    );
   }
 
   if (!Array.isArray(root.pathMappings)) {
@@ -617,7 +674,11 @@ function validateCriterion(
 }
 
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
-  const root = validateRoot(value, ["criteria", "id", "schemaVersion", "title"]);
+  const root = validateRoot(
+    value,
+    ["criteria", "id", "schemaVersion", "title"],
+    TASK_SCHEMA_VERSION
+  );
   if (isFailure(root)) {
     return root;
   }
@@ -706,7 +767,7 @@ export function validateEvidence(
     "taskId",
     "testCount",
     "toolVersions"
-  ]);
+  ], EVIDENCE_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
   }
@@ -934,22 +995,30 @@ function validateManagedHook(
 export function validateManifest(
   value: unknown
 ): ValidationResult<InstallManifest> {
-  const root = validateRoot(value, [
-    "artifacts",
-    "harness",
-    "hooks",
-    "markers",
-    "schemaVersion",
-    "scope"
-  ]);
+  const root = validateRoot(
+    value,
+    ["artifacts", "harness", "hooks", "markers", "schemaVersion", "scope"],
+    MANIFEST_SCHEMA_VERSION
+  );
   if (isFailure(root)) {
     return root;
   }
   if (typeof root.scope !== "string" || !SCOPE_VALUES.has(root.scope)) {
     return failure("INVALID_SCOPE", "$.scope", "Unsupported install scope.");
   }
-  if (typeof root.harness !== "string" || !HARNESS_VALUES.has(root.harness)) {
-    return failure("INVALID_HARNESS", "$.harness", "Unsupported harness.");
+  if (
+    !Array.isArray(root.harness) ||
+    root.harness.length === 0 ||
+    !root.harness.every(
+      (id) => typeof id === "string" && HARNESS_VALUES.has(id)
+    ) ||
+    new Set(root.harness).size !== root.harness.length
+  ) {
+    return failure(
+      "INVALID_HARNESS",
+      "$.harness",
+      "Harness must be a non-empty list of unique supported harnesses."
+    );
   }
   if (!Array.isArray(root.artifacts) || !Array.isArray(root.markers)) {
     return failure(

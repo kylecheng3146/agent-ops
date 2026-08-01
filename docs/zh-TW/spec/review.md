@@ -21,3 +21,13 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 - Evidence: 結果列出 harness、設定的 model 或限制、effort 與原因。
 - Positive: `NOT_RUN：需要登入；prompt 可複製。`
 - Negative: `沒有審查執行，仍標示 PASS。`
+
+## REVIEW-HARNESS-001
+
+即使 installation 支援多個 harness，一次 review invocation MUST 解析成恰好一個 concrete harness。
+
+- Trigger: 使用 harness selection 執行 `review`。
+- Action: 從 `codex`、`claude` 或 `opencode` 中選一個；multi-harness installation 與 review execution 分開處理。
+- Evidence: argument parsing 會拒絕 review 使用 `all`、`both` 或逗號分隔的多 harness 值。
+- Positive: `review --harness opencode` 解析成一個 harness。
+- Negative: `讓一次 review invocation 隱式跑過所有已安裝 harness。`

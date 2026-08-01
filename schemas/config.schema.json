@@ -8,12 +8,13 @@
     "schemaVersion",
     "profiles",
     "verification",
+    "features",
     "pathMappings",
     "securityExceptions"
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "const": 2
     },
     "profiles": {
       "type": "array",
@@ -38,6 +39,23 @@
                 "$ref": "#/$defs/shellCommand"
               }
             ]
+          }
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stopVerification"],
+      "properties": {
+        "stopVerification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
           }
         }
       }
@@ -94,6 +112,42 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "features": {
+            "type": "object",
+            "properties": {
+              "stopVerification": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "verification": {
+            "type": "object",
+            "properties": {
+              "commands": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "id": {
       "type": "string",

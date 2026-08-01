@@ -28,6 +28,17 @@ npm run build
 npm run package:check
 ```
 
+Before release, perform a manual opencode smoke check on a machine with
+opencode installed; CI intentionally does not install that application. In a
+throwaway project, preview and apply `agent-ops init --scope project
+--harness opencode --profile advisory --yes`, confirm that only
+`.opencode/plugins/agent-ops.js` and the shared managed instruction artifacts
+changed, and verify that `opencode.json` was untouched. Repeat with
+`--profile guardrails` using a harmless bash command and confirm that
+`agent-ops doctor --json` reports lifecycle-summary as `UNSUPPORTED` while
+advisory runtime wiring is absent.
+Do not use a destructive command for this smoke check.
+
 Changes to workflows, release policy, issue forms, or pull request governance
 must include focused policy tests and must not add npm tokens or publish from a
 pull request or ordinary branch push.

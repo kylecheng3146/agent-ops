@@ -31,11 +31,14 @@ function boundedEvidence(
   ) {
     return null;
   }
-  return results.map(({ commandId, exitCode, testCount }) => ({
+  const bounded = results.map(({ commandId, exitCode, testCount }) => ({
     commandId,
     exitCode,
     testCount
   }));
+  return Buffer.byteLength(JSON.stringify(bounded), "utf8") <= 4096
+    ? bounded
+    : null;
 }
 
 function evidenceSupportsStatus(

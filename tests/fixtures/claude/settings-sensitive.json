@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["FAKE_SECRET_SENTINEL", "FAKE_FOREIGN_COMMAND"]
+  },
+  "hooks": {}
+}

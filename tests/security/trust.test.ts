@@ -21,10 +21,69 @@ import {
   normalizeRemoteIdentity,
   type TrustBinding
 } from "../../runtime/src/security/trust.js";
+import { calculateConfigHash } from "../../runtime/src/config/hash.js";
+import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { localStatePaths } from "../../runtime/src/security/permissions.js";
+import { sha256 } from "../../runtime/src/fs/hash.js";
+import { previewConfigMigration } from "../../runtime/src/config/migrate.js";
 
 const CONFIG_HASH = "a".repeat(64);
 const RUNTIME_HASH = "b".repeat(64);
+
+test("trust config bindings use canonical property-order-independent hashes", () => {
+  const first: AgentOpsConfig = {
+    schemaVersion: 2,
+    profiles: ["core"],
+    verification: { commands: [] },
+    features: { stopVerification: { enabled: false } },
+    pathMappings: [],
+    securityExceptions: []
+  };
+  const reordered: AgentOpsConfig = {
+    securityExceptions: [],
+    pathMappings: [],
+    features: { stopVerification: { enabled: false } },
+    verification: { commands: [] },
+    profiles: ["core"],
+    schemaVersion: 2
+  };
+  assert.equal(calculateConfigHash(first), calculateConfigHash(reordered));
+});
+
+test("config migration makes an old trust binding stale until re-granted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-migration-"));
+  try {
+    const legacy = {
+      schemaVersion: 1,
+      profiles: ["core"],
+      verification: { commands: [] },
+      pathMappings: [],
+      securityExceptions: []
+    };
+    const migrated = previewConfigMigration(legacy).migrated;
+    const oldBinding = await calculateTrustBinding({
+      repositoryPath: root,
+      remoteUrl: `local:${root}`,
+      configHash: sha256(JSON.stringify(legacy)),
+      runtimeHash: RUNTIME_HASH
+    });
+    const state = localStatePaths(root);
+    const store = new FileTrustStore(state.trustStore, state.anchorDirectory);
+    await store.grant(oldBinding, "2026-07-23T00:00:00Z");
+
+    const migratedBinding = await calculateTrustBinding({
+      repositoryPath: root,
+      remoteUrl: `local:${root}`,
+      configHash: calculateConfigHash(migrated),
+      runtimeHash: RUNTIME_HASH
+    });
+    assert.equal((await store.status(migratedBinding)).status, "STALE");
+    await store.grant(migratedBinding, "2026-07-23T00:00:01Z");
+    assert.equal((await store.status(migratedBinding)).status, "TRUSTED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("default local state stays under the injected user home", () => {
   const paths = localStatePaths(join("/user-home"));

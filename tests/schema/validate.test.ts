@@ -43,7 +43,7 @@ function firstErrorCode(result: { errors: { code: string }[] }): string {
   return result.errors[0]?.code ?? "";
 }
 
-test("accepts fully valid version 1 fixtures", async () => {
+test("accepts fully valid versioned fixtures", async () => {
   const [config, taskFixture, evidence, manifest] = await Promise.all([
     readJsonFixture("valid-config.json"),
     readJsonFixture("valid-task.json"),
@@ -57,6 +57,50 @@ test("accepts fully valid version 1 fixtures", async () => {
   assert.equal(validateManifest(manifest).ok, true);
 });
 
+test("keeps the opencode plugin out of managed hook records", async () => {
+  const manifest = (await readJsonFixture("valid-manifest.json")) as {
+    harness: string[];
+    hooks?: unknown[];
+  };
+  manifest.harness = ["opencode"];
+  manifest.hooks = [
+    {
+      id: "opencode-hooks",
+      path: ".opencode/plugins/agent-ops.js",
+      harness: "opencode",
+      events: ["PreToolUse"],
+      owner: "agent-ops"
+    }
+  ];
+
+  const result = validateManifest(manifest);
+  assert.equal(result.ok, false);
+  assert.equal(firstErrorCode(result), "INVALID_HARNESS");
+
+  const schema = await compileJsonSchema("manifest.schema.json");
+  assert.equal(schema(manifest), false);
+});
+
+test("accepts a project-local Claude hook path in manifest v2", async () => {
+  const manifest = cloneJson(
+    await readJsonFixture("valid-manifest.json")
+  ) as {
+    hooks?: unknown[];
+  };
+  manifest.hooks = [
+    {
+      id: "claude-hooks",
+      path: ".claude/settings.local.json",
+      harness: "claude",
+      events: ["PreToolUse"],
+      owner: "agent-ops"
+    }
+  ];
+  assert.equal(validateManifest(manifest).ok, true);
+  const schema = await compileJsonSchema("manifest.schema.json");
+  assert.equal(schema(manifest), true);
+});
+
 test("rejects shell execution without explicit acknowledgement", async () => {
   const result = validateConfig(
     await readJsonFixture("invalid-shell-ack.json")
@@ -66,12 +110,36 @@ test("rejects shell execution without explicit acknowledgement", async () => {
   assert.match(firstErrorCode(result), /SHELL_ACK_REQUIRED/);
 });
 
+test("requires verification commands when Stop verification is enabled", async () => {
+  const config = cloneJson(
+    await readJsonFixture("valid-config.json")
+  ) as {
+    verification: { commands: unknown[] };
+    features: { stopVerification: { enabled: boolean } };
+  };
+  config.verification.commands = [];
+  config.features.stopVerification.enabled = true;
+
+  assert.equal(
+    firstErrorCode(validateConfig(config)),
+    "STOP_VERIFICATION_COMMANDS_REQUIRED"
+  );
+  const schema = await compileJsonSchema("config.schema.json");
+  assert.equal(schema(config), false);
+});
+
 test("prioritizes shell acknowledgement for the mandated minimal input", () => {
   const result = validateConfig({
-    schemaVersion: 1,
+    schemaVersion: 2,
     verification: {
       commands: [{ id: "test", command: "npm test", shell: true }]
-    }
+    },
+    profiles: [],
+    features: {
+      stopVerification: { enabled: false }
+    },
+    pathMappings: [],
+    securityExceptions: []
   });
 
   assert.equal(result.ok, false);
@@ -535,14 +603,15 @@ test("bounds execution-related numeric values to safe integers", async () => {
 });
 
 test("JSON Schema documents expose the same top-level versioned fields", async () => {
+  // The manifest versions on its own track, so it declares its own const.
   const cases = [
-    ["config.schema.json", "valid-config.json"],
-    ["task.schema.json", "valid-task.json"],
-    ["evidence.schema.json", "valid-evidence.json"],
-    ["manifest.schema.json", "valid-manifest.json"]
+    ["config.schema.json", "valid-config.json", 2],
+    ["task.schema.json", "valid-task.json", 1],
+    ["evidence.schema.json", "valid-evidence.json", 1],
+    ["manifest.schema.json", "valid-manifest.json", 2]
   ] as const;
 
-  for (const [schemaName, fixtureName] of cases) {
+  for (const [schemaName, fixtureName, version] of cases) {
     const schema = (await readJsonSchema(schemaName)) as {
       additionalProperties?: boolean;
       properties?: Record<string, { const?: unknown }>;
@@ -554,7 +623,7 @@ test("JSON Schema documents expose the same top-level versioned fields", async (
     >;
 
     assert.equal(schema.additionalProperties, false, schemaName);
-    assert.equal(schema.properties?.schemaVersion?.const, 1, schemaName);
+    assert.equal(schema.properties?.schemaVersion?.const, version, schemaName);
     assert.deepEqual(
       [...(schema.required ?? [])].sort(),
       Object.keys(fixture).sort(),

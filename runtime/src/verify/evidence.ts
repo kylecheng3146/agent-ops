@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import {
-  SCHEMA_VERSION,
+  EVIDENCE_SCHEMA_VERSION,
   type AgentOpsConfig,
   type InstallScope,
   type VerificationCommand,
@@ -9,6 +9,9 @@ import {
 } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
+import { calculateConfigHash } from "../config/hash.js";
+
+export { calculateConfigHash } from "../config/hash.js";
 import { validateEvidence } from "../schema/validate.js";
 import {
   readPrivateFile,
@@ -27,38 +30,6 @@ export interface BuildVerificationEvidenceInput {
   readonly testCount: number | null;
   readonly toolVersions: Readonly<Record<string, string>>;
   readonly config: AgentOpsConfig;
-}
-
-function canonicalJson(value: unknown): string {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    typeof value === "string"
-  ) {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonicalJson(record[key])}`
-      )
-      .join(",")}}`;
-  }
-  throw new AgentOpsError(
-    "CONFIG_HASH_INVALID",
-    "Configuration contains an unsupported value."
-  );
-}
-
-export function calculateConfigHash(config: AgentOpsConfig): string {
-  return sha256(canonicalJson(config));
 }
 
 function redactRecord(
@@ -90,7 +61,7 @@ export function buildVerificationEvidence(
   input: BuildVerificationEvidenceInput
 ): VerificationEvidence {
   return validateBuiltEvidence({
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: EVIDENCE_SCHEMA_VERSION,
     taskId: input.taskId,
     criterionId: input.criterionId,
     commandId: input.command.id,

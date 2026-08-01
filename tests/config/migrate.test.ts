@@ -21,15 +21,18 @@ async function fixture(name: string): Promise<unknown> {
   ) as unknown;
 }
 
-test("previews a pure sequential migration from v0 to v1", async () => {
+test("previews a pure sequential migration from v0 to v2", async () => {
   const input = await fixture("config-v0.json");
-  const expected = await fixture("config-v1.json");
+  const expected = await fixture("config-v2.json");
   const before = JSON.stringify(input);
 
   const preview = previewConfigMigration(input);
 
   assert.deepEqual(preview.migrated, expected);
-  assert.deepEqual(preview.steps, [{ fromVersion: 0, toVersion: 1 }]);
+  assert.deepEqual(preview.steps, [
+    { fromVersion: 0, toVersion: 1 },
+    { fromVersion: 1, toVersion: 2 }
+  ]);
   assert.equal(JSON.stringify(input), before);
   assert.notEqual(preview.migrated, input);
 });
@@ -43,9 +46,10 @@ test("loads migrated config without mutating the source file", async () => {
 
     const loaded = await loadConfigFile(path);
 
-    assert.equal(loaded.config.schemaVersion, 1);
+    assert.equal(loaded.config.schemaVersion, 2);
     assert.deepEqual(loaded.migration.steps, [
-      { fromVersion: 0, toVersion: 1 }
+      { fromVersion: 0, toVersion: 1 },
+      { fromVersion: 1, toVersion: 2 }
     ]);
     assert.equal(await readFile(path, "utf8"), source);
   } finally {
@@ -55,9 +59,21 @@ test("loads migrated config without mutating the source file", async () => {
 
 test("rejects unknown future schema versions", () => {
   assert.throws(
-    () => previewConfigMigration({ schemaVersion: 2 }),
+    () => previewConfigMigration({ schemaVersion: 3 }),
     (error: unknown) =>
       error instanceof AgentOpsError &&
       error.code === "CONFIG_SCHEMA_FUTURE"
   );
+});
+
+test("migrates every v1 config to Stop-disabled v2 without inferring consent", async () => {
+  const input = (await fixture("config-v1.json")) as Record<string, unknown>;
+  input.profiles = ["guardrails"];
+
+  const preview = previewConfigMigration(input);
+
+  assert.deepEqual(preview.migrated.features, {
+    stopVerification: { enabled: false }
+  });
+  assert.equal(preview.migrated.schemaVersion, 2);
 });

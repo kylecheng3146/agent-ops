@@ -7,6 +7,11 @@ import {
   smokeAvailabilityStatus
 } from "../../runtime/src/install/probes.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
+import { buildOpencodePlugin } from "../../runtime/src/adapters/opencode/config.js";
+import {
+  HARNESS_IDS,
+  harnessDescriptor
+} from "../../runtime/src/install/harness.js";
 
 const CLAUDE_SETTINGS = {
   hooks: {
@@ -36,6 +41,22 @@ const CODEX_HOOKS = {
         hooks: [
           {
             type: "command",
+            command:
+              'node "/opt/agent-ops/hook-entry.js" codex SessionStart --managed-by=agent-ops'
+          }
+        ]
+      }
+    ]
+  }
+};
+
+const LEGACY_CODEX_HOOKS = {
+  hooks: {
+    SessionStart: [
+      {
+        hooks: [
+          {
+            type: "command",
             command: "agent-ops hook codex SessionStart"
           }
         ]
@@ -44,13 +65,52 @@ const CODEX_HOOKS = {
   }
 };
 
+function hookConfig(
+  profiles: AgentOpsConfig["profiles"],
+  stopVerification = false
+): AgentOpsConfig {
+  return {
+    schemaVersion: 2,
+    profiles,
+    verification: {
+      commands: stopVerification
+        ? [
+            {
+              id: "test",
+              command: "node",
+              args: [],
+              cwd: ".",
+              required: true,
+              evidence: { kind: "exit-code" }
+            }
+          ]
+        : []
+    },
+    features: {
+      stopVerification: { enabled: stopVerification }
+    },
+    pathMappings: [],
+    securityExceptions: []
+  };
+}
+
 test("core-only installations have no hooks to register", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "both",
-      profiles: ["core"],
-      claudeSettings: null,
-      codexHooks: null
+      harness: ["codex", "claude"],
+      config: hookConfig(["core"]),
+      sources: { claude: null, codex: null }
+    }),
+    true
+  );
+});
+
+test("an empty profile list has no hooks to register", () => {
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["codex", "claude", "opencode"],
+      config: hookConfig([]),
+      sources: {}
     }),
     true
   );
@@ -59,49 +119,96 @@ test("core-only installations have no hooks to register", () => {
 test("advisory installations require owned handlers in every harness", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "both",
-      profiles: ["core", "advisory"],
-      claudeSettings: CLAUDE_SETTINGS,
-      codexHooks: CODEX_HOOKS
+      harness: ["codex", "claude"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: CLAUDE_SETTINGS, codex: CODEX_HOOKS }
     }),
     true
   );
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "both",
-      profiles: ["core", "advisory"],
-      claudeSettings: CLAUDE_SETTINGS,
-      codexHooks: null
+      harness: ["codex", "claude"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: CLAUDE_SETTINGS, codex: null }
     }),
     false
   );
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "claude",
-      profiles: ["core", "advisory"],
-      claudeSettings: CLAUDE_SETTINGS,
-      codexHooks: null
+      harness: ["claude"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: CLAUDE_SETTINGS, codex: null }
     }),
     true
+  );
+});
+
+test("a legacy PATH-resolved codex handler needs an update", () => {
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["codex"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: null, codex: LEGACY_CODEX_HOOKS }
+    }),
+    false
   );
 });
 
 test("foreign handlers do not satisfy hook registration", () => {
   assert.equal(
     hookRegistrationSatisfied({
-      harness: "claude",
-      profiles: ["core", "advisory"],
-      claudeSettings: {
+      harness: ["claude"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: {
         hooks: {
           SessionStart: [
             { hooks: [{ type: "command", command: "node", args: ["other.js"] }] }
           ]
         }
-      },
-      codexHooks: null
+      }, codex: null }
     }),
     false
   );
+});
+
+test("opencode registration is checked against the capability-implied plugin hooks", () => {
+  const source = buildOpencodePlugin(
+    ["lifecycle-summary", "command-policy", "optional-stop-verify"],
+    "/opt/agent-ops/hook-entry.js"
+  );
+  assert.ok(source !== null);
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["opencode"],
+      config: hookConfig(["core", "advisory", "guardrails"]),
+      sources: { opencode: source }
+    }),
+    true
+  );
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["opencode"],
+      config: hookConfig(["core", "guardrails"]),
+      sources: { opencode: source.replace("tool.execute.before", "foreign") }
+    }),
+    false
+  );
+});
+
+test("registration probes are owned by the control adapter", () => {
+  for (const id of HARNESS_IDS) {
+    const descriptor = harnessDescriptor(id);
+    assert.equal(typeof descriptor.control.hookRegistered, "function", id);
+    assert.ok(
+      descriptor.control.registrations.every(
+        ({ surfaceId, capability, nativeEvent }) =>
+          surfaceId.length > 0 &&
+          capability.length > 0 &&
+          nativeEvent.length > 0
+      ),
+      id
+    );
+  }
 });
 
 test("repository trust separates ungranted from stale bindings", () => {
@@ -112,9 +219,12 @@ test("repository trust separates ungranted from stale bindings", () => {
 
 test("smoke availability follows configured verification commands", () => {
   const config: AgentOpsConfig = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profiles: ["core"],
     verification: { commands: [] },
+    features: {
+      stopVerification: { enabled: false }
+    },
     pathMappings: [],
     securityExceptions: []
   };

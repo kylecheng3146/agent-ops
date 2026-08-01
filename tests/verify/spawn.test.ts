@@ -86,6 +86,23 @@ test("executes argv directly with shell false by default", async () => {
   assert.equal(result.stdout, "passing output");
 });
 
+test("forwards explicit child environment overrides without adding env to the result", async () => {
+  const result = await runVerificationCommand(command({
+    command: process.execPath,
+    args: [
+      "-e",
+      "process.stdout.write(process.env.AGENT_OPS_TEST_ENV ?? '')"
+    ]
+  }), {
+    cwd: process.cwd(),
+    env: { AGENT_OPS_TEST_ENV: "child-only-value" }
+  });
+
+  assert.equal(result.status, "PASS");
+  assert.equal(result.stdout, "child-only-value");
+  assert.equal("env" in result, false);
+});
+
 test("allows acknowledged shell commands and rejects forged unacknowledged ones", async () => {
   const requests: ProcessRequest[] = [];
   const runner = runnerWith((request) => {

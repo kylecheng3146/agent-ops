@@ -19,6 +19,12 @@ export function claudeHookOutput(
   event: ClaudeSupportedEvent,
   result: HookResult
 ): ClaudeHookProcessOutput {
+  if (event === "Stop" && result.evidence !== undefined) {
+    return json({
+      systemMessage: `agent-ops: ${result.code}`,
+      evidence: result.evidence
+    });
+  }
   if (result.action === "continue" && result.status === "PASS") {
     return { exitCode: 0, stdout: "", stderr: "" };
   }
@@ -29,12 +35,6 @@ export function claudeHookOutput(
         permissionDecision: "deny",
         permissionDecisionReason: result.code
       }
-    });
-  }
-  if (event === "Stop" && result.action === "block") {
-    return json({
-      decision: "block",
-      reason: result.code
     });
   }
   return json({

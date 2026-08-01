@@ -5,6 +5,15 @@ import test from "node:test";
 
 import { cleanupE2eRoot, runBuiltCli } from "./helpers.js";
 
+const CODEX_DESIRED_BODY =
+  "Load `.agent-ops/AGENTS.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const CODEX_LEGACY_BODY =
+  "Use `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
+const CLAUDE_DESIRED_BODY =
+  "Load `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const CLAUDE_LEGACY_BODY =
+  "Use `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
+
 test("project lifecycle applies, trusts, routes, and uninstalls managed state", async () => {
   const { root, result } = runBuiltCli([
     "init",
@@ -104,6 +113,53 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     assert.match(uninstall.stdout, /UNINSTALL_APPLIED/);
     await assert.rejects(access(join(root, ".agent-ops", "manifest.json")));
     assert.equal(await readFile(join(root, "unmanaged.txt"), "utf8"), "keep me\n");
+  } finally {
+    cleanupE2eRoot(root);
+  }
+});
+
+test("project lifecycle migrates both legacy routing bodies without changing user text", async () => {
+  const { root, result } = runBuiltCli([
+    "init",
+    "--scope",
+    "project",
+    "--harness",
+    "all",
+    "--profile",
+    "core",
+    "--yes",
+    "--json"
+  ]);
+  try {
+    assert.equal(result.status, 0);
+    for (const [path, desired, legacy] of [
+      ["AGENTS.md", CODEX_DESIRED_BODY, CODEX_LEGACY_BODY],
+      ["CLAUDE.md", CLAUDE_DESIRED_BODY, CLAUDE_LEGACY_BODY]
+    ] as const) {
+      const source = await readFile(join(root, path), "utf8");
+      await writeFile(
+        join(root, path),
+        `user text before\n${source.replace(desired, legacy)}user text after\n`
+      );
+    }
+
+    const updated = runBuiltCli([
+      "update",
+      "--target-version",
+      "0.2.0",
+      "--yes",
+      "--json"
+    ], root).result;
+    assert.equal(updated.status, 0);
+    assert.match(updated.stdout, /UPDATE_APPLIED/);
+    assert.match(
+      await readFile(join(root, "AGENTS.md"), "utf8"),
+      /user text before[\s\S]*Load `\.agent-ops\/AGENTS\.md`[\s\S]*user text after/u
+    );
+    assert.match(
+      await readFile(join(root, "CLAUDE.md"), "utf8"),
+      /user text before[\s\S]*Load `\.agent-ops\/CLAUDE\.md`[\s\S]*user text after/u
+    );
   } finally {
     cleanupE2eRoot(root);
   }

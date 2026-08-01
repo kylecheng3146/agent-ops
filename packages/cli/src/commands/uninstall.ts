@@ -9,6 +9,10 @@ import {
   type CliEnvelope
 } from "../output.js";
 import { formatOperationPlan } from "../plan-output.js";
+import {
+  toPublicUninstallPlan,
+  type PublicUninstallPlan
+} from "../public-plan.js";
 
 export interface UninstallCommandOptions {
   readonly args: ParsedArgs;
@@ -19,7 +23,7 @@ export interface UninstallCommandOptions {
 
 export interface UninstallCommandData {
   readonly applied: boolean;
-  readonly plan: UninstallPlan;
+  readonly plan: PublicUninstallPlan;
   readonly message: string;
   readonly text?: string;
 }
@@ -36,7 +40,7 @@ function formatUninstallPlan(plan: UninstallPlan): string {
             `Harness: ${plan.manifest.harness}`
           ])
     ],
-    operations: plan.operations
+    operations: toPublicUninstallPlan(plan).operations
   });
 }
 
@@ -48,7 +52,7 @@ function uninstallError(
   return {
     code,
     status: "error",
-    data: { applied: false, plan, message },
+    data: { applied: false, plan: toPublicUninstallPlan(plan), message },
     errors: [{ code, message }]
   };
 }
@@ -60,14 +64,14 @@ export async function runUninstallCommand(
   if (!plan.installed) {
     return okEnvelope("UNINSTALL_NOT_INSTALLED", {
       applied: false,
-      plan,
+      plan: toPublicUninstallPlan(plan),
       message: "No managed installation exists."
     });
   }
   if (options.args.dryRun) {
     return okEnvelope("UNINSTALL_PLAN_READY", {
       applied: false,
-      plan,
+      plan: toPublicUninstallPlan(plan),
       message: "Uninstall plan calculated; no files were changed.",
       text: formatUninstallPlan(plan)
     });
@@ -92,7 +96,7 @@ export async function runUninstallCommand(
   await applyUninstallPlan(options.root, plan);
   return okEnvelope("UNINSTALL_APPLIED", {
     applied: true,
-    plan,
+    plan: toPublicUninstallPlan(plan),
     message: "Managed installation content was removed."
   });
 }

@@ -8,11 +8,14 @@ import {
 } from "../fs/managed-block.js";
 import { AgentOpsError } from "../fs/paths.js";
 import {
-  COMMON_AGENTS_BLOCK,
-  COMMON_CLAUDE_BLOCK,
+  harnessDescriptor,
+  harnessHookPath,
+  routingBlockId,
+  selectHarnessHookSurface,
+  rulesArtifactId,
   type HarnessId
 } from "./harness.js";
-import { hookRegistrationPath } from "./hooks.js";
+import { isOpencodePluginPath } from "../adapters/opencode/config.js";
 
 export interface ExpectedManagedMarker {
   readonly id: string;
@@ -20,34 +23,31 @@ export interface ExpectedManagedMarker {
   readonly startMarker: string;
   readonly endMarker: string;
   readonly content: string;
-}
-
-function selectedHarnesses(
-  manifest: InstallManifest
-): readonly HarnessId[] {
-  return manifest.harness === "both"
-    ? ["codex", "claude"]
-    : [manifest.harness];
+  readonly legacyContent: readonly string[];
 }
 
 function expectedMarker(
   manifest: InstallManifest,
-  id: HarnessId
+  id: HarnessId,
+  markerId: string
 ): ExpectedManagedMarker {
-  const isCodex = id === "codex";
-  const markerId = `${id}-routing`;
+  const descriptor = harnessDescriptor(id);
   const markers = managedBlockMarkers(markerId, 1);
-  const instructionFile = isCodex ? "AGENTS.md" : "CLAUDE.md";
   return {
     id: markerId,
     path:
       manifest.scope === "project"
-        ? instructionFile
-        : `.${id}/${instructionFile}`,
+        ? descriptor.control.instructionFile
+        : `.${id}/${descriptor.control.instructionFile}`,
     startMarker: markers.start,
     endMarker: markers.end,
-    content: isCodex ? COMMON_AGENTS_BLOCK : COMMON_CLAUDE_BLOCK
+    content: descriptor.control.routing.desired,
+    legacyContent: descriptor.control.routing.legacy
   };
+}
+
+function pathKey(path: string): string {
+  return path.toLowerCase();
 }
 
 function manifestOwnershipError(): AgentOpsError {
@@ -57,13 +57,19 @@ function manifestOwnershipError(): AgentOpsError {
   );
 }
 
+interface ExpectedArtifactPath {
+  readonly path: string;
+  readonly ids: Set<string>;
+}
+
 /**
  * Hook records are optional: installations without hook capabilities, and
  * manifests written before hook registration existed, carry none.
  */
 function assertSupportedHookRecords(
   manifest: InstallManifest,
-  harnesses: readonly HarnessId[]
+  harnesses: readonly HarnessId[],
+  root?: string
 ): void {
   const selected = new Set<HarnessId>(harnesses);
   const seen = new Set<string>();
@@ -71,10 +77,20 @@ function assertSupportedHookRecords(
     if (
       !selected.has(hook.harness) ||
       seen.has(hook.harness) ||
+      harnessDescriptor(hook.harness).control.buildHooks === undefined ||
       hook.id !== `${hook.harness}-hooks` ||
-      hook.path !== hookRegistrationPath(hook.harness, manifest.scope) ||
       hook.events.length === 0
     ) {
+      throw manifestOwnershipError();
+    }
+    try {
+      selectHarnessHookSurface({
+        harness: hook.harness,
+        scope: manifest.scope,
+        root,
+        persistedPath: hook.path
+      });
+    } catch {
       throw manifestOwnershipError();
     }
     seen.add(hook.harness);
@@ -82,29 +98,102 @@ function assertSupportedHookRecords(
 }
 
 export function assertSupportedManifestOwnership(
-  manifest: InstallManifest
+  manifest: InstallManifest,
+  root?: string
 ): ReadonlyMap<string, ExpectedManagedMarker> {
-  const harnesses = selectedHarnesses(manifest);
-  const expectedArtifacts = new Map<string, string>([
-    ["config", ".agent-ops/config.json"]
+  const harnesses = manifest.harness;
+  const expectedArtifactPaths = new Map<string, ExpectedArtifactPath>([
+    [
+      pathKey(".agent-ops/config.json"),
+      { path: ".agent-ops/config.json", ids: new Set(["config"]) }
+    ]
+  ]);
+  const requiredArtifactPaths = new Set<string>([
+    pathKey(".agent-ops/config.json")
   ]);
   const expectedMarkers = new Map<string, ExpectedManagedMarker>();
-  for (const id of harnesses) {
-    expectedArtifacts.set(
-      `${id}-rules`,
-      `.agent-ops/${id === "codex" ? "AGENTS.md" : "CLAUDE.md"}`
-    );
-    const marker = expectedMarker(manifest, id);
-    expectedMarkers.set(marker.id, marker);
-  }
+  const expectedMarkerPaths = new Set<string>();
+  const recordedOpencodePluginPath = manifest.artifacts.find(
+    ({ id }) => id === "opencode-plugin"
+  )?.path;
   if (
-    manifest.artifacts.length !== expectedArtifacts.size ||
-    manifest.markers.length !== expectedMarkers.size
+    recordedOpencodePluginPath !== undefined &&
+    (!harnesses.includes("opencode") ||
+      !isOpencodePluginPath(manifest.scope, recordedOpencodePluginPath))
+  ) {
+    throw manifestOwnershipError();
+  }
+  for (const id of harnesses) {
+    const descriptor = harnessDescriptor(id);
+    const artifactPath = `.agent-ops/${descriptor.control.instructionFile}`;
+    const artifactKey = pathKey(artifactPath);
+    const artifactEntry = expectedArtifactPaths.get(artifactKey);
+    const artifactIds = artifactEntry?.ids ?? new Set<string>();
+    artifactIds.add(rulesArtifactId(descriptor));
+    // Accept the PR 2 per-harness spelling while update rewrites it to the
+    // path-derived ID. This keeps already-installed manifests removable.
+    artifactIds.add(`${id}-rules`);
+    expectedArtifactPaths.set(artifactKey, {
+      path: artifactEntry?.path ?? artifactPath,
+      ids: artifactIds
+    });
+    requiredArtifactPaths.add(artifactKey);
+
+    const markerPath =
+      manifest.scope === "project"
+        ? descriptor.control.instructionFile
+        : `.${id}/${descriptor.control.instructionFile}`;
+    const markerKey = pathKey(markerPath);
+    expectedMarkerPaths.add(markerKey);
+    const currentId = routingBlockId(id, manifest.scope, descriptor);
+    const markerIds = new Set([currentId, `${id}-routing`]);
+    for (const markerId of markerIds) {
+      expectedMarkers.set(
+        markerId,
+        expectedMarker(manifest, id, markerId)
+      );
+    }
+
+    if (id === "opencode") {
+      const pluginPath =
+        recordedOpencodePluginPath ?? harnessHookPath(id, manifest.scope, root);
+      const pluginKey = pathKey(pluginPath);
+      const pluginEntry = expectedArtifactPaths.get(pluginKey);
+      if (pluginEntry !== undefined && pluginEntry.path !== pluginPath) {
+        throw manifestOwnershipError();
+      }
+      const pluginIds = pluginEntry?.ids ?? new Set<string>();
+      pluginIds.add("opencode-plugin");
+      expectedArtifactPaths.set(pluginKey, {
+        path: pluginPath,
+        ids: pluginIds
+      });
+    }
+  }
+  const opencodePluginPath = harnesses.includes("opencode")
+    ? recordedOpencodePluginPath ??
+      harnessHookPath("opencode", manifest.scope, root)
+    : null;
+  const optionalArtifactCount =
+    opencodePluginPath !== null &&
+    expectedArtifactPaths.has(pathKey(opencodePluginPath))
+      ? 1
+      : 0;
+  if (
+    (manifest.artifacts.length !== requiredArtifactPaths.size &&
+      manifest.artifacts.length !== requiredArtifactPaths.size +
+        optionalArtifactCount) ||
+    manifest.markers.length !== expectedMarkerPaths.size
   ) {
     throw manifestOwnershipError();
   }
   for (const artifact of manifest.artifacts) {
-    if (expectedArtifacts.get(artifact.id) !== artifact.path) {
+    const expected = expectedArtifactPaths.get(pathKey(artifact.path));
+    if (
+      expected === undefined ||
+      expected.path !== artifact.path ||
+      !expected.ids.has(artifact.id)
+    ) {
       throw manifestOwnershipError();
     }
   }
@@ -119,7 +208,7 @@ export function assertSupportedManifestOwnership(
       throw manifestOwnershipError();
     }
   }
-  assertSupportedHookRecords(manifest, harnesses);
+  assertSupportedHookRecords(manifest, harnesses, root);
   return expectedMarkers;
 }
 
@@ -137,7 +226,7 @@ export function assertExpectedManagedBlock(
   source: string,
   marker: ManagedMarkerRecord,
   expected: ExpectedManagedMarker
-): void {
+): "desired" | "legacy" {
   const startIndex = source.indexOf(marker.startMarker);
   const endIndex = source.indexOf(marker.endMarker);
   if (
@@ -150,19 +239,28 @@ export function assertExpectedManagedBlock(
       `Managed block boundaries changed after installation: ${marker.path}`
     );
   }
-  const expectedBlock = applyManagedBlock("", {
-    id: expected.id,
-    version: 1,
-    content: expected.content
-  }).replace(/\n$/u, "");
   const currentBlock = source.slice(
     startIndex,
     endIndex + marker.endMarker.length
   );
-  if (currentBlock !== expectedBlock) {
-    throw new AgentOpsError(
-      "MANAGED_BLOCK_CHANGED",
-      `Managed block content changed after installation: ${marker.path}`
-    );
+  const candidates: readonly ["desired" | "legacy", string][] = [
+    ["desired", expected.content],
+    ...expected.legacyContent.map(
+      (content): ["desired" | "legacy", string] => ["legacy", content]
+    )
+  ];
+  for (const [kind, content] of candidates) {
+    const expectedBlock = applyManagedBlock("", {
+      id: expected.id,
+      version: 1,
+      content
+    }).replace(/\n$/u, "");
+    if (currentBlock === expectedBlock) {
+      return kind;
+    }
   }
+  throw new AgentOpsError(
+    "MANAGED_BLOCK_CHANGED",
+    `Managed block content changed after installation: ${marker.path}`
+  );
 }

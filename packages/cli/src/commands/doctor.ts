@@ -12,11 +12,29 @@ export interface DoctorCommandData {
 }
 
 function formatDoctorReport(report: DoctorReport): string {
+  const surfaces = report.surfaces ?? [];
   return `${[
     "Installation doctor",
-    ...report.checks.map(
-      ({ id, status, message }) => `- ${status} ${id}: ${message}`
-    )
+    ...report.checks.map(({ id, status, message, code }) =>
+      `- ${status} ${id}${code === undefined ? "" : ` [${code}]`}: ${message}`
+    ),
+    ...(surfaces.length === 0
+      ? []
+      : [
+          "Surfaces:",
+          ...surfaces.map(
+            ({
+              harness,
+              surfaceId,
+              path,
+              status,
+              managedHandlerCount,
+              foreignHandlerCount
+            }) =>
+              `- ${status} ${harness}/${surfaceId}: ${path} ` +
+              `(managed ${managedHandlerCount}, foreign ${foreignHandlerCount})`
+          )
+        ])
   ].join("\n")}\n`;
 }
 
@@ -30,25 +48,44 @@ export async function runDoctorCommand(
   const hasUnknown = report.checks.some(
     ({ status }) => status === "UNKNOWN"
   );
+  const hasUnsupported = report.checks.some(
+    ({ status }) => status === "UNSUPPORTED"
+  );
+  const hasDegraded = report.checks.some(
+    ({ status }) => status === "DEGRADED"
+  );
   const code = hasFailure
     ? "DOCTOR_FAILED"
-    : hasUnknown
+    : hasUnsupported
+      ? "DOCTOR_UNSUPPORTED"
+      : hasUnknown
       ? "DOCTOR_UNKNOWN"
-      : "DOCTOR_OK";
+      : hasDegraded
+        ? "DOCTOR_DEGRADED"
+        : "DOCTOR_OK";
   const message = hasFailure
     ? "Installation diagnostics found failures."
-    : hasUnknown
+    : hasUnsupported
+      ? "Installation diagnostics found unsupported capabilities."
+      : hasUnknown
       ? "Installation diagnostics contain unknown checks."
-      : "Installation diagnostics passed.";
+      : hasDegraded
+        ? "Installation diagnostics found degraded checks."
+        : "Installation diagnostics passed.";
   return {
     code,
-    status: hasFailure || hasUnknown ? "error" : "ok",
+    status:
+      hasFailure || hasUnsupported || hasUnknown || hasDegraded
+        ? "error"
+        : "ok",
     data: {
       report,
       message,
       text: formatDoctorReport(report)
     },
     errors:
-      hasFailure || hasUnknown ? [{ code, message }] : []
+      hasFailure || hasUnsupported || hasUnknown || hasDegraded
+        ? [{ code, message }]
+        : []
   };
 }

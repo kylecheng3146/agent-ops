@@ -1,0 +1,23 @@
+{
+  "description": "foreign-description",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "foreign-codex-command"
+          },
+          {
+            "type": "command",
+            "command": "node \"/opt/agent-ops/hook-entry.js\" codex PreToolUse --managed-by=agent-ops",
+            "commandWindows": "node \"/opt/agent-ops/hook-entry.js\" codex PreToolUse --managed-by=agent-ops",
+            "timeout": 30,
+            "statusMessage": "Running agent-ops PreToolUse"
+          }
+        ]
+      }
+    ]
+  }
+}

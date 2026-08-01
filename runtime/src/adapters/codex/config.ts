@@ -28,14 +28,41 @@ export interface CodexHookTarget {
   readonly requiresProjectTrust: boolean;
 }
 
-const COMMAND_PREFIX = "agent-ops hook codex ";
+export const CODEX_MANAGED_MARKER = "--managed-by=agent-ops";
+
+/**
+ * Releases up to 0.1.4 registered a bare `agent-ops` command resolved through
+ * PATH. Detection still recognizes it so an update replaces it instead of
+ * leaving the hijackable handler behind.
+ */
+const LEGACY_COMMAND_PREFIX = "agent-ops hook codex ";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function commandHook(event: CodexSupportedEvent): CodexCommandHook {
-  const command = `${COMMAND_PREFIX}${event}`;
+function assertRuntimePath(runtimePath: string): void {
+  if (
+    runtimePath.length === 0 ||
+    runtimePath.length > 4096 ||
+    runtimePath.includes("\0") ||
+    // The command is a single shell string, so a quote would break the
+    // argument boundary the surrounding quotes establish.
+    runtimePath.includes('"')
+  ) {
+    throw new AgentOpsError(
+      "CODEX_HOOK_PATH_INVALID",
+      "Codex hook runtime path is invalid."
+    );
+  }
+}
+
+function commandHook(
+  event: CodexSupportedEvent,
+  runtimePath: string
+): CodexCommandHook {
+  const command =
+    `node "${runtimePath}" codex ${event} ${CODEX_MANAGED_MARKER}`;
   return {
     type: "command",
     command,
@@ -45,10 +72,13 @@ function commandHook(event: CodexSupportedEvent): CodexCommandHook {
   };
 }
 
-function matcherGroup(event: CodexSupportedEvent): CodexMatcherGroup {
+function matcherGroup(
+  event: CodexSupportedEvent,
+  runtimePath: string
+): CodexMatcherGroup {
   return {
     ...(event === "PreToolUse" ? { matcher: "^Bash$" } : {}),
-    hooks: [commandHook(event)]
+    hooks: [commandHook(event, runtimePath)]
   };
 }
 
@@ -61,20 +91,22 @@ export function codexHookTarget(scope: InstallScope): CodexHookTarget {
 }
 
 export function buildCodexHookConfig(
-  capabilities: readonly Capability[]
+  capabilities: readonly Capability[],
+  runtimePath: string
 ): CodexHookConfig {
+  assertRuntimePath(runtimePath);
   const hooks: Record<string, readonly CodexMatcherGroup[]> = {};
   if (capabilities.includes("lifecycle-summary")) {
-    hooks.SessionStart = [matcherGroup("SessionStart")];
+    hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
   }
   if (capabilities.includes("command-policy")) {
-    hooks.PreToolUse = [matcherGroup("PreToolUse")];
+    hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
   }
   if (capabilities.includes("optional-stop-verify")) {
-    hooks.Stop = [matcherGroup("Stop")];
+    hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
   return {
-    description: "Portable agent-ops lifecycle hooks.",
+    description: "agent-ops lifecycle hooks.",
     hooks
   };
 }
@@ -83,7 +115,8 @@ function isOwnedHandler(hook: unknown): boolean {
   return (
     isRecord(hook) &&
     typeof hook.command === "string" &&
-    hook.command.startsWith(COMMAND_PREFIX)
+    (hook.command.includes(CODEX_MANAGED_MARKER) ||
+      hook.command.startsWith(LEGACY_COMMAND_PREFIX))
   );
 }
 

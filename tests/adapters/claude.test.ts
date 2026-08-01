@@ -5,11 +5,11 @@ import test from "node:test";
 
 import {
   buildClaudeHookSettings,
-  claudeRoutingBlock,
   claudeSettingsTarget,
   mergeClaudeSettings
 } from "../../runtime/src/adapters/claude/config.js";
 import {
+  CLAUDE_CAPABILITY_REGISTRATIONS,
   CLAUDE_SUPPORTED_EVENTS,
   claudeNonInteractiveTrust
 } from "../../runtime/src/adapters/claude/events.js";
@@ -92,15 +92,6 @@ test("prefers direct exec and keeps paths with spaces as one argument", () => {
     timeout: 30
   });
   assert.equal("shell" in (handler ?? {}), false);
-});
-
-test("provides a bounded CLAUDE.md routing block as context, not policy", () => {
-  const block = claudeRoutingBlock();
-
-  assert.match(block, /\.agent-ops\/CLAUDE\.md/);
-  assert.match(block, /context/i);
-  assert.doesNotMatch(block, /system prompt|hard override/i);
-  assert.ok(block.length < 500);
 });
 
 test("normalizes only fields used by Claude hook policy", () => {
@@ -189,17 +180,29 @@ test("preserves Claude event-specific JSON decisions", () => {
       stderr: ""
     }
   );
+});
+
+test("reports Stop evidence without a blocking decision", () => {
   assert.deepEqual(
     claudeHookOutput("Stop", {
-      action: "block",
-      status: "FAIL",
-      code: "STOP_FAILED"
+      action: "continue",
+      status: "PASS",
+      code: "STOP_VERIFICATION_FINISHED",
+      evidence: {
+        commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+        configHash: "a".repeat(64),
+        timestamp: "2026-08-01T00:00:00.000Z"
+      }
     }),
     {
       exitCode: 0,
       stdout: JSON.stringify({
-        decision: "block",
-        reason: "STOP_FAILED"
+        systemMessage: "agent-ops: STOP_VERIFICATION_FINISHED",
+        evidence: {
+          commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+          configHash: "a".repeat(64),
+          timestamp: "2026-08-01T00:00:00.000Z"
+        }
       }),
       stderr: ""
     }
@@ -214,4 +217,36 @@ test("surfaces non-interactive trust limitations", () => {
   ]);
   assert.equal(claudeNonInteractiveTrust(false), "interactive-dialog");
   assert.equal(claudeNonInteractiveTrust(true), "dialog-skipped");
+  assert.deepEqual(
+    CLAUDE_CAPABILITY_REGISTRATIONS.map(({ capability, nativeEvent, surfaceId, support, runtimeFailure }) => ({
+      capability,
+      nativeEvent,
+      surfaceId,
+      support,
+      runtimeFailure
+    })),
+    [
+      {
+        capability: "lifecycle-summary",
+        nativeEvent: "SessionStart",
+        surfaceId: "claude-settings",
+        support: "supported",
+        runtimeFailure: "fail-open"
+      },
+      {
+        capability: "command-policy",
+        nativeEvent: "PreToolUse",
+        surfaceId: "claude-settings",
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      {
+        capability: "optional-stop-verify",
+        nativeEvent: "Stop",
+        surfaceId: "claude-settings",
+        support: "supported",
+        runtimeFailure: "fail-open"
+      }
+    ]
+  );
 });

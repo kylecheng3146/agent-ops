@@ -1,9 +1,12 @@
 import { lstat, readFile } from "node:fs/promises";
 
 import {
-  SCHEMA_VERSION,
+  CONFIG_SCHEMA_VERSION,
+  MANIFEST_SCHEMA_VERSION,
+  type AgentOpsFeatures,
   type AgentOpsConfig,
   type Harness,
+  type HarnessId,
   type InstallManifest,
   type InstallScope,
   type ManagedHookRecord,
@@ -14,7 +17,8 @@ import {
 import { sha256 } from "../fs/hash.js";
 import {
   applyManagedBlock,
-  managedBlockMarkers
+  managedBlockMarkers,
+  removeManagedBlock
 } from "../fs/managed-block.js";
 import {
   formatInstallManifest,
@@ -28,17 +32,27 @@ import type { FileOperation } from "../fs/transaction.js";
 import { validateConfig } from "../schema/validate.js";
 import {
   planHarnessContributions,
-  requestedHarnessIds,
+  harnessDescriptor,
+  selectHarnessHookSurface,
   type HarnessArtifact,
   type HarnessInstallAdapter,
   type HarnessManagedBlock
 } from "./harness.js";
 import {
-  hookRegistrationPath,
-  planHookRegistration
+  assertExpectedManagedBlock,
+  assertSupportedManifestOwnership,
+  type ExpectedManagedMarker
+} from "./ownership.js";
+import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
+import {
+  planHookRegistration,
+  planHookRemoval
 } from "./hooks.js";
-import { resolveProfiles } from "./profiles.js";
-import type { Capability } from "./types.js";
+import {
+  resolveCapabilities,
+  resolveProfiles
+} from "./profiles.js";
+import type { Capability, HookTargetSelection } from "./types.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MANIFEST_PATH = ".agent-ops/manifest.json";
@@ -56,6 +70,14 @@ export interface CreateInstallPlanOptions {
    * registration is skipped when the caller cannot supply one.
    */
   readonly hookRuntimePath?: string;
+  /** Explicit writable hook surfaces, keyed by harness. */
+  readonly hookTargets?: readonly HookTargetSelection[];
+  /**
+   * Update may reconcile an existing managed installation when the selected
+   * harness set or capability-implied hooks changes. Init keeps the existing
+   * selection immutable by default.
+   */
+  readonly allowHarnessChange?: boolean;
   readonly existingConfig?: {
     readonly value: AgentOpsConfig;
     readonly sourceHash: string;
@@ -118,15 +140,21 @@ function formatConfig(
   profiles: readonly Profile[],
   existing?: {
     readonly verification: unknown;
+    readonly features: AgentOpsFeatures;
     readonly pathMappings: unknown;
     readonly securityExceptions: unknown;
   }
 ): string {
   return `${JSON.stringify(
     {
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: CONFIG_SCHEMA_VERSION,
       profiles,
       verification: existing?.verification ?? { commands: [] },
+      features: existing?.features ?? {
+        stopVerification: {
+          enabled: false
+        }
+      },
       pathMappings: existing?.pathMappings ?? [],
       securityExceptions: existing?.securityExceptions ?? []
     },
@@ -159,6 +187,7 @@ async function planConfig(
   let existingConfig:
     | {
         readonly verification: unknown;
+        readonly features: AgentOpsFeatures;
         readonly pathMappings: unknown;
         readonly securityExceptions: unknown;
       }
@@ -280,11 +309,16 @@ async function readExistingManifest(
 function assertCompatibleManifest(
   existing: InstallManifest | null,
   scope: InstallScope,
-  harness: Harness
+  harness: Harness,
+  allowHarnessChange: boolean
 ): void {
+  const harnessChanged =
+    existing !== null &&
+    (existing.harness.length !== harness.length ||
+      !existing.harness.every((id) => harness.includes(id)));
   if (
     existing !== null &&
-    (existing.scope !== scope || existing.harness !== harness)
+    (existing.scope !== scope || (harnessChanged && !allowHarnessChange))
   ) {
     throw new AgentOpsError(
       "INSTALL_ALREADY_CONFIGURED",
@@ -313,6 +347,16 @@ async function planArtifact(
 }> {
   const current = await readCurrentFile(root, artifact.path);
   const owned = findOwnedArtifact(existingManifest, artifact.path);
+  if (
+    artifact.id === "opencode-plugin" &&
+    current !== null &&
+    !isOpencodeManagedPlugin(current.content)
+  ) {
+    throw new AgentOpsError(
+      "MANIFEST_OWNERSHIP_INVALID",
+      `The recorded opencode plugin is not an agent-ops managed plugin: ${artifact.path}`
+    );
+  }
   if (current !== null && owned === undefined) {
     throw new AgentOpsError(
       "UNMANAGED_INSTALL_PATH",
@@ -346,35 +390,120 @@ async function planArtifact(
   };
 }
 
+async function planArtifactRemoval(
+  root: string,
+  artifact: ManagedPathRecord
+): Promise<FileOperation> {
+  const current = await readCurrentFile(root, artifact.path);
+  if (current === null || current.hash !== artifact.hash) {
+    throw new AgentOpsError(
+      "MANAGED_ARTIFACT_CHANGED",
+      `Managed artifact changed after installation: ${artifact.path}`
+    );
+  }
+  if (
+    artifact.id === "opencode-plugin" &&
+    !isOpencodeManagedPlugin(current.content)
+  ) {
+    throw new AgentOpsError(
+      "MANIFEST_OWNERSHIP_INVALID",
+      `The recorded opencode plugin is not an agent-ops managed plugin: ${artifact.path}`
+    );
+  }
+  return {
+    kind: "remove",
+    path: artifact.path,
+    expectedHash: current.hash
+  };
+}
+
+function markerKey(path: string, id: string): string {
+  return `${pathKey(path)}\0${id}`;
+}
+
 async function planBlocks(
   root: string,
-  blocks: readonly HarnessManagedBlock[]
+  blocks: readonly HarnessManagedBlock[],
+  removals: readonly ManagedMarkerRecord[] = [],
+  expectedMarkers: ReadonlyMap<string, ExpectedManagedMarker> = new Map()
 ): Promise<{
   operations: FileOperation[];
   records: ManagedMarkerRecord[];
 }> {
-  const grouped = new Map<string, HarnessManagedBlock[]>();
+  const grouped = new Map<
+    string,
+    {
+      path: string;
+      blocks: HarnessManagedBlock[];
+      removals: ManagedMarkerRecord[];
+    }
+  >();
   for (const block of blocks) {
-    const existing = grouped.get(block.path) ?? [];
-    existing.push(block);
-    grouped.set(block.path, existing);
+    const key = pathKey(block.path);
+    const existing = grouped.get(key) ?? {
+      path: block.path,
+      blocks: [],
+      removals: []
+    };
+    existing.blocks.push(block);
+    existing.path = block.path;
+    grouped.set(key, existing);
+  }
+  for (const marker of removals) {
+    const key = pathKey(marker.path);
+    const existing = grouped.get(key) ?? {
+      path: marker.path,
+      blocks: [],
+      removals: []
+    };
+    existing.removals.push(marker);
+    grouped.set(key, existing);
   }
 
   const operations: FileOperation[] = [];
   const records: ManagedMarkerRecord[] = [];
-  for (const [path, pathBlocks] of grouped) {
+  for (const {
+    path,
+    blocks: pathBlocks,
+    removals: pathRemovals
+  } of grouped.values()) {
     const current = await readCurrentFile(root, path);
+    if (pathRemovals.length > 0 && current === null) {
+      throw new AgentOpsError(
+        "MANAGED_BLOCK_CHANGED",
+        `Managed block file is missing: ${path}`
+      );
+    }
     let content = current?.content ?? "";
+    for (const marker of pathRemovals) {
+      const expected = expectedMarkers.get(marker.id);
+      if (expected === undefined) {
+        throw new AgentOpsError(
+          "MANIFEST_OWNERSHIP_INVALID",
+          "The manifest contains an unsupported managed block."
+        );
+      }
+      assertExpectedManagedBlock(content, marker, expected);
+      content = removeManagedBlock(content, marker.id);
+    }
     for (const block of pathBlocks) {
       content = applyManagedBlock(content, block);
     }
     const hash = sha256(content);
-    operations.push({
-      kind: "write",
-      path,
-      content,
-      expectedHash: current?.hash ?? null
-    });
+    if (content.length === 0 && current !== null) {
+      operations.push({
+        kind: "remove",
+        path,
+        expectedHash: current.hash
+      });
+    } else {
+      operations.push({
+        kind: "write",
+        path,
+        content,
+        expectedHash: current?.hash ?? null
+      });
+    }
     for (const block of pathBlocks) {
       const markers = managedBlockMarkers(block.id, block.version);
       records.push({
@@ -403,16 +532,64 @@ export async function createInstallPlan(
       "Toolkit version must be a valid semantic version."
     );
   }
-  const resolved = resolveProfiles(options.profiles);
+  const resolved =
+    options.existingConfig === undefined
+      ? resolveProfiles(options.profiles)
+      : resolveCapabilities(options.existingConfig.value);
+  const existing = await readExistingManifest(options.root);
+  assertCompatibleManifest(
+    existing?.manifest ?? null,
+    options.scope,
+    options.harness,
+    options.allowHarnessChange === true
+  );
+  const existingOpencodePluginPath = existing?.manifest.artifacts.find(
+    ({ id }) => id === "opencode-plugin"
+  )?.path;
+  const explicitHookTargets = new Map<HarnessId, string>();
+  for (const target of options.hookTargets ?? []) {
+    if (
+      explicitHookTargets.has(target.harness) ||
+      !options.harness.includes(target.harness)
+    ) {
+      throw new AgentOpsError(
+        "HOOK_TARGET_INVALID",
+        `Hook target must name one selected harness exactly once: ${target.harness}.`
+      );
+    }
+    if (harnessDescriptor(target.harness).control.buildHooks === undefined) {
+      throw new AgentOpsError(
+        "HOOK_TARGET_UNSUPPORTED",
+        `Harness hook targets are not supported for ${target.harness}.`
+      );
+    }
+    explicitHookTargets.set(target.harness, target.surfaceId);
+  }
+  if (
+    options.hookRuntimePath === undefined &&
+    explicitHookTargets.size > 0
+  ) {
+    throw new AgentOpsError(
+      "HOOK_TARGET_REQUIRES_RUNTIME",
+      "An explicit hook target requires a hook runtime path."
+    );
+  }
   const contribution = await planHarnessContributions(
     options.harness,
     {
+      root: options.root,
       scope: options.scope,
       profiles: resolved.profiles,
       capabilities: resolved.capabilities,
+      ...(options.hookRuntimePath === undefined
+        ? {}
+        : { runtimePath: options.hookRuntimePath }),
       ...(options.toolkitVersion === undefined
         ? {}
-        : { toolkitVersion: options.toolkitVersion })
+        : { toolkitVersion: options.toolkitVersion }),
+      ...(existingOpencodePluginPath === undefined
+        ? {}
+        : { opencodePluginPath: existingOpencodePluginPath })
     },
     options.adapters
   );
@@ -421,12 +598,56 @@ export async function createInstallPlan(
     contribution.blocks
   );
 
-  const existing = await readExistingManifest(options.root);
-  assertCompatibleManifest(
-    existing?.manifest ?? null,
-    options.scope,
-    options.harness
+  const reconcileExisting = existing !== null;
+  const expectedExistingMarkers = reconcileExisting
+    ? assertSupportedManifestOwnership(existing.manifest, options.root)
+    : new Map<string, ExpectedManagedMarker>();
+  const desiredArtifactPaths = new Set([
+    pathKey(CONFIG_PATH),
+    ...contribution.artifacts.map(({ path }) => pathKey(path))
+  ]);
+  const preservedArtifacts =
+    options.hookRuntimePath === undefined &&
+    options.allowHarnessChange === true &&
+    options.harness.includes("opencode")
+      ? (existing?.manifest.artifacts.filter(
+          ({ id }) => id === "opencode-plugin"
+        ) ?? [])
+      : [];
+  for (const artifact of preservedArtifacts) {
+    const current = await readCurrentFile(options.root, artifact.path);
+    if (current === null || current.hash !== artifact.hash) {
+      throw new AgentOpsError(
+        "MANAGED_ARTIFACT_CHANGED",
+        `Managed artifact changed after installation: ${artifact.path}`
+      );
+    }
+    if (
+      artifact.id === "opencode-plugin" &&
+      !isOpencodeManagedPlugin(current.content)
+    ) {
+      throw new AgentOpsError(
+        "MANIFEST_OWNERSHIP_INVALID",
+        `The recorded opencode plugin is not an agent-ops managed plugin: ${artifact.path}`
+      );
+    }
+  }
+  for (const artifact of preservedArtifacts) {
+    desiredArtifactPaths.add(pathKey(artifact.path));
+  }
+  const artifactsToRemove = reconcileExisting
+    ? existing.manifest.artifacts.filter(
+        ({ path }) => !desiredArtifactPaths.has(pathKey(path))
+      )
+    : [];
+  const desiredMarkerKeys = new Set(
+    contribution.blocks.map(({ path, id }) => markerKey(path, id))
   );
+  const markersToRemove = reconcileExisting
+    ? existing.manifest.markers.filter(
+        ({ path, id }) => !desiredMarkerKeys.has(markerKey(path, id))
+      )
+    : [];
 
   const operations: FileOperation[] = [];
   const artifacts: ManagedPathRecord[] = [];
@@ -449,22 +670,50 @@ export async function createInstallPlan(
     artifacts.push(planned.record);
   }
 
+  artifacts.push(...preservedArtifacts);
+
+  for (const artifact of artifactsToRemove) {
+    operations.push(
+      await planArtifactRemoval(options.root, artifact)
+    );
+  }
+
   const plannedBlocks = await planBlocks(
     options.root,
-    contribution.blocks
+    contribution.blocks,
+    markersToRemove,
+    expectedExistingMarkers
   );
   operations.push(...plannedBlocks.operations);
 
   const hooks: ManagedHookRecord[] = [];
   if (options.hookRuntimePath !== undefined) {
-    for (const harness of requestedHarnessIds(options.harness)) {
+    for (const harness of options.harness) {
+      if (harnessDescriptor(harness).control.buildHooks === undefined) {
+        continue;
+      }
+      const existingHook = existing?.manifest.hooks?.find(
+        ({ harness: recordHarness }) => recordHarness === harness
+      );
+      const selectedSurface = selectHarnessHookSurface({
+        harness,
+        scope: options.scope,
+        root: options.root,
+        ...(explicitHookTargets.has(harness)
+          ? { surfaceId: explicitHookTargets.get(harness) }
+          : existingHook === undefined
+            ? {}
+            : { persistedPath: existingHook.path })
+      });
+      const hookPath = selectedSurface.path;
       const current = await readCurrentFile(
         options.root,
-        hookRegistrationPath(harness, options.scope)
+        hookPath
       );
       const planned = planHookRegistration({
         harness,
         scope: options.scope,
+        path: hookPath,
         capabilities: resolved.capabilities,
         runtimePath: options.hookRuntimePath,
         currentSource: current?.content ?? null
@@ -476,14 +725,54 @@ export async function createInstallPlan(
         kind: "write",
         path: planned.record.path,
         content: planned.content,
-        expectedHash: current?.hash ?? null
+        expectedHash: current?.hash ?? null,
+        disclosure: planned.disclosure
       });
       hooks.push(planned.record);
+    }
+  } else if (existing !== null) {
+    const selectedHarnesses = new Set(options.harness);
+    hooks.push(
+      ...(existing.manifest.hooks ?? []).filter(({ harness }) =>
+        selectedHarnesses.has(harness)
+      )
+    );
+  }
+
+  if (reconcileExisting) {
+    const desiredHookPaths = new Set(
+      hooks.map(({ path }) => pathKey(path))
+    );
+    for (const hook of existing.manifest.hooks ?? []) {
+      if (desiredHookPaths.has(pathKey(hook.path))) {
+        continue;
+      }
+      const current = await readCurrentFile(options.root, hook.path);
+      if (current === null) {
+        continue;
+      }
+      const removal = planHookRemoval(hook, current.content);
+      operations.push(
+        removal.content === null
+          ? {
+              kind: "remove",
+              path: hook.path,
+              expectedHash: current.hash,
+              disclosure: removal.disclosure
+            }
+          : {
+              kind: "write",
+              path: hook.path,
+              content: removal.content,
+              expectedHash: current.hash,
+              disclosure: removal.disclosure
+            }
+      );
     }
   }
 
   const manifest: InstallManifest = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: MANIFEST_SCHEMA_VERSION,
     scope: options.scope,
     harness: options.harness,
     artifacts,

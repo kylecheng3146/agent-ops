@@ -14,7 +14,11 @@ import path from "node:path";
 import test from "node:test";
 
 import { cleanTargets } from "../scripts/clean.mjs";
-import { collectTestFiles, runTestEntry } from "../scripts/run-tests-lib.mjs";
+import {
+  collectTestFiles,
+  isolateTestEnvironment,
+  runTestEntry
+} from "../scripts/run-tests-lib.mjs";
 
 function createFileSystem(entries, directories = new Map()) {
   const normalizedEntries = new Map(
@@ -185,6 +189,16 @@ test("runTestEntry launches the current Node executable with explicit sorted arg
       { shell: false, stdio: "inherit" },
     ],
   ]);
+});
+
+test("test environment isolation removes host OpenCode config roots", () => {
+  const isolated = isolateTestEnvironment({
+    PATH: "/bin",
+    XDG_CONFIG_HOME: "/host/config",
+    OPENCODE_CONFIG_DIR: "/host/opencode"
+  });
+
+  assert.deepEqual(isolated, { PATH: "/bin" });
 });
 
 test("runTestEntry propagates every non-zero child exit code", async (t) => {

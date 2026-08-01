@@ -16,17 +16,40 @@ import type {
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import {
   buildVerificationEvidence,
+  calculateConfigHash,
   FileEvidenceStore
 } from "../../runtime/src/verify/evidence.js";
 
 const SECRET = `ghp_${"a".repeat(24)}`;
 const CONFIG: AgentOpsConfig = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   profiles: ["core"],
   verification: { commands: [] },
+  features: {
+    stopVerification: { enabled: false }
+  },
   pathMappings: [],
   securityExceptions: []
 };
+
+test("uses one order-independent config hash and binds feature changes", () => {
+  const reordered: AgentOpsConfig = {
+    securityExceptions: [],
+    pathMappings: [],
+    features: { stopVerification: { enabled: false } },
+    verification: { commands: [] },
+    profiles: ["core"],
+    schemaVersion: 2
+  };
+  assert.equal(calculateConfigHash(CONFIG), calculateConfigHash(reordered));
+  assert.notEqual(
+    calculateConfigHash(CONFIG),
+    calculateConfigHash({
+      ...CONFIG,
+      features: { stopVerification: { enabled: true } }
+    })
+  );
+});
 
 function command(): VerificationCommand {
   return {

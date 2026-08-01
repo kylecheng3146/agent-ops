@@ -31,9 +31,12 @@ function config(
   ]
 ): AgentOpsConfig {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     profiles: ["core"],
     verification: { commands },
+    features: {
+      stopVerification: { enabled: false }
+    },
     pathMappings,
     securityExceptions: []
   };

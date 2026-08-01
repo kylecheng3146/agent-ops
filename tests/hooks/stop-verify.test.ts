@@ -127,6 +127,26 @@ test("contradictory PASS evidence becomes UNKNOWN", async (t) => {
   }
 });
 
+test("oversized evidence is rejected without exposing command output", async () => {
+  const options = eligibleOptions();
+  options.verify = async () => ({
+    status: "UNKNOWN" as const,
+    results: Array.from({ length: 257 }, (_, index) => ({
+      commandId: `unit-${index}`,
+      exitCode: null,
+      testCount: null
+    }))
+  });
+
+  const result = await runStopVerification(options);
+
+  assert.deepEqual(result, {
+    action: "continue",
+    status: "UNKNOWN",
+    code: "STOP_VERIFICATION_EVIDENCE_INVALID"
+  });
+});
+
 test("untrusted projects never execute Stop verification", async () => {
   let calls = 0;
   const options = eligibleOptions();

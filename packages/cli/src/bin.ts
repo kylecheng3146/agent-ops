@@ -6,8 +6,17 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { commonHarnessAdapters } from "../../../runtime/src/install/harness.js";
-import type { Harness } from "../../../runtime/src/contracts.js";
+import {
+  commonHarnessAdapters,
+  harnessHookPath,
+  HARNESS_IDS
+} from "../../../runtime/src/install/harness.js";
+import type {
+  Harness,
+  HarnessId,
+  InstallManifest,
+  InstallScope
+} from "../../../runtime/src/contracts.js";
 import {
   hookRegistrationSatisfied,
   repositoryTrustStatus,
@@ -19,6 +28,7 @@ import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileTrustStore, calculateTrustBinding } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
+import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
 import { sha256 } from "../../../runtime/src/fs/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
@@ -53,23 +63,51 @@ const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
 );
 
-async function readOptionalJson(path: string): Promise<unknown> {
+async function readOptionalText(path: string): Promise<string | null> {
   try {
-    return JSON.parse(await readFile(path, "utf8")) as unknown;
+    return await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function hookSources(
+  root: string,
+  scope: InstallScope
+): Promise<Partial<Record<HarnessId, unknown>>> {
+  const sources: Partial<Record<HarnessId, unknown>> = {};
+  const manifest = await installedManifest(root);
+  const recordedOpencodePluginPath = manifest?.artifacts.find(
+    ({ id }) => id === "opencode-plugin"
+  )?.path;
+  const recordedHookPaths = new Map(
+    (manifest?.hooks ?? []).map(({ harness, path }) => [harness, path])
+  );
+  for (const id of HARNESS_IDS) {
+    const path =
+      id === "opencode" && recordedOpencodePluginPath !== undefined
+        ? recordedOpencodePluginPath
+        : recordedHookPaths.get(id) ??
+          harnessHookPath(id, scope, root);
+    sources[id] = await readOptionalText(
+      join(root, path)
+    );
+  }
+  return sources;
+}
+
+async function installedManifest(root: string): Promise<InstallManifest | null> {
+  try {
+    return parseInstallManifest(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    );
   } catch {
     return null;
   }
 }
 
 async function installedHarness(root: string): Promise<Harness> {
-  try {
-    return parseInstallManifest(
-      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
-    ).harness;
-  } catch {
-    // ponytail: no readable manifest means demand hooks for both harnesses.
-    return "both";
-  }
+  return (await installedManifest(root))?.harness ?? [...HARNESS_IDS];
 }
 
 async function confirmInit(
@@ -144,6 +182,9 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              ...(args.hookTargets === undefined
+                ? {}
+                : { hookTargets: args.hookTargets }),
               confirm: async (plan) => await confirmInit(plan)
             });
           }
@@ -158,12 +199,10 @@ process.exitCode = await runCli(
                 hookRegistration: async () =>
                   hookRegistrationSatisfied({
                     harness: await installedHarness(root),
-                    profiles: config.profiles,
-                    claudeSettings: await readOptionalJson(
-                      join(root, ".claude", "settings.json")
-                    ),
-                    codexHooks: await readOptionalJson(
-                      join(root, ".codex", "hooks.json")
+                    config,
+                    sources: await hookSources(
+                      root,
+                      args.scope === "user" ? "user" : "project"
                     )
                   }),
                 repositoryTrust: async () =>
@@ -191,6 +230,9 @@ process.exitCode = await runCli(
               registry: new NpmRegistryClient(),
               isTTY,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              ...(args.hookTargets === undefined
+                ? {}
+                : { hookTargets: args.hookTargets }),
               confirm: async (plan) =>
                 await confirmPlan(formatUpdatePlan(plan)),
               ...(args.targetVersion === undefined
@@ -293,7 +335,7 @@ process.exitCode = await runCli(
             const binding = await calculateTrustBinding({
               repositoryPath: root,
               remoteUrl: remote,
-              configHash: sha256(JSON.stringify(config)),
+              configHash: calculateConfigHash(config),
               runtimeHash: sha256(CLI_VERSION)
             });
             return await runTrustCommand({

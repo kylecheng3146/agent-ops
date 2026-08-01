@@ -50,6 +50,7 @@ test("registration preserves foreign settings and hooks", () => {
     })
   });
   assert.notEqual(planned, null);
+  assert.equal(planned?.disclosure, "opaque");
   const settings = JSON.parse(planned?.content ?? "") as {
     model: string;
     hooks: Record<string, { hooks: { args?: string[] }[] }[]>;
@@ -82,7 +83,9 @@ test("codex registration targets its own hook file", () => {
   assert.equal(planned?.record.path, CODEX_HOOK_PATH);
   assert.deepEqual(planned?.record.events, ["PreToolUse"]);
   assert.equal(
-    planned?.content.includes("agent-ops hook codex PreToolUse"),
+    planned?.content.includes(
+      `node \\"${RUNTIME_PATH}\\" codex PreToolUse --managed-by=agent-ops`
+    ),
     true
   );
 });
@@ -105,6 +108,7 @@ test("removal strips only owned handlers", () => {
     claudeRecord(),
     registered?.content ?? ""
   );
+  assert.equal(removal.disclosure, "opaque");
   const settings = JSON.parse(removal.content ?? "") as {
     hooks: Record<string, { hooks: { args?: string[] }[] }[]>;
   };

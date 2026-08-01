@@ -10,9 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type {
-  HarnessId,
-  HarnessInstallAdapter
+import {
+  commonHarnessAdapters,
+  type HarnessId,
+  type HarnessInstallAdapter
 } from "../../runtime/src/install/harness.js";
 import {
   createInstallPlan,
@@ -75,7 +76,7 @@ test("plans a complete project install without writing", async () => {
     const plan = await createInstallPlan({
       root,
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["guardrails", "advisory"],
       adapters: adapters()
     });
@@ -93,8 +94,7 @@ test("plans a complete project install without writing", async () => {
       "review",
       "lifecycle-summary",
       "local-log",
-      "command-policy",
-      "optional-stop-verify"
+      "command-policy"
     ]);
 
     const agents = writeOperation(plan, "AGENTS.md");
@@ -128,7 +128,7 @@ test("plans a complete project install without writing", async () => {
       markers: Array<{ path: string }>;
     };
     assert.equal(manifest.scope, "project");
-    assert.equal(manifest.harness, "both");
+    assert.deepEqual(manifest.harness, ["codex", "claude"]);
     assert.deepEqual(
       manifest.artifacts.map(({ path }) => path),
       [
@@ -152,7 +152,7 @@ test("plans user-scope instruction paths through adapter context", async () => {
     const plan = await createInstallPlan({
       root,
       scope: "user",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["advisory"],
       adapters: adapters()
     });
@@ -173,6 +173,104 @@ test("plans user-scope instruction paths through adapter context", async () => {
   }
 });
 
+test("selects an explicit Claude project-local hook target", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-target-"));
+  try {
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      hookTargets: [{ harness: "claude", surfaceId: "project-local" }]
+    });
+    assert.deepEqual(plan.manifest.hooks?.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+    assert.equal(
+      plan.operations.some(
+        ({ kind, path }) =>
+          kind === "write" && path === ".claude/settings.local.json"
+      ),
+      true
+    );
+    await applyInstallPlan(root, plan);
+    assert.match(
+      await readFile(join(root, ".claude", "settings.local.json"), "utf8"),
+      /--managed-by=agent-ops/u
+    );
+    await assert.rejects(readFile(join(root, ".claude", "settings.json")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("moving a hook target removes only owned handlers and persists the path", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-target-"));
+  try {
+    const first = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    await applyInstallPlan(root, first);
+    const sharedPath = join(root, ".claude", "settings.json");
+    await writeFile(
+      sharedPath,
+      `${JSON.stringify({
+        permissions: { allow: ["foreign-permission"] },
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [{ type: "command", command: "foreign-command" }]
+            },
+            ...((JSON.parse(await readFile(sharedPath, "utf8")) as {
+              hooks: Record<string, unknown[]>;
+            }).hooks.PreToolUse ?? [])
+          ]
+        }
+      }, null, 2)}\n`
+    );
+
+    const moved = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      hookTargets: [{ harness: "claude", surfaceId: "project-local" }]
+    });
+    assert.deepEqual(moved.manifest.hooks?.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+    assert.equal(
+      moved.operations.some(
+        ({ kind, path }) => kind === "write" && path === ".claude/settings.json"
+      ),
+      true
+    );
+    await applyInstallPlan(root, moved);
+    assert.match(await readFile(sharedPath, "utf8"), /foreign-command/u);
+    assert.match(
+      await readFile(join(root, ".claude", "settings.local.json"), "utf8"),
+      /--managed-by=agent-ops/u
+    );
+    const persisted = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { hooks: { path: string }[] };
+    assert.deepEqual(persisted.hooks.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("apply is transactional and a repeated init is idempotent", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-install-"));
   try {
@@ -180,7 +278,7 @@ test("apply is transactional and a repeated init is idempotent", async () => {
     const first = await createInstallPlan({
       root,
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -194,7 +292,7 @@ test("apply is transactional and a repeated init is idempotent", async () => {
     const second = await createInstallPlan({
       root,
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -225,14 +323,14 @@ test("replanning preserves user-authored verifier configuration", async () => {
     const first = await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: adapters()
     });
     await applyInstallPlan(root, first);
     const configPath = join(root, ".agent-ops", "config.json");
     const configured = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       profiles: ["core"],
       verification: {
         commands: [
@@ -246,6 +344,9 @@ test("replanning preserves user-authored verifier configuration", async () => {
           }
         ]
       },
+      features: {
+        stopVerification: { enabled: false }
+      },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
     };
@@ -257,7 +358,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
     const second = await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: adapters()
     });
@@ -286,7 +387,7 @@ test("malformed managed markers fail before any write", async () => {
       createInstallPlan({
         root,
         scope: "project",
-        harness: "codex",
+        harness: ["codex"],
         profiles: ["core"],
         adapters: adapters()
       }),
@@ -325,7 +426,7 @@ test("duplicate contribution paths fail closed", async () => {
       createInstallPlan({
         root,
         scope: "project",
-        harness: "both",
+        harness: ["codex", "claude"],
         profiles: ["core"],
         adapters: conflicting
       }),
@@ -346,7 +447,7 @@ test("failed post-apply validation rolls every write back", async () => {
     const plan = await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: adapters()
     });

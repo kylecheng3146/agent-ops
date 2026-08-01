@@ -18,6 +18,7 @@ if (source === undefined) {
     /^package\/schemas\//u,
     /^package\/templates\//u,
     /^package\/docs\/(en|zh-TW)\/spec\//u,
+    /^package\/docs\/(en|zh-TW)\/guides\//u,
     /^package\/(README\.md|LICENSE|SECURITY\.md|postinstall\.cjs)$/u
   ];
   const banned = [

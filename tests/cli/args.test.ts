@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import {
@@ -22,7 +23,7 @@ test("parses init choices and deterministic defaults", () => {
     {
       command: "init",
       scope: "project",
-      harness: "both",
+      harness: ["codex", "claude"],
       profiles: ["core"],
       dryRun: false,
       json: false,
@@ -181,13 +182,58 @@ test("parses repeated profiles and boolean flags", () => {
     {
       command: "init",
       scope: "user",
-      harness: "claude",
+      harness: ["claude"],
       profiles: ["core", "guardrails"],
       dryRun: true,
       json: true,
       yes: true
     }
   );
+});
+
+test("parses repeatable explicit hook targets", () => {
+  assert.deepEqual(
+    parseArgs([
+      "init",
+      "--scope",
+      "project",
+      "--harness",
+      "claude,codex",
+      "--hook-target",
+      "claude=project-local",
+      "--hook-target",
+      "codex=codex-hooks",
+      "--profile",
+      "guardrails"
+    ]).hookTargets,
+    [
+      { harness: "claude", surfaceId: "project-local" },
+      { harness: "codex", surfaceId: "codex-hooks" }
+    ]
+  );
+  for (const argv of [
+    ["init", "--hook-target", "claude"],
+    ["init", "--hook-target", "claude="],
+    [
+      "init",
+      "--hook-target",
+      "claude=project-local",
+      "--hook-target",
+      "claude=claude-settings"
+    ],
+    ["doctor", "--hook-target", "claude=project-local"]
+  ]) {
+    assert.throws(
+      () => parseArgs(argv),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "CLI_INVALID_VALUE" ||
+          error.code === "CLI_DUPLICATE_OPTION" ||
+          error.code === "CLI_OPTION_NOT_ALLOWED"),
+      argv.join(" ")
+    );
+  }
 });
 
 test("parses an explicit offline update target", () => {
@@ -316,11 +362,94 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
   assert.deepEqual(completed, {
     command: "init",
     scope: "user",
-    harness: "codex",
+    harness: ["codex"],
     profiles: ["core", "advisory"],
     dryRun: true,
     json: false,
     yes: false
   });
   assert.equal(questions.length, 3);
+});
+
+test("TTY wizard requires an explicit harness when no default is selected", async () => {
+  const answers = ["project", "", "core"];
+
+  await assert.rejects(
+    completeInitChoices(parseArgs(["init"]), {
+      isTTY: true,
+      prompt: async () => answers.shift() ?? ""
+    }),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_INVALID_VALUE" &&
+      error.message === "Choose at least one harness."
+  );
+});
+
+test("TTY-like input does not infer a harness when raw mode is unavailable", async () => {
+  const input = new PassThrough();
+  Object.assign(input, { isTTY: true });
+  const output = new PassThrough();
+  const completion = completeInitChoices(parseArgs(["init"]), {
+    isTTY: true,
+    input,
+    output
+  });
+  setTimeout(() => input.write("project\n"), 10);
+  setTimeout(() => input.write("\n"), 30);
+  setTimeout(() => input.end("core\n"), 50);
+
+  await assert.rejects(
+    completion,
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_INVALID_VALUE" &&
+      error.message === "Choose at least one harness."
+  );
+});
+
+test("accepts harness lists, aliases, and rejects unusable selections", () => {
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "codex,claude", "--profile", "core"])
+      .harness,
+    ["codex", "claude"]
+  );
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "all", "--profile", "core"]).harness,
+    ["codex", "claude", "opencode"]
+  );
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "both", "--profile", "core"]).harness,
+    ["codex", "claude"]
+  );
+  assert.deepEqual(
+    parseArgs(["init", "--harness", "opencode", "--profile", "core"]).harness,
+    ["opencode"]
+  );
+
+  for (const value of ["codex,codex", "codex,cursor", ""]) {
+    assert.throws(
+      () => parseArgs(["init", "--harness", value, "--profile", "core"]),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_INVALID_VALUE",
+      value
+    );
+  }
+});
+
+test("review requires exactly one harness", () => {
+  assert.deepEqual(
+    parseArgs(["review", "--harness", "claude"]).harness,
+    ["claude"]
+  );
+  for (const value of ["all", "both", "codex,claude"]) {
+    assert.throws(
+      () => parseArgs(["review", "--harness", value]),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_INVALID_VALUE",
+      value
+    );
+  }
 });

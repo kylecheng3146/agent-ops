@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   lstat,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -22,11 +23,28 @@ import {
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { sha256 } from "../../runtime/src/fs/hash.js";
 
+const CODEX_START = "<!-- agent-ops:start agents-routing v1 -->";
+const CODEX_END = "<!-- agent-ops:end agents-routing -->";
+const CODEX_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
+const CLAUDE_START = "<!-- agent-ops:start claude-routing v1 -->";
+const CLAUDE_END = "<!-- agent-ops:end claude-routing -->";
+const CLAUDE_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
+
+function managedBlock(
+  start: string,
+  body: string,
+  end: string
+): string {
+  return `${start}\n${body}\n${end}\n`;
+}
+
 async function install(root: string): Promise<void> {
   const plan = await createInstallPlan({
     root,
     scope: "project",
-    harness: "both",
+    harness: ["codex", "claude"],
     profiles: ["core"],
     adapters: commonHarnessAdapters()
   });
@@ -67,6 +85,31 @@ test("uninstall removes only managed files and blocks", async () => {
   }
 });
 
+test("uninstall removes exact legacy routing blocks and preserves surrounding bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    const claudePath = join(root, "CLAUDE.md");
+    await writeFile(
+      agentsPath,
+      `before-agents\n\n${managedBlock(CODEX_START, CODEX_LEGACY_BODY, CODEX_END)}\nafter-agents\n`
+    );
+    await writeFile(
+      claudePath,
+      `before-claude\n\n${managedBlock(CLAUDE_START, CLAUDE_LEGACY_BODY, CLAUDE_END)}\nafter-claude\n`
+    );
+
+    const plan = await createUninstallPlan(root);
+    await applyUninstallPlan(root, plan);
+
+    assert.equal(await readFile(agentsPath, "utf8"), "before-agents\n\nafter-agents\n");
+    assert.equal(await readFile(claudePath, "utf8"), "before-claude\n\nafter-claude\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a second uninstall is an explicit idempotent no-op", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
   try {
@@ -75,6 +118,43 @@ test("a second uninstall is an explicit idempotent no-op", async () => {
     assert.deepEqual(plan.operations, []);
     await applyUninstallPlan(root, plan);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("user opencode ownership follows the manifest plugin path", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-opencode-"));
+  const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  try {
+    process.env.XDG_CONFIG_HOME = join(root, "custom-xdg");
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "user",
+        harness: ["opencode"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+
+    const pluginPath = "custom-xdg/opencode/plugins/agent-ops.js";
+    assert.ok(await readFile(join(root, pluginPath), "utf8"));
+    delete process.env.XDG_CONFIG_HOME;
+
+    const plan = await createUninstallPlan(root);
+    assert.ok(
+      plan.operations.some(
+        ({ kind, path }) => kind === "remove" && path === pluginPath
+      )
+    );
+  } finally {
+    if (previousXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -98,7 +178,7 @@ test("changed whole-file artifacts fail closed before removal", async () => {
     );
     assert.match(
       await readFile(join(root, "AGENTS.md"), "utf8"),
-      /agent-ops:start codex-routing/
+      /agent-ops:start agents-routing/
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -114,7 +194,7 @@ test("changed or missing managed marker boundaries fail closed", async () => {
     await writeFile(
       agentsPath,
       source.replace(
-        "<!-- agent-ops:end codex-routing -->",
+        "<!-- agent-ops:end agents-routing -->",
         "<!-- marker removed -->"
       )
     );
@@ -130,7 +210,7 @@ test("changed or missing managed marker boundaries fail closed", async () => {
         join(root, ".agent-ops", "manifest.json"),
         "utf8"
       ),
-      /codex-routing/
+      /agents-routing/
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -167,7 +247,7 @@ test("apply rejects a tampered uninstall plan", async () => {
     );
     assert.match(
       await readFile(join(root, "AGENTS.md"), "utf8"),
-      /agent-ops:start codex-routing/
+      /agent-ops:start agents-routing/
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -216,6 +296,156 @@ test("a schema-valid forged manifest cannot claim an unmanaged file", async () =
   }
 });
 
+test("a forged opencode plugin path cannot claim an unmanaged file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-opencode-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["opencode"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const victimPath = join(root, "victim.txt");
+    const victimContent = "user-owned\n";
+    await writeFile(victimPath, victimContent);
+    const manifestPath = join(root, ".agent-ops", "manifest.json");
+    const manifest = JSON.parse(
+      await readFile(manifestPath, "utf8")
+    ) as {
+      artifacts: {
+        id: string;
+        path: string;
+        hash: string;
+        owner: "agent-ops";
+      }[];
+    };
+    const plugin = manifest.artifacts.find(
+      ({ id }) => id === "opencode-plugin"
+    );
+    assert.ok(plugin);
+    plugin.path = "victim.txt";
+    plugin.hash = sha256(victimContent);
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`
+    );
+
+    await assert.rejects(
+      createUninstallPlan(root),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "MANIFEST_OWNERSHIP_INVALID"
+    );
+    assert.equal(await readFile(victimPath, "utf8"), victimContent);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("opencode ownership keeps artifact path casing exact", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-opencode-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["opencode"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const manifestPath = join(root, ".agent-ops", "manifest.json");
+    const manifest = JSON.parse(
+      await readFile(manifestPath, "utf8")
+    ) as {
+      artifacts: { id: string; path: string }[];
+    };
+    const rules = manifest.artifacts.find(({ id }) => id === "agents-rules");
+    assert.ok(rules);
+    rules.path = ".agent-ops/agents.md";
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`
+    );
+
+    await assert.rejects(
+      createUninstallPlan(root),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "MANIFEST_OWNERSHIP_INVALID"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("custom user opencode paths still require the managed plugin marker", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-opencode-"));
+  const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  try {
+    process.env.XDG_CONFIG_HOME = join(root, "custom-xdg");
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "user",
+        harness: ["opencode"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const victimPath = "victim/plugins/agent-ops.js";
+    await mkdir(join(root, "victim/plugins"), { recursive: true });
+    const victimContent = "user-owned plugin\n";
+    await writeFile(join(root, victimPath), victimContent);
+    const manifestPath = join(root, ".agent-ops", "manifest.json");
+    const manifest = JSON.parse(
+      await readFile(manifestPath, "utf8")
+    ) as {
+      artifacts: {
+        id: string;
+        path: string;
+        hash: string;
+        owner: "agent-ops";
+      }[];
+    };
+    const plugin = manifest.artifacts.find(
+      ({ id }) => id === "opencode-plugin"
+    );
+    assert.ok(plugin);
+    plugin.path = victimPath;
+    plugin.hash = sha256(victimContent);
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify(manifest, null, 2)}\n`
+    );
+    delete process.env.XDG_CONFIG_HOME;
+
+    await assert.rejects(
+      createUninstallPlan(root),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "MANIFEST_OWNERSHIP_INVALID"
+    );
+    assert.equal(await readFile(join(root, victimPath), "utf8"), victimContent);
+  } finally {
+    if (previousXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("changed managed block content fails closed before removal", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
   try {
@@ -224,7 +454,7 @@ test("changed managed block content fails closed before removal", async () => {
     const changed = (
       await readFile(agentsPath, "utf8")
     ).replace(
-      "Use `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.",
+      "Load `.agent-ops/AGENTS.md` as the agent-ops managed baseline.",
       "User content moved inside a managed block."
     );
     await writeFile(agentsPath, changed);

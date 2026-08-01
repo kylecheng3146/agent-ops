@@ -15,7 +15,7 @@ test("review accepts independent-review options", () => {
     "--json"
   ]), {
     command: "review",
-    harness: "codex",
+    harness: ["codex"],
     criteria: ["tests"],
     evidence: ["tests=report.json"],
     profiles: [],

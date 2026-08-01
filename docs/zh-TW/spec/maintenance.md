@@ -1,6 +1,6 @@
 # 維護
 
-English source version: 2026-07-23. Revalidate: when the English specification changes.
+English source version: 2026-07-31. Revalidate: when the English specification changes.
 
 ## MAINTAIN-BACKUP-001
 
@@ -21,3 +21,13 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 - Evidence: 文件含來源與 `Revalidate:` 條件。
 - Positive: `Revalidate：vendor hook reference 變更時。`
 - Negative: `把暫時性的 CLI flag 當永久核心規則。`
+
+## MAINTAIN-PLUGIN-001
+
+產生的 harness plugin MUST 視為 managed artifact，且 MUST NOT 直接在原位置手動編輯。
+
+- Trigger: 更新 runtime、capabilities 或 vendor plugin contract。
+- Action: 重新產生 opencode shim、驗證 manifest hash，並在 release 前重新檢查 vendor 行為。
+- Evidence: artifact hash 與 shim import 測試通過；release 文件記錄重驗條件。
+- Positive: `agent-ops update` 通過 ownership checks 後重寫已變更的 plugin。
+- Negative: `手動修改 .opencode/plugins/agent-ops.js，卻保留舊的 manifest hash。`

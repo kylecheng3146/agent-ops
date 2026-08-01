@@ -9,6 +9,7 @@ import {
   mergeCodexHookConfig
 } from "../../runtime/src/adapters/codex/config.js";
 import {
+  CODEX_CAPABILITY_REGISTRATIONS,
   CODEX_SUPPORTED_EVENTS,
   codexMatcherSupport
 } from "../../runtime/src/adapters/codex/events.js";
@@ -28,13 +29,14 @@ async function fixture(): Promise<unknown> {
   ) as unknown;
 }
 
+const RUNTIME_PATH = "/opt/agent-ops/hook-entry.js";
+
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
   const existing = await fixture();
-  const managed = buildCodexHookConfig([
-    "lifecycle-summary",
-    "command-policy",
-    "optional-stop-verify"
-  ]);
+  const managed = buildCodexHookConfig(
+    ["lifecycle-summary", "command-policy", "optional-stop-verify"],
+    RUNTIME_PATH
+  );
 
   const merged = mergeCodexHookConfig(existing, managed);
 
@@ -48,12 +50,18 @@ test("merges only agent-ops groups and preserves unrelated Codex hooks", async (
   assert.match(serialized, /mixed-user-policy check/);
   assert.match(serialized, /user-audit append/);
   assert.doesNotMatch(serialized, /agent-ops hook codex legacy/);
-  assert.match(serialized, /agent-ops hook codex PreToolUse/);
-  assert.match(serialized, /agent-ops hook codex SessionStart/);
-  assert.match(serialized, /agent-ops hook codex Stop/);
+  for (const event of ["PreToolUse", "SessionStart", "Stop"]) {
+    assert.match(
+      serialized,
+      new RegExp(
+        `node \\\\"${RUNTIME_PATH}\\\\" codex ${event} --managed-by=agent-ops`
+      ),
+      event
+    );
+  }
 });
 
-test("uses one hooks.json representation and portable commands per layer", () => {
+test("uses one hooks.json representation and an absolute runtime path", () => {
   assert.deepEqual(codexHookTarget("project"), {
     path: ".codex/hooks.json",
     representation: "json",
@@ -65,12 +73,47 @@ test("uses one hooks.json representation and portable commands per layer", () =>
     requiresProjectTrust: false
   });
 
-  const serialized = JSON.stringify(
-    buildCodexHookConfig(["command-policy"])
+  const expected =
+    `node "${RUNTIME_PATH}" codex PreToolUse --managed-by=agent-ops`;
+  const config = buildCodexHookConfig(["command-policy"], RUNTIME_PATH);
+  const hook = config.hooks.PreToolUse?.[0]?.hooks[0];
+  assert.equal(hook?.command, expected);
+  // The command is one shell string, so the path stays quoted and PATH is
+  // never consulted for the agent-ops binary.
+  assert.equal(hook?.commandWindows, expected);
+});
+
+test("rejects runtime paths that break the quoted command", () => {
+  for (const invalid of ["", '/opt/a"b/hook.js', "/opt/a\0b/hook.js"]) {
+    assert.throws(
+      () => buildCodexHookConfig(["command-policy"], invalid),
+      /Codex hook runtime path is invalid/,
+      JSON.stringify(invalid)
+    );
+  }
+});
+
+test("still recognizes the pre-0.1.5 PATH-resolved handler as owned", () => {
+  const legacy = {
+    hooks: {
+      SessionStart: [
+        {
+          hooks: [
+            { type: "command", command: "agent-ops hook codex SessionStart" }
+          ]
+        }
+      ]
+    }
+  };
+  const merged = mergeCodexHookConfig(
+    legacy,
+    buildCodexHookConfig(["lifecycle-summary"], RUNTIME_PATH)
   );
-  assert.match(serialized, /agent-ops hook codex PreToolUse/);
-  assert.doesNotMatch(serialized, /(?:\/Users\/|\/home\/|~\/|\.cmd\b)/);
-  assert.match(serialized, /"commandWindows":"agent-ops hook codex PreToolUse"/);
+  assert.equal(merged.hooks.SessionStart?.length, 1);
+  assert.doesNotMatch(
+    JSON.stringify(merged),
+    /"command":"agent-ops hook codex SessionStart"/
+  );
 });
 
 test("normalizes only documented Codex common fields", () => {
@@ -165,6 +208,30 @@ test("encodes only documented Codex output behavior", () => {
       })
     }
   );
+  assert.deepEqual(
+    codexHookOutput("Stop", {
+      action: "continue",
+      status: "PASS",
+      code: "STOP_VERIFICATION_FINISHED",
+      evidence: {
+        commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+        configHash: "a".repeat(64),
+        timestamp: "2026-08-01T00:00:00.000Z"
+      }
+    }),
+    {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        continue: true,
+        systemMessage: "agent-ops: STOP_VERIFICATION_FINISHED",
+        evidence: {
+          commandResults: [{ commandId: "unit", exitCode: 0, testCount: 1 }],
+          configHash: "a".repeat(64),
+          timestamp: "2026-08-01T00:00:00.000Z"
+        }
+      })
+    }
+  );
   assert.equal(CODEX_NON_ZERO_EXIT_BEHAVIOR, "UNKNOWN");
   assert.equal(CODEX_PRE_TOOL_BLOCKING, "UNKNOWN");
 });
@@ -178,4 +245,36 @@ test("declares only documented event and matcher support", () => {
   assert.equal(codexMatcherSupport("PreToolUse"), "tool-name");
   assert.equal(codexMatcherSupport("Stop"), "unsupported");
   assert.equal(codexMatcherSupport("UserPromptSubmit"), "unsupported");
+  assert.deepEqual(
+    CODEX_CAPABILITY_REGISTRATIONS.map(({ capability, nativeEvent, surfaceId, support, runtimeFailure }) => ({
+      capability,
+      nativeEvent,
+      surfaceId,
+      support,
+      runtimeFailure
+    })),
+    [
+      {
+        capability: "lifecycle-summary",
+        nativeEvent: "SessionStart",
+        surfaceId: "codex-hooks",
+        support: "supported",
+        runtimeFailure: "fail-open"
+      },
+      {
+        capability: "command-policy",
+        nativeEvent: "PreToolUse",
+        surfaceId: "codex-hooks",
+        support: "unknown",
+        runtimeFailure: "native-unknown"
+      },
+      {
+        capability: "optional-stop-verify",
+        nativeEvent: "Stop",
+        surfaceId: "codex-hooks",
+        support: "unsupported",
+        runtimeFailure: "fail-open"
+      }
+    ]
+  );
 });

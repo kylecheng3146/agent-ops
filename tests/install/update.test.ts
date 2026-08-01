@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -7,7 +8,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
@@ -22,16 +23,56 @@ import {
 } from "../../runtime/src/install/update.js";
 import type { RegistryClient } from "../../runtime/src/registry/npm.js";
 
+const CODEX_START = "<!-- agent-ops:start agents-routing v1 -->";
+const CODEX_END = "<!-- agent-ops:end agents-routing -->";
+const CODEX_DESIRED_BODY =
+  "## Loop Engineering\n\nLoad `.agent-ops/AGENTS.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const CODEX_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
+const CLAUDE_START = "<!-- agent-ops:start claude-routing v1 -->";
+const CLAUDE_END = "<!-- agent-ops:end claude-routing -->";
+const CLAUDE_DESIRED_BODY =
+  "## Loop Engineering\n\nLoad `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+const CLAUDE_LEGACY_BODY =
+  "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
+
+function managedBlock(
+  start: string,
+  body: string,
+  end: string
+): string {
+  return `${start}\n${body}\n${end}\n`;
+}
+
 async function install(root: string): Promise<void> {
   await applyInstallPlan(
     root,
     await createInstallPlan({
       root,
       scope: "project",
-      harness: "codex",
+      harness: ["codex"],
       profiles: ["core"],
       adapters: commonHarnessAdapters(),
       toolkitVersion: "0.1.0"
+    })
+  );
+}
+
+async function installHarnesses(
+  root: string,
+  scope: "project" | "user",
+  harness: readonly ("codex" | "claude" | "opencode")[]
+): Promise<void> {
+  await applyInstallPlan(
+    root,
+    await createInstallPlan({
+      root,
+      scope,
+      harness: [...harness],
+      profiles: ["guardrails"],
+      adapters: commonHarnessAdapters(),
+      toolkitVersion: "0.1.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
     })
   );
 }
@@ -70,7 +111,8 @@ test("migrates a manifest-owned version 0 config during update", async () => {
     });
 
     assert.deepEqual(plan.migrationSteps, [
-      { fromVersion: 0, toVersion: 1 }
+      { fromVersion: 0, toVersion: 1 },
+      { fromVersion: 1, toVersion: 2 }
     ]);
     const configOperation = plan.installation.operations.find(
       ({ path }) => path === ".agent-ops/config.json"
@@ -79,22 +121,270 @@ test("migrates a manifest-owned version 0 config during update", async () => {
     if (configOperation?.kind !== "write") {
       assert.fail("update plan must write the migrated config");
     }
-    const expectedVersionOne = {
-      schemaVersion: 1,
+    const expectedVersionTwo = {
+      schemaVersion: 2,
       profiles: ["core"],
       verification: { commands },
+      features: {
+        stopVerification: { enabled: false }
+      },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
     };
     assert.deepEqual(
       JSON.parse(configOperation.content) as unknown,
-      expectedVersionOne
+      expectedVersionTwo
     );
 
     await applyUpdatePlan(root, plan);
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")) as unknown,
-      expectedVersionOne
+      expectedVersionTwo
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("disables owned Stop handlers while preserving foreign handlers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-stop-"));
+  try {
+    await installHarnesses(root, "project", ["codex"]);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const hookPath = join(root, ".codex", "hooks.json");
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      profiles: string[];
+      verification: { commands: unknown[] };
+      features: { stopVerification: { enabled: boolean } };
+      pathMappings: unknown[];
+      securityExceptions: unknown[];
+      schemaVersion: number;
+    };
+    config.verification.commands = [
+      {
+        id: "test",
+        command: "node",
+        args: [],
+        cwd: ".",
+        required: true,
+        evidence: { kind: "exit-code" }
+      }
+    ];
+    config.features.stopVerification.enabled = true;
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    const settings = JSON.parse(await readFile(hookPath, "utf8")) as {
+      hooks: Record<string, unknown[]>;
+    };
+    settings.hooks.Stop = [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: "foreign-stop"
+          }
+        ]
+      }
+    ];
+    await writeFile(hookPath, `${JSON.stringify(settings, null, 2)}\n`);
+
+    await applyUpdatePlan(
+      root,
+      await createUpdatePlan({
+        root,
+        adapters: commonHarnessAdapters(),
+        targetVersion: "0.2.0"
+      })
+    );
+    const enabledSettings = JSON.parse(
+      await readFile(hookPath, "utf8")
+    ) as { hooks: Record<string, unknown[]> };
+    assert.ok(enabledSettings.hooks.Stop?.length);
+    assert.match(
+      JSON.stringify(enabledSettings.hooks.Stop),
+      /foreign-stop/
+    );
+
+    config.features.stopVerification.enabled = false;
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+    await applyUpdatePlan(root, plan);
+
+    const disabledSettings = JSON.parse(
+      await readFile(hookPath, "utf8")
+    ) as { hooks: Record<string, unknown[]> };
+    assert.equal(disabledSettings.hooks.Stop?.length, 1);
+    assert.match(
+      JSON.stringify(disabledSettings.hooks.Stop),
+      /foreign-stop/
+    );
+    const manifest = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { hooks?: { events: string[] }[] };
+    assert.deepEqual(manifest.hooks?.[0]?.events, ["PreToolUse"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("internal update plans retain foreign settings for apply but mark them opaque", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await mkdir(join(root, ".claude"), { recursive: true });
+    await writeFile(
+      join(root, ".claude", "settings.json"),
+      await readFile(
+        resolve("tests", "fixtures", "claude", "settings-sensitive.json"),
+        "utf8"
+      )
+    );
+    await installHarnesses(root, "project", ["claude"]);
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    const operation = plan.installation.operations.find(
+      ({ path }) => path === ".claude/settings.json"
+    );
+    assert.equal(operation?.kind, "write");
+    if (operation?.kind !== "write") {
+      assert.fail("expected a Claude settings update");
+    }
+    assert.match(operation.content, /FAKE_SECRET_SENTINEL/u);
+    assert.match(operation.content, /FAKE_FOREIGN_COMMAND/u);
+    assert.equal(operation.disclosure, "opaque");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("updates an exact legacy Codex routing block and preserves surrounding bytes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    const source = [
+      "# User instructions before",
+      "",
+      managedBlock(CODEX_START, CODEX_LEGACY_BODY, CODEX_END).trimEnd(),
+      "",
+      "User instructions after",
+      ""
+    ].join("\n");
+    await writeFile(agentsPath, source);
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+
+    const operation = plan.installation.operations.find(
+      ({ path }) => path === "AGENTS.md"
+    );
+    assert.equal(operation?.kind, "write");
+    if (operation?.kind !== "write") {
+      assert.fail("legacy routing update must rewrite AGENTS.md");
+    }
+    assert.equal(
+      operation.content,
+      [
+        "# User instructions before",
+        "",
+        managedBlock(CODEX_START, CODEX_DESIRED_BODY, CODEX_END).trimEnd(),
+        "",
+        "User instructions after",
+        ""
+      ].join("\n")
+    );
+
+    await applyUpdatePlan(root, plan);
+    assert.equal(await readFile(agentsPath, "utf8"), operation.content);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("migrates Codex and Claude legacy routing blocks in one update", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["codex", "claude"],
+        profiles: ["core"],
+        adapters: commonHarnessAdapters(),
+        toolkitVersion: "0.1.0"
+      })
+    );
+    const agentsPath = join(root, "AGENTS.md");
+    const claudePath = join(root, "CLAUDE.md");
+    await writeFile(
+      agentsPath,
+      `before-agents\n${managedBlock(CODEX_START, CODEX_LEGACY_BODY, CODEX_END)}after-agents\n`
+    );
+    await writeFile(
+      claudePath,
+      `before-claude\n${managedBlock(CLAUDE_START, CLAUDE_LEGACY_BODY, CLAUDE_END)}after-claude\n`
+    );
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+    const routingWrites = plan.installation.operations.filter(
+      ({ kind, path }) =>
+        kind === "write" && (path === "AGENTS.md" || path === "CLAUDE.md")
+    );
+    assert.equal(routingWrites.length, 2);
+
+    await applyUpdatePlan(root, plan);
+    assert.equal(
+      await readFile(agentsPath, "utf8"),
+      `before-agents\n${managedBlock(CODEX_START, CODEX_DESIRED_BODY, CODEX_END)}after-agents\n`
+    );
+    assert.equal(
+      await readFile(claudePath, "utf8"),
+      `before-claude\n${managedBlock(CLAUDE_START, CLAUDE_DESIRED_BODY, CLAUDE_END)}after-claude\n`
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("changed legacy routing content fails closed during update", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await install(root);
+    const agentsPath = join(root, "AGENTS.md");
+    await writeFile(
+      agentsPath,
+      managedBlock(
+        CODEX_START,
+        CODEX_LEGACY_BODY.replace("canonical", "user-edited"),
+        CODEX_END
+      )
+    );
+
+    await assert.rejects(
+      createUpdatePlan({
+        root,
+        adapters: commonHarnessAdapters(),
+        targetVersion: "0.2.0"
+      }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "UPDATE_INSTALLATION_INVALID"
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -145,7 +435,9 @@ test("explicit target update is offline and preserves verifier config", async ()
 
     assert.equal(registryCalls, 0);
     assert.equal(plan.targetVersion, "0.2.0");
-    assert.deepEqual(plan.migrationSteps, []);
+    assert.deepEqual(plan.migrationSteps, [
+      { fromVersion: 1, toVersion: 2 }
+    ]);
     const rulesOperation = plan.installation.operations.find(
       ({ path }) => path === ".agent-ops/AGENTS.md"
     );
@@ -155,13 +447,122 @@ test("explicit target update is offline and preserves verifier config", async ()
     }
     assert.match(rulesOperation.content, /Toolkit version: 0\.2\.0/);
     await applyUpdatePlan(root, plan);
-    assert.deepEqual(
-      JSON.parse(await readFile(configPath, "utf8")),
-      configured
-    );
+    assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {
+      ...configured,
+      schemaVersion: 2,
+      features: {
+        stopVerification: { enabled: false }
+      }
+    });
     assert.match(
       await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
       /Toolkit version: 0\.2\.0/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update without a runtime path preserves existing selected hooks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["codex"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const hooksPath = join(root, ".codex", "hooks.json");
+    const hooksBefore = await readFile(hooksPath, "utf8");
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+
+    assert.equal(
+      plan.installation.operations.some(
+        ({ kind, path }) => kind === "remove" && path === ".codex/hooks.json"
+      ),
+      false
+    );
+    assert.equal(plan.installation.manifest.hooks?.length, 1);
+
+    await applyUpdatePlan(root, plan);
+    assert.equal(await readFile(hooksPath, "utf8"), hooksBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update reuses an existing non-default hook target", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-target-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["claude"],
+        profiles: ["guardrails"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+        hookTargets: [{ harness: "claude", surfaceId: "project-local" }]
+      })
+    );
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    assert.deepEqual(plan.installation.manifest.hooks?.map(({ path }) => path), [
+      ".claude/settings.local.json"
+    ]);
+    assert.equal(
+      plan.installation.operations.some(
+        ({ path }) => path === ".claude/settings.json"
+      ),
+      false
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reinitializing an opencode install removes stale capability artifacts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await installHarnesses(root, "project", ["opencode"]);
+    const pluginPath = join(root, ".opencode", "plugins", "agent-ops.js");
+    assert.ok(await readFile(pluginPath, "utf8"));
+
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["opencode"],
+      profiles: ["core"],
+      adapters: commonHarnessAdapters()
+    });
+    assert.ok(
+      plan.operations.some(
+        ({ kind, path }) =>
+          kind === "remove" && path === ".opencode/plugins/agent-ops.js"
+      )
+    );
+
+    await applyInstallPlan(root, plan);
+    await assert.rejects(readFile(pluginPath));
+    assert.equal(
+      plan.manifest.artifacts.some(({ id }) => id === "opencode-plugin"),
+      false
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -188,6 +589,115 @@ test("registry lookup occurs only when update has no supplied target", async () 
 
     assert.deepEqual(packageNames, ["@kylecheng3146/agent-ops"]);
     assert.equal(plan.targetVersion, "0.3.0");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update narrows project harnesses without removing shared AGENTS paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await installHarnesses(root, "project", ["codex", "opencode"]);
+    const sharedInstruction = await readFile(
+      join(root, "AGENTS.md"),
+      "utf8"
+    );
+    assert.ok(
+      await readFile(
+        join(root, ".opencode", "plugins", "agent-ops.js"),
+        "utf8"
+      )
+    );
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      harness: ["codex"],
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    assert.ok(
+      plan.installation.operations.some(
+        ({ kind, path }) =>
+          kind === "remove" &&
+          path === ".opencode/plugins/agent-ops.js"
+      )
+    );
+    assert.equal(
+      plan.installation.operations.some(
+        ({ kind, path }) =>
+          kind === "remove" &&
+          (path === "AGENTS.md" || path === ".agent-ops/AGENTS.md")
+      ),
+      false
+    );
+
+    await applyUpdatePlan(root, plan);
+    const manifest = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { harness: string[] };
+    assert.deepEqual(manifest.harness, ["codex"]);
+    assert.equal(
+      await readFile(join(root, "AGENTS.md"), "utf8"),
+      sharedInstruction
+    );
+    await assert.rejects(
+      readFile(join(root, ".opencode", "plugins", "agent-ops.js"))
+    );
+    assert.ok(await readFile(join(root, ".codex", "hooks.json"), "utf8"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update narrows user harnesses and removes only opencode-owned paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await installHarnesses(root, "user", ["codex", "opencode"]);
+    const sharedRulesBefore = await readFile(
+      join(root, ".agent-ops", "AGENTS.md"),
+      "utf8"
+    );
+    assert.match(sharedRulesBefore, /Toolkit version: 0\.1\.0/);
+
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      harness: ["codex"],
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    assert.ok(
+      plan.installation.operations.some(
+        ({ kind, path }) =>
+          kind === "remove" &&
+          path === ".config/opencode/plugins/agent-ops.js"
+      )
+    );
+    assert.ok(
+      plan.installation.operations.some(
+        ({ kind, path }) =>
+          kind === "remove" && path === ".opencode/AGENTS.md"
+      )
+    );
+    assert.equal(
+      plan.installation.operations.some(
+        ({ kind, path }) =>
+          kind === "remove" && path === ".agent-ops/AGENTS.md"
+      ),
+      false
+    );
+
+    await applyUpdatePlan(root, plan);
+    assert.match(
+      await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
+      /Toolkit version: 0\.2\.0/
+    );
+    assert.ok(await readFile(join(root, ".codex", "AGENTS.md"), "utf8"));
+    await assert.rejects(readFile(join(root, ".opencode", "AGENTS.md")));
+    await assert.rejects(
+      readFile(join(root, ".config", "opencode", "plugins", "agent-ops.js"))
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

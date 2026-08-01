@@ -1,4 +1,14 @@
-import type { Harness, InstallScope, Profile } from "../../../runtime/src/contracts.js";
+import type {
+  Harness,
+  HarnessId,
+  InstallScope,
+  Profile
+} from "../../../runtime/src/contracts.js";
+import {
+  isHarnessId,
+  resolveHarnessSelection
+} from "../../../runtime/src/install/harness.js";
+import type { HookTargetSelection } from "../../../runtime/src/install/types.js";
 
 export const COMMAND_NAMES = [
   "init",
@@ -14,7 +24,6 @@ export const COMMAND_NAMES = [
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
 const SCOPES = new Set<string>(["project", "user"]);
-const HARNESSES = new Set<string>(["both", "claude", "codex"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
 
 export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
@@ -35,6 +44,7 @@ export interface ParsedArgs {
   action?: CliAction;
   scope?: InstallScope;
   harness?: Harness;
+  hookTargets?: HookTargetSelection[];
   profiles: Profile[];
   taskId?: string;
   targetVersion?: string;
@@ -91,11 +101,39 @@ function invalidValue(option: string, value: string): never {
   );
 }
 
+function parseHarness(option: string, value: string): Harness {
+  return resolveHarnessSelection(value) ?? invalidValue(option, value);
+}
+
+function parseHookTarget(
+  option: string,
+  value: string
+): HookTargetSelection {
+  const separator = value.indexOf("=");
+  if (
+    separator <= 0 ||
+    separator !== value.lastIndexOf("=") ||
+    separator === value.length - 1
+  ) {
+    return invalidValue(option, value);
+  }
+  const harness = value.slice(0, separator);
+  const surfaceId = value.slice(separator + 1);
+  if (
+    !isHarnessId(harness) ||
+    !/^[a-z][a-z0-9-]{0,63}$/u.test(surfaceId)
+  ) {
+    return invalidValue(option, value);
+  }
+  return { harness: harness as HarnessId, surfaceId };
+}
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   let command: CliCommand | undefined;
   let action: CliAction | undefined;
   let scope: InstallScope | undefined;
   let harness: Harness | undefined;
+  const hookTargets: HookTargetSelection[] = [];
   let taskId: string | undefined;
   let targetVersion: string | undefined;
   let title: string | undefined;
@@ -133,10 +171,17 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(token);
         }
         const value = readOptionValue(argv, index, token);
-        if (!HARNESSES.has(value)) {
-          invalidValue(token, value);
+        harness = parseHarness(token, value);
+        index += 1;
+        break;
+      }
+      case "--hook-target": {
+        const value = readOptionValue(argv, index, token);
+        const target = parseHookTarget(token, value);
+        if (hookTargets.some(({ harness: id }) => id === target.harness)) {
+          duplicate(`${token} ${target.harness}`);
         }
-        harness = value as Harness;
+        hookTargets.push(target);
         index += 1;
         break;
       }
@@ -297,6 +342,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     if (
       scope !== undefined ||
       harness !== undefined ||
+      hookTargets.length > 0 ||
       profiles.length > 0 ||
       taskId !== undefined ||
       targetVersion !== undefined ||
@@ -354,6 +400,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "--target-version may be used only with update."
+    );
+  }
+  if (
+    hookTargets.length > 0 &&
+    command !== "init" &&
+    command !== "update"
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--hook-target may be used only with init or update."
     );
   }
   if (command === "task") {
@@ -423,8 +479,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review accepts harness, criteria, evidence, scope, dry-run, json, and yes options."
     );
   }
-  if (command === "review" && harness === "both") {
-    invalidValue("--harness", harness);
+  if (command === "review" && harness !== undefined && harness.length !== 1) {
+    invalidValue("--harness", harness.join(","));
   }
 
   return {
@@ -432,6 +488,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(action === undefined ? {} : { action }),
     ...(scope === undefined ? {} : { scope }),
     ...(harness === undefined ? {} : { harness }),
+    ...(hookTargets.length === 0 ? {} : { hookTargets }),
     profiles,
     ...(taskId === undefined ? {} : { taskId }),
     ...(targetVersion === undefined ? {} : { targetVersion }),

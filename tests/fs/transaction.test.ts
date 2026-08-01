@@ -570,9 +570,9 @@ test("new files and live backups use owner-only permissions on POSIX", async () 
 
 test("formats and parses validated installation manifests", () => {
   const manifest: InstallManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     scope: "project",
-    harness: "both",
+    harness: ["codex", "claude"],
     artifacts: [
       {
         id: "config",
