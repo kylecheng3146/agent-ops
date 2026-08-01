@@ -5,6 +5,13 @@ import { spawn as spawnProcess } from "node:child_process";
 const defaultFileSystem = { readdir, realpath, stat };
 const defaultProcess = process;
 
+export function isolateTestEnvironment(environment = process.env) {
+  const isolated = { ...environment };
+  delete isolated.XDG_CONFIG_HOME;
+  delete isolated.OPENCODE_CONFIG_DIR;
+  return isolated;
+}
+
 export async function collectTestFiles(inputs, fileSystem = defaultFileSystem) {
   const files = new Set();
   const visitedDirectories = new Set();
@@ -66,13 +73,18 @@ export async function runTestEntry(
     fileSystem = defaultFileSystem,
     process: processLike = defaultProcess,
     spawn = spawnProcess,
+    environment,
   } = {},
 ) {
   const files = await collectTestFiles(inputs, fileSystem);
+  const spawnOptions = { shell: false, stdio: "inherit" };
+  if (environment !== undefined) {
+    spawnOptions.env = environment;
+  }
   const child = spawn(
     processLike.execPath,
     ["--test", ...files],
-    { shell: false, stdio: "inherit" },
+    spawnOptions,
   );
   const { code, signal } = await waitForChild(child);
 

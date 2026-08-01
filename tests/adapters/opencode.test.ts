@@ -135,6 +135,19 @@ test("declares opencode hooks and generates a managed plugin source", () => {
       requiresProjectTrust: false
     }
   );
+  assert.throws(
+    () =>
+      opencodePluginTarget(
+        "user",
+        "/tmp/agent-ops-home",
+        undefined,
+        "/tmp/agent-ops-outside"
+      ),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "OPENCODE_CONFIG_PATH_INVALID"
+  );
   assert.deepEqual(
     opencodePluginTarget(
       "user",
