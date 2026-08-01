@@ -131,7 +131,8 @@ export interface HarnessRuntimeAdapter {
   ) => HookProcessOutput;
   readonly formatRuntimeFailure: (
     event: HookEventName,
-    capability: Capability
+    capability: Capability,
+    remedy?: string
   ) => HookProcessOutput;
 }
 
@@ -213,7 +214,8 @@ function jsonHookRegistered(
 
 function runtimeFailureResult(
   capability: Capability,
-  registrations: readonly CapabilityRegistrationSpec[]
+  registrations: readonly CapabilityRegistrationSpec[],
+  remedy?: string
 ): HookResult {
   const runtimeFailure = registrations.find(
     (registration) => registration.capability === capability
@@ -221,7 +223,8 @@ function runtimeFailureResult(
   return {
     action: runtimeFailure === "fail-closed" ? "block" : "continue",
     status: "UNKNOWN",
-    code: `${capability.replaceAll("-", "_").toUpperCase()}_UNAVAILABLE`
+    code: `${capability.replaceAll("-", "_").toUpperCase()}_UNAVAILABLE`,
+    ...(remedy === undefined ? {} : { remedy })
   };
 }
 
@@ -273,10 +276,10 @@ function createJsonDescriptor(options: {
     runtime: {
       normalizeInput: options.normalizeInput,
       formatOutput: options.formatOutput,
-      formatRuntimeFailure: (event, capability) =>
+      formatRuntimeFailure: (event, capability, remedy) =>
         options.formatOutput(
           event,
-          runtimeFailureResult(capability, options.registrations)
+          runtimeFailureResult(capability, options.registrations, remedy)
         )
     }
   };
@@ -360,10 +363,14 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
     runtime: {
       normalizeInput: normalizeOpencodeHookInput,
       formatOutput: (event, result) => opencodeHookOutput(event, result),
-      formatRuntimeFailure: (event, capability) =>
+      formatRuntimeFailure: (event, capability, remedy) =>
         opencodeHookOutput(
           event,
-          runtimeFailureResult(capability, OPENCODE_CAPABILITY_REGISTRATIONS)
+          runtimeFailureResult(
+            capability,
+            OPENCODE_CAPABILITY_REGISTRATIONS,
+            remedy
+          )
         )
     }
   }

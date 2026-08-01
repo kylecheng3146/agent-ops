@@ -19,6 +19,8 @@ export function claudeHookOutput(
   event: ClaudeSupportedEvent,
   result: HookResult
 ): ClaudeHookProcessOutput {
+  const denialReason =
+    result.remedy === undefined ? result.code : `${result.code}: ${result.remedy}`;
   if (event === "Stop" && result.evidence !== undefined) {
     return json({
       systemMessage: `agent-ops: ${result.code}`,
@@ -33,7 +35,7 @@ export function claudeHookOutput(
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: result.code
+        permissionDecisionReason: denialReason
       }
     });
   }

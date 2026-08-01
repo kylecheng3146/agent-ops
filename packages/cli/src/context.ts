@@ -34,6 +34,11 @@ export const DEFAULT_CONFIG: AgentOpsConfig = {
   securityExceptions: []
 };
 
+export type ProjectHookConfigOutcome =
+  | { readonly kind: "absent"; readonly config: AgentOpsConfig }
+  | { readonly kind: "loaded"; readonly config: AgentOpsConfig }
+  | { readonly kind: "invalid"; readonly path: string };
+
 function defaultConfigLayer(): ConfigLayer {
   return {
     source: "default",
@@ -98,6 +103,67 @@ export async function loadEffectiveConfig(
     });
   }
   return mergeConfigLayers(layers);
+}
+
+/**
+ * Classifies only configuration that can participate in a project hook. The
+ * regular command loader intentionally keeps its throwing contract so CLI
+ * commands continue to surface configuration errors to the human.
+ */
+export async function loadProjectHookConfig(
+  root: string
+): Promise<ProjectHookConfigOutcome> {
+  const home = process.env.AGENT_OPS_HOME ?? homedir();
+  const userPath = join(home, ".agent-ops", "config.json");
+  const projectPath = join(root, ".agent-ops", "config.json");
+  const layers: ConfigLayer[] = [defaultConfigLayer()];
+
+  let project;
+  try {
+    project = await loadOptionalConfig(projectPath);
+  } catch {
+    return { kind: "invalid", path: projectPath };
+  }
+  if (project === null && projectPath === userPath) {
+    return { kind: "absent", config: DEFAULT_CONFIG };
+  }
+
+  if (projectPath !== userPath) {
+    try {
+      const user = await loadOptionalConfig(userPath);
+      if (user !== null) {
+        layers.push({
+          source: "user",
+          sourcePath: user.sourcePath,
+          config: user.config
+        });
+      }
+    } catch {
+      // A user-level error cannot make a project with no own config deny a
+      // tool call, but it remains a classified failure for an installed
+      // project that does own a config.
+      return project === null
+        ? { kind: "absent", config: DEFAULT_CONFIG }
+        : { kind: "invalid", path: userPath };
+    }
+  }
+  if (project === null) {
+    try {
+      return { kind: "absent", config: mergeConfigLayers(layers).config };
+    } catch {
+      return { kind: "absent", config: DEFAULT_CONFIG };
+    }
+  }
+  layers.push({
+    source: "project",
+    sourcePath: project.sourcePath,
+    config: project.config
+  });
+  try {
+    return { kind: "loaded", config: mergeConfigLayers(layers).config };
+  } catch {
+    return { kind: "invalid", path: projectPath };
+  }
 }
 
 export function repositoryRemoteUrl(root: string): string {

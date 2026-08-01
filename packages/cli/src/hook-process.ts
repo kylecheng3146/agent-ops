@@ -1,13 +1,23 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import type { AgentOpsConfig } from "../../../runtime/src/contracts.js";
 import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
+import {
+  parseInstallManifest,
+  PROJECT_MANIFEST_PATH
+} from "../../../runtime/src/fs/manifest.js";
+import { resolveContainedPath } from "../../../runtime/src/fs/paths.js";
+import { redactSecrets } from "../../../runtime/src/security/redact.js";
 import { claudeStopRecursionMarker } from "../../../runtime/src/adapters/claude/input.js";
 import {
   HARNESS_IDS,
   harnessDescriptor,
-  type HarnessId
+  type HarnessId,
+  type HookProcessOutput
 } from "../../../runtime/src/install/harness.js";
 import type {
   HookDispatchOptions,
@@ -27,14 +37,20 @@ import {
   type VerificationProcessRunner
 } from "../../../runtime/src/verify/spawn.js";
 import {
+  normalizeHookInput,
   runHookCommand,
   HOOK_EVENTS,
   type HookEvent
 } from "./commands/hook.js";
-import { loadEffectiveConfig, repositoryTrust } from "./context.js";
+import {
+  loadProjectHookConfig,
+  repositoryTrust,
+  type ProjectHookConfigOutcome
+} from "./context.js";
 
 const HARNESSES = new Set<string>(HARNESS_IDS);
 const MAX_HOOK_INPUT_BYTES = 1024 * 1024;
+const MAX_HOOK_MANIFEST_BYTES = 1024 * 1024;
 const execFile = promisify(execFileCallback);
 
 type TrustStatus = "TRUSTED" | "STALE" | "UNTRUSTED";
@@ -82,6 +98,148 @@ function parseInput(source: string): unknown {
   } catch {
     return null;
   }
+}
+
+function writeHookOutput(io: HookProcessIo, output: HookProcessOutput): void {
+  if (output.stdout.length > 0) {
+    io.writeStdout(output.stdout);
+  }
+  if (output.stderr.length > 0) {
+    io.writeStderr(output.stderr);
+  }
+}
+
+function failOpenOutput(
+  harness: HarnessId,
+  event: HookEvent
+): HookProcessOutput {
+  return harnessDescriptor(harness).runtime.formatOutput(event, {
+    action: "continue",
+    status: "PASS",
+    code: "HOOK_FAIL_OPEN"
+  });
+}
+
+async function readInstalledManifestForHarness(
+  root: string,
+  harness: HarnessId
+): Promise<boolean> {
+  try {
+    const path = await resolveContainedPath(root, PROJECT_MANIFEST_PATH);
+    const before = await lstat(path, { bigint: true });
+    if (
+      !before.isFile() ||
+      before.size > BigInt(MAX_HOOK_MANIFEST_BYTES)
+    ) {
+      return false;
+    }
+    const handle = await open(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    );
+    try {
+      const opened = await handle.stat({ bigint: true });
+      const resolvedAgain = await resolveContainedPath(
+        root,
+        PROJECT_MANIFEST_PATH
+      );
+      const after = await lstat(resolvedAgain, { bigint: true });
+      if (
+        !opened.isFile() ||
+        opened.size > BigInt(MAX_HOOK_MANIFEST_BYTES) ||
+        opened.dev !== before.dev ||
+        opened.ino !== before.ino ||
+        after.dev !== before.dev ||
+        after.ino !== before.ino
+      ) {
+        return false;
+      }
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      while (totalBytes <= MAX_HOOK_MANIFEST_BYTES) {
+        const chunk = Buffer.alloc(
+          Math.min(64 * 1024, MAX_HOOK_MANIFEST_BYTES + 1 - totalBytes)
+        );
+        const { bytesRead } = await handle.read(
+          chunk,
+          0,
+          chunk.length,
+          null
+        );
+        if (bytesRead === 0) {
+          return parseInstallManifest(
+            Buffer.concat(chunks, totalBytes).toString("utf8")
+          ).harness.includes(harness);
+        }
+        chunks.push(chunk.subarray(0, bytesRead));
+        totalBytes += bytesRead;
+      }
+      return false;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function hookConfigOutcome(
+  root: string,
+  loadConfig: HookProcessDependencies["loadConfig"]
+): Promise<ProjectHookConfigOutcome> {
+  if (loadConfig === undefined) {
+    return await loadProjectHookConfig(root);
+  }
+  try {
+    return { kind: "loaded", config: await loadConfig(root) };
+  } catch {
+    return {
+      kind: "invalid",
+      path: join(root, ".agent-ops", "config.json")
+    };
+  }
+}
+
+async function invalidConfigOutput(options: {
+  readonly root: string;
+  readonly harness: HarnessId;
+  readonly event: HookEvent;
+  readonly input: unknown;
+  readonly configPath: string;
+}): Promise<HookProcessOutput | undefined> {
+  const descriptor = harnessDescriptor(options.harness);
+  const normalized = normalizeHookInput(options.harness, options.input);
+  if (normalized === null) {
+    return failOpenOutput(options.harness, options.event);
+  }
+  if (
+    options.event !== "PreToolUse" ||
+    normalized.event !== "command" ||
+    !(await readInstalledManifestForHarness(options.root, options.harness))
+  ) {
+    return failOpenOutput(options.harness, options.event);
+  }
+  const registration = descriptor.control.registrations.find(
+    ({ nativeEvent, normalizedEvent }) =>
+      nativeEvent === options.event && normalizedEvent === normalized.event
+  );
+  if (registration === undefined || registration.runtimeFailure === "fail-open") {
+    return failOpenOutput(options.harness, options.event);
+  }
+  if (
+    options.harness === "opencode" &&
+    registration.runtimeFailure === "fail-closed"
+  ) {
+    // The generated OpenCode plugin already turns an unavailable runtime into
+    // its documented blocking error. Keep that contract in the shim.
+    return undefined;
+  }
+  const remedy = `Fix ${redactSecrets(options.configPath)}, or set AGENT_OPS_DISABLE=1 in your shell to temporarily disable agent-ops.`;
+  return descriptor.runtime.formatRuntimeFailure(
+    options.event,
+    registration.capability,
+    remedy
+  );
 }
 
 function defaultGitRunner(root: string): GitRunner {
@@ -192,22 +350,39 @@ export async function runHookProcess(
   }
   try {
     const root = dependencies.root ?? process.cwd();
-    const config =
-      dependencies.loadConfig === undefined
-        ? (await loadEffectiveConfig(root, "project")).config
-        : await dependencies.loadConfig(root);
+    const harnessId = harness as HarnessId;
+    const hookEvent = event as HookEvent;
+    if (process.env.AGENT_OPS_DISABLE === "1") {
+      writeHookOutput(io, failOpenOutput(harnessId, hookEvent));
+      return 0;
+    }
+    const rawInput = await readStdin(io.stdin);
+    const parsedInput = parseInput(rawInput);
+    const configOutcome = await hookConfigOutcome(root, dependencies.loadConfig);
+    if (configOutcome.kind === "invalid") {
+      const output = await invalidConfigOutput({
+        root,
+        harness: harnessId,
+        event: hookEvent,
+        input: parsedInput,
+        configPath: configOutcome.path
+      });
+      if (output !== undefined) {
+        writeHookOutput(io, output);
+      }
+      return 0;
+    }
+    const config = configOutcome.config;
     const trustStatus =
       dependencies.trust === undefined
         ? await repositoryTrust(root, config, cliVersion)
         : await dependencies.trust(root, config, cliVersion);
-    const rawInput = await readStdin(io.stdin);
-    const parsedInput = parseInput(rawInput);
     const trusted = trustStatus === "TRUSTED";
     const gitRunner = dependencies.gitRunner ?? defaultGitRunner(root);
     const processRunner =
       dependencies.processRunner ?? new NodeVerificationProcessRunner();
     const stopVerification = shouldBuildStopVerification(
-      harness as HarnessId,
+      harnessId,
       event,
       config,
       parsedInput
@@ -224,7 +399,7 @@ export async function runHookProcess(
       : undefined;
     const output = await runHookCommand({
       harness: harness as HarnessId,
-      event: event as HookEvent,
+      event: hookEvent,
       stdin: rawInput,
       config,
       trusted,
@@ -233,12 +408,7 @@ export async function runHookProcess(
         : { advisory: dependencies.advisory }),
       ...(stopVerification === undefined ? {} : { stopVerification })
     });
-    if (output.stdout.length > 0) {
-      io.writeStdout(output.stdout);
-    }
-    if (output.stderr.length > 0) {
-      io.writeStderr(output.stderr);
-    }
+    writeHookOutput(io, output);
   } catch {
     // ponytail: fail-open by design; hook failures stay invisible to the harness.
   }

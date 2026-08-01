@@ -1,0 +1,7 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "COMMAND_POLICY_UNAVAILABLE: Fix .agent-ops/config.json, or set AGENT_OPS_DISABLE=1 in your shell to temporarily disable agent-ops."
+  }
+}

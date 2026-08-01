@@ -3,6 +3,7 @@ import { runLifecycleAdvisory } from "../../../../runtime/src/hooks/advisory.js"
 import { dispatchHookEvent } from "../../../../runtime/src/hooks/dispatch.js";
 import type {
   HookDispatchOptions,
+  NormalizedHookEvent,
   StopVerificationOptions
 } from "../../../../runtime/src/hooks/events.js";
 import { resolveCapabilities } from "../../../../runtime/src/install/profiles.js";
@@ -36,6 +37,21 @@ export interface HookCommandOutput {
 }
 
 /**
+ * Keep adapter normalization at the command boundary so exceptional hook
+ * paths use the same native-event interpretation as normal dispatch.
+ */
+export function normalizeHookInput(
+  harness: HarnessId,
+  input: unknown
+): NormalizedHookEvent | null {
+  try {
+    return harnessDescriptor(harness).runtime.normalizeInput(input);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Hooks are advisory infrastructure: every failure path stays fail-open with
  * exit code 0 so a broken toolkit can never wedge the harness.
  */
@@ -54,7 +70,10 @@ export async function runHookCommand(
       return { exitCode: 0, stdout: "", stderr: "" };
     }
     const descriptor = harnessDescriptor(options.harness);
-    const normalized = descriptor.runtime.normalizeInput(input);
+    const normalized = normalizeHookInput(options.harness, input);
+    if (normalized === null) {
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
     const stopRegistration = descriptor.control.registrations.find(
       ({ capability }) => capability === "optional-stop-verify"
     );

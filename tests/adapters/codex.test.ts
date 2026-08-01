@@ -29,6 +29,20 @@ async function fixture(): Promise<unknown> {
   ) as unknown;
 }
 
+async function denialFixture(): Promise<unknown> {
+  return JSON.parse(
+    await readFile(
+      resolve(
+        "tests",
+        "fixtures",
+        "harness-denial",
+        "codex-pretooluse-continue.json"
+      ),
+      "utf8"
+    )
+  ) as unknown;
+}
+
 const RUNTIME_PATH = "/opt/agent-ops/hook-entry.js";
 
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
@@ -234,6 +248,17 @@ test("encodes only documented Codex output behavior", () => {
   );
   assert.equal(CODEX_NON_ZERO_EXIT_BEHAVIOR, "UNKNOWN");
   assert.equal(CODEX_PRE_TOOL_BLOCKING, "UNKNOWN");
+});
+
+test("Codex PreToolUse non-denial shape conformance only matches its fixture", async () => {
+  // This asserts the documented wire shape, not host runtime enforcement.
+  const output = codexHookOutput("PreToolUse", {
+    action: "continue",
+    status: "UNKNOWN",
+    code: "COMMAND_POLICY_UNAVAILABLE"
+  });
+  assert.deepEqual(JSON.parse(output.stdout), await denialFixture());
+  assert.doesNotMatch(output.stdout, /deny/);
 });
 
 test("declares only documented event and matcher support", () => {
