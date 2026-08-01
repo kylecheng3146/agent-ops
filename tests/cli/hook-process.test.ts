@@ -276,7 +276,7 @@ test(
         );
         assert.match(
           decision.hookSpecificOutput?.permissionDecisionReason ?? "",
-          /\.agent-ops\/config\.json/
+          /\.agent-ops[\\/]config\.json/
         );
         assert.match(
           decision.hookSpecificOutput?.permissionDecisionReason ?? "",
