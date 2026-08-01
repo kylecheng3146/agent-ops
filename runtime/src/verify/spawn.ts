@@ -25,6 +25,7 @@ export interface ProcessRequest {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly shell: boolean;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface ProcessCompletion {
@@ -56,6 +57,7 @@ export interface NodeVerificationProcessRunnerOptions {
 export interface RunVerificationCommandOptions {
   readonly cwd: string;
   readonly runner?: VerificationProcessRunner;
+  readonly env?: Readonly<Record<string, string>>;
   readonly now?: () => number;
   readonly outputLimitBytes?: number;
   readonly terminationGraceMs?: number;
@@ -273,6 +275,10 @@ implements VerificationProcessRunner {
     const child = spawn(request.command, [...request.args], {
       cwd: request.cwd,
       detached: this.#platform !== "win32",
+      env: {
+        ...process.env,
+        ...(request.env ?? {})
+      },
       shell: request.shell,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
@@ -426,7 +432,8 @@ export async function runVerificationCommand(
       command: command.command,
       args: [...command.args],
       cwd: options.cwd,
-      shell: command.shell === true
+      shell: command.shell === true,
+      ...(options.env === undefined ? {} : { env: options.env })
     });
   } catch {
     return emptyResult(

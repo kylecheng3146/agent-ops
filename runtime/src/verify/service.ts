@@ -21,20 +21,18 @@ import {
   type FailureApproachSignal
 } from "./fingerprint.js";
 import {
+  aggregateVerificationStatus,
+  executeConfiguredCommand,
+  type ConfiguredCommandExecution
+} from "./command-executor.js";
+import {
   selectVerificationScope,
   type ScopeSelection
 } from "./scope.js";
-import {
-  runVerificationCommand,
-  type SpawnResult,
-  type VerificationProcessRunner,
-  type VerificationStatus
+import type {
+  VerificationProcessRunner,
+  VerificationStatus
 } from "./spawn.js";
-import {
-  evaluateTestCount,
-  parseTestCount,
-  type TestCountCode
-} from "./test-count.js";
 
 export interface VerificationServiceOptions {
   readonly root: string;
@@ -70,80 +68,11 @@ export interface VerificationReport {
   readonly signal: FailureApproachSignal;
 }
 
-interface ClassifiedResult {
-  readonly status: VerificationStatus;
-  readonly failureClass: string;
-  readonly testCount: number | null;
-}
-
-type CommandExecutionResult = Omit<
-  SpawnResult,
-  "failureClass"
-> & {
-  readonly failureClass: string;
-};
-
 function verificationError(
   code: string,
   message: string
 ): AgentOpsError {
   return new AgentOpsError(code, message);
-}
-
-function classifyTestCountCode(code: TestCountCode): string {
-  const classes: Record<TestCountCode, string> = {
-    TEST_COUNT_BELOW_MINIMUM: "test-count-below-minimum",
-    TEST_COUNT_INVALID: "test-count-invalid",
-    TEST_COUNT_OK: "none",
-    TEST_COUNT_REQUIREMENT_INVALID:
-      "test-count-requirement-invalid",
-    TEST_COUNT_UNPARSEABLE: "test-count-unparseable",
-    ZERO_TESTS: "zero-tests"
-  };
-  return classes[code];
-}
-
-function classifyResult(
-  command: VerificationCommand,
-  spawned: CommandExecutionResult
-): ClassifiedResult {
-  if (command.evidence.kind === "file") {
-    return {
-      status:
-        spawned.status === "PASS" ? "UNKNOWN" : spawned.status,
-      failureClass:
-        spawned.status === "PASS"
-          ? "file-evidence-unsupported"
-          : spawned.failureClass,
-      testCount: null
-    };
-  }
-  if (command.evidence.kind !== "test-count") {
-    return {
-      status: spawned.status,
-      failureClass: spawned.failureClass,
-      testCount: null
-    };
-  }
-  const testCount = parseTestCount(
-    `${spawned.stdout}\n${spawned.stderr}`
-  );
-  if (spawned.status !== "PASS") {
-    return {
-      status: spawned.status,
-      failureClass: spawned.failureClass,
-      testCount
-    };
-  }
-  const evaluation = evaluateTestCount(
-    testCount,
-    command.evidence.minimum
-  );
-  return {
-    status: evaluation.status,
-    failureClass: classifyTestCountCode(evaluation.code),
-    testCount: evaluation.testCount
-  };
 }
 
 function exitCategory(
@@ -159,20 +88,6 @@ function exitCategory(
     return "no-exit";
   }
   return result.exitCode === 0 ? "exit-zero" : "nonzero-exit";
-}
-
-function overallStatus(
-  results: readonly VerificationCommandReport[]
-): VerificationStatus {
-  const required = results.filter((result) => result.required);
-  const gating = required.length > 0 ? required : results;
-  if (gating.some((result) => result.status === "FAIL")) {
-    return "FAIL";
-  }
-  if (gating.some((result) => result.status === "UNKNOWN")) {
-    return "UNKNOWN";
-  }
-  return "PASS";
 }
 
 function relevantCriteria(
@@ -200,10 +115,6 @@ function commandById(
   return command;
 }
 
-function diagnostics(spawned: CommandExecutionResult): string {
-  return spawned.stderr || spawned.stdout || spawned.failureClass;
-}
-
 export class VerificationService {
   readonly #options: VerificationServiceOptions;
 
@@ -226,7 +137,7 @@ export class VerificationService {
     command: VerificationCommand,
     startedAt: string,
     finishedAt: string,
-    result: ClassifiedResult,
+    result: Pick<ConfiguredCommandExecution, "testCount">,
     exitCode: number | null
   ): Promise<string[]> {
     const references: string[] = [];
@@ -256,41 +167,27 @@ export class VerificationService {
   ): Promise<VerificationCommandReport> {
     const startedAt = (this.#options.now ?? (() =>
       new Date().toISOString()))();
-    const spawned = this.#options.trusted
-      ? await runVerificationCommand(command, {
-          cwd: await this.#commandCwd(command),
-          runner: this.#options.processRunner
-        })
-      : {
-          commandId: command.id,
-          status: "UNKNOWN",
-          failureClass: "repository-untrusted",
-          exitCode: null,
-          signal: null,
-          timedOut: false,
-          durationMs: 0,
-          stdout: "",
-          stderr: "",
-          stdoutTruncated: false,
-          stderrTruncated: false
-        } as const;
-    const classified = classifyResult(command, spawned);
-    const fingerprint = classified.status === "PASS"
+    const result = await executeConfiguredCommand(command, {
+      cwd: await this.#commandCwd(command),
+      runner: this.#options.processRunner,
+      trusted: this.#options.trusted
+    });
+    const fingerprint = result.status === "PASS"
       ? null
       : createFailureFingerprint({
           commandId: command.id,
-          failureClass: classified.failureClass,
+          failureClass: result.failureClass,
           exitCategory:
-            spawned.timedOut
+            result.timedOut
               ? "timeout"
-              : spawned.signal !== null
+              : result.signal !== null
                 ? "signal-exit"
-                : spawned.exitCode === null
+                : result.exitCode === null
                   ? "no-exit"
-                  : spawned.exitCode === 0
+                  : result.exitCode === 0
                     ? "exit-zero"
                     : "nonzero-exit",
-          diagnostics: diagnostics(spawned)
+          diagnostics: result.diagnostic
         });
     const finishedAt = (this.#options.now ?? (() =>
       new Date().toISOString()))();
@@ -299,17 +196,17 @@ export class VerificationService {
       command,
       startedAt,
       finishedAt,
-      classified,
-      spawned.exitCode
+      result,
+      result.exitCode
     );
     return {
       commandId: command.id,
       required: command.required,
-      status: classified.status,
-      failureClass: classified.failureClass,
-      exitCode: spawned.exitCode,
-      timedOut: spawned.timedOut,
-      testCount: classified.testCount,
+      status: result.status,
+      failureClass: result.failureClass,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      testCount: result.testCount,
       diagnostic: fingerprint?.diagnostics ?? "",
       evidenceReferences
     };
@@ -352,7 +249,7 @@ export class VerificationService {
       );
     }
 
-    const status = overallStatus(results);
+    const status = aggregateVerificationStatus(results);
     let signal: FailureApproachSignal = null;
     if (status === "PASS") {
       await this.#options.taskService.clearFailure(taskId);
