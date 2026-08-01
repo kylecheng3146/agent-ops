@@ -23,6 +23,7 @@ export interface UpdateCommandOptions {
   readonly adapters: readonly HarnessInstallAdapter[];
   readonly registry?: RegistryClient;
   readonly targetVersion?: string;
+  readonly toolkitVersion?: string;
   readonly isTTY: boolean;
   readonly hookRuntimePath?: string;
   readonly hookTargets?: readonly HookTargetSelection[];
@@ -85,6 +86,9 @@ export async function runUpdateCommand(
     ...(options.targetVersion === undefined
       ? {}
       : { targetVersion: options.targetVersion }),
+    ...(options.toolkitVersion === undefined
+      ? {}
+      : { toolkitVersion: options.toolkitVersion }),
     ...(options.hookRuntimePath === undefined
       ? {}
       : { hookRuntimePath: options.hookRuntimePath }),

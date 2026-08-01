@@ -82,7 +82,24 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     assert.match(updated.stdout, /UPDATE_APPLIED/);
     assert.match(
       await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
-      /Toolkit version: 0\.0\.1/
+      /Toolkit version: 0\.1\.5/
+    );
+    const doctorAfterUpdate = runBuiltCli(["doctor", "--json"], root).result;
+    const doctorPayload = JSON.parse(doctorAfterUpdate.stdout) as {
+      data?: {
+        report?: {
+          checks?: readonly {
+            id?: string;
+            status?: string;
+          }[];
+        };
+      };
+    };
+    assert.equal(
+      doctorPayload.data?.report?.checks?.find(
+        ({ id }) => id === "artifact-staleness"
+      )?.status,
+      "PASS"
     );
 
     await writeFile(join(root, "unmanaged.txt"), "keep me\n");

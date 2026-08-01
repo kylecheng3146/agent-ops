@@ -195,6 +195,7 @@ process.exitCode = await runCli(
             )).config;
             return await runDoctorCommand({
               root,
+              toolkitVersion: CLI_VERSION,
               probes: {
                 hookRegistration: async () =>
                   hookRegistrationSatisfied({
@@ -229,6 +230,7 @@ process.exitCode = await runCli(
               adapters: commonHarnessAdapters(),
               registry: new NpmRegistryClient(),
               isTTY,
+              toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
               ...(args.hookTargets === undefined
                 ? {}

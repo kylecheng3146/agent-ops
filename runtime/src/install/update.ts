@@ -25,6 +25,8 @@ import {
 const PACKAGE_NAME = "@kylecheng3146/agent-ops";
 const CONFIG_PATH = ".agent-ops/config.json";
 const MAX_UPDATE_CONFIG_BYTES = 1024 * 1024;
+const TOOLKIT_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
 
 interface ManagedConfigPreview extends ConfigMigrationPreview {
   readonly sourceHash: string;
@@ -34,6 +36,8 @@ export interface CreateUpdatePlanOptions {
   readonly root: string;
   readonly adapters: readonly HarnessInstallAdapter[];
   readonly targetVersion?: string;
+  /** Version of the toolkit rendering managed baseline content. */
+  readonly toolkitVersion?: string;
   readonly registry?: RegistryClient;
   readonly packageName?: string;
   readonly hookRuntimePath?: string;
@@ -169,6 +173,12 @@ export async function createUpdatePlan(
       "Update requires a target version or an explicit registry client."
     );
   }
+  if (!TOOLKIT_VERSION_PATTERN.test(targetVersion)) {
+    throw new AgentOpsError(
+      "INVALID_TOOLKIT_VERSION",
+      "Toolkit version must be a valid semantic version."
+    );
+  }
 
   const report = await doctorInstallation({ root: options.root });
   for (const id of [
@@ -210,7 +220,7 @@ export async function createUpdatePlan(
     harness: options.harness ?? report.manifest.harness,
     profiles: configPreview.migrated.profiles,
     adapters: options.adapters,
-    toolkitVersion: targetVersion,
+    toolkitVersion: options.toolkitVersion ?? targetVersion,
     allowHarnessChange: true,
     ...(options.hookRuntimePath === undefined
       ? {}

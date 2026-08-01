@@ -77,6 +77,27 @@ async function installHarnesses(
   );
 }
 
+test("rejects an invalid update target when a renderer version is supplied", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await install(root);
+
+    await assert.rejects(
+      createUpdatePlan({
+        root,
+        adapters: commonHarnessAdapters(),
+        targetVersion: "not-a-version",
+        toolkitVersion: "0.1.5"
+      }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "INVALID_TOOLKIT_VERSION"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("migrates a manifest-owned version 0 config during update", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
   try {

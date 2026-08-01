@@ -501,7 +501,7 @@ export function resolveHarnessSelection(value: string): Harness | null {
 export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.control.routing.desired;
 export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.control.routing.desired;
 
-function managedRules(
+export function managedRules(
   descriptor: HarnessDescriptor,
   context: HarnessPlanContext
 ): string {
