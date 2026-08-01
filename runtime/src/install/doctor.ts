@@ -19,8 +19,8 @@ import {
   assertSupportedManifestOwnership
 } from "./ownership.js";
 import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
-import { harnessDescriptor } from "./harness.js";
-import { resolveProfiles } from "./profiles.js";
+import { harnessDescriptor, managedRules } from "./harness.js";
+import { resolveCapabilities, resolveProfiles } from "./profiles.js";
 import {
   inspectHarnessSurfaces,
   inspectHarnessRegistrations,
@@ -43,6 +43,7 @@ export type DoctorCheckId =
   | "manifest"
   | "config"
   | "artifacts"
+  | "artifact-staleness"
   | "markers"
   | "surface-inventory"
   | "registration-drift"
@@ -73,6 +74,8 @@ export interface DoctorProbes {
 export interface DoctorInstallationOptions {
   readonly root: string;
   readonly nodeVersion?: string;
+  /** Version of the toolkit running doctor, used for generated baseline checks. */
+  readonly toolkitVersion?: string;
   readonly probes?: DoctorProbes;
 }
 
@@ -91,6 +94,12 @@ interface ManifestCheckResult {
 interface ConfigCheckResult {
   readonly check: DoctorCheck;
   readonly config?: AgentOpsConfig;
+}
+
+interface ArtifactCheckResult {
+  readonly check: DoctorCheck;
+  /** Hashes computed while checking managed artifact integrity, keyed by path. */
+  readonly hashesByPath: ReadonlyMap<string, string>;
 }
 
 function check(
@@ -264,36 +273,138 @@ async function checkConfig(root: string): Promise<ConfigCheckResult> {
 async function checkArtifacts(
   root: string,
   manifest: InstallManifest | undefined
-): Promise<DoctorCheck> {
+): Promise<ArtifactCheckResult> {
   if (manifest === undefined) {
-    return check(
-      "artifacts",
-      "FAIL",
-      "Artifacts cannot be verified without a valid manifest."
-    );
+    return {
+      check: check(
+        "artifacts",
+        "FAIL",
+        "Artifacts cannot be verified without a valid manifest."
+      ),
+      hashesByPath: new Map()
+    };
   }
 
   const failures: string[] = [];
+  const hashesByPath = new Map<string, string>();
   for (const artifact of manifest.artifacts) {
     try {
       const content = await readContained(root, artifact.path);
+      const hash = sha256(content);
       if (
-        sha256(content) !== artifact.hash ||
+        hash !== artifact.hash ||
         (artifact.id === "opencode-plugin" &&
           !isOpencodeManagedPlugin(content.toString("utf8")))
       ) {
         failures.push(artifact.path);
+      } else {
+        hashesByPath.set(artifact.path, hash);
       }
     } catch {
       failures.push(artifact.path);
     }
   }
-  return failures.length === 0
-    ? check("artifacts", "PASS", "All managed artifacts match their hashes.")
+  return {
+    check:
+      failures.length === 0
+        ? check(
+            "artifacts",
+            "PASS",
+            "All managed artifacts match their hashes."
+          )
+        : check(
+            "artifacts",
+            "FAIL",
+            `Managed artifacts failed verification: ${failures.join(", ")}.`
+          ),
+    hashesByPath
+  };
+}
+
+function checkArtifactStaleness(
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined,
+  artifacts: ArtifactCheckResult,
+  toolkitVersion: string | undefined
+): DoctorCheck {
+  if (manifest === undefined || config === undefined) {
+    return check(
+      "artifact-staleness",
+      "UNKNOWN",
+      "Managed artifact staleness cannot be assessed without a valid manifest and configuration."
+    );
+  }
+  if (artifacts.check.status !== "PASS") {
+    return check(
+      "artifact-staleness",
+      "UNKNOWN",
+      "Managed artifact staleness cannot be assessed until artifact integrity passes."
+    );
+  }
+  if (toolkitVersion === undefined) {
+    return check(
+      "artifact-staleness",
+      "UNKNOWN",
+      "Managed artifact staleness cannot be assessed without the running toolkit version."
+    );
+  }
+
+  const expectedHashesByPath = new Map<string, string>();
+  try {
+    const resolved =
+      config.profiles.length === 0
+        ? { profiles: [], capabilities: [] }
+        : resolveCapabilities(config);
+    for (const id of manifest.harness) {
+      const descriptor = harnessDescriptor(id);
+      const path = `.agent-ops/${descriptor.control.instructionFile}`;
+      if (!expectedHashesByPath.has(path)) {
+        expectedHashesByPath.set(
+          path,
+          sha256(
+            managedRules(descriptor, {
+              scope: manifest.scope,
+              profiles: resolved.profiles,
+              capabilities: resolved.capabilities,
+              toolkitVersion
+            })
+          )
+        );
+      }
+    }
+  } catch {
+    return check(
+      "artifact-staleness",
+      "UNKNOWN",
+      "Managed artifact staleness could not be assessed safely."
+    );
+  }
+
+  const stalePaths: string[] = [];
+  for (const [path, expectedHash] of expectedHashesByPath) {
+    const actualHash = artifacts.hashesByPath.get(path);
+    if (actualHash === undefined) {
+      return check(
+        "artifact-staleness",
+        "UNKNOWN",
+        "Managed artifact staleness could not be assessed safely."
+      );
+    }
+    if (actualHash !== expectedHash) {
+      stalePaths.push(path);
+    }
+  }
+  return stalePaths.length === 0
+    ? check(
+        "artifact-staleness",
+        "PASS",
+        "Managed artifacts match the current toolkit and configuration."
+      )
     : check(
-        "artifacts",
-        "FAIL",
-        `Managed artifacts failed verification: ${failures.join(", ")}.`
+        "artifact-staleness",
+        "DEGRADED",
+        `Managed artifacts need update: ${stalePaths.join(", ")}; run agent-ops update.`,
+        "UPDATE_REQUIRED"
       );
 }
 
@@ -545,6 +656,7 @@ export async function doctorInstallation(
 ): Promise<DoctorReport> {
   const manifest = await checkManifest(options.root);
   const config = await checkConfig(options.root);
+  const artifacts = await checkArtifacts(options.root, manifest.manifest);
   const surfaceInventory = await checkSurfaceInventory(
     options.root,
     manifest.manifest,
@@ -554,7 +666,13 @@ export async function doctorInstallation(
     checkNodeVersion(options.nodeVersion ?? process.versions.node),
     manifest.check,
     config.check,
-    await checkArtifacts(options.root, manifest.manifest),
+    artifacts.check,
+    checkArtifactStaleness(
+      manifest.manifest,
+      config.config,
+      artifacts,
+      options.toolkitVersion
+    ),
     await checkMarkers(options.root, manifest.manifest),
     surfaceInventory.check,
     await checkRegistrationDrift(

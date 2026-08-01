@@ -13,7 +13,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { InstallManifest } from "../../runtime/src/contracts.js";
+import type {
+  Harness,
+  InstallManifest,
+  Profile
+} from "../../runtime/src/contracts.js";
 import { sha256 } from "../../runtime/src/fs/hash.js";
 import { formatInstallManifest } from "../../runtime/src/fs/manifest.js";
 import { applyInstallPlan } from "../../runtime/src/install/apply.js";
@@ -36,6 +40,7 @@ const MANAGED_BLOCK =
   `${START_MARKER}\n${MANAGED_BODY}\n${END_MARKER}\n`;
 const LEGACY_MANAGED_BLOCK =
   `${START_MARKER}\n${LEGACY_MANAGED_BODY}\n${END_MARKER}\n`;
+const TEST_TOOLKIT_VERSION = "0.1.5";
 const CONFIG = {
   schemaVersion: 2,
   profiles: ["core"],
@@ -63,6 +68,7 @@ const CHECK_IDS: readonly DoctorCheckId[] = [
   "manifest",
   "config",
   "artifacts",
+  "artifact-staleness",
   "markers",
   "surface-inventory",
   "registration-drift",
@@ -140,6 +146,36 @@ async function createInstallation(
   return root;
 }
 
+interface FreshInstallationOptions {
+  readonly harness?: Harness;
+  readonly profiles?: Profile[];
+  readonly toolkitVersion?: string;
+  readonly hookRuntimePath?: string;
+}
+
+async function createFreshInstallation(
+  options: FreshInstallationOptions = {}
+): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-fresh-"));
+  const harness: Harness = options.harness ?? ["codex"];
+  const profiles: Profile[] = options.profiles ?? ["core"];
+  await applyInstallPlan(
+    root,
+    await createInstallPlan({
+      root,
+      scope: "project",
+      harness,
+      profiles,
+      adapters: commonHarnessAdapters(),
+      toolkitVersion: options.toolkitVersion ?? TEST_TOOLKIT_VERSION,
+      ...(options.hookRuntimePath === undefined
+        ? {}
+        : { hookRuntimePath: options.hookRuntimePath })
+    })
+  );
+  return root;
+}
+
 async function readManifest(root: string): Promise<InstallManifest> {
   return JSON.parse(
     await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
@@ -176,13 +212,14 @@ async function snapshotDirectory(
 }
 
 test("reports stable passing checks without changing the installation", async () => {
-  const root = await createInstallation();
+  const root = await createFreshInstallation();
   try {
     const before = await snapshotDirectory(root);
 
     const report = await doctorInstallation({
       root,
       nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
       probes: passingProbes()
     });
 
@@ -207,6 +244,90 @@ test("reports stable passing checks without changing the installation", async ()
       CHECK_IDS.map(() => "PASS")
     );
     assert.deepEqual(await snapshotDirectory(root), before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reports managed artifacts from an older toolkit as update-required", async () => {
+  const root = await createFreshInstallation({
+    harness: ["claude"],
+    toolkitVersion: "0.1.4"
+  });
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "artifacts"), "PASS");
+    assert.equal(checkStatus(report, "artifact-staleness"), "DEGRADED");
+    assert.equal(
+      report.checks.find(({ id }) => id === "artifact-staleness")?.code,
+      "UPDATE_REQUIRED"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reports managed artifacts as update-required after profile changes", async () => {
+  const root = await createFreshInstallation();
+  try {
+    const configSource = `${JSON.stringify({
+      schemaVersion: 2,
+      profiles: ["advisory"],
+      verification: { commands: [] },
+      features: {
+        stopVerification: { enabled: false }
+      },
+      pathMappings: [],
+      securityExceptions: []
+    }, null, 2)}\n`;
+    const manifest = await readManifest(root);
+    await writeFile(join(root, ".agent-ops", "config.json"), configSource);
+    await writeFile(
+      join(root, ".agent-ops", "manifest.json"),
+      formatInstallManifest({
+        ...manifest,
+        artifacts: manifest.artifacts.map((artifact) =>
+          artifact.path === ".agent-ops/config.json"
+            ? { ...artifact, hash: sha256(configSource) }
+            : artifact
+        )
+      })
+    );
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "artifacts"), "PASS");
+    assert.equal(checkStatus(report, "artifact-staleness"), "DEGRADED");
+    assert.equal(
+      report.checks.find(({ id }) => id === "artifact-staleness")?.code,
+      "UPDATE_REQUIRED"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("uses UNKNOWN for artifact staleness without a running toolkit version", async () => {
+  const root = await createFreshInstallation();
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "artifact-staleness"), "UNKNOWN");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -278,18 +399,84 @@ test("reports desired capability drift as UPDATE_REQUIRED", async () => {
 });
 
 test("fails the artifact check when managed content is tampered", async () => {
-  const root = await createInstallation();
+  const root = await createFreshInstallation();
   try {
     await writeFile(join(root, ".agent-ops", "AGENTS.md"), "tampered\n");
 
     const report = await doctorInstallation({
       root,
       nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
       probes: passingProbes()
     });
 
     assert.equal(checkStatus(report, "artifacts"), "FAIL");
+    assert.equal(checkStatus(report, "artifact-staleness"), "UNKNOWN");
     assert.equal(checkStatus(report, "markers"), "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("does not mask a missing managed artifact as staleness", async () => {
+  const root = await createFreshInstallation();
+  try {
+    await rm(join(root, ".agent-ops", "AGENTS.md"));
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "artifacts"), "FAIL");
+    assert.equal(checkStatus(report, "artifact-staleness"), "UNKNOWN");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("excludes the OpenCode plugin artifact from staleness checks", async () => {
+  const root = await createFreshInstallation({
+    harness: ["opencode"],
+    profiles: ["guardrails"],
+    hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+  });
+  try {
+    const manifest = await readManifest(root);
+    const plugin = manifest.artifacts.find(
+      ({ id }) => id === "opencode-plugin"
+    );
+    assert.ok(plugin, "expected an OpenCode plugin artifact");
+    const source = await readFile(join(root, plugin.path), "utf8");
+    const movedRuntimeSource = source.replace(
+      "/opt/agent-ops/hook-entry.js",
+      "/opt/agent-ops/relocated-hook-entry.js"
+    );
+    assert.notEqual(movedRuntimeSource, source);
+    await writeFile(join(root, plugin.path), movedRuntimeSource);
+    await writeFile(
+      join(root, ".agent-ops", "manifest.json"),
+      formatInstallManifest({
+        ...manifest,
+        artifacts: manifest.artifacts.map((artifact) =>
+          artifact.path === plugin.path
+            ? { ...artifact, hash: sha256(movedRuntimeSource) }
+            : artifact
+        )
+      })
+    );
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "artifacts"), "PASS");
+    assert.equal(checkStatus(report, "artifact-staleness"), "PASS");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -563,7 +750,8 @@ test("treats an empty profile list as no lifecycle capability", async () => {
         scope: "project",
         harness: ["opencode"],
         profiles: ["core"],
-        adapters: commonHarnessAdapters()
+        adapters: commonHarnessAdapters(),
+        toolkitVersion: TEST_TOOLKIT_VERSION
       })
     );
     const configSource = `${JSON.stringify({
@@ -597,9 +785,16 @@ test("treats an empty profile list as no lifecycle capability", async () => {
     const report = await doctorInstallation({
       root,
       nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
       probes: passingProbes()
     });
     assert.equal(checkStatus(report, "config"), "PASS");
+    assert.equal(checkStatus(report, "artifacts"), "PASS");
+    assert.equal(checkStatus(report, "artifact-staleness"), "DEGRADED");
+    assert.equal(
+      report.checks.find(({ id }) => id === "artifact-staleness")?.code,
+      "UPDATE_REQUIRED"
+    );
     assert.equal(checkStatus(report, "lifecycle-summary"), "PASS");
   } finally {
     await rm(root, { recursive: true, force: true });

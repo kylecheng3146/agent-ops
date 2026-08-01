@@ -76,6 +76,7 @@ test("doctor command reports PASS only when every probe passes", async () => {
 
     const passing = await runDoctorCommand({
       root,
+      toolkitVersion: "0.1.0",
       probes: {
         hookRegistration: () => true,
         repositoryTrust: () => true,
