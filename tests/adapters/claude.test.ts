@@ -28,6 +28,20 @@ async function fixture(): Promise<unknown> {
   ) as unknown;
 }
 
+async function denialFixture(): Promise<unknown> {
+  return JSON.parse(
+    await readFile(
+      resolve(
+        "tests",
+        "fixtures",
+        "harness-denial",
+        "claude-pretooluse-deny.json"
+      ),
+      "utf8"
+    )
+  ) as unknown;
+}
+
 test("merges only agent-ops hooks and preserves unrelated Claude settings", async () => {
   const existing = await fixture();
   const managed = buildClaudeHookSettings(
@@ -180,6 +194,18 @@ test("preserves Claude event-specific JSON decisions", () => {
       stderr: ""
     }
   );
+});
+
+test("Claude PreToolUse denial shape conformance only matches its fixture", async () => {
+  // This asserts the documented wire shape, not host runtime enforcement.
+  const output = claudeHookOutput("PreToolUse", {
+    action: "block",
+    status: "UNKNOWN",
+    code: "COMMAND_POLICY_UNAVAILABLE",
+    remedy:
+      "Fix .agent-ops/config.json, or set AGENT_OPS_DISABLE=1 in your shell to temporarily disable agent-ops."
+  });
+  assert.deepEqual(JSON.parse(output.stdout), await denialFixture());
 });
 
 test("reports Stop evidence without a blocking decision", () => {

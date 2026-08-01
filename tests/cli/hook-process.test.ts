@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
 import type {
   AgentOpsConfig,
+  HarnessId,
+  InstallManifest,
   VerificationCommand
 } from "../../runtime/src/contracts.js";
+import { formatInstallManifest } from "../../runtime/src/fs/manifest.js";
 import type {
   GitRunResult,
   GitRunner
@@ -94,6 +105,462 @@ function io(stdin: string): {
     stderr
   };
 }
+
+async function createInvalidConfigInstallation(
+  harness: HarnessId
+): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-hook-process-"));
+  const manifest: InstallManifest = {
+    schemaVersion: 2,
+    scope: "project",
+    harness: [harness],
+    artifacts: [],
+    markers: []
+  };
+  await mkdir(join(root, ".agent-ops"), { recursive: true });
+  await Promise.all([
+    writeFile(
+      join(root, ".agent-ops", "manifest.json"),
+      formatInstallManifest(manifest)
+    ),
+    writeFile(join(root, ".agent-ops", "config.json"), "{ invalid JSON\n")
+  ]);
+  return root;
+}
+
+async function createInstallationWithoutConfig(
+  harness: HarnessId
+): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-hook-installation-"));
+  const manifest: InstallManifest = {
+    schemaVersion: 2,
+    scope: "project",
+    harness: [harness],
+    artifacts: [],
+    markers: []
+  };
+  await mkdir(join(root, ".agent-ops"), { recursive: true });
+  await writeFile(
+    join(root, ".agent-ops", "manifest.json"),
+    formatInstallManifest(manifest)
+  );
+  return root;
+}
+
+async function createValidConfigInstallation(
+  harness: HarnessId
+): Promise<string> {
+  const root = await createInstallationWithoutConfig(harness);
+  await writeFile(
+    join(root, ".agent-ops", "config.json"),
+    `${JSON.stringify(config(["core", "guardrails"]), null, 2)}\n`
+  );
+  return root;
+}
+
+async function createInvalidConfigRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-hook-uninstalled-"));
+  await mkdir(join(root, ".agent-ops"), { recursive: true });
+  await writeFile(join(root, ".agent-ops", "config.json"), "{ invalid JSON\n");
+  return root;
+}
+
+async function invokeHookProcess(options: {
+  readonly root: string;
+  readonly harness: HarnessId;
+  readonly event: "SessionStart" | "PreToolUse" | "Stop";
+  readonly input: unknown;
+}): Promise<{ readonly stdout: string; readonly stderr: string }> {
+  const streams = io(JSON.stringify(options.input));
+  const exitCode = await runHookProcess(
+    [options.harness, options.event],
+    streams.io,
+    "0.2.0",
+    {
+      root: options.root,
+      trust: async () => "UNTRUSTED"
+    }
+  );
+  assert.equal(exitCode, 0);
+  return {
+    stdout: streams.stdout.join(""),
+    stderr: streams.stderr.join("")
+  };
+}
+
+async function withHookEnvironment<T>(
+  root: string,
+  disabled: boolean,
+  action: () => Promise<T>
+): Promise<T> {
+  const previousHome = process.env.AGENT_OPS_HOME;
+  const previousDisabled = process.env.AGENT_OPS_DISABLE;
+  process.env.AGENT_OPS_HOME = root;
+  if (disabled) {
+    process.env.AGENT_OPS_DISABLE = "1";
+  } else {
+    delete process.env.AGENT_OPS_DISABLE;
+  }
+  try {
+    return await action();
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.AGENT_OPS_HOME;
+    } else {
+      process.env.AGENT_OPS_HOME = previousHome;
+    }
+    if (previousDisabled === undefined) {
+      delete process.env.AGENT_OPS_DISABLE;
+    } else {
+      process.env.AGENT_OPS_DISABLE = previousDisabled;
+    }
+  }
+}
+
+function claudePreToolUse(
+  root: string,
+  command = "echo safe"
+): Record<string, unknown> {
+  return {
+    hook_event_name: "PreToolUse",
+    cwd: root,
+    tool_name: "Bash",
+    tool_input: { command }
+  };
+}
+
+function codexPreToolUse(root: string): Record<string, unknown> {
+  return {
+    hook_event_name: "PreToolUse",
+    cwd: root,
+    tool_name: "Bash",
+    tool_input: { command: "echo safe" }
+  };
+}
+
+function opencodePreToolUse(root: string): Record<string, unknown> {
+  return {
+    event: "PreToolUse",
+    projectRoot: root,
+    input: { tool: "bash" },
+    output: { args: { command: "echo safe" } }
+  };
+}
+
+test(
+  "installed invalid config reaches only the declared runtime-failure boundary",
+  { concurrency: false },
+  async () => {
+    const claudeRoot = await createInvalidConfigInstallation("claude");
+    const codexRoot = await createInvalidConfigInstallation("codex");
+    const opencodeRoot = await createInvalidConfigInstallation("opencode");
+    const absentRoot = await mkdtemp(join(tmpdir(), "agent-ops-hook-absent-"));
+    try {
+      await withHookEnvironment(claudeRoot, false, async () => {
+        const preToolUse = await invokeHookProcess({
+          root: claudeRoot,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(claudeRoot)
+        });
+        assert.notEqual(preToolUse.stdout, "");
+        const decision = JSON.parse(preToolUse.stdout) as {
+          readonly hookSpecificOutput?: {
+            readonly permissionDecision?: string;
+            readonly permissionDecisionReason?: string;
+          };
+        };
+        assert.equal(
+          decision.hookSpecificOutput?.permissionDecision,
+          "deny"
+        );
+        assert.match(
+          decision.hookSpecificOutput?.permissionDecisionReason ?? "",
+          /\.agent-ops[\\/]config\.json/
+        );
+        assert.match(
+          decision.hookSpecificOutput?.permissionDecisionReason ?? "",
+          /AGENT_OPS_DISABLE=1/
+        );
+
+        const sessionStart = await invokeHookProcess({
+          root: claudeRoot,
+          harness: "claude",
+          event: "SessionStart",
+          input: { hook_event_name: "SessionStart", cwd: claudeRoot }
+        });
+        const stop = await invokeHookProcess({
+          root: claudeRoot,
+          harness: "claude",
+          event: "Stop",
+          input: { hook_event_name: "Stop", cwd: claudeRoot }
+        });
+        assert.equal(sessionStart.stdout, "");
+        assert.equal(stop.stdout, "");
+      });
+
+      await withHookEnvironment(codexRoot, false, async () => {
+        const preToolUse = await invokeHookProcess({
+          root: codexRoot,
+          harness: "codex",
+          event: "PreToolUse",
+          input: codexPreToolUse(codexRoot)
+        });
+        assert.notEqual(preToolUse.stdout, "");
+        assert.doesNotMatch(preToolUse.stdout, /deny/);
+        assert.match(preToolUse.stdout, /COMMAND_POLICY_UNAVAILABLE/);
+
+        const sessionStart = await invokeHookProcess({
+          root: codexRoot,
+          harness: "codex",
+          event: "SessionStart",
+          input: { hook_event_name: "SessionStart", cwd: codexRoot }
+        });
+        const stop = await invokeHookProcess({
+          root: codexRoot,
+          harness: "codex",
+          event: "Stop",
+          input: { hook_event_name: "Stop", cwd: codexRoot }
+        });
+        assert.doesNotMatch(sessionStart.stdout, /deny/);
+        assert.doesNotMatch(stop.stdout, /deny/);
+      });
+
+      await withHookEnvironment(opencodeRoot, false, async () => {
+        const commandBatch = await invokeHookProcess({
+          root: opencodeRoot,
+          harness: "opencode",
+          event: "PreToolUse",
+          input: {
+            ...opencodePreToolUse(opencodeRoot),
+            output: { args: { command: "echo safe && echo still-safe" } }
+          }
+        });
+        assert.deepEqual(JSON.parse(commandBatch.stdout), { decision: "allow" });
+
+        const sessionStart = await invokeHookProcess({
+          root: opencodeRoot,
+          harness: "opencode",
+          event: "SessionStart",
+          input: { event: "SessionStart", projectRoot: opencodeRoot }
+        });
+        const stop = await invokeHookProcess({
+          root: opencodeRoot,
+          harness: "opencode",
+          event: "Stop",
+          input: { event: "Stop", projectRoot: opencodeRoot }
+        });
+        assert.equal(JSON.parse(sessionStart.stdout).decision, "allow");
+        assert.equal(JSON.parse(stop.stdout).decision, "allow");
+      });
+
+      await withHookEnvironment(absentRoot, false, async () => {
+        const preToolUse = await invokeHookProcess({
+          root: absentRoot,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(absentRoot)
+        });
+        assert.equal(preToolUse.stdout, "");
+      });
+
+      await withHookEnvironment(opencodeRoot, true, async () => {
+        const preToolUse = await invokeHookProcess({
+          root: opencodeRoot,
+          harness: "opencode",
+          event: "PreToolUse",
+          input: opencodePreToolUse(opencodeRoot)
+        });
+        assert.deepEqual(JSON.parse(preToolUse.stdout), { decision: "allow" });
+
+        const claudePreTool = await invokeHookProcess({
+          root: claudeRoot,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(claudeRoot)
+        });
+        const codexPreTool = await invokeHookProcess({
+          root: codexRoot,
+          harness: "codex",
+          event: "PreToolUse",
+          input: codexPreToolUse(codexRoot)
+        });
+        const sessionStart = await invokeHookProcess({
+          root: claudeRoot,
+          harness: "claude",
+          event: "SessionStart",
+          input: { hook_event_name: "SessionStart", cwd: claudeRoot }
+        });
+        const stop = await invokeHookProcess({
+          root: claudeRoot,
+          harness: "claude",
+          event: "Stop",
+          input: { hook_event_name: "Stop", cwd: claudeRoot }
+        });
+        assert.doesNotMatch(claudePreTool.stdout, /deny/);
+        assert.doesNotMatch(codexPreTool.stdout, /deny/);
+        assert.doesNotMatch(sessionStart.stdout, /deny/);
+        assert.doesNotMatch(stop.stdout, /deny/);
+      });
+    } finally {
+      await Promise.all([
+        rm(claudeRoot, { recursive: true, force: true }),
+        rm(codexRoot, { recursive: true, force: true }),
+        rm(opencodeRoot, { recursive: true, force: true }),
+        rm(absentRoot, { recursive: true, force: true })
+      ]);
+    }
+  }
+);
+
+test(
+  "invalid config stays fail-open without matching installation proof",
+  { concurrency: false },
+  async () => {
+    const uninstalledRoot = await createInvalidConfigRoot();
+    const mismatchedRoot = await createInvalidConfigInstallation("codex");
+    try {
+      await withHookEnvironment(uninstalledRoot, false, async () => {
+        const claude = await invokeHookProcess({
+          root: uninstalledRoot,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(uninstalledRoot)
+        });
+        const opencode = await invokeHookProcess({
+          root: uninstalledRoot,
+          harness: "opencode",
+          event: "PreToolUse",
+          input: opencodePreToolUse(uninstalledRoot)
+        });
+        assert.equal(claude.stdout, "");
+        assert.deepEqual(JSON.parse(opencode.stdout), { decision: "allow" });
+      });
+
+      await withHookEnvironment(mismatchedRoot, false, async () => {
+        const claude = await invokeHookProcess({
+          root: mismatchedRoot,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(mismatchedRoot)
+        });
+        assert.equal(claude.stdout, "");
+      });
+    } finally {
+      await Promise.all([
+        rm(uninstalledRoot, { recursive: true, force: true }),
+        rm(mismatchedRoot, { recursive: true, force: true })
+      ]);
+    }
+  }
+);
+
+test(
+  "a valid user config remains effective when a project has no config",
+  { concurrency: false },
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "agent-ops-hook-home-"));
+    const root = await mkdtemp(join(tmpdir(), "agent-ops-hook-project-"));
+    try {
+      await mkdir(join(home, ".agent-ops"), { recursive: true });
+      await writeFile(
+        join(home, ".agent-ops", "config.json"),
+        `${JSON.stringify(config(["core", "guardrails"]), null, 2)}\n`
+      );
+
+      await withHookEnvironment(home, false, async () => {
+        const output = await invokeHookProcess({
+          root,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(root, "git reset --hard origin/main")
+        });
+        assert.equal(
+          (JSON.parse(output.stdout) as {
+            readonly hookSpecificOutput?: {
+              readonly permissionDecision?: string;
+            };
+          }).hookSpecificOutput?.permissionDecision,
+          "deny"
+        );
+      });
+    } finally {
+      await Promise.all([
+        rm(home, { recursive: true, force: true }),
+        rm(root, { recursive: true, force: true })
+      ]);
+    }
+  }
+);
+
+test(
+  "a malformed user config cannot deny when project config is absent",
+  { concurrency: false },
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "agent-ops-hook-home-"));
+    const root = await createInstallationWithoutConfig("claude");
+    try {
+      await mkdir(join(home, ".agent-ops"), { recursive: true });
+      await writeFile(
+        join(home, ".agent-ops", "config.json"),
+        "{ invalid JSON\n"
+      );
+
+      await withHookEnvironment(home, false, async () => {
+        const output = await invokeHookProcess({
+          root,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(root)
+        });
+        assert.equal(output.stdout, "");
+      });
+    } finally {
+      await Promise.all([
+        rm(home, { recursive: true, force: true }),
+        rm(root, { recursive: true, force: true })
+      ]);
+    }
+  }
+);
+
+test(
+  "a malformed user config still reaches the failure boundary for valid project config",
+  { concurrency: false },
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "agent-ops-hook-home-"));
+    const root = await createValidConfigInstallation("claude");
+    try {
+      await mkdir(join(home, ".agent-ops"), { recursive: true });
+      await writeFile(
+        join(home, ".agent-ops", "config.json"),
+        "{ invalid JSON\n"
+      );
+
+      await withHookEnvironment(home, false, async () => {
+        const output = await invokeHookProcess({
+          root,
+          harness: "claude",
+          event: "PreToolUse",
+          input: claudePreToolUse(root)
+        });
+        assert.equal(
+          (JSON.parse(output.stdout) as {
+            readonly hookSpecificOutput?: {
+              readonly permissionDecision?: string;
+            };
+          }).hookSpecificOutput?.permissionDecision,
+          "deny"
+        );
+      });
+    } finally {
+      await Promise.all([
+        rm(home, { recursive: true, force: true }),
+        rm(root, { recursive: true, force: true })
+      ]);
+    }
+  }
+);
 
 test("real hook process reaches advisory implementation", async () => {
   const streams = io(JSON.stringify({

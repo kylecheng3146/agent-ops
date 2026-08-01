@@ -68,6 +68,8 @@ export interface HookResult {
   readonly status: HookStatus;
   readonly code: string;
   readonly evidence?: HookVerificationEvidence;
+  /** Human recovery guidance for an intentional denial. */
+  readonly remedy?: string;
 }
 
 export interface HookDispatchOptions {

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -17,6 +19,20 @@ import { normalizeOpencodeHookInput } from "../../runtime/src/adapters/opencode/
 import { opencodeHookOutput } from "../../runtime/src/adapters/opencode/output.js";
 
 const RUNTIME_PATH = "/opt/agent-ops/hook-entry.js";
+
+async function denialFixture(): Promise<unknown> {
+  return JSON.parse(
+    await readFile(
+      resolve(
+        "tests",
+        "fixtures",
+        "harness-denial",
+        "opencode-pretooluse-deny.json"
+      ),
+      "utf8"
+    )
+  ) as unknown;
+}
 
 test("normalizes opencode lifecycle and bash tool inputs", () => {
   assert.deepEqual(
@@ -238,4 +254,14 @@ test("emits a deny decision only for a blocked bash hook", () => {
       }
     }
   );
+});
+
+test("OpenCode PreToolUse denial shape conformance only matches its fixture", async () => {
+  // This asserts the documented wire shape, not host runtime enforcement.
+  const output = opencodeHookOutput("PreToolUse", {
+    action: "block",
+    status: "UNKNOWN",
+    code: "COMMAND_POLICY_UNAVAILABLE"
+  });
+  assert.deepEqual(JSON.parse(output.stdout), await denialFixture());
 });
