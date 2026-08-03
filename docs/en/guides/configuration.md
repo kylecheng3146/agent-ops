@@ -29,6 +29,26 @@ implies them. Advisory runs through the real SessionStart path and is
 fail-open. Claude and Codex lifecycle support is `supported`; OpenCode begins
 at app initialization and is honestly reported as `degraded`.
 
+### Runtime-failure safeguards
+
+`command-policy` is the only capability with a fail-closed failure mode. Claude
+Code can emit its documented denial shape at native `PreToolUse` for a
+classified invalid installed configuration. The managed OpenCode
+`tool.execute.before` plugin can throw its documented command-policy denial or
+unavailable-runtime error for its supported Bash surface. Codex is explicitly
+non-enforcing (`unknown`). These are agent-ops output and plugin contracts, not
+proof that a host honors a denial. `SessionStart` and `Stop` failure paths stay
+fail-open for every adapter.
+
+Claude's invalid-config fallback has four safeguards: (1) an absent project
+configuration stays fail-open, so only an invalid `.agent-ops/config.json` can
+reach the fallback; (2) the manifest must safely prove that the current harness
+is installed; (3) a human can export `AGENT_OPS_DISABLE=1` in the shell before
+launching the host to restore fail-open temporarily; and (4) a Claude Code
+denial names the config path and tells the user to repair it or temporarily set
+that shell variable. The variable is read only from the hook-process environment
+and cannot be set in agent-ops configuration, a manifest, or managed files.
+
 `guardrails` installs command policy but does not enable Stop verification. Stop
 is a separate config-v2 feature and must be explicitly enabled with at least
 one confirmed command:
@@ -58,7 +78,12 @@ agent-ops update
 agent-ops trust grant
 ```
 
-Without `update`, doctor reports `UPDATE_REQUIRED`; without the new trust
+Without `update`, doctor can report `UPDATE_REQUIRED` for registration drift.
+Separately, after a toolkit upgrade or effective profile or capability change
+alters an intact path-independent managed rules artifact,
+`artifact-staleness` reports `DEGRADED` with `UPDATE_REQUIRED`. `agent-ops
+update` regenerates the artifact and clears that result; a missing or
+hash-mismatched artifact remains an `artifacts` `FAIL`. Without the new trust
 grant, trust-gated hooks remain stale. Stop is report-only: it continues the
 harness for `PASS`, `FAIL`, or `UNKNOWN`, emits only bounded command ID, exit
 code, test-count, config-hash, and timestamp evidence, and never completes a
