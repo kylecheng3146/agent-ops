@@ -191,6 +191,29 @@ test("parses repeated profiles and boolean flags", () => {
   );
 });
 
+test("parses the explicit generic loop profile", () => {
+  assert.deepEqual(
+    parseArgs([
+      "init",
+      "--scope",
+      "project",
+      "--harness",
+      "codex,claude",
+      "--profile",
+      "loop"
+    ]),
+    {
+      command: "init",
+      scope: "project",
+      harness: ["codex", "claude"],
+      profiles: ["loop"],
+      dryRun: false,
+      json: false,
+      yes: false
+    }
+  );
+});
+
 test("parses repeatable explicit hook targets", () => {
   assert.deepEqual(
     parseArgs([
@@ -369,6 +392,24 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
     yes: false
   });
   assert.equal(questions.length, 3);
+});
+
+test("TTY wizard accepts loop as the selected profile", async () => {
+  const answers = ["project", "claude", "loop"];
+  const completed = await completeInitChoices(parseArgs(["init"]), {
+    isTTY: true,
+    prompt: async () => answers.shift() ?? ""
+  });
+
+  assert.deepEqual(completed, {
+    command: "init",
+    scope: "project",
+    harness: ["claude"],
+    profiles: ["loop"],
+    dryRun: false,
+    json: false,
+    yes: false
+  });
 });
 
 test("TTY wizard requires an explicit harness when no default is selected", async () => {

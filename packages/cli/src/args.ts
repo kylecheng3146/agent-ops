@@ -24,7 +24,7 @@ export const COMMAND_NAMES = [
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
 const SCOPES = new Set<string>(["project", "user"]);
-const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
+const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
 
 export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
 export type CliCommand = "help" | "version" | TopLevelCommand;

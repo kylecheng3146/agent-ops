@@ -152,7 +152,11 @@ async function planMarkerFiles(
       }
       assertExpectedManagedBlock(content, marker, expected);
       try {
-        content = removeManagedBlock(content, marker.id);
+        content = removeManagedBlock(
+          content,
+          marker.id,
+          expected.markerStyle
+        );
       } catch (error) {
         throw new AgentOpsError(
           "MANAGED_BLOCK_CHANGED",

@@ -43,6 +43,13 @@ import {
   assertSupportedManifestOwnership,
   type ExpectedManagedMarker
 } from "./ownership.js";
+import {
+  codexHooksExplicitlyDisabled,
+  loopLauncherArtifactId,
+  loopSeeds,
+  planLoopContribution,
+  selectedLoopHarnesses
+} from "./codex-loop.js";
 import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
 import {
   planHookRegistration,
@@ -275,7 +282,11 @@ function assertUniqueContributions(
 
   const markerBoundaries = new Set<string>();
   for (const block of blocks) {
-    const markers = managedBlockMarkers(block.id, block.version);
+    const markers = managedBlockMarkers(
+      block.id,
+      block.version,
+      block.markerStyle
+    );
     const key = pathKey(block.path);
     if (
       ids.has(block.id) ||
@@ -417,8 +428,84 @@ async function planArtifactRemoval(
   };
 }
 
+async function planCreateOnceSeeds(
+  root: string,
+  seeds: readonly { readonly path: string; readonly content: string }[]
+): Promise<FileOperation[]> {
+  const operations: FileOperation[] = [];
+  for (const seed of seeds) {
+    const current = await readCurrentFile(root, seed.path);
+    if (current === null) {
+      operations.push({
+        kind: "write",
+        path: seed.path,
+        content: seed.content,
+        expectedHash: null
+      });
+    }
+  }
+  return operations;
+}
+
+/**
+ * User-owned seed files belong to the first loop install for each harness.
+ * An existing loop launcher is the durable installation record: it prevents an
+ * update from recreating a file a user intentionally removed, while still
+ * allowing loop to be enabled later or for a newly added harness.
+ */
+function loopHarnessesNeedingSeeds(
+  harnesses: Harness,
+  existingManifest: InstallManifest | null
+): readonly HarnessId[] {
+  const existingArtifactIds = new Set(
+    existingManifest?.artifacts.map(({ id }) => id) ?? []
+  );
+  return selectedLoopHarnesses(harnesses).filter(
+    (harness) => !existingArtifactIds.has(loopLauncherArtifactId(harness))
+  );
+}
+
 function markerKey(path: string, id: string): string {
   return `${pathKey(path)}\0${id}`;
+}
+
+function assertLoopProfileSupport(
+  scope: InstallScope,
+  harness: Harness,
+  capabilities: readonly Capability[]
+): void {
+  if (!capabilities.includes("project-loop")) {
+    return;
+  }
+  if (
+    scope !== "project" ||
+    !harness.some((id) => id === "codex" || id === "claude")
+  ) {
+    throw new AgentOpsError(
+      "LOOP_PROFILE_UNSUPPORTED",
+      "The loop profile requires project scope and the Codex or Claude harness."
+    );
+  }
+}
+
+async function assertCodexLoopConfiguration(
+  root: string,
+  harness: Harness,
+  capabilities: readonly Capability[]
+): Promise<void> {
+  if (
+    !capabilities.includes("project-loop") ||
+    !harness.includes("codex")
+  ) {
+    return;
+  }
+  const config = await readCurrentFile(root, ".codex/config.toml");
+  if (config !== null && codexHooksExplicitlyDisabled(config.content)) {
+    throw new AgentOpsError(
+      "CODEX_LOOP_HOOKS_DISABLED",
+      "Codex loop installation requires [features] hooks = true; the existing .codex/config.toml explicitly disables hooks."
+    );
+  }
 }
 
 async function planBlocks(
@@ -484,7 +571,11 @@ async function planBlocks(
         );
       }
       assertExpectedManagedBlock(content, marker, expected);
-      content = removeManagedBlock(content, marker.id);
+      content = removeManagedBlock(
+        content,
+        marker.id,
+        expected.markerStyle
+      );
     }
     for (const block of pathBlocks) {
       content = applyManagedBlock(content, block);
@@ -505,7 +596,11 @@ async function planBlocks(
       });
     }
     for (const block of pathBlocks) {
-      const markers = managedBlockMarkers(block.id, block.version);
+      const markers = managedBlockMarkers(
+        block.id,
+        block.version,
+        block.markerStyle
+      );
       records.push({
         id: block.id,
         path,
@@ -536,6 +631,16 @@ export async function createInstallPlan(
     options.existingConfig === undefined
       ? resolveProfiles(options.profiles)
       : resolveCapabilities(options.existingConfig.value);
+  assertLoopProfileSupport(
+    options.scope,
+    options.harness,
+    resolved.capabilities
+  );
+  await assertCodexLoopConfiguration(
+    options.root,
+    options.harness,
+    resolved.capabilities
+  );
   const existing = await readExistingManifest(options.root);
   assertCompatibleManifest(
     existing?.manifest ?? null,
@@ -574,7 +679,7 @@ export async function createInstallPlan(
       "An explicit hook target requires a hook runtime path."
     );
   }
-  const contribution = await planHarnessContributions(
+  const baseContribution = await planHarnessContributions(
     options.harness,
     {
       root: options.root,
@@ -593,6 +698,21 @@ export async function createInstallPlan(
     },
     options.adapters
   );
+  const loopContribution = planLoopContribution({
+    scope: options.scope,
+    harnesses: options.harness,
+    capabilities: resolved.capabilities,
+    ...(options.hookRuntimePath === undefined
+      ? {}
+      : { hookRuntimePath: options.hookRuntimePath })
+  });
+  const contribution = {
+    artifacts: [
+      ...baseContribution.artifacts,
+      ...loopContribution.artifacts
+    ],
+    blocks: [...baseContribution.blocks, ...loopContribution.blocks]
+  };
   assertUniqueContributions(
     contribution.artifacts,
     contribution.blocks
@@ -668,6 +788,19 @@ export async function createInstallPlan(
     );
     operations.push(planned.operation);
     artifacts.push(planned.record);
+  }
+
+  if (resolved.capabilities.includes("project-loop")) {
+    const seedHarnesses = loopHarnessesNeedingSeeds(
+      options.harness,
+      existing?.manifest ?? null
+    );
+    operations.push(
+      ...await planCreateOnceSeeds(
+        options.root,
+        loopSeeds(seedHarnesses)
+      )
+    );
   }
 
   artifacts.push(...preservedArtifacts);

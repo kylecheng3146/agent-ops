@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -167,6 +168,144 @@ test("plans user-scope instruction paths through adapter context", async () => {
         ".codex/AGENTS.md",
         ".claude/CLAUDE.md"
       ]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a loop profile outside project scope or without a loop harness", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-loop-profile-"));
+  try {
+    for (const input of [
+      { scope: "user" as const, harness: ["codex"] as ["codex"] },
+      {
+        scope: "project" as const,
+        harness: ["opencode"] as ["opencode"]
+      }
+    ]) {
+      await assert.rejects(
+        createInstallPlan({
+          root,
+          ...input,
+          profiles: ["loop"] as never,
+          adapters: commonHarnessAdapters()
+        }),
+        (error: unknown) =>
+          error instanceof AgentOpsError &&
+          error.code === "LOOP_PROFILE_UNSUPPORTED"
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("plans native loop launchers and first-install local state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-loop-install-"));
+  try {
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["codex", "claude"],
+      profiles: ["loop"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+
+    assert.deepEqual(plan.profiles, ["core", "loop"]);
+    assert.deepEqual(
+      plan.manifest.artifacts
+        .filter(({ id }) => id.includes("loop-launcher"))
+        .map(({ path }) => path),
+      [
+        ".codex/hooks/agent-ops-loop.sh",
+        ".claude/hooks/agent-ops-loop.sh"
+      ]
+    );
+    for (const path of [
+      ".codex/config.toml",
+      ".codex/loop-goal.md",
+      ".codex/loop-state.md",
+      ".codex/loop-telemetry.jsonl",
+      ".claude/loop-goal.md",
+      ".claude/loop-state.md",
+      ".claude/loop-telemetry.jsonl"
+    ]) {
+      assert.equal(plan.operations.some((operation) => operation.path === path), true, path);
+    }
+    const codexLauncher = writeOperation(
+      plan,
+      ".codex/hooks/agent-ops-loop.sh"
+    );
+    const claudeLauncher = writeOperation(
+      plan,
+      ".claude/hooks/agent-ops-loop.sh"
+    );
+    assert.match(codexLauncher.content, /agent-ops: generated codex loop v1/u);
+    assert.match(claudeLauncher.content, /agent-ops: generated claude loop v1/u);
+    assert.doesNotMatch(
+      `${codexLauncher.content}\n${claudeLauncher.content}`,
+      /frontend-wixgo|claude-mem|vue-tsc/iu
+    );
+    const ignore = writeOperation(plan, ".gitignore");
+    assert.match(ignore.content, /# agent-ops:start loop-state v1/u);
+    assert.match(ignore.content, /\.codex\/loop-goal\.md/u);
+    assert.match(ignore.content, /\.claude\/loop-telemetry\.jsonl/u);
+
+    await applyInstallPlan(root, plan);
+    assert.match(
+      await readFile(join(root, ".codex", "config.toml"), "utf8"),
+      /hooks\s*=\s*true/u
+    );
+    assert.match(
+      await readFile(join(root, ".codex", "loop-goal.md"), "utf8"),
+      /Current goal/u
+    );
+    assert.equal(
+      await readFile(join(root, ".claude", "loop-telemetry.jsonl"), "utf8"),
+      ""
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("leaves existing loop configuration and local state user-owned", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-loop-existing-"));
+  try {
+    await mkdir(join(root, ".codex"), { recursive: true });
+    await mkdir(join(root, ".claude"), { recursive: true });
+    const codexConfig = "[features]\nhooks = true\n# user setting\n";
+    const claudeGoal = "# User's goal\nKeep this text.\n";
+    await writeFile(join(root, ".codex", "config.toml"), codexConfig);
+    await writeFile(join(root, ".claude", "loop-goal.md"), claudeGoal);
+
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["codex", "claude"],
+      profiles: ["loop"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    });
+    assert.equal(
+      plan.operations.some(({ path }) => path === ".codex/config.toml"),
+      false
+    );
+    assert.equal(
+      plan.operations.some(({ path }) => path === ".claude/loop-goal.md"),
+      false
+    );
+
+    await applyInstallPlan(root, plan);
+    assert.equal(
+      await readFile(join(root, ".codex", "config.toml"), "utf8"),
+      codexConfig
+    );
+    assert.equal(
+      await readFile(join(root, ".claude", "loop-goal.md"), "utf8"),
+      claudeGoal
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -7,6 +7,7 @@ import type {
 } from "../contracts.js";
 import {
   buildClaudeHookSettings,
+  isClaudeManagedHandler,
   mergeClaudeSettings,
   stripClaudeManagedHooks
 } from "../adapters/claude/config.js";
@@ -34,6 +35,7 @@ import { normalizeOpencodeHookInput } from "../adapters/opencode/input.js";
 import { opencodeHookOutput } from "../adapters/opencode/output.js";
 import { opencodeSurfaces } from "../adapters/opencode/surfaces.js";
 import { AgentOpsError } from "../fs/paths.js";
+import type { ManagedBlockMarkerStyle } from "../fs/managed-block.js";
 import type { HookResult, NormalizedHookEvent } from "../hooks/events.js";
 import type {
   Capability,
@@ -53,8 +55,6 @@ export const HARNESS_IDS: readonly HarnessId[] = [
   "claude",
   "opencode"
 ];
-
-const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
 
 export interface HarnessPlanContext {
   /** The root against which managed relative paths are resolved. */
@@ -80,6 +80,7 @@ export interface HarnessManagedBlock {
   readonly path: string;
   readonly version: number;
   readonly content: string;
+  readonly markerStyle?: ManagedBlockMarkerStyle;
 }
 
 export interface HarnessRoutingSpec {
@@ -339,10 +340,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
       mergeClaudeSettings(existing, managed as never),
     stripHooks: (existing) =>
       stripClaudeManagedHooks(existing) as Record<string, unknown>,
-    isManagedHandler: (handler) =>
-      isRecord(handler) &&
-      Array.isArray(handler.args) &&
-      handler.args.includes(CLAUDE_HOOK_MARKER),
+    isManagedHandler: isClaudeManagedHandler,
     registrations: CLAUDE_CAPABILITY_REGISTRATIONS,
     normalizeInput: normalizeClaudeHookInput,
     formatOutput: (event, result) => claudeHookOutput(event, result)

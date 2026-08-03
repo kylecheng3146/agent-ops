@@ -43,6 +43,29 @@ test("creates, updates, and removes a managed block idempotently", () => {
   );
 });
 
+test("renders a hash-comment block for gitignore-compatible ownership", () => {
+  const options = {
+    id: "loop-state",
+    version: 1,
+    content: ".codex/loop-state.md\n.codex/loop-telemetry.jsonl",
+    markerStyle: "hash"
+  } as never;
+  const created = applyManagedBlock("# Existing\n", options);
+
+  assert.equal(
+    created,
+    [
+      "# Existing",
+      "",
+      "# agent-ops:start loop-state v1",
+      ".codex/loop-state.md",
+      ".codex/loop-telemetry.jsonl",
+      "# agent-ops:end loop-state",
+      ""
+    ].join("\n")
+  );
+});
+
 test("rejects missing, duplicate, reversed, and wrong-version markers", () => {
   const { start, end } = managedBlockMarkers("core-routing", 1);
   const malformed = [

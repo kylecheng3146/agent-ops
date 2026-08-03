@@ -26,9 +26,26 @@ export interface TrustChangeLogEvent {
   result: "changed" | "unchanged";
 }
 
+export interface LoopLogEvent {
+  type: "loop-event";
+  event:
+    | "permission-request"
+    | "post-compact"
+    | "post-tool-use"
+    | "pre-compact"
+    | "pre-tool-use"
+    | "session-start"
+    | "subagent-start"
+    | "subagent-stop"
+    | "user-prompt-submit";
+  outcome: "allowed" | "blocked" | "observed";
+  code: string;
+}
+
 export type LocalLogEvent =
   | CommandResultLogEvent
   | DiagnosticLogEvent
+  | LoopLogEvent
   | TrustChangeLogEvent;
 
 export interface LocalLogOptions {
@@ -144,6 +161,35 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
       action: value.action as TrustChangeLogEvent["action"],
       remoteIdentity: redactSecrets(value.remoteIdentity),
       result: value.result as TrustChangeLogEvent["result"]
+    };
+  }
+  if (value.type === "loop-event") {
+    if (
+      !hasExactKeys(value, ["code", "event", "outcome", "type"]) ||
+      typeof value.code !== "string" ||
+      !ID_PATTERN.test(value.code) ||
+      ![
+        "permission-request",
+        "post-compact",
+        "post-tool-use",
+        "pre-compact",
+        "pre-tool-use",
+        "session-start",
+        "subagent-start",
+        "subagent-stop",
+        "user-prompt-submit"
+      ].includes(String(value.event)) ||
+      !["allowed", "blocked", "observed"].includes(
+        String(value.outcome)
+      )
+    ) {
+      return invalidEvent();
+    }
+    return {
+      type: "loop-event",
+      event: value.event as LoopLogEvent["event"],
+      outcome: value.outcome as LoopLogEvent["outcome"],
+      code: value.code
     };
   }
   return invalidEvent();

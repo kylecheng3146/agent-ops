@@ -57,6 +57,10 @@ test("help returns without invoking command services", async () => {
   assert.match(stdout.join(""), /Usage: agent-ops/);
   assert.match(stdout.join(""), /init/);
   assert.match(stdout.join(""), /review/);
+  assert.match(
+    stdout.join(""),
+    /--profile <core\|advisory\|guardrails\|loop>/u
+  );
 });
 
 test("version returns without invoking command services", async () => {

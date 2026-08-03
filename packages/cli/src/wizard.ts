@@ -22,7 +22,7 @@ import {
 } from "./ui.js";
 
 const SCOPES = new Set<string>(["project", "user"]);
-const PROFILES = new Set<string>(["advisory", "core", "guardrails"]);
+const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
 const DEFAULT_HARNESS: readonly HarnessId[] = [];
 
 export interface WizardIo {
@@ -54,6 +54,11 @@ const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
     label: "guardrails",
     value: "guardrails",
     description: "Blocks high-confidence unsafe commands; Stop verification is a separate opt-in feature."
+  },
+  {
+    label: "loop",
+    value: "loop",
+    description: "Installs the shared Codex and Claude Code local loop with secret and destructive-command interception."
   }
 ];
 const WIZARD_SUBTITLE =
@@ -141,7 +146,7 @@ function selectProfiles(raw: string): Profile[] {
   ) {
     throw new CliArgumentError(
       "CLI_INVALID_VALUE",
-      "Profiles must be a unique comma-separated list of core, advisory, or guardrails."
+      "Profiles must be a unique comma-separated list of core, advisory, guardrails, or loop."
     );
   }
   return values as Profile[];
@@ -204,7 +209,7 @@ export async function completeInitChoices(
               selectAll: true,
               selectAllLabel: "Select all",
               selectAllDescription:
-                "Enable core, advisory, and guardrails together."
+              "Enable core, advisory, guardrails, and loop together."
             }
           );
     return {
@@ -237,7 +242,7 @@ export async function completeInitChoices(
         ? args.profiles
         : selectProfiles(
             await session.question(
-              "Profiles (core,advisory,guardrails) [core]: "
+              "Profiles (core,advisory,guardrails,loop) [core]: "
             )
           );
 

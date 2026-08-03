@@ -48,7 +48,7 @@ Options:
   --scope <project|user>
   --harness <all|both|claude|codex|opencode|comma-separated>  Init/update
   --hook-target <harness=surface-id>  Repeatable advanced init/update option
-  --profile <core|advisory|guardrails>  Repeatable
+  --profile <core|advisory|guardrails|loop>  Repeatable
   --task <id>
   --target-version <version>          Update target version (offline-capable)
   --title <text>

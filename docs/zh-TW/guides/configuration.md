@@ -21,14 +21,60 @@ User scope 下，Codex 與 opencode 的 routing file 分別位於 `.codex/` 與
 `$OPENCODE_CONFIG_DIR`，則 plugin 會放在其 `plugins/` 目錄。只有 profile
 有暗示時才會註冊 advisory 與 guardrail hook。Installer 會 discovery 可寫入的
 harness surface 並套用選定的 target policy；若不是 managed default，請使用
-`--hook-target <harness>=<surface-id>` 明確選擇。Project-local Claude settings
-必須明確指定 target。Advisory 會經由真正的 SessionStart path 執行並 fail-open；
+`--hook-target <harness>=<surface-id>` 明確選擇。Project-local Claude hook 預設
+使用 `.claude/settings.json`；只有要使用 `.claude/settings.local.json` 時才需
+明確選擇。Advisory 會經由真正的 SessionStart path 執行並 fail-open；
 Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initialization
 開始，因此誠實標示為 `degraded`。
 
+### Project-local loop profile
+
+`--profile loop` 是明確 opt-in 的 project-scope profile。請選擇 `codex`、
+`claude` 或兩者（例如 `--harness codex,claude`）；它需要 POSIX-compatible
+`bash`，目前尚未支援 Windows launcher。建議先 dry run：
+
+```bash
+agent-ops init --dry-run --scope project --harness codex,claude --profile loop --json
+agent-ops init --scope project --harness codex,claude --profile loop --yes
+```
+
+對每個選定且支援的 harness，agent-ops 只擁有一個小型 launcher：
+`.codex/hooks/agent-ops-loop.sh` 或 `.claude/hooks/agent-ops-loop.sh`。兩個
+launcher 都委派給同一個已安裝的 Node runtime，因此不會複製 project-specific
+loop script。Codex 只會在 `.codex/config.toml` 不存在時建立它。首次安裝會在不
+覆寫既有內容的前提下，於選定 harness directory 建立 `loop-goal.md`、
+`loop-state.md` 與 `loop-telemetry.jsonl`；並以 hash-commented `.gitignore`
+block 忽略這些 local file。
+
+Loop 會執行 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、
+`PermissionRequest`、`PostToolUse`、`PreCompact`、`PostCompact`、
+`SubagentStart` 與 `SubagentStop`，但永遠不加入 `Stop`。它只攔截
+high-confidence 的 literal secret prompt 或 Bash command，以及危險 Bash command
+（包括 broad recursive deletion 與 `git reset --hard`）。Codex 使用原生 exit-code blocking
+mechanism；Claude Code 則取得文件化的 native JSON decision shape。
+`PermissionRequest`（包括 `sandbox_permissions: "require_escalated"`）只記錄
+outcome，不會輸出 allow 或 deny decision，因此 host 原本的 approval flow 保持
+權威。
+
+Session context、telemetry 與 compaction state 都受到明確上限。Telemetry 只含
+timestamp、event、outcome 與 rule identifier，不會存 raw prompt、command 或
+credential，並依 byte size rotation。PreCompact 的 Git-status snapshot 會先
+redact，再寫入 `loop-state.md` 的專用 block，周圍的 user content 保持不變。
+installer update 與 uninstall 只管理 launcher、native handler registration 與
+精確的 `.gitignore` block；goal、state、telemetry 與 `config.toml` 都保留為 local
+user file。若既有 `.codex/config.toml` 明確寫有 `[features]` 後的
+`hooks = false`，planning 會在任何 write 之前以
+`CODEX_LOOP_HOOKS_DISABLED` 停止。
+
+Codex 與 Claude Code 對這些 generated handler 仍須走各自正常的 project-hook
+trust/review flow。Loop 是聚焦的 guardrail，不是完整 sandbox、permission bypass
+或 Stop-verification feature。啟用前請閱讀 [Codex hook
+文件](https://developers.openai.com/codex/config-advanced#hooks)與 [Claude Code
+hook 文件](https://code.claude.com/docs/en/hooks)。
+
 ### Runtime-failure 保護措施
 
-只有 `command-policy` 具有 fail-closed failure mode。當已安裝的 config 被分類
+對一般 `guardrails` profile 而言，只有 `command-policy` 具有 fail-closed failure mode。當已安裝的 config 被分類
 為無效時，Claude Code 可在原生 `PreToolUse` 輸出文件化的 denial shape。受管理的
 OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface
 上 throw 文件化的 command-policy denial 或 unavailable-runtime error。Codex 明確

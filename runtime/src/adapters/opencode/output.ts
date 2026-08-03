@@ -1,5 +1,5 @@
+import type { HookEventName } from "../../contracts.js";
 import type { HookResult } from "../../hooks/events.js";
-import type { OpencodeSupportedEvent } from "./events.js";
 
 export interface OpencodeHookProcessOutput {
   readonly exitCode: 0;
@@ -19,7 +19,7 @@ export interface OpencodeDecision {
  * the other events always report `allow` and carry the code for logging.
  */
 export function opencodeHookOutput(
-  event: OpencodeSupportedEvent,
+  event: HookEventName,
   result: HookResult
 ): OpencodeHookProcessOutput {
   const decision: OpencodeDecision =

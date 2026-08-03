@@ -44,6 +44,17 @@ async function denialFixture(): Promise<unknown> {
 }
 
 const RUNTIME_PATH = "/opt/agent-ops/hook-entry.js";
+const LOOP_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop"
+] as const;
 
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
   const existing = await fixture();
@@ -95,6 +106,35 @@ test("uses one hooks.json representation and an absolute runtime path", () => {
   // The command is one shell string, so the path stays quoted and PATH is
   // never consulted for the agent-ops binary.
   assert.equal(hook?.commandWindows, expected);
+});
+
+test("registers the Codex loop lifecycle through its generated launcher", async () => {
+  const managed = buildCodexHookConfig(["project-loop"], RUNTIME_PATH);
+  assert.deepEqual(Object.keys(managed.hooks), LOOP_EVENTS);
+  assert.equal(managed.hooks.Stop, undefined);
+  for (const event of LOOP_EVENTS) {
+    const group = managed.hooks[event]?.[0];
+    const handler = group?.hooks[0];
+    assert.equal(
+      handler?.command,
+      `bash "$(git rev-parse --show-toplevel)/.codex/hooks/agent-ops-loop.sh" ${event} --managed-by=agent-ops`,
+      event
+    );
+    assert.equal(
+      group?.matcher,
+      event === "PreToolUse" || event === "PermissionRequest"
+        ? "^Bash$"
+        : undefined,
+      event
+    );
+  }
+
+  const existing = await fixture();
+  const merged = mergeCodexHookConfig(existing, managed);
+  assert.deepEqual(
+    merged.hooks.PostToolUse?.[0],
+    (existing as typeof merged).hooks.PostToolUse?.[0]
+  );
 });
 
 test("rejects runtime paths that break the quoted command", () => {
@@ -264,7 +304,14 @@ test("Codex PreToolUse non-denial shape conformance only matches its fixture", a
 test("declares only documented event and matcher support", () => {
   assert.deepEqual(CODEX_SUPPORTED_EVENTS, [
     "SessionStart",
+    "UserPromptSubmit",
     "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SubagentStart",
+    "SubagentStop",
     "Stop"
   ]);
   assert.equal(codexMatcherSupport("PreToolUse"), "tool-name");

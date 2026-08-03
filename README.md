@@ -35,7 +35,7 @@ installation plan.
 
 The interactive multi-select screens start with no harness or profile selected.
 Choose at least one of `codex`, `claude`, and `opencode`, and at least one of
-the `core`, `advisory`, and `guardrails` profiles before confirming. For
+the `core`, `advisory`, `guardrails`, and `loop` profiles before confirming. For
 scripted use, `--harness all` selects all three harnesses; comma-separated
 selections such as `codex,opencode` are also supported. The legacy `both` value
 remains an alias for `codex,claude`.
@@ -63,6 +63,54 @@ agent-ops update --dry-run --json
 agent-ops update --yes --json
 agent-ops uninstall --dry-run --json
 ```
+
+### Project-local loop
+
+`loop` is an explicit, project-only profile for Codex, Claude Code, or both.
+It requires a POSIX-compatible `bash`; the generated native launchers are
+`.sh` files, so Windows is not currently a supported loop host. Preview it
+first, then install only after reviewing the plan. `loop` also implies the
+`core` baseline, so the project retains the managed rules and routing files:
+
+```bash
+agent-ops init --dry-run --scope project --harness codex,claude --profile loop --json
+agent-ops init --scope project --harness codex,claude --profile loop --yes
+```
+
+It creates one small managed launcher per selected native host:
+
+- Codex: `.codex/hooks/agent-ops-loop.sh`, `.codex/config.toml` when absent,
+  `.codex/loop-goal.md`, `.codex/loop-state.md`, and
+  `.codex/loop-telemetry.jsonl`.
+- Claude Code: `.claude/hooks/agent-ops-loop.sh`, `.claude/loop-goal.md`,
+  `.claude/loop-state.md`, and `.claude/loop-telemetry.jsonl`.
+
+The launchers delegate to one installed Node runtime; agent-ops does not copy
+project-specific policy code into either hook directory. It adds an exact,
+hash-commented `.gitignore` block for the goal, state, and telemetry files.
+Those files and `.codex/config.toml` remain user-owned: update never overwrites
+them, and uninstall keeps them while removing only launchers, hook handlers,
+and the managed ignore block.
+
+The loop registers `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
+`PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`,
+`SubagentStart`, and `SubagentStop`; it intentionally does not register
+`Stop`. On high-confidence matches, it blocks literal credential-shaped user
+prompts or Bash commands, plus dangerous Bash commands such as broad recursive
+deletion or `git reset --hard`. Codex uses its documented exit-code denial path; Claude Code
+uses its documented native JSON denial shapes. Permission and escalation
+requests are never auto-approved or denied by the loop, so the harness's normal
+approval prompt remains authoritative.
+
+Session context is bounded and derives from the redacted goal plus a telemetry
+count. Telemetry records only timestamp, event, outcome, and rule code; it
+never stores raw prompts, Bash commands, or credentials and is byte-rotated.
+Before compaction, the loop writes a bounded, redacted Git-status snapshot into
+its own block inside `loop-state.md`, preserving surrounding user text. This is
+a guardrail, not a complete sandbox or a replacement for each harness's own
+permissions. Review and trust the generated hook configuration in Codex and
+Claude Code before use. An existing Codex `.codex/config.toml` with an explicit
+`[features]` / `hooks = false` setting stops installation before any write.
 
 Use `--scope user` with user-home installations. Keep `--dry-run` for any
 operation you want to inspect before applying; non-interactive automation should
@@ -143,7 +191,9 @@ emit its documented `PreToolUse` denial shape for a classified invalid installed
 configuration, and the managed OpenCode `tool.execute.before` plugin throws
 its documented command-policy denial or unavailable-runtime error for its
 supported Bash surface. Codex command policy is `unknown` and explicitly
-non-enforcing. These are output and plugin contracts, not proof that a host
+non-enforcing for the ordinary `guardrails` profile. The project-local `loop`
+profile uses its separate native hook policy described above. These are output
+and plugin contracts, not proof that a host
 honors a denial. Claude and Codex lifecycle summaries are `supported`; OpenCode's
 app-scoped initialization is `degraded` rather than per-session coverage.
 

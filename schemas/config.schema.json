@@ -20,7 +20,7 @@
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "enum": ["core", "advisory", "guardrails"]
+        "enum": ["core", "advisory", "guardrails", "loop"]
       }
     },
     "verification": {
