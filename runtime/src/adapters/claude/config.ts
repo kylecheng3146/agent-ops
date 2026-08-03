@@ -5,7 +5,7 @@ import type { ClaudeSupportedEvent } from "./events.js";
 
 interface ClaudeCommandHook {
   readonly type: "command";
-  readonly command: "node";
+  readonly command: string;
   readonly args: readonly string[];
   readonly timeout: number;
 }
@@ -26,6 +26,21 @@ export interface ClaudeSettingsTarget {
     | "~/.claude/settings.json";
   readonly requiresWorkspaceTrust: boolean;
 }
+
+const CLAUDE_LOOP_EVENTS: readonly ClaudeSupportedEvent[] = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop"
+];
+const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
+const CLAUDE_LOOP_LAUNCHER =
+  "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.sh";
 
 export function claudeSettingsTarget(
   scope: InstallScope
@@ -52,7 +67,7 @@ function commandHook(
       runtimePath,
       "claude",
       event,
-      "--managed-by=agent-ops"
+      CLAUDE_HOOK_MARKER
     ],
     timeout: 30
   };
@@ -65,6 +80,26 @@ function matcherGroup(
   return {
     ...(event === "PreToolUse" ? { matcher: "Bash" } : {}),
     hooks: [commandHook(event, runtimePath)]
+  };
+}
+
+function loopMatcherGroup(event: ClaudeSupportedEvent): ClaudeMatcherGroup {
+  return {
+    ...(event === "PreToolUse" || event === "PermissionRequest"
+      ? { matcher: "Bash" }
+      : {}),
+    hooks: [
+      {
+        type: "command",
+        command: "bash",
+        args: [
+          CLAUDE_LOOP_LAUNCHER,
+          event,
+          CLAUDE_HOOK_MARKER
+        ],
+        timeout: 30
+      }
+    ]
   };
 }
 
@@ -83,11 +118,17 @@ export function buildClaudeHookSettings(
     );
   }
   const hooks: Record<string, readonly ClaudeMatcherGroup[]> = {};
-  if (capabilities.includes("lifecycle-summary")) {
-    hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
-  }
-  if (capabilities.includes("command-policy")) {
-    hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
+  if (capabilities.includes("project-loop")) {
+    for (const event of CLAUDE_LOOP_EVENTS) {
+      hooks[event] = [loopMatcherGroup(event)];
+    }
+  } else {
+    if (capabilities.includes("lifecycle-summary")) {
+      hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
+    }
+    if (capabilities.includes("command-policy")) {
+      hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
+    }
   }
   if (capabilities.includes("optional-stop-verify")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
@@ -99,15 +140,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isOwnedHandler(handler: unknown): boolean {
-  if (
-    !isRecord(handler) ||
-    handler.command !== "node" ||
-    !Array.isArray(handler.args)
-  ) {
+/**
+ * Matches only the two command shapes agent-ops actually generates. This is
+ * reused by installation inspection so a foreign hook cannot masquerade as
+ * ours merely by carrying the marker string.
+ */
+export function isClaudeManagedHandler(handler: unknown): boolean {
+  if (!isRecord(handler) || !Array.isArray(handler.args)) {
     return false;
   }
-  return handler.args[3] === "--managed-by=agent-ops";
+  return (
+    (handler.command === "node" &&
+      handler.args[3] === CLAUDE_HOOK_MARKER) ||
+    (handler.command === "bash" &&
+      handler.args[0] === CLAUDE_LOOP_LAUNCHER &&
+      handler.args[2] === CLAUDE_HOOK_MARKER)
+  );
 }
 
 function withoutOwnedHandlers(value: unknown): unknown | null {
@@ -115,7 +163,7 @@ function withoutOwnedHandlers(value: unknown): unknown | null {
     return value;
   }
   const hooks = value.hooks.filter(
-    (handler) => !isOwnedHandler(handler)
+    (handler) => !isClaudeManagedHandler(handler)
   );
   return hooks.length === 0 ? null : { ...value, hooks };
 }

@@ -6,7 +6,9 @@ import test from "node:test";
 import {
   buildClaudeHookSettings,
   claudeSettingsTarget,
-  mergeClaudeSettings
+  isClaudeManagedHandler,
+  mergeClaudeSettings,
+  stripClaudeManagedHooks
 } from "../../runtime/src/adapters/claude/config.js";
 import {
   CLAUDE_CAPABILITY_REGISTRATIONS,
@@ -18,6 +20,18 @@ import {
   normalizeClaudeHookInput
 } from "../../runtime/src/adapters/claude/input.js";
 import { claudeHookOutput } from "../../runtime/src/adapters/claude/output.js";
+
+const LOOP_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop"
+] as const;
 
 async function fixture(): Promise<unknown> {
   return JSON.parse(
@@ -69,6 +83,28 @@ test("merges only agent-ops hooks and preserves unrelated Claude settings", asyn
   assert.match(serialized, /Stop/);
 });
 
+test("does not claim a foreign Claude handler merely because it carries the marker", () => {
+  const foreignHandler = {
+    type: "command",
+    command: "foreign-command",
+    args: ["audit", "--managed-by=agent-ops"],
+    timeout: 30
+  };
+  const foreignSettings = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [foreignHandler]
+        }
+      ]
+    }
+  };
+
+  assert.equal(isClaudeManagedHandler(foreignHandler), false);
+  assert.deepEqual(stripClaudeManagedHooks(foreignSettings), foreignSettings);
+});
+
 test("uses settings.json paths and never invents standalone hooks.json", () => {
   assert.deepEqual(claudeSettingsTarget("project"), {
     path: ".claude/settings.json",
@@ -106,6 +142,46 @@ test("prefers direct exec and keeps paths with spaces as one argument", () => {
     timeout: 30
   });
   assert.equal("shell" in (handler ?? {}), false);
+});
+
+test("registers the Claude loop lifecycle through its generated launcher", async () => {
+  const managed = buildClaudeHookSettings(
+    ["project-loop"],
+    "/opt/agent ops/hook-entry.js"
+  );
+  assert.deepEqual(Object.keys(managed.hooks), LOOP_EVENTS);
+  assert.equal(managed.hooks.Stop, undefined);
+  for (const event of LOOP_EVENTS) {
+    const group = managed.hooks[event]?.[0];
+    assert.deepEqual(
+      group?.hooks[0],
+      {
+        type: "command",
+        command: "bash",
+        args: [
+          "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.sh",
+          event,
+          "--managed-by=agent-ops"
+        ],
+        timeout: 30
+      },
+      event
+    );
+    assert.equal(
+      group?.matcher,
+      event === "PreToolUse" || event === "PermissionRequest"
+        ? "Bash"
+        : undefined,
+      event
+    );
+  }
+
+  const existing = await fixture();
+  const merged = mergeClaudeSettings(existing, managed);
+  assert.deepEqual(
+    merged.hooks.PostToolUse?.[0],
+    (existing as typeof merged).hooks.PostToolUse?.[0]
+  );
 });
 
 test("normalizes only fields used by Claude hook policy", () => {
@@ -238,7 +314,14 @@ test("reports Stop evidence without a blocking decision", () => {
 test("surfaces non-interactive trust limitations", () => {
   assert.deepEqual(CLAUDE_SUPPORTED_EVENTS, [
     "SessionStart",
+    "UserPromptSubmit",
     "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SubagentStart",
+    "SubagentStop",
     "Stop"
   ]);
   assert.equal(claudeNonInteractiveTrust(false), "interactive-dialog");

@@ -2,7 +2,14 @@ import type { CapabilityRegistrationSpec } from "../../install/types.js";
 
 export const CODEX_SUPPORTED_EVENTS = [
   "SessionStart",
+  "UserPromptSubmit",
   "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop",
   "Stop"
 ] as const;
 

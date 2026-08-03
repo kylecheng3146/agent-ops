@@ -57,6 +57,17 @@ test("accepts fully valid versioned fixtures", async () => {
   assert.equal(validateManifest(manifest).ok, true);
 });
 
+test("accepts loop as a persisted installation profile", async () => {
+  const config = cloneJson(
+    await readJsonFixture("valid-config.json")
+  ) as { profiles: string[] };
+  config.profiles = ["loop"];
+
+  assert.equal(validateConfig(config).ok, true);
+  const schema = await compileJsonSchema("config.schema.json");
+  assert.equal(schema(config), true);
+});
+
 test("keeps the opencode plugin out of managed hook records", async () => {
   const manifest = (await readJsonFixture("valid-manifest.json")) as {
     harness: string[];
@@ -93,6 +104,36 @@ test("accepts a project-local Claude hook path in manifest v2", async () => {
       path: ".claude/settings.local.json",
       harness: "claude",
       events: ["PreToolUse"],
+      owner: "agent-ops"
+    }
+  ];
+  assert.equal(validateManifest(manifest).ok, true);
+  const schema = await compileJsonSchema("manifest.schema.json");
+  assert.equal(schema(manifest), true);
+});
+
+test("accepts all managed loop lifecycle events in a manifest", async () => {
+  const manifest = cloneJson(
+    await readJsonFixture("valid-manifest.json")
+  ) as {
+    hooks?: unknown[];
+  };
+  manifest.hooks = [
+    {
+      id: "codex-hooks",
+      path: ".codex/hooks.json",
+      harness: "codex",
+      events: [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "PreCompact",
+        "PostCompact",
+        "SubagentStart",
+        "SubagentStop"
+      ],
       owner: "agent-ops"
     }
   ];

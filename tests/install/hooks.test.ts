@@ -10,6 +10,17 @@ import {
 import type { ManagedHookRecord } from "../../runtime/src/contracts.js";
 
 const RUNTIME_PATH = "/opt/agent ops/hook-entry.js";
+const LOOP_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop"
+];
 
 function claudeRecord(): ManagedHookRecord {
   return {
@@ -88,6 +99,31 @@ test("codex registration targets its own hook file", () => {
     ),
     true
   );
+});
+
+test("loop registration records all native lifecycle events without Stop", () => {
+  for (const [harness, path] of [
+    ["codex", CODEX_HOOK_PATH],
+    ["claude", CLAUDE_HOOK_PATH]
+  ] as const) {
+    const planned = planHookRegistration({
+      harness,
+      scope: "project",
+      capabilities: ["project-loop"],
+      runtimePath: RUNTIME_PATH,
+      currentSource: JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { hooks: [{ type: "command", command: "foreign-policy" }] }
+          ]
+        }
+      })
+    });
+    assert.equal(planned?.record.path, path, harness);
+    assert.deepEqual(planned?.record.events, LOOP_EVENTS, harness);
+    assert.doesNotMatch(planned?.content ?? "", /"Stop"/u, harness);
+    assert.match(planned?.content ?? "", /foreign-policy/u, harness);
+  }
 });
 
 test("removal strips only owned handlers", () => {

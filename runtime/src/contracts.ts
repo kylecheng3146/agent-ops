@@ -13,7 +13,7 @@ export const EVIDENCE_SCHEMA_VERSION = 1 as const;
 /** @deprecated Use the document-specific schema version constants. */
 export const SCHEMA_VERSION = CONFIG_SCHEMA_VERSION;
 
-export type Profile = "advisory" | "core" | "guardrails";
+export type Profile = "advisory" | "core" | "guardrails" | "loop";
 
 export type EvidenceKind = "exit-code" | "file" | "test-count";
 
@@ -136,7 +136,17 @@ export interface ManagedMarkerRecord extends ManagedPathRecord {
   endMarker: string;
 }
 
-export type HookEventName = "SessionStart" | "PreToolUse" | "Stop";
+export type HookEventName =
+  | "SessionStart"
+  | "UserPromptSubmit"
+  | "PreToolUse"
+  | "PermissionRequest"
+  | "PostToolUse"
+  | "PreCompact"
+  | "PostCompact"
+  | "SubagentStart"
+  | "SubagentStop"
+  | "Stop";
 
 /**
  * Hook handlers live inside a settings file the harness owns, so the record

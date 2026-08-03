@@ -15,6 +15,8 @@ import {
   COMMON_CLAUDE_BLOCK
 } from "../../runtime/src/install/harness.js";
 
+const LOOP_PROFILE = ["loop"] as never;
+
 const ALL_CAPABILITIES = [
   "rules",
   "task",
@@ -29,7 +31,8 @@ test("defines the exact capabilities for each installation profile", () => {
   assert.deepEqual(PROFILE_CAPABILITIES, {
     core: ["rules", "task", "verify", "review"],
     advisory: ["lifecycle-summary", "local-log"],
-    guardrails: ["command-policy"]
+    guardrails: ["command-policy"],
+    loop: ["project-loop"]
   });
 });
 
@@ -47,6 +50,13 @@ test("guardrails implies core while advisory remains independent", () => {
   assert.deepEqual(resolveProfiles(["advisory"]), {
     profiles: ["advisory"],
     capabilities: ["lifecycle-summary", "local-log"]
+  });
+});
+
+test("loop implies core and contributes the project loop capability", () => {
+  assert.deepEqual(resolveProfiles(LOOP_PROFILE), {
+    profiles: ["core", "loop"],
+    capabilities: ["rules", "task", "verify", "review", "project-loop"]
   });
 });
 
@@ -112,6 +122,25 @@ test("deduplicates and returns profiles and capabilities in canonical order", ()
   assert.equal(
     new Set(resolved.capabilities).size,
     resolved.capabilities.length
+  );
+});
+
+test("keeps loop last in canonical profile order", () => {
+  assert.deepEqual(
+    resolveProfiles(["loop", "advisory", "guardrails"] as never),
+    {
+      profiles: ["core", "advisory", "guardrails", "loop"],
+      capabilities: [
+        "rules",
+        "task",
+        "verify",
+        "review",
+        "lifecycle-summary",
+        "local-log",
+        "command-policy",
+        "project-loop"
+      ]
+    }
   );
 });
 

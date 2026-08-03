@@ -23,15 +23,66 @@ configured with `$OPENCODE_CONFIG_DIR`, the plugin is placed under its
 `plugins/` directory instead. The installer discovers writable harness
 surfaces and applies the selected target policy; use
 `--hook-target <harness>=<surface-id>` when the managed default is not the
-intended surface. Project-local Claude settings require that explicit target.
+intended surface. Project-local Claude hooks use `.claude/settings.json` by
+default; select `.claude/settings.local.json` explicitly when that is the
+intended surface.
 Advisory and guardrail hooks are registered only when the selected profile
 implies them. Advisory runs through the real SessionStart path and is
 fail-open. Claude and Codex lifecycle support is `supported`; OpenCode begins
 at app initialization and is honestly reported as `degraded`.
 
+### Project-local loop profile
+
+`--profile loop` is an opt-in project-scope profile. Select `codex`, `claude`,
+or both (for example, `--harness codex,claude`); it requires a
+POSIX-compatible `bash` and does not support Windows launchers yet. Start with
+a dry run:
+
+```bash
+agent-ops init --dry-run --scope project --harness codex,claude --profile loop --json
+agent-ops init --scope project --harness codex,claude --profile loop --yes
+```
+
+For each selected supported harness, agent-ops owns exactly one small launcher:
+`.codex/hooks/agent-ops-loop.sh` or `.claude/hooks/agent-ops-loop.sh`. Both
+launchers delegate to the same installed Node runtime, so they do not copy a
+project-specific loop script. Codex also gets `.codex/config.toml` only when it
+is absent. First installation seeds, without replacing existing content,
+`loop-goal.md`, `loop-state.md`, and `loop-telemetry.jsonl` under the selected
+harness directory. A hash-commented `.gitignore` block ignores those local
+files.
+
+The loop runs `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
+`PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`,
+`SubagentStart`, and `SubagentStop`, but never adds `Stop`. It blocks only
+high-confidence literal secrets in prompts or Bash commands, plus dangerous
+Bash commands (including broad recursive deletion and `git reset --hard`). Codex uses its native
+exit-code blocking mechanism; Claude Code receives its documented native JSON
+decision shape. A `PermissionRequest`, including
+`sandbox_permissions: "require_escalated"`, only records an outcome and emits
+no allow or deny decision, preserving the host's normal approval flow.
+
+Session context, telemetry, and compaction state are deliberately bounded.
+Telemetry contains only timestamp, event, outcome, and rule identifier—not raw
+prompts, commands, or credentials—and rotates by byte size. A pre-compaction
+Git-status snapshot is redacted and written into a dedicated block in
+`loop-state.md`, leaving surrounding user content intact. Installer update and
+uninstall own only the launchers, native handler registrations, and exact
+`.gitignore` block; goals, state, telemetry, and `config.toml` remain local
+user files. If an existing `.codex/config.toml` explicitly says
+`[features]` then `hooks = false`, planning stops with
+`CODEX_LOOP_HOOKS_DISABLED` before any write.
+
+Codex and Claude Code require their normal project-hook trust/review flow for
+these generated handlers. The loop is a focused guardrail, not a complete
+sandbox, permission bypass, or Stop-verification feature. See the [Codex hook
+documentation](https://developers.openai.com/codex/config-advanced#hooks) and
+the [Claude Code hook documentation](https://code.claude.com/docs/en/hooks)
+before enabling it.
+
 ### Runtime-failure safeguards
 
-`command-policy` is the only capability with a fail-closed failure mode. Claude
+For the ordinary `guardrails` profile, `command-policy` is the only capability with a fail-closed failure mode. Claude
 Code can emit its documented denial shape at native `PreToolUse` for a
 classified invalid installed configuration. The managed OpenCode
 `tool.execute.before` plugin can throw its documented command-policy denial or

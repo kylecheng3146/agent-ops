@@ -27,7 +27,7 @@ const ID_PATTERN = /^[a-z][a-z0-9-]{0,127}$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const WINDOWS_RESERVED_SEGMENT =
   /^(?:aux|com[1-9]|con|lpt[1-9]|nul|prn)(?:\..*)?$/i;
-const PROFILE_VALUES = new Set(["advisory", "core", "guardrails"]);
+const PROFILE_VALUES = new Set(["advisory", "core", "guardrails", "loop"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
 const HARNESS_VALUES = new Set(["claude", "codex", "opencode"]);
@@ -35,7 +35,14 @@ const HARNESS_VALUES = new Set(["claude", "codex", "opencode"]);
 const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
 const HOOK_EVENT_VALUES = new Set([
   "SessionStart",
+  "UserPromptSubmit",
   "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop",
   "Stop"
 ]);
 const MAX_TIMEOUT_MS = 2_147_483_647;

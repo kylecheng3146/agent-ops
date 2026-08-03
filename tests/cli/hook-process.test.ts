@@ -28,6 +28,7 @@ import type {
   VerificationProcessRunner
 } from "../../runtime/src/verify/spawn.js";
 import { runHookProcess, type HookProcessIo } from "../../packages/cli/src/hook-process.js";
+import { runLoopProcess } from "../../packages/cli/src/codex-loop-process.js";
 
 async function* output(value = "# tests 1\n"): AsyncIterable<Uint8Array> {
   if (value.length > 0) {
@@ -246,6 +247,57 @@ function opencodePreToolUse(root: string): Record<string, unknown> {
     output: { args: { command: "echo safe" } }
   };
 }
+
+test("Claude loop process returns native denials while Codex keeps exit-code denial", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-loop-process-"));
+  try {
+    await mkdir(join(root, ".claude"), { recursive: true });
+    await mkdir(join(root, ".codex"), { recursive: true });
+    await Promise.all([
+      writeFile(join(root, ".claude", "loop-goal.md"), "# Goal\n"),
+      writeFile(join(root, ".claude", "loop-state.md"), "# State\n"),
+      writeFile(join(root, ".claude", "loop-telemetry.jsonl"), ""),
+      writeFile(join(root, ".codex", "loop-goal.md"), "# Goal\n"),
+      writeFile(join(root, ".codex", "loop-state.md"), "# State\n"),
+      writeFile(join(root, ".codex", "loop-telemetry.jsonl"), "")
+    ]);
+    const token = `ghp_${"B".repeat(36)}`;
+    const claude = io(
+      JSON.stringify({ cwd: root, prompt: `token=${token}` })
+    );
+    const codex = io(
+      JSON.stringify({
+        cwd: root,
+        tool_name: "Bash",
+        tool_input: { command: "git reset --hard" }
+      })
+    );
+
+    assert.equal(
+      await runLoopProcess(
+        ["claude", "UserPromptSubmit", "--managed-by=agent-ops"],
+        claude.io,
+        { root }
+      ),
+      0
+    );
+    assert.deepEqual(JSON.parse(claude.stdout.join("")), {
+      decision: "block",
+      reason: "agent-ops blocked a suspected secret."
+    });
+    assert.equal(
+      await runLoopProcess(
+        ["codex", "PreToolUse", "--managed-by=agent-ops"],
+        codex.io,
+        { root }
+      ),
+      2
+    );
+    assert.match(codex.stderr.join(""), /dangerous command/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test(
   "installed invalid config reaches only the declared runtime-failure boundary",

@@ -1,8 +1,8 @@
 # Harness Adapter
 
-English source version: 2026-08-01. Revalidate: when the English specification or either vendor reference changes.
+English source version: 2026-08-03. Revalidate: when the English specification or any vendor reference changes.
 
-本文件所述 OpenCode plugin 行為已於 2026-07-31 依據[官方 plugin 文件](https://opencode.ai/docs/plugins/)與[Bun shell 文件](https://bun.sh/docs/runtime/shell)檢查。
+本文件所述 OpenCode plugin 行為已於 2026-07-31 依據[官方 plugin 文件](https://opencode.ai/docs/plugins/)與[Bun shell 文件](https://bun.sh/docs/runtime/shell)檢查；Codex 與 Claude Code loop-hook 行為已於 2026-08-03 依據 [Codex hook 文件](https://developers.openai.com/codex/config-advanced#hooks) 與 [Claude Code hook 文件](https://code.claude.com/docs/en/hooks) 檢查。
 
 ## HARNESS-ADAPTER-001
 
@@ -65,6 +65,25 @@ event、native output encode 與 runtime-failure output。
 - Positive: `fail-closed 的 Claude command-policy runtime failure 會透過 runHookCommand 產生文件化的 PreToolUse denial shape。`
 - Negative: `dispatchHookEvent 尚未提供 advisory implementation 卻將 SessionStart 標為 supported。`
 
+## HARNESS-ADAPTER-006
+
+Project-local `loop` profile MUST 是 opt-in、project scoped，並在最小的 Codex 與
+Claude Code launcher 後使用同一個 shared runtime。它 MUST NOT 將 policy 複製到
+project-specific script，也不得改變一般 permission request。
+
+- Trigger: Project 以 Codex、Claude Code 或兩者選擇 `loop`。
+- Action: 只產生選定的 `.codex/hooks/agent-ops-loop.sh` 與／或
+  `.claude/hooks/agent-ops-loop.sh` launcher，註冊文件化的 loop lifecycle event
+  （不含 `Stop`），並保留 foreign hook group。只在 `UserPromptSubmit` 或 Bash
+  `PreToolUse` 的 high-confidence literal credential，以及 `PreToolUse` 的危險 Bash command 時，使用
+  文件化的 native denial shape 進行 blocking。對 `PermissionRequest`（包括
+  escalated permission）不得輸出 decision。
+- Evidence: Install-plan、loop-runtime、update、uninstall 與 doctor test 覆蓋
+  generated path、Codex/Claude wire output、privacy bound、configuration conflict
+  handling、state preservation 與 registration drift。
+- Positive: `Claude PreToolUse 的危險 Bash command 取得 native deny，而 PermissionRequest 不產生 allow 或 deny decision。`
+- Negative: `將 project loop policy 複製到兩個 shell launcher、auto-approve sandbox escalation，或加入 loop Stop handler。`
+
 目前 registration matrix 刻意不對稱：
 
 | Capability | Codex | Claude Code | OpenCode |
@@ -83,3 +102,8 @@ Fixture test 只斷言這些 wire 與 plugin shape；它們不證明 host 會實
 Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 disabled。
 每個 Stop 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠
 不是 task-completion evidence。
+
+`loop` profile 與上方 ordinary capability matrix 分離。它只保存有界的 local
+event metadata、回傳有界且 redacted 的 session context，並在 update 或 uninstall
+時保留 local goal、state、telemetry 與 Codex TOML file。既有 Codex configuration
+中清楚解析出的 `[features]` / `hooks = false` MUST 在任何 write 前拒絕 loop planning。

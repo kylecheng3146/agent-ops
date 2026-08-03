@@ -2,8 +2,11 @@
 
 OpenCode plugin behavior in this document was checked against the [official
 plugin documentation](https://opencode.ai/docs/plugins/) and [Bun shell
-documentation](https://bun.sh/docs/runtime/shell) on 2026-07-31. Revalidate:
-when either vendor reference changes.
+documentation](https://bun.sh/docs/runtime/shell) on 2026-07-31. Codex and
+Claude Code loop-hook behavior was checked against their [Codex hook
+documentation](https://developers.openai.com/codex/config-advanced#hooks) and
+[Claude Code hook documentation](https://code.claude.com/docs/en/hooks) on
+2026-08-03. Revalidate: when any vendor reference changes.
 
 ## HARNESS-ADAPTER-001
 
@@ -74,6 +77,25 @@ decoding, normalized events, native output encoding, and runtime-failure output.
 - Positive: `A fail-closed Claude command-policy runtime failure produces the documented PreToolUse denial shape through runHookCommand.`
 - Negative: `Mark SessionStart supported while dispatchHookEvent has no advisory implementation.`
 
+## HARNESS-ADAPTER-006
+
+The project-local `loop` profile MUST be opt-in, project scoped, and use one
+shared runtime behind minimal Codex and Claude Code launchers. It MUST NOT copy
+policy into project-specific scripts or alter an ordinary permission request.
+
+- Trigger: A project selects `loop` with Codex, Claude Code, or both.
+- Action: Generate only the selected `.codex/hooks/agent-ops-loop.sh` and/or
+  `.claude/hooks/agent-ops-loop.sh` launchers, register the documented loop
+  lifecycle events except `Stop`, and preserve foreign hook groups. Block only
+  high-confidence literal credentials at `UserPromptSubmit` or Bash
+  `PreToolUse`, and dangerous Bash commands at `PreToolUse`, using the documented native denial shape. Emit no
+  decision for `PermissionRequest`, including escalated permissions.
+- Evidence: Install-plan, loop-runtime, update, uninstall, and doctor tests
+  cover generated paths, Codex/Claude wire output, privacy bounds,
+  configuration conflict handling, state preservation, and registration drift.
+- Positive: `A Claude PreToolUse dangerous Bash command receives a native deny while a PermissionRequest produces no allow or deny decision.`
+- Negative: `Copy a project loop policy into both shell launchers, auto-approve sandbox escalation, or add a loop Stop handler.`
+
 The current registration matrix is intentionally asymmetric:
 
 | Capability | Codex | Claude Code | OpenCode |
@@ -93,3 +115,9 @@ denial. Every `SessionStart` and `Stop` failure path remains fail-open.
 Stop verification is explicit, trusted, report-only, and disabled by default.
 Every Stop result continues the native harness and may carry only bounded
 command evidence; it is never task-completion evidence.
+
+The `loop` profile is separate from the ordinary capability matrix above. It
+stores only bounded local event metadata, returns bounded redacted session
+context, and preserves local goal, state, telemetry, and Codex TOML files on
+update or uninstall. A clearly parsed `[features]` / `hooks = false` in an
+existing Codex configuration MUST reject loop planning before any write.

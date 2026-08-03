@@ -8,6 +8,7 @@ export type Capability =
   | "lifecycle-summary"
   | "local-log"
   | "command-policy"
+  | "project-loop"
   | "optional-stop-verify";
 
 export type CapabilitySupport =

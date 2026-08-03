@@ -4,7 +4,8 @@ import type {
 } from "../contracts.js";
 import {
   applyManagedBlock,
-  managedBlockMarkers
+  managedBlockMarkers,
+  type ManagedBlockMarkerStyle
 } from "../fs/managed-block.js";
 import { AgentOpsError } from "../fs/paths.js";
 import {
@@ -16,12 +17,21 @@ import {
   type HarnessId
 } from "./harness.js";
 import { isOpencodePluginPath } from "../adapters/opencode/config.js";
+import {
+  LOOP_MARKER_ID,
+  LOOP_MARKER_VERSION,
+  loopIgnoreContent,
+  loopLauncherArtifactId,
+  loopLauncherPath,
+  selectedLoopHarnesses
+} from "./codex-loop.js";
 
 export interface ExpectedManagedMarker {
   readonly id: string;
   readonly path: string;
   readonly startMarker: string;
   readonly endMarker: string;
+  readonly markerStyle: ManagedBlockMarkerStyle;
   readonly content: string;
   readonly legacyContent: readonly string[];
 }
@@ -32,7 +42,7 @@ function expectedMarker(
   markerId: string
 ): ExpectedManagedMarker {
   const descriptor = harnessDescriptor(id);
-  const markers = managedBlockMarkers(markerId, 1);
+  const markers = managedBlockMarkers(markerId, 1, "html");
   return {
     id: markerId,
     path:
@@ -41,8 +51,28 @@ function expectedMarker(
         : `.${id}/${descriptor.control.instructionFile}`,
     startMarker: markers.start,
     endMarker: markers.end,
+    markerStyle: "html",
     content: descriptor.control.routing.desired,
     legacyContent: descriptor.control.routing.legacy
+  };
+}
+
+function expectedLoopMarker(
+  manifest: InstallManifest
+): ExpectedManagedMarker {
+  const markers = managedBlockMarkers(
+    LOOP_MARKER_ID,
+    LOOP_MARKER_VERSION,
+    "hash"
+  );
+  return {
+    id: LOOP_MARKER_ID,
+    path: ".gitignore",
+    startMarker: markers.start,
+    endMarker: markers.end,
+    markerStyle: "hash",
+    content: loopIgnoreContent(manifest.harness),
+    legacyContent: []
   };
 }
 
@@ -113,6 +143,20 @@ export function assertSupportedManifestOwnership(
   ]);
   const expectedMarkers = new Map<string, ExpectedManagedMarker>();
   const expectedMarkerPaths = new Set<string>();
+  const loopHarnesses = selectedLoopHarnesses(harnesses);
+  const hasLoopArtifacts = manifest.artifacts.some(({ id }) =>
+    loopHarnesses.some((harness) => id === loopLauncherArtifactId(harness))
+  );
+  const hasLoopMarker = manifest.markers.some(
+    ({ id }) => id === LOOP_MARKER_ID
+  );
+  const hasLoop = hasLoopArtifacts || hasLoopMarker;
+  if (
+    hasLoop &&
+    (manifest.scope !== "project" || loopHarnesses.length === 0)
+  ) {
+    throw manifestOwnershipError();
+  }
   const recordedOpencodePluginPath = manifest.artifacts.find(
     ({ id }) => id === "opencode-plugin"
   )?.path;
@@ -169,6 +213,18 @@ export function assertSupportedManifestOwnership(
         ids: pluginIds
       });
     }
+  }
+  if (hasLoop) {
+    for (const harness of loopHarnesses) {
+      const path = loopLauncherPath(harness);
+      expectedArtifactPaths.set(pathKey(path), {
+        path,
+        ids: new Set([loopLauncherArtifactId(harness)])
+      });
+      requiredArtifactPaths.add(pathKey(path));
+    }
+    expectedMarkerPaths.add(pathKey(".gitignore"));
+    expectedMarkers.set(LOOP_MARKER_ID, expectedLoopMarker(manifest));
   }
   const opencodePluginPath = harnesses.includes("opencode")
     ? recordedOpencodePluginPath ??
@@ -253,7 +309,8 @@ export function assertExpectedManagedBlock(
     const expectedBlock = applyManagedBlock("", {
       id: expected.id,
       version: 1,
-      content
+      content,
+      markerStyle: expected.markerStyle
     }).replace(/\n$/u, "");
     if (currentBlock === expectedBlock) {
       return kind;

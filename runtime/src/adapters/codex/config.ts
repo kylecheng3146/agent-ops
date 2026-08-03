@@ -30,6 +30,18 @@ export interface CodexHookTarget {
 
 export const CODEX_MANAGED_MARKER = "--managed-by=agent-ops";
 
+const CODEX_LOOP_EVENTS: readonly CodexSupportedEvent[] = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PermissionRequest",
+  "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop"
+];
+
 /**
  * Releases up to 0.1.4 registered a bare `agent-ops` command resolved through
  * PATH. Detection still recognizes it so an update replaces it instead of
@@ -82,6 +94,25 @@ function matcherGroup(
   };
 }
 
+function loopMatcherGroup(event: CodexSupportedEvent): CodexMatcherGroup {
+  const command =
+    `bash "$(git rev-parse --show-toplevel)/.codex/hooks/agent-ops-loop.sh" ${event} ${CODEX_MANAGED_MARKER}`;
+  return {
+    ...(event === "PreToolUse" || event === "PermissionRequest"
+      ? { matcher: "^Bash$" }
+      : {}),
+    hooks: [
+      {
+        type: "command",
+        command,
+        commandWindows: command,
+        timeout: 30,
+        statusMessage: `Running agent-ops ${event}`
+      }
+    ]
+  };
+}
+
 export function codexHookTarget(scope: InstallScope): CodexHookTarget {
   return {
     path: ".codex/hooks.json",
@@ -96,11 +127,17 @@ export function buildCodexHookConfig(
 ): CodexHookConfig {
   assertRuntimePath(runtimePath);
   const hooks: Record<string, readonly CodexMatcherGroup[]> = {};
-  if (capabilities.includes("lifecycle-summary")) {
-    hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
-  }
-  if (capabilities.includes("command-policy")) {
-    hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
+  if (capabilities.includes("project-loop")) {
+    for (const event of CODEX_LOOP_EVENTS) {
+      hooks[event] = [loopMatcherGroup(event)];
+    }
+  } else {
+    if (capabilities.includes("lifecycle-summary")) {
+      hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
+    }
+    if (capabilities.includes("command-policy")) {
+      hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
+    }
   }
   if (capabilities.includes("optional-stop-verify")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];

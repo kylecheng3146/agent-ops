@@ -1,5 +1,5 @@
+import type { HookEventName } from "../../contracts.js";
 import type { HookResult } from "../../hooks/events.js";
-import type { ClaudeSupportedEvent } from "./events.js";
 
 export interface ClaudeHookProcessOutput {
   readonly exitCode: 0;
@@ -16,7 +16,7 @@ function json(value: unknown): ClaudeHookProcessOutput {
 }
 
 export function claudeHookOutput(
-  event: ClaudeSupportedEvent,
+  event: HookEventName,
   result: HookResult
 ): ClaudeHookProcessOutput {
   const denialReason =

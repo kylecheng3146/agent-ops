@@ -4,7 +4,10 @@ export interface ManagedBlockOptions {
   id: string;
   version: number;
   content: string;
+  markerStyle?: ManagedBlockMarkerStyle;
 }
+
+export type ManagedBlockMarkerStyle = "hash" | "html";
 
 export interface ManagedBlockMarkers {
   start: string;
@@ -21,11 +24,18 @@ function assertBlockId(id: string): void {
   }
 }
 
-function assertExactMarkerSyntax(source: string): void {
-  const validMarker =
-    /^<!-- agent-ops:(?:start [a-z][a-z0-9-]{0,127} v[1-9][0-9]*|end [a-z][a-z0-9-]{0,127}) -->$/;
+function assertExactMarkerSyntax(
+  source: string,
+  markerStyle: ManagedBlockMarkerStyle
+): void {
+  const validMarker = markerStyle === "html"
+    ? /^<!-- agent-ops:(?:start [a-z][a-z0-9-]{0,127} v[1-9][0-9]*|end [a-z][a-z0-9-]{0,127}) -->$/
+    : /^# agent-ops:(?:start [a-z][a-z0-9-]{0,127} v[1-9][0-9]*|end [a-z][a-z0-9-]{0,127})$/;
+  const markerPrefix = markerStyle === "html"
+    ? /<!--\s*agent-ops:/
+    : /#\s*agent-ops:/;
   for (const line of source.split(/\r?\n/)) {
-    if (/<!--\s*agent-ops:/.test(line) && !validMarker.test(line)) {
+    if (markerPrefix.test(line) && !validMarker.test(line)) {
       throw new AgentOpsError(
         "MALFORMED_MANAGED_BLOCK",
         "Managed block markers must use the exact agent-ops marker syntax."
@@ -36,7 +46,8 @@ function assertExactMarkerSyntax(source: string): void {
 
 export function managedBlockMarkers(
   id: string,
-  version: number
+  version: number,
+  markerStyle: ManagedBlockMarkerStyle = "html"
 ): ManagedBlockMarkers {
   assertBlockId(id);
   if (!Number.isSafeInteger(version) || version < 1) {
@@ -45,36 +56,46 @@ export function managedBlockMarkers(
       `Invalid block version: ${version}`
     );
   }
-  return {
-    start: `<!-- agent-ops:start ${id} v${version} -->`,
-    end: `<!-- agent-ops:end ${id} -->`
-  };
+  return markerStyle === "html"
+    ? {
+        start: `<!-- agent-ops:start ${id} v${version} -->`,
+        end: `<!-- agent-ops:end ${id} -->`
+      }
+    : {
+        start: `# agent-ops:start ${id} v${version}`,
+        end: `# agent-ops:end ${id}`
+      };
 }
 
 function locateMarkers(
   source: string,
   id: string,
-  version?: number
+  version?: number,
+  markerStyle: ManagedBlockMarkerStyle = "html"
 ): { start: string; end: string; startIndex: number; endIndex: number } | null {
   assertBlockId(id);
-  assertExactMarkerSyntax(source);
+  assertExactMarkerSyntax(source, markerStyle);
   const escapedId = escapeRegExp(id);
+  const startPattern = markerStyle === "html"
+    ? `<!-- agent-ops:start ${escapedId} v[0-9]+ -->`
+    : `# agent-ops:start ${escapedId} v[0-9]+`;
+  const end = markerStyle === "html"
+    ? `<!-- agent-ops:end ${id} -->`
+    : `# agent-ops:end ${id}`;
   const startMatches = [
     ...source.matchAll(
-      new RegExp(
-        `<!-- agent-ops:start ${escapedId} v[0-9]+ -->`,
-        "g"
-      )
+      new RegExp(startPattern, "g")
     )
   ];
-  const end = `<!-- agent-ops:end ${id} -->`;
   const endMatches = [...source.matchAll(new RegExp(escapeRegExp(end), "g"))];
 
   if (startMatches.length === 0 && endMatches.length === 0) {
     return null;
   }
   const expectedStart =
-    version === undefined ? startMatches[0]?.[0] : managedBlockMarkers(id, version).start;
+    version === undefined
+      ? startMatches[0]?.[0]
+      : managedBlockMarkers(id, version, markerStyle).start;
   const start = startMatches[0]?.[0];
   const startIndex = startMatches[0]?.index;
   const endIndex = endMatches[0]?.index;
@@ -97,13 +118,17 @@ function locateMarkers(
 }
 
 function renderBlock(options: ManagedBlockOptions): string {
-  if (/<!--\s*agent-ops:/.test(options.content)) {
+  if (/(?:<!--|#)\s*agent-ops:/.test(options.content)) {
     throw new AgentOpsError(
       "AMBIGUOUS_MANAGED_CONTENT",
       "Managed content must not contain agent-ops marker boundaries."
     );
   }
-  const { start, end } = managedBlockMarkers(options.id, options.version);
+  const { start, end } = managedBlockMarkers(
+    options.id,
+    options.version,
+    options.markerStyle
+  );
   const content = options.content.replace(/\r\n/g, "\n").replace(/\n+$/g, "");
   return `${start}\n${content}\n${end}`;
 }
@@ -113,7 +138,12 @@ export function applyManagedBlock(
   options: ManagedBlockOptions
 ): string {
   const block = renderBlock(options);
-  const located = locateMarkers(source, options.id, options.version);
+  const located = locateMarkers(
+    source,
+    options.id,
+    options.version,
+    options.markerStyle
+  );
   if (located === null) {
     if (source.length === 0) {
       return `${block}\n`;
@@ -125,8 +155,12 @@ export function applyManagedBlock(
   )}`;
 }
 
-export function removeManagedBlock(source: string, id: string): string {
-  const located = locateMarkers(source, id);
+export function removeManagedBlock(
+  source: string,
+  id: string,
+  markerStyle: ManagedBlockMarkerStyle = "html"
+): string {
+  const located = locateMarkers(source, id, undefined, markerStyle);
   if (located === null) {
     return source;
   }

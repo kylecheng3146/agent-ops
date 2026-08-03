@@ -134,7 +134,18 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "enum": ["SessionStart", "PreToolUse", "Stop"]
+            "enum": [
+              "SessionStart",
+              "UserPromptSubmit",
+              "PreToolUse",
+              "PermissionRequest",
+              "PostToolUse",
+              "PreCompact",
+              "PostCompact",
+              "SubagentStart",
+              "SubagentStop",
+              "Stop"
+            ]
           }
         },
         "owner": {
