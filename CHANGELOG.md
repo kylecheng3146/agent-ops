@@ -4,6 +4,20 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.6]
+
+- Added the opt-in, project-local `loop` profile for Codex and Claude Code. It
+  installs small Bash launchers backed by the shared runtime, safely seeds
+  user-owned loop state, and registers the supported lifecycle hooks.
+- Added high-confidence interception for literal secrets and destructive Bash
+  commands in the project loop, while preserving native approval flows and
+  fail-open behavior for malformed or advisory events.
+- Added `doctor` artifact-staleness reporting. It identifies managed artifacts
+  that predate the current toolkit or configuration as `DEGRADED` with
+  `UPDATE_REQUIRED`, and directs users to run `agent-ops update`.
+- Documented the generic loop setup, lifecycle boundaries, and Codex/Claude
+  hook configuration.
+
 ## [0.1.5]
 
 - Wired real advisory SessionStart dispatch and explicit Stop verification through

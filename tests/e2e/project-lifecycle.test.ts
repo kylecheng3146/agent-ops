@@ -3,6 +3,7 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
+import { CLI_VERSION } from "../../packages/cli/src/version.js";
 import { cleanupE2eRoot, runBuiltCli } from "./helpers.js";
 
 const CODEX_DESIRED_BODY =
@@ -80,9 +81,10 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     ], root).result;
     assert.equal(updated.status, 0);
     assert.match(updated.stdout, /UPDATE_APPLIED/);
-    assert.match(
-      await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
-      /Toolkit version: 0\.1\.5/
+    assert.ok(
+      (await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8")).includes(
+        `Toolkit version: ${CLI_VERSION}`
+      )
     );
     const doctorAfterUpdate = runBuiltCli(["doctor", "--json"], root).result;
     const doctorPayload = JSON.parse(doctorAfterUpdate.stdout) as {
