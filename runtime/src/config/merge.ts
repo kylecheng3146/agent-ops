@@ -3,6 +3,8 @@ import type {
   AgentOpsConfig,
   PathMapping,
   Profile,
+  ReviewRole,
+  ReviewRoleConfig,
   SecurityException,
   VerificationCommand
 } from "../contracts.js";
@@ -30,6 +32,7 @@ export interface ConfigProvenance {
   verificationCommands: EffectiveValue<VerificationCommand>[];
   pathMappings: EffectiveValue<PathMapping>[];
   securityExceptions: EffectiveValue<SecurityException>[];
+  reviewRoles: EffectiveValue<ReviewRoleConfig>[];
 }
 
 export interface MergedConfig {
@@ -233,6 +236,10 @@ export function mergeConfigLayers(
     string,
     EffectiveValue<SecurityException>
   >();
+  const reviewRoles = new Map<
+    ReviewRole,
+    EffectiveValue<ReviewRoleConfig>
+  >();
   let schemaVersion: EffectiveValue<number> | undefined;
   let features: EffectiveValue<AgentOpsFeatures> | undefined;
 
@@ -254,6 +261,12 @@ export function mergeConfigLayers(
         assertProjectMappingIsMonotonic(mappings.get(key), mapping);
       }
       mappings.set(key, effective(mapping, layer));
+    }
+    // Keyed by role so a project can override one role without inheriting the
+    // rest. Review targets are a capability choice, not a guardrail, so no
+    // monotonic restriction applies.
+    for (const reviewRole of layer.config.reviewRoles ?? []) {
+      reviewRoles.set(reviewRole.role, effective(reviewRole, layer));
     }
     for (const securityException of layer.config.securityExceptions) {
       const key = exceptionKey(securityException);
@@ -286,7 +299,8 @@ export function mergeConfigLayers(
     profiles: [...profiles.values()],
     verificationCommands: [...commands.values()],
     pathMappings: [...mappings.values()],
-    securityExceptions: [...exceptions.values()]
+    securityExceptions: [...exceptions.values()],
+    reviewRoles: [...reviewRoles.values()]
   };
   const config: AgentOpsConfig = {
     schemaVersion: schemaVersion.value as AgentOpsConfig["schemaVersion"],
@@ -296,7 +310,14 @@ export function mergeConfigLayers(
     },
     features: provenance.features.value,
     pathMappings: provenance.pathMappings.map(({ value }) => value),
-    securityExceptions: provenance.securityExceptions.map(({ value }) => value)
+    securityExceptions: provenance.securityExceptions.map(({ value }) => value),
+    // Absent, not empty: an empty array would read as "configured with no
+    // targets" rather than "external review disabled".
+    ...(provenance.reviewRoles.length === 0
+      ? {}
+      : {
+          reviewRoles: provenance.reviewRoles.map(({ value }) => value)
+        })
   };
   const validation = validateConfig(config);
   if (!validation.ok) {

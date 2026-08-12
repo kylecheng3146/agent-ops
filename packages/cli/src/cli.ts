@@ -8,6 +8,7 @@ import {
   type OutputSink
 } from "./output.js";
 import { completeInitChoices, type WizardIo } from "./wizard.js";
+import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
 import type { CommandRegistry } from "./commands/index.js";
 import { BANNER } from "./ui.js";
 
@@ -49,6 +50,10 @@ Options:
   --harness <all|both|claude|codex|opencode|comma-separated>  Init/update
   --hook-target <harness=surface-id>  Repeatable advanced init/update option
   --profile <core|advisory|guardrails|loop>  Repeatable
+  --review-target <codex|agy|claude>  Repeatable init option; external review
+                                      targets in fallback-chain order
+  --check-auth                        Doctor only: probe each review target's
+                                      authentication with one real call
   --task <id>
   --target-version <version>          Update target version (offline-capable)
   --title <text>
@@ -133,7 +138,15 @@ export async function runCli(
     if (args.command === "init") {
       args = await completeInitChoices(
         args,
-        args.json ? { ...io, isTTY: false } : io
+        args.json ? { ...io, isTTY: false } : io,
+        {
+          probeReviewTarget: async (target) =>
+            (await probeReviewTarget(target, {
+              cwd: process.cwd(),
+              deep: true
+            })) === "ok",
+          warn: (message) => io.writeStderr(`${message}\n`)
+        }
       );
     }
     const execute =

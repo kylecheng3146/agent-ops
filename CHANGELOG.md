@@ -4,6 +4,37 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- `agent-ops review` now spawns a real independent reviewer. Previously it
+  always reported `NOT_RUN / missing-cli` because no executor existed.
+- Added the optional `reviewRoles` configuration field (still
+  `schemaVersion: 2`) holding an ordered fallback chain of review target CLIs:
+  `codex`, `agy` (Antigravity), and `claude`. Absent means disabled, which is
+  also the default for `agent-ops init` and for the new repeatable
+  `--review-target` flag.
+- Every target is launched with its own read-only flag, and a target without
+  one is skipped rather than run unsandboxed. `opencode` is therefore not a
+  review target: its `--agent plan` is rejected as a subagent and silently
+  falls back to a writable agent.
+- The chain advances only when no review happened (missing executable, failed
+  spawn, or timeout — 120s per target by default). A `FAIL` verdict is
+  terminal, so the chain can never shop for a passing review.
+- Responses that break the reply contract are reported as
+  `NOT_RUN / unparseable-output` instead of `FAIL`, keeping `FAIL` to mean the
+  reviewer looked and judged the work inadequate.
+- Review criteria now carry their real descriptions and verifier ids from the
+  bound task; a review with no task context reports
+  `NOT_RUN / no-task-context` rather than reviewing criterion ids. Results are
+  appended to the active task's evidence with a `review:<target>:` prefix, and
+  a completed task is never rewritten.
+- When Claude Code is the host, `claude` is moved to the end of the chain; it
+  still runs as a last resort with a `reviewer == host` warning.
+- Added the `review-targets` doctor check. It verifies executable presence with
+  no tokens and no network by default; the new `--check-auth` flag adds one real
+  print call per target. `--yes` remains inert for doctor.
+- `agent-ops init` asks whether to enable external review (defaulting to no)
+  and probes each selected target for authentication. A failed probe warns and
+  never blocks the installation; the non-interactive path never probes.
+
 ## [0.1.6]
 
 - Added the opt-in, project-local `loop` profile for Codex and Claude Code. It

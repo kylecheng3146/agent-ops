@@ -1,0 +1,20 @@
+Reading additional input from stdin...
+OpenAI Codex v0.147.0
+--------
+workdir: /Users/wixtar-kyle/Projects/agent-ops/tests/fixtures/review
+model: gpt-5.6-luna
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: max
+reasoning summaries: none
+session id: 019ff409-5062-70f0-bf63-f86b7fdfa3ce
+--------
+user
+reply with the single word OK
+hook: SessionStart
+hook: SessionStart
+hook: SessionStart Completed
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit

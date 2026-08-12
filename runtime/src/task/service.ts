@@ -322,6 +322,68 @@ export class TaskService {
     });
   }
 
+  /**
+   * Append evidence for some criteria without completing the task. Unlike
+   * `complete`, the input may be partial — an independent review covers the
+   * criteria it was asked about, not necessarily all of them. Only an active
+   * task accepts evidence: a completed record must stay exactly as it was
+   * verified.
+   */
+  async recordEvidence(
+    taskId: string,
+    evidenceInput: CriterionEvidenceInput
+  ): Promise<StoredTaskRecord> {
+    const now = assertTimestamp(this.#now());
+    return await this.#store.mutate((state) => {
+      const current = findTask(state, taskId);
+      if (current.status !== "active") {
+        throw taskError(
+          "TASK_NOT_ACTIVE",
+          "Only an active task can record additional evidence."
+        );
+      }
+      const criterionIds = new Set(
+        current.task.criteria.map((criterion) => criterion.id)
+      );
+      const evidence: Record<string, string[]> = Object.fromEntries(
+        Object.entries(current.evidence).map(([criterionId, references]) => [
+          criterionId,
+          [...references]
+        ])
+      );
+      for (const [criterionId, references] of Object.entries(evidenceInput)) {
+        if (!criterionIds.has(criterionId)) {
+          throw taskError(
+            "TASK_EVIDENCE_UNKNOWN_CRITERION",
+            `Unknown criterion: ${criterionId}`
+          );
+        }
+        if (
+          references.length === 0 ||
+          references.some(
+            (reference) =>
+              typeof reference !== "string" || reference.trim().length === 0
+          )
+        ) {
+          throw taskError(
+            "TASK_EVIDENCE_INVALID",
+            `Evidence for ${criterionId} must be non-empty references.`
+          );
+        }
+        evidence[criterionId] = [
+          ...new Set([...(evidence[criterionId] ?? []), ...references])
+        ];
+      }
+      const updated: StoredTaskRecord = {
+        ...current,
+        evidence,
+        updatedAt: now
+      };
+      replaceTask(state, updated);
+      return cloneRecord(updated);
+    });
+  }
+
   async archive(taskId: string): Promise<StoredTaskRecord> {
     const now = assertTimestamp(this.#now());
     return await this.#store.mutate((state) => {

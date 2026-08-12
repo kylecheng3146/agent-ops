@@ -47,7 +47,7 @@ test("aggregates exactly one passing result per requested criterion", () => {
   ]);
 });
 
-test("fails aggregation for missing, duplicate, unknown, or empty evidence", () => {
+test("protocol violations are reported as invalid, not as a FAIL verdict", () => {
   for (const results of [
     [result("tests", "PASS")],
     [result("tests", "PASS"), result("tests", "PASS")],
@@ -61,19 +61,18 @@ test("fails aggregation for missing, duplicate, unknown, or empty evidence", () 
           ? ["tests", "scope"]
           : ["tests"],
         results
-      ).status,
-      "FAIL"
+      ).valid,
+      false
     );
   }
   assert.equal(
     aggregateReviewResults(
       ["tests"],
       [result("tests", "PASS", "   ")]
-    ).status,
-    "FAIL"
+    ).valid,
+    false
   );
-  assert.equal(
-    aggregateReviewResults(["tests"], [result("tests", "FAIL")]).status,
-    "FAIL"
-  );
+  const failed = aggregateReviewResults(["tests"], [result("tests", "FAIL")]);
+  assert.equal(failed.valid, true);
+  assert.equal(failed.status, "FAIL");
 });

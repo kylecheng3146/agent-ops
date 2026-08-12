@@ -8,6 +8,7 @@ import type {
   ManagedMarkerRecord,
   ManagedPathRecord,
   PathMapping,
+  ReviewRoleConfig,
   SecurityException,
   ValidationFailure,
   ValidationResult,
@@ -31,6 +32,15 @@ const PROFILE_VALUES = new Set(["advisory", "core", "guardrails", "loop"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
 const HARNESS_VALUES = new Set(["claude", "codex", "opencode"]);
+const REVIEW_ROLE_VALUES = new Set([
+  "deep-reasoning",
+  "implementation",
+  "independent-review",
+  "mechanical"
+]);
+// opencode is absent by design: it has no read-only flag. See
+// docs/plans/2026-08-12-external-review-cli-targets.md.
+const REVIEW_TARGET_VALUES = new Set(["agy", "claude", "codex"]);
 // opencode's plugin is a managed artifact, not a ManagedHookRecord entry.
 const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
 const HOOK_EVENT_VALUES = new Set([
@@ -465,6 +475,7 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     "features",
     "pathMappings",
     "profiles",
+    "reviewRoles",
     "schemaVersion",
     "securityExceptions",
     "verification"
@@ -631,7 +642,106 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     }
   }
 
+  if (root.reviewRoles !== undefined) {
+    if (!Array.isArray(root.reviewRoles)) {
+      return failure(
+        "INVALID_TYPE",
+        "$.reviewRoles",
+        "reviewRoles must be an array."
+      );
+    }
+    const roles = new Set<string>();
+    for (const [index, roleValue] of root.reviewRoles.entries()) {
+      const role = validateReviewRole(roleValue, `$.reviewRoles[${index}]`);
+      if (!role.ok) {
+        return role;
+      }
+      if (roles.has(role.value.role)) {
+        return failure(
+          "DUPLICATE_ID",
+          "$.reviewRoles",
+          `Duplicate review role: ${role.value.role}`
+        );
+      }
+      roles.add(role.value.role);
+    }
+  }
+
   return success(root as unknown as AgentOpsConfig);
+}
+
+function validateReviewRole(
+  value: unknown,
+  path: string
+): ValidationResult<ReviewRoleConfig> {
+  if (!isRecord(value)) {
+    return failure("INVALID_TYPE", path, "Expected a review role object.");
+  }
+  const unknown = unknownFieldFailure(
+    value,
+    ["effort", "model", "role", "targets", "timeoutMs"],
+    path
+  );
+  if (unknown !== undefined) {
+    return unknown;
+  }
+  if (typeof value.role !== "string" || !REVIEW_ROLE_VALUES.has(value.role)) {
+    return failure(
+      "INVALID_REVIEW_ROLE",
+      `${path}.role`,
+      `Unsupported review role: ${String(value.role)}`
+    );
+  }
+  if (!Array.isArray(value.targets) || value.targets.length === 0) {
+    return failure(
+      "INVALID_REVIEW_TARGET",
+      `${path}.targets`,
+      "targets must list at least one review target."
+    );
+  }
+  for (const [index, target] of value.targets.entries()) {
+    if (typeof target !== "string" || !REVIEW_TARGET_VALUES.has(target)) {
+      return failure(
+        "INVALID_REVIEW_TARGET",
+        `${path}.targets[${index}]`,
+        `Unsupported review target: ${String(target)}`
+      );
+    }
+  }
+  if (!hasUniqueStrings(value.targets as string[])) {
+    return failure(
+      "DUPLICATE_ID",
+      `${path}.targets`,
+      "Review targets must be unique."
+    );
+  }
+  if (value.model !== undefined && !isNonEmptyString(value.model)) {
+    return failure(
+      "INVALID_TYPE",
+      `${path}.model`,
+      "model must be a non-empty string."
+    );
+  }
+  if (value.effort !== undefined && !isNonEmptyString(value.effort)) {
+    return failure(
+      "INVALID_TYPE",
+      `${path}.effort`,
+      "effort must be a non-empty string."
+    );
+  }
+  if (
+    value.timeoutMs !== undefined &&
+    (!Number.isSafeInteger(value.timeoutMs) ||
+      (value.timeoutMs as number) <= 0 ||
+      (value.timeoutMs as number) > MAX_TIMEOUT_MS)
+  ) {
+    return failure(
+      "INVALID_TIMEOUT",
+      `${path}.timeoutMs`,
+      "timeoutMs must be a positive integer."
+    );
+  }
+  return success(value as unknown as ReviewRoleConfig);
 }
 
 function validateCriterion(

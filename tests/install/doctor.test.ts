@@ -75,7 +75,8 @@ const CHECK_IDS: readonly DoctorCheckId[] = [
   "hook-registration",
   "lifecycle-summary",
   "repository-trust",
-  "smoke-availability"
+  "smoke-availability",
+  "review-targets"
 ];
 
 function passingProbes(): DoctorProbes {

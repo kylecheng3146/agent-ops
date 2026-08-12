@@ -2,7 +2,8 @@ import type {
   Harness,
   HarnessId,
   InstallScope,
-  Profile
+  Profile,
+  ReviewTargetId
 } from "../../../runtime/src/contracts.js";
 import {
   isHarnessId,
@@ -25,6 +26,8 @@ export const COMMAND_NAMES = [
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
 const SCOPES = new Set<string>(["project", "user"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
+// opencode is absent: it has no read-only flag, so it cannot review.
+const REVIEW_TARGETS = new Set<string>(["agy", "claude", "codex"]);
 
 export type TopLevelCommand = (typeof COMMAND_NAMES)[number];
 export type CliCommand = "help" | "version" | TopLevelCommand;
@@ -46,6 +49,10 @@ export interface ParsedArgs {
   harness?: Harness;
   hookTargets?: HookTargetSelection[];
   profiles: Profile[];
+  /** Review target CLIs, in declared order. Absent means disabled. */
+  reviewTargets?: ReviewTargetId[];
+  /** Authorizes doctor's expensive review-target authentication probe. */
+  checkAuth?: boolean;
   taskId?: string;
   targetVersion?: string;
   title?: string;
@@ -139,8 +146,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let title: string | undefined;
   let sessionId: string | undefined;
   const profiles: Profile[] = [];
+  const reviewTargets: ReviewTargetId[] = [];
   const criteria: string[] = [];
   const evidence: string[] = [];
+  let checkAuth = false;
   let dryRun = false;
   let json = false;
   let yes = false;
@@ -197,6 +206,18 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         index += 1;
         break;
       }
+      case "--review-target": {
+        const value = readOptionValue(argv, index, token);
+        if (!REVIEW_TARGETS.has(value)) {
+          invalidValue(token, value);
+        }
+        if (reviewTargets.includes(value as ReviewTargetId)) {
+          duplicate(`${token} ${value}`);
+        }
+        reviewTargets.push(value as ReviewTargetId);
+        index += 1;
+        break;
+      }
       case "--task": {
         if (taskId !== undefined) {
           duplicate(token);
@@ -239,6 +260,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         index += 1;
         break;
       }
+      case "--check-auth":
+        if (checkAuth) {
+          duplicate(token);
+        }
+        checkAuth = true;
+        break;
       case "--dry-run":
         if (dryRun) {
           duplicate(token);
@@ -349,7 +376,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       title !== undefined ||
       criteria.length > 0 ||
       evidence.length > 0 ||
+      reviewTargets.length > 0 ||
       sessionId !== undefined ||
+      checkAuth ||
       dryRun ||
       yes
     ) {
@@ -410,6 +439,18 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "--hook-target may be used only with init or update."
+    );
+  }
+  if (checkAuth && command !== "doctor") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--check-auth may be used only with doctor."
+    );
+  }
+  if (reviewTargets.length > 0 && command !== "init") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--review-target may be used only with init."
     );
   }
   if (command === "task") {
@@ -493,9 +534,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(taskId === undefined ? {} : { taskId }),
     ...(targetVersion === undefined ? {} : { targetVersion }),
     ...(title === undefined ? {} : { title }),
+    ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(evidence.length === 0 ? {} : { evidence }),
     ...(sessionId === undefined ? {} : { sessionId }),
+    ...(checkAuth ? { checkAuth } : {}),
     dryRun,
     json,
     yes

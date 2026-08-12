@@ -26,7 +26,7 @@ test("missing CLI, login, or quota produces NOT_RUN and a copyable prompt", asyn
       execute: async () => ({ status: "NOT_RUN", reason })
     });
     assert.equal(result.status, "NOT_RUN");
-    assert.match(result.prompt, /Review the requested criteria/);
+    assert.match(result.prompt, /read-only reviewer/);
     assert.match(result.prompt, /runtime\/src\/review\/runner\.ts/);
   }
 });
