@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.7]
+
 - `agent-ops review` now spawns a real independent reviewer. Previously it
   always reported `NOT_RUN / missing-cli` because no executor existed.
 - Added the optional `reviewRoles` configuration field (still
