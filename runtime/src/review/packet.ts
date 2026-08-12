@@ -1,6 +1,8 @@
 export interface ReviewCriterion {
   readonly id: string;
   readonly description: string;
+  /** Verifiers that already cover this criterion mechanically, if any. */
+  readonly verifierIds?: readonly string[];
 }
 
 export interface ReviewEvidenceRequirement {

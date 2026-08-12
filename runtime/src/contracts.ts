@@ -69,6 +69,30 @@ export interface AgentOpsFeatures {
   };
 }
 
+export type ReviewRole =
+  | "mechanical"
+  | "implementation"
+  | "deep-reasoning"
+  | "independent-review";
+
+/**
+ * A CLI that can be invoked to perform a review. Deliberately distinct from
+ * `HarnessId`, which means "a harness agent-ops installs configuration into"
+ * and carries an adapter, surfaces, events, and drift checks per id. opencode
+ * is absent because it has no read-only flag: `--agent plan` is rejected as a
+ * subagent and silently falls back to a writable agent.
+ */
+export type ReviewTargetId = "agy" | "claude" | "codex";
+
+export interface ReviewRoleConfig {
+  readonly role: ReviewRole;
+  /** Ordered fallback chain; the first target that runs produces the verdict. */
+  readonly targets: readonly ReviewTargetId[];
+  readonly model?: string;
+  readonly effort?: string;
+  readonly timeoutMs?: number;
+}
+
 export interface AgentOpsConfig {
   schemaVersion: typeof CONFIG_SCHEMA_VERSION;
   profiles: Profile[];
@@ -76,6 +100,8 @@ export interface AgentOpsConfig {
   features: AgentOpsFeatures;
   pathMappings: PathMapping[];
   securityExceptions: SecurityException[];
+  /** Absent means external review is disabled. */
+  reviewRoles?: ReviewRoleConfig[];
 }
 
 export interface AcceptanceCriterion {

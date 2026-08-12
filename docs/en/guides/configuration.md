@@ -31,6 +31,66 @@ implies them. Advisory runs through the real SessionStart path and is
 fail-open. Claude and Codex lifecycle support is `supported`; OpenCode begins
 at app initialization and is honestly reported as `degraded`.
 
+### External review targets
+
+`agent-ops review` can call another agent CLI to review your work. It is
+disabled by default: an absent `reviewRoles` field, an absent
+`--review-target` flag, and the interactive question's default all mean off.
+Enable it during `agent-ops init`, or by hand:
+
+```json
+{
+  "reviewRoles": [
+    { "role": "independent-review", "targets": ["codex", "agy"] }
+  ]
+}
+```
+
+`targets` is an **ordered fallback chain**. Supported targets and the read-only
+flags they are launched with:
+
+| Target | Invocation | Read-only |
+| --- | --- | --- |
+| `codex` | `codex exec` | `-s read-only` |
+| `agy` (Antigravity) | `agy -p` | `--sandbox --mode plan` |
+| `claude` | `claude -p` | `--permission-mode plan` |
+
+`opencode` is **not** a review target even though it is a supported harness.
+Its `--agent plan` is rejected as a subagent and silently falls back to a
+writable agent, so it cannot satisfy the read-only precondition. A target with
+no read-only flag is skipped rather than run unsandboxed.
+
+The chain advances only when no review happened — the executable is missing,
+the spawn failed, or the attempt timed out (120s per target by default,
+overridable with `timeoutMs`). A `FAIL` verdict is **terminal**: the chain
+never retries another target after a real verdict, because that would be
+automated review shopping. Unparseable output is terminal too, since it points
+at a prompt or CLI-version mismatch worth surfacing.
+
+If Claude Code is the host (`CLAUDECODE` is set), `claude` is moved to the end
+of the chain. It still runs when it is the only configured target, with a
+`reviewer == host` warning.
+
+Criterion descriptions come from the task bound to the current session, so a
+review needs an attached task; `--criterion` filters those ids. Results are
+appended to the task's evidence with a `review:<target>:` prefix, and only
+while the task is active — a completed task is printed, never rewritten.
+
+`--yes` is still required for every review run: init selection decides which
+targets are permitted, `--yes` decides whether to spend money now.
+
+Because target authentication is not sniffed from stderr, an unauthenticated
+CLI surfaces as one review failure. Diagnose it with:
+
+```bash
+agent-ops doctor              # presence only: no tokens, no network
+agent-ops doctor --check-auth # one real print call per target
+```
+
+`--check-auth` is a dedicated flag; `--yes` stays inert for doctor. Doctor
+reports what to do but never fixes it: every target authenticates through
+interactive OAuth, so there is no `--fix`. Run `<target> login` yourself.
+
 ### Project-local loop profile
 
 `--profile loop` is an opt-in project-scope profile. Select `codex`, `claude`,

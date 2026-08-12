@@ -1,4 +1,7 @@
-import type { Harness, HarnessId } from "../../../../runtime/src/contracts.js";
+import type {
+  Harness,
+  ReviewTargetId
+} from "../../../../runtime/src/contracts.js";
 import {
   buildReviewPacket,
   type ReviewCriterion,
@@ -13,6 +16,7 @@ import {
   type ReviewRole,
   type ReviewRoleConfig
 } from "../../../../runtime/src/review/roles.js";
+import type { TaskService } from "../../../../runtime/src/task/service.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 
@@ -24,6 +28,9 @@ export interface ReviewCommandOptions {
   readonly effort?: string;
   readonly role?: ReviewRole;
   readonly roles?: readonly ReviewRoleConfig[];
+  readonly tasks?: TaskService;
+  readonly sessionId?: string;
+  readonly taskId?: string;
 }
 
 export interface ReviewCommandData {
@@ -33,21 +40,100 @@ export interface ReviewCommandData {
 }
 
 /**
- * Review runs against one harness. Argument parsing already rejects a
+ * Review runs against one target. Argument parsing already rejects a
  * multi-harness selection here, so the first entry is the whole selection.
+ * `opencode` is not a review target — it has no read-only flag — so selecting
+ * it leaves the target unresolved and the configured chain decides.
  */
-function harness(value: Harness | undefined): HarnessId {
-  return value?.[0] ?? "codex";
+function harness(value: Harness | undefined): ReviewTargetId | undefined {
+  const selected = value?.[0];
+  return selected === undefined || selected === "opencode"
+    ? undefined
+    : selected;
+}
+
+interface TaskContext {
+  readonly taskId: string;
+  readonly active: boolean;
+  readonly criteria: readonly ReviewCriterion[];
+}
+
+/**
+ * Criterion descriptions come from the task store, never from the id. A
+ * reviewer handed `criterion: tests` cannot review anything, so a review with
+ * no task context is reported as not run rather than run meaninglessly.
+ */
+async function taskContext(
+  options: ReviewCommandOptions
+): Promise<TaskContext | undefined> {
+  const tasks = options.tasks;
+  if (tasks === undefined) {
+    return undefined;
+  }
+  const query = options.taskId !== undefined
+    ? { taskId: options.taskId }
+    : options.sessionId === undefined
+      ? undefined
+      : { sessionId: options.sessionId };
+  if (query === undefined) {
+    return undefined;
+  }
+  let record;
+  try {
+    record = await tasks.status(query);
+  } catch {
+    return undefined;
+  }
+  const requested = options.args.criteria ?? [];
+  const criteria = record.task.criteria
+    .filter(
+      (criterion) =>
+        requested.length === 0 || requested.includes(criterion.id)
+    )
+    .map((criterion) => ({
+      id: criterion.id,
+      description: criterion.description,
+      verifierIds: [...criterion.verifierIds]
+    }));
+  if (
+    criteria.length === 0 ||
+    (requested.length > 0 && criteria.length !== requested.length)
+  ) {
+    return undefined;
+  }
+  return {
+    taskId: record.task.id,
+    active: record.status === "active",
+    criteria
+  };
+}
+
+function notRunEnvelope(
+  result: ReviewRunResult
+): CliEnvelope<ReviewCommandData> {
+  const message = "Independent review was not run.";
+  return {
+    code: "REVIEW_NOT_RUN",
+    status: "error",
+    data: {
+      message,
+      result,
+      text: [message, `Reason: ${result.reason ?? "unknown"}.`, ""].join("\n")
+    },
+    errors: [{ code: "REVIEW_NOT_RUN", message }]
+  };
 }
 
 export async function runReviewCommand(
   options: ReviewCommandOptions
 ): Promise<CliEnvelope<ReviewCommandData>> {
-  const ids = options.args.criteria ?? [];
-  const criteria: ReviewCriterion[] = ids.map((id) => ({
-    id,
-    description: id
-  }));
+  const role = resolveReviewRole(
+    options.role ?? "independent-review",
+    options.roles ?? []
+  );
+  const selectedHarness = harness(options.args.harness);
+  const target = role?.targets[0] ?? selectedHarness ?? "codex";
+  const context = await taskContext(options);
   const evidenceRequirements: ReviewEvidenceRequirement[] = (
     options.args.evidence ?? []
   ).map((value) => {
@@ -57,14 +143,22 @@ export async function runReviewCommand(
       requirement: separator < 0 ? value : value.slice(separator + 1)
     };
   });
-  const selectedHarness = harness(options.args.harness);
-  const role = resolveReviewRole(
-    options.role ?? "independent-review",
-    options.roles ?? []
-  );
+  if (options.tasks !== undefined && context === undefined) {
+    return notRunEnvelope({
+      status: "NOT_RUN",
+      reason: "no-task-context",
+      harness: target,
+      model: role?.model ?? options.model ?? "configured",
+      effort: role?.effort ?? options.effort ?? "configured",
+      prompt: ""
+    });
+  }
+  const criteria: ReviewCriterion[] = context?.criteria !== undefined
+    ? [...context.criteria]
+    : (options.args.criteria ?? []).map((id) => ({ id, description: id }));
   const result = await runIndependentReview({
     invocation: {
-      harness: role?.harness ?? selectedHarness,
+      harness: target,
       model: role?.model ?? options.model ?? "configured",
       effort: role?.effort ?? options.effort ?? "configured",
       packet: buildReviewPacket({
@@ -80,6 +174,24 @@ export async function runReviewCommand(
       reason: "missing-cli" as const
     }))
   });
+  // Evidence is only appended while the task is active: a completed record
+  // must stay exactly as it was verified.
+  if (
+    options.tasks !== undefined &&
+    context !== undefined &&
+    context.active &&
+    result.results !== undefined
+  ) {
+    await options.tasks.recordEvidence(
+      context.taskId,
+      Object.fromEntries(
+        result.results.map((item) => [
+          item.criterionId,
+          item.evidence.map((reference) => `review:${target}:${reference}`)
+        ])
+      )
+    );
+  }
   const message =
     result.status === "PASS"
       ? "Independent review passed."
@@ -94,6 +206,11 @@ export async function runReviewCommand(
       `Status: ${result.status}`,
       `Harness: ${result.harness}; model: ${result.model}; effort: ${result.effort}.`,
       ...(result.reason === undefined ? [] : [`Reason: ${result.reason}.`]),
+      ...(result.status === "NOT_RUN"
+        ? [
+            "Run: agent-ops doctor --check-auth to verify target authentication."
+          ]
+        : []),
       ...(result.results === undefined
         ? []
         : result.results.map(

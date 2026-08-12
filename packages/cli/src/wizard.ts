@@ -8,8 +8,10 @@ import type {
   Harness,
   HarnessId,
   InstallScope,
-  Profile
+  Profile,
+  ReviewTargetId
 } from "../../../runtime/src/contracts.js";
+import { DEFAULT_REVIEW_TARGETS } from "../../../runtime/src/review/roles.js";
 import {
   HARNESS_IDS,
   resolveHarnessSelection
@@ -24,6 +26,73 @@ import {
 const SCOPES = new Set<string>(["project", "user"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
 const DEFAULT_HARNESS: readonly HarnessId[] = [];
+const REVIEW_TARGET_SET = new Set<string>(DEFAULT_REVIEW_TARGETS);
+
+/**
+ * External review spawns another paid CLI, so every entry point defaults to
+ * off: an absent config field, an absent flag, and this question's default all
+ * mean disabled.
+ */
+export interface ReviewTargetSetup {
+  /** Returns false when the target is installed but not authenticated. */
+  probeReviewTarget?(target: ReviewTargetId): Promise<boolean>;
+  warn?(message: string): void;
+}
+
+const REVIEW_TARGET_CHOICES: readonly SelectChoice<ReviewTargetId>[] =
+  DEFAULT_REVIEW_TARGETS.map((id) => ({
+    label: id,
+    value: id,
+    description:
+      id === "codex"
+        ? "Runs with -s read-only; stdout is the bare final message."
+        : id === "agy"
+          ? "Antigravity CLI; runs with --sandbox --mode plan."
+          : "Runs with --permission-mode plan; tried last when it is the host."
+  }));
+
+function selectReviewTargets(raw: string): ReviewTargetId[] {
+  const values = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  for (const value of values) {
+    if (!REVIEW_TARGET_SET.has(value)) {
+      throw new CliArgumentError(
+        "CLI_INVALID_VALUE",
+        `Invalid review target: ${value}`,
+        "--review-target"
+      );
+    }
+  }
+  // Declared order wins: the chain order is the option list, not click order.
+  return DEFAULT_REVIEW_TARGETS.filter((target) =>
+    values.includes(target)
+  ) as ReviewTargetId[];
+}
+
+function affirmative(raw: string): boolean {
+  return /^(y|yes)$/i.test(raw.trim());
+}
+
+async function probeReviewTargets(
+  targets: readonly ReviewTargetId[],
+  setup: ReviewTargetSetup
+): Promise<void> {
+  const probe = setup.probeReviewTarget;
+  if (probe === undefined) {
+    return;
+  }
+  for (const target of targets) {
+    if (!(await probe(target))) {
+      setup.warn?.(
+        `${target} is not usable yet (missing or unauthenticated). ` +
+          `Install it or run: ${target} login, ` +
+          "then: agent-ops doctor --check-auth"
+      );
+    }
+  }
+}
 
 export interface WizardIo {
   isTTY: boolean;
@@ -154,7 +223,8 @@ function selectProfiles(raw: string): Profile[] {
 
 export async function completeInitChoices(
   args: ParsedArgs,
-  io: WizardIo
+  io: WizardIo,
+  setup: ReviewTargetSetup = {}
 ): Promise<ParsedArgs> {
   if (
     args.command !== "init" ||
@@ -212,11 +282,35 @@ export async function completeInitChoices(
               "Enable core, advisory, guardrails, and loop together."
             }
           );
+    const enabled =
+      args.reviewTargets !== undefined ||
+      (await selectOption(
+        "External review: call another agent CLI to review your work?",
+        [
+          { label: "no", value: false, description: "Default. Nothing is spawned." },
+          {
+            label: "yes",
+            value: true,
+            description: "Pick target CLIs; each is probed for authentication."
+          }
+        ],
+        selectorIo
+      ));
+    const reviewTargets = args.reviewTargets ?? (enabled
+      ? await selectOptions<ReviewTargetId>(
+          "Review targets (multi-select: tried in listed order)",
+          REVIEW_TARGET_CHOICES,
+          selectorIo,
+          []
+        )
+      : []);
+    await probeReviewTargets(reviewTargets, setup);
     return {
       ...args,
       scope,
       harness,
-      profiles
+      profiles,
+      ...(reviewTargets.length === 0 ? {} : { reviewTargets })
     };
   }
 
@@ -246,11 +340,27 @@ export async function completeInitChoices(
             )
           );
 
+    const reviewTargets = args.reviewTargets ?? (
+      affirmative(
+        await session.question(
+          "Enable external review by another agent CLI? [y/N]: "
+        )
+      )
+        ? selectReviewTargets(
+            await session.question(
+              `Review targets (${DEFAULT_REVIEW_TARGETS.join(",")}): `
+            )
+          )
+        : []
+    );
+    await probeReviewTargets(reviewTargets, setup);
+
     return {
       ...args,
       scope,
       harness,
-      profiles
+      profiles,
+      ...(reviewTargets.length === 0 ? {} : { reviewTargets })
     };
   } finally {
     session.close();

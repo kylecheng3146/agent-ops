@@ -23,6 +23,35 @@
         "enum": ["core", "advisory", "guardrails", "loop"]
       }
     },
+    "reviewRoles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "targets"],
+        "properties": {
+          "role": {
+            "enum": [
+              "mechanical",
+              "implementation",
+              "deep-reasoning",
+              "independent-review"
+            ]
+          },
+          "targets": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["codex", "agy", "claude"]
+            }
+          },
+          "model": { "type": "string", "minLength": 1 },
+          "effort": { "type": "string", "minLength": 1 },
+          "timeoutMs": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
     "verification": {
       "type": "object",
       "additionalProperties": false,

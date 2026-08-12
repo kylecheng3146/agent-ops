@@ -9,6 +9,13 @@ export interface ReviewCriterionResult {
 export interface ReviewSummary {
   readonly status: "PASS" | "FAIL";
   readonly results: readonly ReviewCriterionResult[];
+  /**
+   * False when the response broke the protocol — a missing, duplicated or
+   * unrequested criterion, or blank evidence. Kept separate from `status` so
+   * FAIL keeps meaning "the reviewer looked and judged it inadequate"; a
+   * sloppy response must not be recorded as a failed review.
+   */
+  readonly valid: boolean;
 }
 
 export function aggregateReviewResults(
@@ -32,11 +39,10 @@ export function aggregateReviewResults(
   if (seen.size !== expected.size) {
     valid = false;
   }
-  const status =
-    valid && results.every((result) => result.status === "PASS")
-      ? "PASS"
-      : "FAIL";
-  return { status, results: [...results] };
+  const status = results.every((result) => result.status === "PASS")
+    ? "PASS"
+    : "FAIL";
+  return { status, results: [...results], valid };
 }
 
 export interface ReviewRequest {

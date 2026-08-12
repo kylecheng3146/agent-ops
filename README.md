@@ -261,6 +261,28 @@ For a full command reference, run `agent-ops --help`. The `task`, `verify`, and
 `review` commands support acceptance tracking and independent verification when
 the project configuration defines those workflows.
 
+### External review
+
+`agent-ops review` can hand the review to another agent CLI, so the work is not
+judged by the agent that produced it. Enable it during `agent-ops init` (the
+default is off) and pick an ordered fallback chain of targets: `codex`, `agy`
+(Antigravity), and `claude`. Each is launched with its own read-only flag, and a
+target without one is skipped rather than run unsandboxed — which is why
+`opencode` is not a review target despite being a supported harness.
+
+The first target that actually runs produces the verdict. A `FAIL` is final:
+the chain never retries elsewhere after a real verdict. `--yes` is still
+required for every run, since each run spends another provider's quota.
+
+Authentication is diagnosed, never guessed:
+
+```bash
+agent-ops doctor              # presence only: no tokens, no network
+agent-ops doctor --check-auth # one real print call per configured target
+```
+
+See [Configuration](docs/en/guides/configuration.md) for the full contract.
+
 ## Project principles
 
 - Define verifiable success before making changes.

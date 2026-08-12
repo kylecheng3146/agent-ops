@@ -22,7 +22,7 @@ test("review command resolves configured role harness and model", async () => {
     role: "independent-review",
     roles: [{
       role: "independent-review",
-      harness: "claude",
+      targets: ["claude"],
       model: "review-model",
       effort: "high"
     }],

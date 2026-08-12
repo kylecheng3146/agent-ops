@@ -318,3 +318,34 @@ test("rejects duplicate stable mapping IDs within one layer", () => {
       error.code === "CONFIG_DUPLICATE_ID"
   );
 });
+
+test("review roles survive the merge, with project overriding user per role", () => {
+  const merged = mergeConfigLayers([
+    layer(
+      "user",
+      config({
+        reviewRoles: [
+          { role: "independent-review", targets: ["claude"] },
+          { role: "mechanical", targets: ["codex"] }
+        ]
+      })
+    ),
+    layer(
+      "project",
+      config({
+        reviewRoles: [
+          { role: "independent-review", targets: ["codex", "agy"] }
+        ]
+      })
+    )
+  ]);
+  assert.deepEqual(merged.config.reviewRoles, [
+    { role: "independent-review", targets: ["codex", "agy"] },
+    { role: "mechanical", targets: ["codex"] }
+  ]);
+});
+
+test("a merge of configs without review roles leaves the field absent", () => {
+  const merged = mergeConfigLayers([layer("project", config())]);
+  assert.equal(merged.config.reviewRoles, undefined);
+});

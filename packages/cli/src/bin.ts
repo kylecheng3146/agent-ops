@@ -51,6 +51,9 @@ import {
 } from "./commands/uninstall.js";
 import { runTaskCommand } from "./commands/task.js";
 import { runReviewCommand } from "./commands/review.js";
+import { createReviewExecutor } from "../../../runtime/src/review/execute.js";
+import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
+import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
 import {
@@ -210,8 +213,13 @@ process.exitCode = await runCli(
                   repositoryTrustStatus(
                     await repositoryTrust(root, config, CLI_VERSION)
                   ),
-                smokeAvailability: () => smokeAvailabilityStatus(config)
-              }
+                smokeAvailability: () => smokeAvailabilityStatus(config),
+                reviewTarget: async (target, deep) =>
+                  await probeReviewTarget(target, { cwd: root, deep })
+              },
+              ...(args.checkAuth === true
+                ? { checkReviewTargetAuth: true }
+                : {})
             });
           }
           if (args.command === "uninstall") {
@@ -257,9 +265,43 @@ process.exitCode = await runCli(
             });
           }
           if (args.command === "review") {
+            const reviewSessionId = process.env.AGENT_OPS_SESSION_ID;
+            const reviewConfig = (await loadEffectiveConfig(
+              root,
+              args.scope === "user" ? "user" : "project"
+            )).config;
+            const reviewRole = resolveReviewRole(
+              "independent-review",
+              reviewConfig.reviewRoles ?? []
+            );
             return await runReviewCommand({
               args,
-              authorized: args.yes
+              authorized: args.yes,
+              tasks: taskService,
+              ...(reviewSessionId === undefined
+                ? {}
+                : { sessionId: reviewSessionId }),
+              ...(reviewConfig.reviewRoles === undefined
+                ? {}
+                : { roles: reviewConfig.reviewRoles }),
+              execute: createReviewExecutor({
+                targets: reviewRole?.targets ?? [],
+                cwd: root,
+                ...(reviewRole?.model === undefined
+                  ? {}
+                  : { model: reviewRole.model }),
+                ...(reviewRole?.effort === undefined
+                  ? {}
+                  : { effort: reviewRole.effort }),
+                ...(reviewRole?.timeoutMs === undefined
+                  ? {}
+                  : { timeoutMs: reviewRole.timeoutMs }),
+                onProgress: (line) => {
+                  if (!args.json) {
+                    process.stderr.write(`${line}\n`);
+                  }
+                }
+              })
             });
           }
           if (args.command === "config") {

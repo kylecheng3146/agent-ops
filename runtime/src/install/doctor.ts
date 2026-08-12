@@ -3,7 +3,8 @@ import { lstat, open } from "node:fs/promises";
 
 import type {
   AgentOpsConfig,
-  InstallManifest
+  InstallManifest,
+  ReviewTargetId
 } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import {
@@ -14,6 +15,7 @@ import {
   resolveContainedPath
 } from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
+import type { ReviewTargetProbeResult } from "../review/probe.js";
 import {
   assertExpectedManagedBlock,
   assertSupportedManifestOwnership
@@ -50,6 +52,7 @@ export type DoctorCheckId =
   | "hook-registration"
   | "lifecycle-summary"
   | "repository-trust"
+  | "review-targets"
   | "smoke-availability";
 
 export interface DoctorCheck {
@@ -65,10 +68,16 @@ export type DoctorProbe = () =>
   | DoctorProbeResult
   | Promise<DoctorProbeResult>;
 
+export type DoctorReviewTargetProbe = (
+  target: ReviewTargetId,
+  deep: boolean
+) => Promise<ReviewTargetProbeResult> | ReviewTargetProbeResult;
+
 export interface DoctorProbes {
   readonly hookRegistration?: DoctorProbe;
   readonly repositoryTrust?: DoctorProbe;
   readonly smokeAvailability?: DoctorProbe;
+  readonly reviewTarget?: DoctorReviewTargetProbe;
 }
 
 export interface DoctorInstallationOptions {
@@ -77,6 +86,13 @@ export interface DoctorInstallationOptions {
   /** Version of the toolkit running doctor, used for generated baseline checks. */
   readonly toolkitVersion?: string;
   readonly probes?: DoctorProbes;
+  /**
+   * Authorizes the expensive depth of the review-targets check: a real print
+   * call per target. Off by default because doctor runs often, including in
+   * CI, and must not spend tokens or reach the network unasked. Deliberately
+   * not `--yes`, which stays inert for doctor.
+   */
+  readonly checkReviewTargetAuth?: boolean;
 }
 
 export interface DoctorReport {
@@ -651,6 +667,85 @@ async function checkRegistrationDrift(
   }
 }
 
+/**
+ * Guidance lives in `message` rather than a `remediation` field: as of this
+ * check, `remediation` does not exist on DoctorCheck. Because target
+ * authentication failures surface as one unexplained review failure — the
+ * chain deliberately does not sniff stderr for "not logged in" — this text is
+ * the operator's only route out, so it names the exact command.
+ */
+async function checkReviewTargets(
+  config: AgentOpsConfig | undefined,
+  probe: DoctorReviewTargetProbe | undefined,
+  checkAuth: boolean
+): Promise<DoctorCheck> {
+  const targets = config?.reviewRoles?.find(
+    (role) => role.role === "independent-review"
+  )?.targets ?? [];
+  if (targets.length === 0) {
+    return check(
+      "review-targets",
+      "PASS",
+      "External review disabled. Re-run agent-ops init to enable."
+    );
+  }
+  if (probe === undefined) {
+    return check(
+      "review-targets",
+      "PASS",
+      `External review targets: ${targets.join(", ")}. ` +
+        "Login state unverified; run: agent-ops doctor --check-auth"
+    );
+  }
+  for (const target of targets) {
+    const result = await probe(target, checkAuth);
+    if (result === "missing-executable") {
+      return check(
+        "review-targets",
+        "FAIL",
+        `${target} not found. Install it, or remove "${target}" from ` +
+          "reviewRoles[].targets.",
+        "UPDATE_REQUIRED"
+      );
+    }
+    if (result === "ineligible") {
+      return check(
+        "review-targets",
+        "FAIL",
+        `${target} has no read-only mode and cannot review. Remove ` +
+          `"${target}" from reviewRoles[].targets.`,
+        "UPDATE_REQUIRED"
+      );
+    }
+    if (result === "timeout") {
+      return check(
+        "review-targets",
+        "FAIL",
+        `${target} did not answer in time. Re-run: ` +
+          "agent-ops doctor --check-auth",
+        "UPDATE_REQUIRED"
+      );
+    }
+    if (checkAuth && result !== "ok") {
+      return check(
+        "review-targets",
+        "FAIL",
+        `${target} is installed but not authenticated, or it rejected the ` +
+          `call. Run: ${target} login`,
+        "UPDATE_REQUIRED"
+      );
+    }
+  }
+  return check(
+    "review-targets",
+    "PASS",
+    checkAuth
+      ? `External review targets authenticated: ${targets.join(", ")}.`
+      : `External review targets: ${targets.join(", ")}. ` +
+          "Login state unverified; run: agent-ops doctor --check-auth"
+  );
+}
+
 export async function doctorInstallation(
   options: DoctorInstallationOptions
 ): Promise<DoctorReport> {
@@ -692,6 +787,11 @@ export async function doctorInstallation(
     await checkProbe(
       "smoke-availability",
       options.probes?.smokeAvailability
+    ),
+    await checkReviewTargets(
+      config.config,
+      options.probes?.reviewTarget,
+      options.checkReviewTargetAuth === true
     )
   ];
   return {

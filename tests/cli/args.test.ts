@@ -370,7 +370,8 @@ test("non-TTY init never infers missing choices, including with --yes", async ()
 });
 
 test("TTY wizard fills only missing choices through injected prompts", async () => {
-  const answers = ["user", "codex", "core,advisory"];
+  // The fourth answer declines external review, which is also the default.
+  const answers = ["user", "codex", "core,advisory", ""];
   const questions: string[] = [];
   const parsed = parseArgs(["init", "--dry-run"]);
 
@@ -391,7 +392,8 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
     json: false,
     yes: false
   });
-  assert.equal(questions.length, 3);
+  assert.equal(questions.length, 4);
+  assert.match(questions[3] ?? "", /external review/i);
 });
 
 test("TTY wizard accepts loop as the selected profile", async () => {

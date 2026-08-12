@@ -4,6 +4,8 @@ import {
   CONFIG_SCHEMA_VERSION,
   MANIFEST_SCHEMA_VERSION,
   type AgentOpsFeatures,
+  type ReviewRoleConfig,
+  type ReviewTargetId,
   type AgentOpsConfig,
   type Harness,
   type HarnessId,
@@ -79,6 +81,8 @@ export interface CreateInstallPlanOptions {
   readonly hookRuntimePath?: string;
   /** Explicit writable hook surfaces, keyed by harness. */
   readonly hookTargets?: readonly HookTargetSelection[];
+  /** Review target CLIs to record in the managed config, in chain order. */
+  readonly reviewTargets?: readonly ReviewTargetId[];
   /**
    * Update may reconcile an existing managed installation when the selected
    * harness set or capability-implied hooks changes. Init keeps the existing
@@ -150,8 +154,15 @@ function formatConfig(
     readonly features: AgentOpsFeatures;
     readonly pathMappings: unknown;
     readonly securityExceptions: unknown;
-  }
+    readonly reviewRoles?: readonly ReviewRoleConfig[];
+  },
+  reviewTargets: readonly ReviewTargetId[] = []
 ): string {
+  // Absent reviewRoles means external review is disabled; an empty selection
+  // must therefore omit the field rather than write an empty array.
+  const reviewRoles = reviewTargets.length > 0
+    ? [{ role: "independent-review", targets: [...reviewTargets] }]
+    : existing?.reviewRoles;
   return `${JSON.stringify(
     {
       schemaVersion: CONFIG_SCHEMA_VERSION,
@@ -163,7 +174,8 @@ function formatConfig(
         }
       },
       pathMappings: existing?.pathMappings ?? [],
-      securityExceptions: existing?.securityExceptions ?? []
+      securityExceptions: existing?.securityExceptions ?? [],
+      ...(reviewRoles === undefined ? {} : { reviewRoles })
     },
     null,
     2
@@ -177,7 +189,8 @@ async function planConfig(
   suppliedConfig?: {
     readonly value: AgentOpsConfig;
     readonly sourceHash: string;
-  }
+  },
+  reviewTargets: readonly ReviewTargetId[] = []
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -197,6 +210,7 @@ async function planConfig(
         readonly features: AgentOpsFeatures;
         readonly pathMappings: unknown;
         readonly securityExceptions: unknown;
+        readonly reviewRoles?: readonly ReviewRoleConfig[];
       }
     | undefined;
   if (suppliedConfig !== undefined) {
@@ -242,7 +256,7 @@ async function planConfig(
     existingConfig = result.value;
   }
 
-  const content = formatConfig(profiles, existingConfig);
+  const content = formatConfig(profiles, existingConfig, reviewTargets);
   return {
     operation: {
       kind: "write",
@@ -775,7 +789,8 @@ export async function createInstallPlan(
     options.root,
     resolved.profiles,
     existing?.manifest ?? null,
-    options.existingConfig
+    options.existingConfig,
+    options.reviewTargets ?? []
   );
   operations.push(config.operation);
   artifacts.push(config.record);

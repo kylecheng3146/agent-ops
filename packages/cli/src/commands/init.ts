@@ -117,7 +117,10 @@ export async function runInitCommand(
       : { hookRuntimePath: options.hookRuntimePath }),
     ...((options.hookTargets ?? args.hookTargets) === undefined
       ? {}
-      : { hookTargets: options.hookTargets ?? args.hookTargets })
+      : { hookTargets: options.hookTargets ?? args.hookTargets }),
+    ...(args.reviewTargets === undefined
+      ? {}
+      : { reviewTargets: args.reviewTargets })
   });
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {

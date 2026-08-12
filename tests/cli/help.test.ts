@@ -103,7 +103,8 @@ test("CLI preserves stable AgentOpsError codes and messages", async () => {
 
 test("TTY with no arguments launches the branded interactive init wizard", async () => {
   const { io, stdout, stderr } = createIo(true);
-  const answers = ["project", "both", "core"];
+  // The fourth answer declines external review, which is also the default.
+  const answers = ["project", "both", "core", ""];
   const questions: string[] = [];
   let received: ParsedArgs | undefined;
   io.prompt = async (question) => {
@@ -132,7 +133,8 @@ test("TTY with no arguments launches the branded interactive init wizard", async
       profiles: ["core"]
     }
   );
-  assert.equal(questions.length, 3);
+  assert.equal(questions.length, 4);
+  assert.equal(received?.reviewTargets, undefined);
 });
 
 test("non-TTY with no arguments remains an explicit command error", async () => {

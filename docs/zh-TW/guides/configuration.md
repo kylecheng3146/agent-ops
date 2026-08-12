@@ -27,6 +27,59 @@ harness surface 並套用選定的 target policy；若不是 managed default，�
 Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initialization
 開始，因此誠實標示為 `degraded`。
 
+### 外部 review 目標
+
+`agent-ops review` 可以呼叫另一個 agent CLI 來審查你的工作。預設關閉 ——
+缺少 `reviewRoles` 欄位、缺少 `--review-target` 旗標、互動式問題的預設值，
+三者都代表關閉。在 `agent-ops init` 時啟用，或手動設定：
+
+```json
+{
+  "reviewRoles": [
+    { "role": "independent-review", "targets": ["codex", "agy"] }
+  ]
+}
+```
+
+`targets` 是**有序的後備鏈**。支援的目標與其唯讀旗標：
+
+| 目標 | 呼叫方式 | 唯讀 |
+| --- | --- | --- |
+| `codex` | `codex exec` | `-s read-only` |
+| `agy`（Antigravity）| `agy -p` | `--sandbox --mode plan` |
+| `claude` | `claude -p` | `--permission-mode plan` |
+
+`opencode` **不是** review 目標，即使它是支援的 harness。它的 `--agent plan`
+會被判定為 subagent 而遭拒，並靜默退回可寫入的 agent，因此無法滿足唯讀前置
+條件。沒有唯讀旗標的目標會被跳過，不會在無沙箱狀態下執行。
+
+只有在「根本沒審到」時才換下一家 —— 執行檔不存在、spawn 失敗、或逾時
+（每個目標預設 120 秒，可用 `timeoutMs` 覆寫）。`FAIL` 判定是**終局**：
+拿到真實判定後絕不再試下一家，否則就變成自動化的 review shopping。
+無法解析的輸出同樣終局，因為那代表 prompt 約定或 CLI 版本不合，該浮出來修。
+
+若 host 是 Claude Code（`CLAUDECODE` 已設定），`claude` 會被移到鏈尾。
+當它是唯一設定的目標時仍會執行，並附上 `reviewer == host` 警告。
+
+criterion 描述來自當前 session 綁定的 task，所以 review 需要已附加的 task；
+`--criterion` 用來篩選這些 id。結果會以 `review:<target>:` 前綴附加到 task 的
+evidence，且僅在 task 為 active 時寫入 —— 已完成的 task 只印出，絕不改寫。
+
+每次執行 review 仍需 `--yes`：init 的勾選決定「允許哪些目標」，
+`--yes` 決定「現在是否要花錢」。
+
+因為不從 stderr 嗅探認證狀態，未登入的 CLI 會表現為一次 review 失敗。
+用以下指令診斷：
+
+```bash
+agent-ops doctor              # 只驗執行檔存在：零 token、零網路
+agent-ops doctor --check-auth # 每個目標一次真實 print 呼叫
+```
+
+`--check-auth` 是專屬旗標；`--yes` 對 doctor 維持惰性。doctor 只回報該做什麼，
+不會代為修復：所有目標都經由互動式 OAuth 認證，因此沒有 `--fix`。
+請自行執行 `<target> login`。
+
 ### Project-local loop profile
 
 `--profile loop` 是明確 opt-in 的 project-scope profile。請選擇 `codex`、
