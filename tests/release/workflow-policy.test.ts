@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { CLI_VERSION } from "../../packages/cli/src/version.js";
 
 async function read(path: string): Promise<string> {
   return await readFile(path, "utf8");
 }
+
+test("CLI version follows package metadata", async () => {
+  const packageJson = JSON.parse(await read("package.json")) as {
+    version?: unknown;
+  };
+  assert.equal(CLI_VERSION, packageJson.version);
+});
 
 test("CI policy covers the cross-platform Node matrix and installed CLI smoke", async () => {
   const workflow = await read(".github/workflows/ci.yml");
