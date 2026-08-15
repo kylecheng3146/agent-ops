@@ -25,7 +25,7 @@ function sortedUnique(values: readonly string[]): string[] {
   return [...new Set(values)].sort();
 }
 
-function normalizePortablePath(path: string): string {
+export function normalizePortablePath(path: string): string {
   if (
     path.length === 0 ||
     path.includes("\\") ||
@@ -68,7 +68,7 @@ function normalizePortablePath(path: string): string {
   return normalizedSegments.join("/");
 }
 
-function parseNulPaths(stdout: Uint8Array): string[] {
+export function parseNulPaths(stdout: Uint8Array): string[] {
   if (stdout.byteLength === 0) {
     return [];
   }
@@ -122,11 +122,19 @@ export async function collectChangeSurface(
     "diff",
     "--cached",
     "--name-only",
+    "--full-name",
+    "--no-renames",
+    "--no-ext-diff",
+    "--no-textconv",
     "-z"
   ]);
   const unstaged = await collectPaths(runner, [
     "diff",
     "--name-only",
+    "--full-name",
+    "--no-renames",
+    "--no-ext-diff",
+    "--no-textconv",
     "-z"
   ]);
   const untracked = await collectPaths(runner, [
@@ -142,4 +150,40 @@ export async function collectChangeSurface(
     untracked,
     paths: sortedUnique([...staged, ...unstaged, ...untracked])
   };
+}
+
+function decodeCommit(stdout: Uint8Array): string {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(stdout).trim();
+  } catch (error: unknown) {
+    throw new AgentOpsError("CHANGE_SURFACE_INVALID_OUTPUT", "Git commit output is not valid UTF-8.", { cause: error });
+  }
+  if (!/^[a-f0-9]{40,64}$/u.test(text)) {
+    throw new AgentOpsError("CHANGE_SURFACE_INVALID_OUTPUT", "Git did not return one commit object ID.");
+  }
+  return text;
+}
+
+export async function resolveGitCommit(
+  runner: GitRunner,
+  ref: string
+): Promise<string> {
+  const result = await runner.run([
+    "rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`
+  ]);
+  if (result.exitCode !== 0) {
+    throw new AgentOpsError("CHANGE_SURFACE_GIT_FAILED", "The requested base ref does not resolve to a commit.");
+  }
+  return decodeCommit(result.stdout);
+}
+
+export async function collectBaseChangePaths(
+  runner: GitRunner,
+  base: string
+): Promise<string[]> {
+  return await collectPaths(runner, [
+    "diff", "--name-only", "--full-name", "--no-renames", "--no-ext-diff",
+    "--no-textconv", "-z", `${base}...HEAD`
+  ]);
 }

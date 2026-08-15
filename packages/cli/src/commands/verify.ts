@@ -34,7 +34,7 @@ export interface VerifyCommandOptions {
 
 export type PublicVerificationCommandReport = Omit<
   VerificationCommandReport,
-  "diagnostic"
+  "diagnostic" | "startedAt" | "finishedAt"
 >;
 
 export interface PublicVerificationReport extends Omit<
@@ -96,7 +96,19 @@ function publicReport(
       evidenceReferences:
         result.evidenceReferences.map(redactSecrets)
     })),
-    signal: report.signal
+    signal: report.signal,
+    reviewScope: report.reviewScope.mode === "base"
+      ? {
+          mode: "base",
+          baseRef: redactSecrets(report.reviewScope.baseRef),
+          resolvedBase: report.reviewScope.resolvedBase,
+          changedFiles: report.reviewScope.changedFiles.map(redactSecrets)
+        }
+      : {
+          mode: "worktree",
+          changedFiles: report.reviewScope.changedFiles.map(redactSecrets)
+        },
+    sourceFingerprint: report.sourceFingerprint
   };
 }
 

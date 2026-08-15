@@ -29,6 +29,12 @@ test("review accepts --yes as explicit reviewer authorization", () => {
   assert.equal(parseArgs(["review", "--yes"]).yes, true);
 });
 
+test("review accepts one --base and rejects it elsewhere", () => {
+  assert.equal(parseArgs(["review", "--base", "origin/main"]).base, "origin/main");
+  assert.throws(() => parseArgs(["review", "--base", "a", "--base", "b"]));
+  assert.throws(() => parseArgs(["task", "status", "--base", "origin/main"]));
+});
+
 test("review rejects the multi-harness selection", () => {
   assert.throws(
     () => parseArgs(["review", "--harness", "both"]),

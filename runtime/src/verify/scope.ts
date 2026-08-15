@@ -64,10 +64,7 @@ function fallbackSelection(
   evidence: ScopeSelectionEvidence
 ): ScopeSelection {
   if (evidence.requiredVerifierIds.length === 0) {
-    throw new AgentOpsError(
-      "VERIFICATION_SCOPE_EMPTY",
-      `Verification scope fallback (${reason}) has no required commands.`
-    );
+    return { verifierIds: [], fallback: true, reason, evidence };
   }
   return {
     verifierIds: evidence.requiredVerifierIds,

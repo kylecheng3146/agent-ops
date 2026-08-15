@@ -1,5 +1,10 @@
 # External Review CLI Targets Implementation Plan
 
+> **Historical note (2026-08-14):** This plan describes the currently shipped
+> target chain. Its prompt-only structured-output, tolerant JSON extraction,
+> and repository-cwd decisions are superseded by the
+> [Detailed Independent Review Roadmap](./2026-08-14-detailed-independent-review-roadmap.md).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Make `agent-ops review` actually spawn an independent reviewer. Today `packages/cli/src/commands/review.ts:78` defaults `execute` to `{ status: "NOT_RUN", reason: "missing-cli" }`, so no CLI is ever invoked and the whole review path is inert. Give it an ordered fallback chain of external agent CLIs — `codex`, `agy` (Antigravity), `claude` — configured at `agent-ops init`, executed read-only, parsed into the existing `ReviewCriterionResult` shape, and recorded against the active task.

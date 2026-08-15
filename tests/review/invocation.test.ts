@@ -22,13 +22,23 @@ function argsFor(
   return invocation?.args ?? [];
 }
 
+function stdinFor(target: ReviewTargetId): string {
+  const invocation = buildTargetInvocation({ target, prompt: PROMPT });
+  assert.notEqual(invocation, undefined);
+  return invocation?.stdin ?? "";
+}
+
 test("each target gets its own executable and subcommand", () => {
   assert.equal(buildTargetInvocation({ target: "claude", prompt: PROMPT })?.command, "claude");
   assert.equal(buildTargetInvocation({ target: "agy", prompt: PROMPT })?.command, "agy");
   assert.equal(buildTargetInvocation({ target: "codex", prompt: PROMPT })?.command, "codex");
-  assert.deepEqual(argsFor("claude").slice(0, 2), ["-p", PROMPT]);
-  assert.deepEqual(argsFor("agy").slice(0, 2), ["-p", PROMPT]);
-  assert.deepEqual(argsFor("codex").slice(0, 2), ["exec", PROMPT]);
+  assert.deepEqual(argsFor("claude").slice(0, 1), ["-p"]);
+  assert.deepEqual(argsFor("agy").slice(0, 1), ["-p"]);
+  assert.deepEqual(argsFor("codex").slice(0, 2), ["exec", "-"]);
+  for (const target of ["claude", "agy", "codex"] as const) {
+    assert.equal(stdinFor(target), PROMPT);
+    assert.ok(!argsFor(target).includes(PROMPT));
+  }
 });
 
 test("every eligible target carries its read-only flag", () => {
@@ -83,12 +93,15 @@ test("only the JSON-envelope targets get an output-format flag", () => {
   assert.ok(!argsFor("codex").includes("--json"));
 });
 
-test("no invocation writes or reads a scratch file", () => {
+test("every invocation uses its native structured-output schema", () => {
   for (const target of ["claude", "agy", "codex"] as const) {
     const args = argsFor(target, { model: "m", effort: "high" });
     assert.ok(!args.includes("-o"));
-    assert.ok(!args.includes("--output-schema"));
-    assert.ok(!args.includes("--json-schema"));
+    if (target === "codex") {
+      assert.ok(args.includes("--output-schema"));
+      continue;
+    }
+    assert.ok(args.includes("--json-schema"));
   }
 });
 

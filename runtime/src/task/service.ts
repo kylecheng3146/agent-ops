@@ -22,6 +22,8 @@ import type {
 export interface CreateTaskInput {
   readonly title: string;
   readonly criteria: readonly AcceptanceCriterion[];
+  /** CLI task creation captures this; callers without it remain compatible. */
+  readonly policyConfigHash?: string;
 }
 
 export interface TaskServiceOptions {
@@ -154,6 +156,15 @@ export class TaskService {
   }
 
   async create(input: CreateTaskInput): Promise<StoredTaskRecord> {
+    if (
+      input.policyConfigHash !== undefined &&
+      !/^[a-f0-9]{64}$/u.test(input.policyConfigHash)
+    ) {
+      throw taskError(
+        "TASK_POLICY_CONFIG_INVALID",
+        "Policy config hash must be a lowercase SHA-256 digest."
+      );
+    }
     const task: AgentTask = {
       schemaVersion: TASK_SCHEMA_VERSION,
       id: this.#generateId(),
@@ -187,7 +198,8 @@ export class TaskService {
         updatedAt: now,
         completedAt: null,
         archivedAt: null,
-        failureFingerprint: null
+        failureFingerprint: null,
+        policyConfigHash: input.policyConfigHash ?? null
       };
       state.tasks.push(record);
       return cloneRecord(record);

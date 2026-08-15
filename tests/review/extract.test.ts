@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 
 import {
   extractFinalMessage,
-  extractJsonObject
+  extractJsonObject,
+  extractReviewObject
 } from "../../runtime/src/review/extract.js";
 
 function fixture(name: string): string {
@@ -45,34 +46,28 @@ test("codex stderr noise never reaches the extractor", () => {
   assert.equal(extractFinalMessage("codex", CODEX), "OK");
 });
 
-test("a JSON object is recovered from a fence, from prose, or missed", () => {
+test("review JSON must be the complete response, without fences or prose recovery", () => {
   const payload = "{\"results\":[{\"criterionId\":\"tests\",\"status\":\"PASS\"," +
     "\"evidence\":[\"npm test\"]}]}";
-  assert.deepEqual(
-    extractJsonObject(["```json", payload, "```"].join("\n")),
-    JSON.parse(payload)
-  );
-  assert.deepEqual(
-    extractJsonObject(`Here is my verdict:\n${payload}\nThanks.`),
-    JSON.parse(payload)
-  );
+  assert.equal(extractJsonObject(["```json", payload, "```"].join("\n")), undefined);
+  assert.equal(extractJsonObject(`Here is my verdict:\n${payload}\nThanks.`), undefined);
   assert.deepEqual(extractJsonObject(payload), JSON.parse(payload));
   assert.equal(extractJsonObject("no object here"), undefined);
   assert.equal(extractJsonObject("{ broken"), undefined);
   assert.equal(extractJsonObject("[1,2,3]"), undefined);
 });
 
-test("the composed path returns the model's object, never the envelope", () => {
+test("review extraction accepts only each target's native structured field", () => {
   const payload = "{\"results\":[{\"criterionId\":\"tests\",\"status\":\"PASS\"," +
     "\"evidence\":[\"npm test\"]}]}";
   const envelope = JSON.stringify({
     is_error: false,
     subtype: "success",
-    result: `Verdict:\n\`\`\`json\n${payload}\n\`\`\``
+    structured_output: JSON.parse(payload)
   });
-  const message = extractFinalMessage("claude", envelope);
-  assert.notEqual(message, undefined);
-  const parsed = extractJsonObject(message ?? "");
-  assert.deepEqual(parsed, JSON.parse(payload));
-  assert.equal((parsed as { is_error?: unknown }).is_error, undefined);
+  assert.deepEqual(extractReviewObject("claude", envelope), JSON.parse(payload));
+  assert.deepEqual(extractReviewObject("agy", JSON.stringify({ response: payload })), JSON.parse(payload));
+  assert.deepEqual(extractReviewObject("codex", payload), JSON.parse(payload));
+  assert.equal(extractReviewObject("claude", JSON.stringify({ result: payload })), undefined);
+  assert.equal(extractReviewObject("codex", `prose ${payload}`), undefined);
 });

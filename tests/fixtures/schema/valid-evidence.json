@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "taskId": "task-001",
   "criterionId": "criterion-schema",
   "commandId": "test",
@@ -10,6 +10,9 @@
   "finishedAt": "2026-07-23T09:00:01.000Z",
   "exitCode": 0,
   "testCount": 1,
+  "status": "PASS",
+  "failureClass": "none",
+  "sourceFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "toolVersions": {
     "node": "26.1.0"
   },

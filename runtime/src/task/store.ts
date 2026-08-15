@@ -29,6 +29,8 @@ export interface StoredTaskRecord {
   readonly completedAt: string | null;
   readonly archivedAt: string | null;
   readonly failureFingerprint: FailureFingerprintState | null;
+  /** Effective review-policy config at creation; null for legacy/API callers. */
+  readonly policyConfigHash: string | null;
 }
 
 export interface SessionAttachment {
@@ -154,11 +156,13 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     "task",
     "updatedAt"
   ];
-  if (
-    !isRecord(value) ||
-    (!hasExactKeys(value, baseKeys) &&
-      !hasExactKeys(value, [...baseKeys, "failureFingerprint"]))
-  ) {
+  const allowedKeys = new Set([
+    baseKeys.join("\0"),
+    [...baseKeys, "failureFingerprint"].sort().join("\0"),
+    [...baseKeys, "policyConfigHash"].sort().join("\0"),
+    [...baseKeys, "failureFingerprint", "policyConfigHash"].sort().join("\0")
+  ]);
+  if (!isRecord(value) || !allowedKeys.has(Object.keys(value).sort().join("\0"))) {
     return invalidState("Task state contains an invalid task record.");
   }
   const task = validateTask(value.task);
@@ -233,6 +237,15 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
       recordedAt: fingerprint.recordedAt
     };
   }
+  const policyConfigHash = value.policyConfigHash === undefined
+    ? null
+    : value.policyConfigHash;
+  if (
+    policyConfigHash !== null &&
+    (typeof policyConfigHash !== "string" || !/^[a-f0-9]{64}$/u.test(policyConfigHash))
+  ) {
+    return invalidState("Task state contains an invalid policy config hash.");
+  }
   return {
     task: task.value,
     status,
@@ -241,7 +254,8 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     updatedAt: value.updatedAt,
     completedAt: value.completedAt as string | null,
     archivedAt: value.archivedAt as string | null,
-    failureFingerprint
+    failureFingerprint,
+    policyConfigHash
   };
 }
 

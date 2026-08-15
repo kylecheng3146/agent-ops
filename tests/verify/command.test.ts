@@ -54,11 +54,15 @@ function report(
         diagnostic: `token=${SECRET}`,
         evidenceReferences: [
           ".agent-ops/tasks/evidence/task-one/unit-evidence.json"
-        ]
+        ],
+        startedAt: "2026-07-23T12:00:00.000Z",
+        finishedAt: "2026-07-23T12:00:01.000Z"
       }
     ],
     signal:
-      status === "FAIL" ? "CHANGE_APPROACH_REQUIRED" : null
+      status === "FAIL" ? "CHANGE_APPROACH_REQUIRED" : null,
+    reviewScope: { mode: "worktree", changedFiles: ["src/example.ts"] },
+    sourceFingerprint: "a".repeat(64)
   };
 }
 

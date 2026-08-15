@@ -8,7 +8,7 @@ export interface JsonObject {
 
 export const CONFIG_SCHEMA_VERSION = 2 as const;
 export const TASK_SCHEMA_VERSION = 1 as const;
-export const EVIDENCE_SCHEMA_VERSION = 1 as const;
+export const EVIDENCE_SCHEMA_VERSION = 2 as const;
 
 /** @deprecated Use the document-specific schema version constants. */
 export const SCHEMA_VERSION = CONFIG_SCHEMA_VERSION;
@@ -129,6 +129,9 @@ export interface VerificationEvidence {
   finishedAt: string;
   exitCode: number | null;
   testCount: number | null;
+  status: "PASS" | "FAIL" | "UNKNOWN";
+  failureClass: string;
+  sourceFingerprint: string;
   toolVersions: Record<string, string>;
   configHash: string;
 }

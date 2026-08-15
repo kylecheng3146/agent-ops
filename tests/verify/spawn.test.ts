@@ -103,6 +103,18 @@ test("forwards explicit child environment overrides without adding env to the re
   assert.equal("env" in result, false);
 });
 
+test("forwards bounded stdin only when a caller explicitly supplies it", async () => {
+  const result = await runVerificationCommand(command({
+    command: process.execPath,
+    args: ["-e", "process.stdin.on('data', value => process.stdout.write(value))"]
+  }), {
+    cwd: process.cwd(),
+    stdin: "review packet"
+  });
+  assert.equal(result.status, "PASS");
+  assert.equal(result.stdout, "review packet");
+});
+
 test("allows acknowledged shell commands and rejects forged unacknowledged ones", async () => {
   const requests: ProcessRequest[] = [];
   const runner = runnerWith((request) => {

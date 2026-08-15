@@ -113,6 +113,32 @@ async function installedHarness(root: string): Promise<Harness> {
   return (await installedManifest(root))?.harness ?? [...HARNESS_IDS];
 }
 
+function gitRunner(root: string) {
+  return {
+    run: async (gitArgs: readonly string[]) => {
+      try {
+        return {
+          exitCode: 0,
+          stdout: execFileSync("git", [...gitArgs], {
+            cwd: root,
+            encoding: "buffer",
+            stdio: ["ignore", "pipe", "ignore"]
+          })
+        };
+      } catch (error) {
+        const failure = error as {
+          status?: number | null;
+          stdout?: Uint8Array;
+        };
+        return {
+          exitCode: failure.status ?? 1,
+          stdout: failure.stdout ?? new Uint8Array()
+        };
+      }
+    }
+  };
+}
+
 async function confirmInit(
   plan: Parameters<typeof formatInstallPlan>[0]
 ): Promise<boolean> {
@@ -258,9 +284,16 @@ process.exitCode = await runCli(
           );
           if (args.command === "task") {
             const sessionId = process.env.AGENT_OPS_SESSION_ID;
+            const policyConfigHash = args.action === "create"
+              ? calculateConfigHash((await loadEffectiveConfig(
+                  root,
+                  args.scope === "user" ? "user" : "project"
+                )).config)
+              : undefined;
             return await runTaskCommand({
               args,
               service: taskService,
+              ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId })
             });
           }
@@ -284,6 +317,17 @@ process.exitCode = await runCli(
               ...(reviewConfig.reviewRoles === undefined
                 ? {}
                 : { roles: reviewConfig.reviewRoles }),
+              root,
+              gitRunner: gitRunner(root),
+              policyConfigHash: calculateConfigHash(reviewConfig),
+              currentPolicyConfigHash: async () => calculateConfigHash((
+                await loadEffectiveConfig(
+                  root,
+                  args.scope === "user" ? "user" : "project"
+                )
+              ).config),
+              config: reviewConfig,
+              evidenceStore: new FileEvidenceStore(root, root),
               execute: createReviewExecutor({
                 targets: reviewRole?.targets ?? [],
                 cwd: root,
@@ -328,33 +372,12 @@ process.exitCode = await runCli(
                 root,
                 scope: args.scope === "user" ? "user" : "project",
                 config,
-                gitRunner: {
-                  run: async (gitArgs) => {
-                    try {
-                      return {
-                        exitCode: 0,
-                        stdout: execFileSync("git", [...gitArgs], {
-                          cwd: root,
-                          encoding: "buffer",
-                          stdio: ["ignore", "pipe", "ignore"]
-                        })
-                      };
-                    } catch (error) {
-                      const failure = error as {
-                        status?: number | null;
-                        stdout?: Uint8Array;
-                      };
-                      return {
-                        exitCode: failure.status ?? 1,
-                        stdout: failure.stdout ?? new Uint8Array()
-                      };
-                    }
-                  }
-                },
+                gitRunner: gitRunner(root),
                 processRunner: new NodeVerificationProcessRunner(),
                 taskService,
                 evidenceStore: new FileEvidenceStore(root, root),
-                trusted: trustStatus === "TRUSTED"
+                trusted: trustStatus === "TRUSTED",
+                ...(args.base === undefined ? {} : { base: args.base })
               })
             });
           }

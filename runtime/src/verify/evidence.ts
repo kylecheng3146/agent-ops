@@ -10,6 +10,7 @@ import {
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { calculateConfigHash } from "../config/hash.js";
+import { evaluateTestCount } from "./test-count.js";
 
 export { calculateConfigHash } from "../config/hash.js";
 import { validateEvidence } from "../schema/validate.js";
@@ -28,6 +29,9 @@ export interface BuildVerificationEvidenceInput {
   readonly finishedAt: string;
   readonly exitCode: number | null;
   readonly testCount: number | null;
+  readonly status: VerificationEvidence["status"];
+  readonly failureClass: string;
+  readonly sourceFingerprint: string;
   readonly toolVersions: Readonly<Record<string, string>>;
   readonly config: AgentOpsConfig;
 }
@@ -74,9 +78,29 @@ export function buildVerificationEvidence(
     finishedAt: input.finishedAt,
     exitCode: input.exitCode,
     testCount: input.testCount,
+    status: input.status,
+    failureClass: redactSecrets(input.failureClass),
+    sourceFingerprint: input.sourceFingerprint,
     toolVersions: redactRecord(input.toolVersions),
     configHash: calculateConfigHash(input.config)
   });
+}
+
+/** Confirms that a persisted PASS still matches the current command contract. */
+export function isPassingVerificationEvidence(
+  command: VerificationCommand,
+  evidence: VerificationEvidence
+): boolean {
+  if (
+    evidence.status !== "PASS" ||
+    evidence.exitCode !== 0 ||
+    evidence.failureClass !== "none" ||
+    command.evidence.kind === "file"
+  ) {
+    return false;
+  }
+  return command.evidence.kind !== "test-count" ||
+    evaluateTestCount(evidence.testCount, command.evidence.minimum).status === "PASS";
 }
 
 export class FileEvidenceStore {
@@ -121,5 +145,31 @@ export class FileEvidenceStore {
       );
     }
     return relativePath;
+  }
+
+  async load(reference: string): Promise<unknown | null> {
+    const segments = reference.split("/");
+    if (
+      !reference.startsWith(".agent-ops/tasks/evidence/") ||
+      segments.some(
+        (segment) =>
+          segment.length === 0 ||
+          segment === "." ||
+          segment === ".." ||
+          !/^[A-Za-z0-9._-]+$/u.test(segment)
+      )
+    ) {
+      return null;
+    }
+    const path = join(this.#root, ...segments);
+    const source = await readPrivateFile(path, this.#anchorDirectory);
+    if (source === null) {
+      return null;
+    }
+    try {
+      return JSON.parse(source) as unknown;
+    } catch {
+      throw new AgentOpsError("EVIDENCE_INVALID", "Stored evidence is not valid JSON.");
+    }
   }
 }

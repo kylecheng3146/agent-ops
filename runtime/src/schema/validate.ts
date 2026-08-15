@@ -877,10 +877,13 @@ export function validateEvidence(
     "criterionId",
     "cwd",
     "exitCode",
+    "failureClass",
     "finishedAt",
     "schemaVersion",
     "scope",
+    "sourceFingerprint",
     "startedAt",
+    "status",
     "taskId",
     "testCount",
     "toolVersions"
@@ -972,6 +975,27 @@ export function validateEvidence(
       "$.configHash",
       "configHash must be a lowercase SHA-256 digest."
     );
+  }
+  if (
+    root.status !== "PASS" &&
+    root.status !== "FAIL" &&
+    root.status !== "UNKNOWN"
+  ) {
+    return failure("INVALID_STATUS", "$.status", "Unsupported verification status.");
+  }
+  if (
+    typeof root.failureClass !== "string" ||
+    root.failureClass.length === 0 ||
+    root.failureClass.length > 256 ||
+    root.failureClass.includes("\0")
+  ) {
+    return failure("INVALID_FAILURE_CLASS", "$.failureClass", "failureClass must be a bounded string.");
+  }
+  if (
+    typeof root.sourceFingerprint !== "string" ||
+    !HASH_PATTERN.test(root.sourceFingerprint)
+  ) {
+    return failure("INVALID_HASH", "$.sourceFingerprint", "sourceFingerprint must be a lowercase SHA-256 digest.");
   }
   return success(root as unknown as VerificationEvidence);
 }

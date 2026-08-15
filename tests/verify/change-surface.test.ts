@@ -16,6 +16,15 @@ function argvKey(args: readonly string[]): string {
   return JSON.stringify(args);
 }
 
+const STAGED_ARGS = [
+  "diff", "--cached", "--name-only", "--full-name", "--no-renames",
+  "--no-ext-diff", "--no-textconv", "-z"
+] as const;
+const UNSTAGED_ARGS = [
+  "diff", "--name-only", "--full-name", "--no-renames", "--no-ext-diff",
+  "--no-textconv", "-z"
+] as const;
+
 class FakeGitRunner implements GitRunner {
   readonly calls: string[][] = [];
   private readonly results: ReadonlyMap<string, GitRunResult>;
@@ -40,11 +49,11 @@ class FakeGitRunner implements GitRunner {
 test("collects staged, unstaged, and untracked paths without a shell", async () => {
   const runner = new FakeGitRunner([
     [
-      ["diff", "--cached", "--name-only", "-z"],
+      STAGED_ARGS,
       { exitCode: 0, stdout: nul("src/z.ts", "src/shared.ts") }
     ],
     [
-      ["diff", "--name-only", "-z"],
+      UNSTAGED_ARGS,
       {
         exitCode: 0,
         stdout: nul(
@@ -65,8 +74,8 @@ test("collects staged, unstaged, and untracked paths without a shell", async () 
   const surface = await collectChangeSurface(runner);
 
   assert.deepEqual(runner.calls, [
-    ["diff", "--cached", "--name-only", "-z"],
-    ["diff", "--name-only", "-z"],
+    STAGED_ARGS,
+    UNSTAGED_ARGS,
     ["ls-files", "--others", "--exclude-standard", "-z"]
   ]);
   assert.deepEqual(surface.staged, ["src/shared.ts", "src/z.ts"]);
@@ -144,7 +153,7 @@ test("rejects malformed or unsafe NUL-delimited Git output", async (t) => {
     await t.test(scenario.name, async () => {
       const runner = new FakeGitRunner([
         [
-          ["diff", "--cached", "--name-only", "-z"],
+          STAGED_ARGS,
           { exitCode: 0, stdout: scenario.stdout }
         ]
       ]);
@@ -161,7 +170,7 @@ test("rejects malformed or unsafe NUL-delimited Git output", async (t) => {
 test("fails closed when a Git command exits non-zero", async () => {
   const runner = new FakeGitRunner([
     [
-      ["diff", "--cached", "--name-only", "-z"],
+      STAGED_ARGS,
       { exitCode: 2, stdout: new Uint8Array() }
     ]
   ]);
