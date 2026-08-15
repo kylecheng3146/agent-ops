@@ -138,15 +138,10 @@ test("falls back to every required verifier when scope is unsafe", async (t) => 
   }
 });
 
-test("does not allow a fallback to select zero commands", () => {
-  assert.throws(
-    () =>
-      selectVerificationScope(
-        ["unknown/file.ts"],
-        config([], [command("optional", false)])
-      ),
-    (error: unknown) =>
-      error instanceof AgentOpsError &&
-      error.code === "VERIFICATION_SCOPE_EMPTY"
+test("allows a fallback with no required commands", () => {
+  const selected = selectVerificationScope(
+    ["unknown/file.ts"],
+    config([], [command("optional", false)])
   );
+  assert.deepEqual(selected.verifierIds, []);
 });

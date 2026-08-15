@@ -1,12 +1,19 @@
 import type { ReviewTargetId } from "../contracts.js";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   runVerificationCommand,
   type ProcessFailureClass,
   type VerificationProcessRunner
 } from "../verify/spawn.js";
-import { extractFinalMessage, extractJsonObject } from "./extract.js";
+import { extractReviewObject } from "./extract.js";
 import { buildTargetInvocation } from "./invocation.js";
-import type { ReviewCriterionResult } from "./result.js";
+import {
+  reviewReportResults,
+  reviewReportStatus,
+  validateReviewReport
+} from "./report.js";
 import { detectHostTarget, orderChain } from "./roles.js";
 import {
   buildReviewPrompt,
@@ -32,6 +39,50 @@ export interface ReviewExecutorOptions {
   readonly onProgress?: (message: string) => void;
 }
 
+const EXECUTION_ENV = [
+  "PATH", "PATHEXT", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC",
+  "LANG", "LC_ALL", "TERM", "TMPDIR", "TEMP", "TMP"
+] as const;
+
+const AUTH_ENV: Readonly<Record<ReviewTargetId, readonly string[]>> = {
+  claude: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+  codex: ["OPENAI_API_KEY"],
+  agy: ["AGY_API_KEY"]
+};
+
+export function isolatedReviewEnvironment(
+  target: ReviewTargetId,
+  directory: string,
+  source: Readonly<Record<string, string | undefined>>
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of [...EXECUTION_ENV, ...AUTH_ENV[target]]) {
+    const value = source[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+  env.HOME = directory;
+  env.USERPROFILE = directory;
+  env.XDG_CONFIG_HOME = join(directory, "config");
+  env.XDG_CACHE_HOME = join(directory, "cache");
+  return env;
+}
+
+/** Codex and agy currently lack documented instruction/customization isolation. */
+export function hasRequiredReviewIsolation(target: ReviewTargetId): boolean {
+  return target === "claude";
+}
+
+const REQUIRED_HELP_FLAGS: Readonly<Record<ReviewTargetId, readonly string[]>> = {
+  claude: [
+    "--add-dir", "--permission-mode", "--no-session-persistence",
+    "--safe-mode", "--disable-slash-commands", "--json-schema"
+  ],
+  codex: [],
+  agy: []
+};
+
 /**
  * Failure classes that mean no review happened, so trying the next target is
  * not review shopping. Everything else — including FAIL — is terminal.
@@ -41,57 +92,6 @@ const ADVANCING: ReadonlySet<ProcessFailureClass> = new Set([
   "spawn-failed",
   "timeout"
 ]);
-
-function statusOf(value: unknown): "FAIL" | "PASS" | undefined {
-  return value === "PASS" || value === "FAIL" ? value : undefined;
-}
-
-/**
- * The response must name every requested criterion exactly once, with at least
- * one non-blank evidence reference. A response that breaks the contract is
- * unparseable output, never a FAIL verdict: FAIL has to keep meaning "the
- * reviewer looked and judged it inadequate".
- */
-function parseResults(
-  payload: Record<string, unknown>,
-  expected: readonly string[]
-): readonly ReviewCriterionResult[] | undefined {
-  const raw = payload.results;
-  if (!Array.isArray(raw) || raw.length !== expected.length) {
-    return undefined;
-  }
-  const results: ReviewCriterionResult[] = [];
-  const seen = new Set<string>();
-  for (const entry of raw) {
-    if (typeof entry !== "object" || entry === null) {
-      return undefined;
-    }
-    const item = entry as Record<string, unknown>;
-    const criterionId = item.criterionId;
-    const status = statusOf(item.status);
-    if (
-      typeof criterionId !== "string" ||
-      status === undefined ||
-      !expected.includes(criterionId) ||
-      seen.has(criterionId) ||
-      !Array.isArray(item.evidence) ||
-      item.evidence.length === 0 ||
-      !item.evidence.every(
-        (reference) =>
-          typeof reference === "string" && reference.trim().length > 0
-      )
-    ) {
-      return undefined;
-    }
-    seen.add(criterionId);
-    results.push({
-      criterionId,
-      status,
-      evidence: item.evidence.map((reference) => String(reference))
-    });
-  }
-  return results;
-}
 
 /**
  * Builds the `execute` callback `runIndependentReview` expects: walk the
@@ -109,14 +109,25 @@ export function createReviewExecutor(
       (criterion) => criterion.id
     );
     const prompt = buildReviewPrompt(request.invocation);
+    const repositoryRoot = await realpath(options.cwd);
+    let unavailable = false;
     for (const [index, target] of chain.entries()) {
+      if (!hasRequiredReviewIsolation(target)) {
+        unavailable = true;
+        report(`${target}: required context-isolation controls unavailable → skipping`);
+        continue;
+      }
+      const attemptDirectory = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
+      try {
       const invocation = buildTargetInvocation({
         target,
         prompt,
+        repositoryRoot,
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.effort === undefined ? {} : { effort: options.effort })
       });
       if (invocation === undefined) {
+        unavailable = true;
         report(`${target}: no read-only mode available → skipping`);
         continue;
       }
@@ -125,43 +136,106 @@ export function createReviewExecutor(
           `${target}: reviewer == host; no independent target configured`
         );
       }
+      const environment = isolatedReviewEnvironment(
+        target,
+        attemptDirectory,
+        options.env ?? process.env
+      );
+      const capability = await runVerificationCommand(
+        {
+          id: `review-capability-${target}-${index}`,
+          command: invocation.command,
+          args: ["--help"],
+          cwd: attemptDirectory,
+          required: true,
+          evidence: { kind: "exit-code" },
+          timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS, 10_000)
+        },
+        {
+          cwd: attemptDirectory,
+          ...(options.runner === undefined ? {} : { runner: options.runner }),
+          env: environment,
+          replaceEnv: true
+        }
+      );
+      if (
+        capability.status !== "PASS" ||
+        capability.stdoutTruncated ||
+        capability.stderrTruncated ||
+        REQUIRED_HELP_FLAGS[target].some(
+          (flag) => !capability.stdout.includes(flag)
+        )
+      ) {
+        unavailable = true;
+        report(`${target}: required CLI capabilities unavailable → skipping`);
+        continue;
+      }
       const spawned = await runVerificationCommand(
         {
           id: `review-${target}-${index}`,
           command: invocation.command,
           args: [...invocation.args],
-          cwd: options.cwd,
+          cwd: attemptDirectory,
           required: true,
           evidence: { kind: "exit-code" },
           timeoutMs: options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS
         },
         {
-          cwd: options.cwd,
+          cwd: attemptDirectory,
           ...(options.runner === undefined ? {} : { runner: options.runner }),
           ...(options.outputLimitBytes === undefined
             ? {}
-            : { outputLimitBytes: options.outputLimitBytes })
+            : { outputLimitBytes: options.outputLimitBytes }),
+          stdin: invocation.stdin,
+          env: environment,
+          replaceEnv: true
         }
       );
       if (ADVANCING.has(spawned.failureClass)) {
         report(`${target}: ${spawned.failureClass} → trying next target`);
         continue;
       }
-      if (spawned.stdoutTruncated) {
-        return { status: "NOT_RUN", reason: "unparseable-output" };
+      if (spawned.stdoutTruncated || spawned.stderrTruncated) {
+        return { status: "NOT_RUN", reason: "output-too-large", harness: target };
       }
-      const message = extractFinalMessage(target, spawned.stdout);
-      const payload =
-        message === undefined ? undefined : extractJsonObject(message);
-      const results =
-        payload === undefined ? undefined : parseResults(payload, expected);
-      if (results === undefined) {
-        return { status: "NOT_RUN", reason: "unparseable-output" };
+      const payload = extractReviewObject(target, spawned.stdout);
+      const parsed = payload === undefined
+        ? undefined
+        : validateReviewReport(
+            payload,
+            expected,
+            request.invocation.scope?.changedFiles
+          );
+      if (parsed === undefined || !parsed.ok) {
+        return {
+          status: "NOT_RUN",
+          reason: parsed?.errors.some((error) => error.code === "INCOMPLETE_SCOPE")
+            ? "incomplete-scope"
+            : "unparseable-output",
+          harness: target,
+          ...(parsed === undefined ? {} : { validationErrors: parsed.errors })
+        };
       }
-      return results.every((result) => result.status === "PASS")
-        ? { status: "PASS", results }
-        : { status: "FAIL", results };
+      const reportValue = parsed.value;
+      const results = reviewReportResults(reportValue);
+      return {
+        status: reviewReportStatus(reportValue),
+        results,
+        report: reportValue,
+        harness: target,
+        independence: host === undefined
+          ? "unknown"
+          : host === target
+            ? "same-target"
+            : "different-target"
+      };
+      } finally {
+        await rm(attemptDirectory, { recursive: true, force: true });
+      }
     }
-    return { status: "NOT_RUN", reason: "missing-cli" };
+    return {
+      status: "NOT_RUN",
+      reason: unavailable ? "capability-unavailable" : "missing-cli"
+    };
   };
 }

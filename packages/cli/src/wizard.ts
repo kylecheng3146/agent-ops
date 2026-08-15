@@ -45,10 +45,10 @@ const REVIEW_TARGET_CHOICES: readonly SelectChoice<ReviewTargetId>[] =
     value: id,
     description:
       id === "codex"
-        ? "Runs with -s read-only; stdout is the bare final message."
+        ? "Retained for future isolation support; currently not auto-run."
         : id === "agy"
-          ? "Antigravity CLI; runs with --sandbox --mode plan."
-          : "Runs with --permission-mode plan; tried last when it is the host."
+          ? "Retained for future isolation support; currently not auto-run."
+          : "Runs in fresh safe mode with context isolation."
   }));
 
 function selectReviewTargets(raw: string): ReviewTargetId[] {

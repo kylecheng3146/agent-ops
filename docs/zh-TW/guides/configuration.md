@@ -36,18 +36,23 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 ```json
 {
   "reviewRoles": [
-    { "role": "independent-review", "targets": ["codex", "agy"] }
+    { "role": "independent-review", "targets": ["claude"] }
   ]
 }
 ```
 
-`targets` 是**有序的後備鏈**。支援的目標與其唯讀旗標：
+`targets` 是**有序的後備鏈**。每次 review 都鎖定 staged／unstaged／untracked
+變更（或乾淨的 `--base <ref>...HEAD`），並要求必要驗證的最新 PASS evidence；
+完整原生 schema report 會顯示給人看，但不會持久化。
+
+每次嘗試都從新的暫存 cwd 與最小環境啟動。目前只有 Claude 具備完整的
+context-isolation 合約，能自動執行：
 
 | 目標 | 呼叫方式 | 唯讀 |
 | --- | --- | --- |
-| `codex` | `codex exec` | `-s read-only` |
-| `agy`（Antigravity）| `agy -p` | `--sandbox --mode plan` |
-| `claude` | `claude -p` | `--permission-mode plan` |
+| `codex` | `codex exec` | 保留設定；`capability-unavailable` |
+| `agy`（Antigravity）| `agy -p` | 保留設定；`capability-unavailable` |
+| `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
 `opencode` **不是** review 目標，即使它是支援的 harness。它的 `--agent plan`
 會被判定為 subagent 而遭拒，並靜默退回可寫入的 agent，因此無法滿足唯讀前置
@@ -61,9 +66,11 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 若 host 是 Claude Code（`CLAUDECODE` 已設定），`claude` 會被移到鏈尾。
 當它是唯一設定的目標時仍會執行，並附上 `reviewer == host` 警告。
 
-criterion 描述來自當前 session 綁定的 task，所以 review 需要已附加的 task；
-`--criterion` 用來篩選這些 id。結果會以 `review:<target>:` 前綴附加到 task 的
-evidence，且僅在 task 為 active 時寫入 —— 已完成的 task 只印出，絕不改寫。
+criterion 描述來自當前 session 綁定的 task，所以 review 需要已附加、且建立時的
+policy 設定仍相同的 task；`--criterion` 用來篩選 id。請先執行
+`agent-ops verify`：必要 evidence 若失敗、過期或來源不符，review 會在 model 呼叫前停止。
+僅 compact PASS evidence 會以 `review:<target>:` 附加；完整人類可讀 report 是暫存的。
+已完成的 task 絕不改寫。
 
 每次執行 review 仍需 `--yes`：init 的勾選決定「允許哪些目標」，
 `--yes` 決定「現在是否要花錢」。

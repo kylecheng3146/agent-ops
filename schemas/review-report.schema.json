@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kylecheng3146/agent-ops/schemas/review-report.schema.json",
+  "title": "Agent Ops detailed independent review report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "results", "findings", "residualRisks", "changedFilesInspected", "supportingFilesInspected"],
+  "properties": {
+    "summary": { "$ref": "#/$defs/text" },
+    "results": { "type": "array", "items": { "$ref": "#/$defs/result" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "residualRisks": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "changedFilesInspected": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true },
+    "supportingFilesInspected": { "type": "array", "items": { "$ref": "#/$defs/path" }, "uniqueItems": true }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "[^\\s\\u0000]" },
+    "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$" },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["criterionId", "status", "summary", "evidence"],
+      "properties": {
+        "criterionId": { "$ref": "#/$defs/text" },
+        "status": { "enum": ["PASS", "FAIL"] },
+        "summary": { "$ref": "#/$defs/text" },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } }
+      }
+    },
+    "location": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": { "path": { "$ref": "#/$defs/path" }, "line": { "type": "integer", "minimum": 1 } }
+    },
+    "finding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["severity", "blocking", "title", "details", "locations", "evidence", "recommendation", "criterionIds"],
+      "properties": {
+        "severity": { "enum": ["critical", "important", "minor"] },
+        "blocking": { "type": "boolean" },
+        "title": { "$ref": "#/$defs/text" },
+        "details": { "$ref": "#/$defs/text" },
+        "locations": { "type": "array", "items": { "$ref": "#/$defs/location" } },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } },
+        "recommendation": { "$ref": "#/$defs/text" },
+        "criterionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+      }
+    }
+  }
+}

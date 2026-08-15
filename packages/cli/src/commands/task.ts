@@ -24,6 +24,7 @@ export interface TaskCommandOptions {
   readonly args: ParsedArgs;
   readonly service: TaskService;
   readonly sessionId?: string;
+  readonly policyConfigHash?: string;
 }
 
 export interface TaskCommandData {
@@ -164,7 +165,10 @@ export async function runTaskCommand(
       }
       const record = await options.service.create({
         title: options.args.title,
-        criteria: (options.args.criteria ?? []).map(parseCriterion)
+        criteria: (options.args.criteria ?? []).map(parseCriterion),
+        ...(options.policyConfigHash === undefined
+          ? {}
+          : { policyConfigHash: options.policyConfigHash })
       });
       return taskEnvelope(
         action,

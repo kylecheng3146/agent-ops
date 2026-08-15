@@ -170,7 +170,10 @@ export function aggregateVerificationStatus(
   results: readonly Pick<ConfiguredCommandExecution, "required" | "status">[]
 ): VerificationStatus {
   const required = results.filter((result) => result.required);
-  const gating = required.length > 0 ? required : results;
+  if (required.length === 0) {
+    return "PASS";
+  }
+  const gating = required;
   if (gating.some((result) => result.status === "FAIL")) {
     return "FAIL";
   }

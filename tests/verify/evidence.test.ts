@@ -72,6 +72,9 @@ test("builds validated evidence without retaining secret-bearing argv", () => {
     finishedAt: "2026-07-23T12:00:01.000Z",
     exitCode: 0,
     testCount: 2,
+    status: "PASS",
+    failureClass: "none",
+    sourceFingerprint: "b".repeat(64),
     toolVersions: {
       node: "v22.14.0",
       helper: `token=${SECRET}`,
@@ -103,8 +106,11 @@ test("persists validated evidence in an owner-only deterministic path", async ()
       scope: "project",
       startedAt: "2026-07-23T12:00:00.000Z",
       finishedAt: "2026-07-23T12:00:01.000Z",
-      exitCode: 0,
-      testCount: 2,
+    exitCode: 0,
+    testCount: 2,
+    status: "PASS",
+    failureClass: "none",
+    sourceFingerprint: "b".repeat(64),
       toolVersions: { node: "v22.14.0" },
       config: CONFIG
     });
@@ -140,7 +146,7 @@ test("rejects invalid evidence before persistence", async () => {
     const store = new FileEvidenceStore(root, root);
     await assert.rejects(
       store.save({
-        schemaVersion: 1,
+        schemaVersion: 2,
         taskId: "INVALID",
         criterionId: "criterion-one",
         commandId: "unit",
@@ -151,6 +157,9 @@ test("rejects invalid evidence before persistence", async () => {
         finishedAt: "2026-07-23T12:00:01.000Z",
         exitCode: 0,
         testCount: 1,
+        status: "PASS",
+        failureClass: "none",
+        sourceFingerprint: "b".repeat(64),
         toolVersions: { node: "v22.14.0" },
         configHash: "a".repeat(64)
       }),

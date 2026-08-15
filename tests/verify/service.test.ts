@@ -42,8 +42,9 @@ class SurfaceRunner implements GitRunner {
   async run(args: readonly string[]): Promise<GitRunResult> {
     return {
       exitCode: 0,
-      stdout:
-        args[0] === "diff" && args[1] === "--cached"
+      stdout: args[0] === "rev-parse"
+        ? Buffer.from(`${"a".repeat(40)}\n`)
+        : args[0] === "diff" && args[1] === "--cached"
           ? nul(this.#path)
           : new Uint8Array()
     };

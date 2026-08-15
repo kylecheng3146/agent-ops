@@ -5,6 +5,7 @@ import {
   runIndependentReview,
   type ReviewInvocation
 } from "../../runtime/src/review/runner.js";
+import { reportFor } from "./report-fixture.js";
 
 const invocation: ReviewInvocation = {
   harness: "codex",
@@ -36,11 +37,13 @@ test("review execution requires explicit authorization and read-only mode", asyn
   const result = await runIndependentReview({
     invocation,
     authorized: false,
-    execute: async ({ readOnly }) => {
+    execute: async (request) => {
+      const { readOnly } = request;
       calls.push({ readOnly });
       return {
         status: "PASS",
-        results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }]
+        results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+        report: reportFor(request.invocation.packet.criteria)
       };
     }
   });
@@ -50,11 +53,13 @@ test("review execution requires explicit authorization and read-only mode", asyn
   const authorized = await runIndependentReview({
     invocation,
     authorized: true,
-    execute: async ({ readOnly }) => {
+    execute: async (request) => {
+      const { readOnly } = request;
       calls.push({ readOnly });
       return {
         status: "PASS",
-        results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }]
+        results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+        report: reportFor(request.invocation.packet.criteria)
       };
     }
   });
@@ -69,7 +74,16 @@ test("review evidence is redacted and safe for human or JSON output", async () =
     authorized: true,
     execute: async () => ({
       status: "PASS",
-      results: [{ criterionId: "tests", status: "PASS", evidence: [sensitive] }]
+      results: [{ criterionId: "tests", status: "PASS", evidence: [sensitive] }],
+      report: {
+        ...reportFor(invocation.packet.criteria),
+        results: [{
+          criterionId: "tests",
+          status: "PASS",
+          summary: "Reviewed.",
+          evidence: [sensitive]
+        }]
+      }
     })
   });
   assert.equal(result.status, "PASS");

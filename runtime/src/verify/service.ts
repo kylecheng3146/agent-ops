@@ -13,6 +13,12 @@ import {
   type GitRunner
 } from "./change-surface.js";
 import {
+  resolveReviewScope,
+  reviewScopeSignature,
+  type ReviewScope
+} from "../review/scope.js";
+import { calculateSourceFingerprint } from "./source-fingerprint.js";
+import {
   buildVerificationEvidence,
   type FileEvidenceStore
 } from "./evidence.js";
@@ -45,6 +51,7 @@ export interface VerificationServiceOptions {
   readonly trusted: boolean;
   readonly now?: () => string;
   readonly toolVersions?: Readonly<Record<string, string>>;
+  readonly base?: string;
 }
 
 export interface VerificationCommandReport {
@@ -57,6 +64,8 @@ export interface VerificationCommandReport {
   readonly testCount: number | null;
   readonly diagnostic: string;
   readonly evidenceReferences: readonly string[];
+  readonly startedAt: string;
+  readonly finishedAt: string;
 }
 
 export interface VerificationReport {
@@ -66,6 +75,8 @@ export interface VerificationReport {
   readonly selection: ScopeSelection;
   readonly results: readonly VerificationCommandReport[];
   readonly signal: FailureApproachSignal;
+  readonly reviewScope: ReviewScope;
+  readonly sourceFingerprint: string;
 }
 
 function verificationError(
@@ -137,8 +148,8 @@ export class VerificationService {
     command: VerificationCommand,
     startedAt: string,
     finishedAt: string,
-    result: Pick<ConfiguredCommandExecution, "testCount">,
-    exitCode: number | null
+    result: Pick<ConfiguredCommandExecution, "testCount" | "status" | "failureClass" | "exitCode">,
+    sourceFingerprint: string
   ): Promise<string[]> {
     const references: string[] = [];
     for (const criterion of relevantCriteria(task, command.id)) {
@@ -149,8 +160,11 @@ export class VerificationService {
         scope: this.#options.scope,
         startedAt,
         finishedAt,
-        exitCode,
+        exitCode: result.exitCode,
         testCount: result.testCount,
+        status: result.status,
+        failureClass: result.failureClass,
+        sourceFingerprint,
         toolVersions: this.#options.toolVersions ?? {},
         config: this.#options.config
       });
@@ -191,14 +205,6 @@ export class VerificationService {
         });
     const finishedAt = (this.#options.now ?? (() =>
       new Date().toISOString()))();
-    const evidenceReferences = await this.#persistEvidence(
-      task,
-      command,
-      startedAt,
-      finishedAt,
-      result,
-      result.exitCode
-    );
     return {
       commandId: command.id,
       required: command.required,
@@ -208,7 +214,9 @@ export class VerificationService {
       timedOut: result.timedOut,
       testCount: result.testCount,
       diagnostic: fingerprint?.diagnostics ?? "",
-      evidenceReferences
+      evidenceReferences: [],
+      startedAt,
+      finishedAt
     };
   }
 
@@ -232,9 +240,20 @@ export class VerificationService {
       );
     }
 
-    const surface = await collectChangeSurface(
+    const reviewScope = await resolveReviewScope({
+      root: this.#options.root,
+      runner: this.#options.gitRunner,
+      ...(this.#options.base === undefined ? {} : { base: this.#options.base })
+    });
+    const sourceFingerprint = await calculateSourceFingerprint(
+      this.#options.root,
+      reviewScope,
       this.#options.gitRunner
     );
+    const worktreeSurface = reviewScope.mode === "worktree"
+      ? await collectChangeSurface(this.#options.gitRunner)
+      : { staged: [], unstaged: [], untracked: [], paths: reviewScope.changedFiles };
+    const surface = worktreeSurface;
     const selection = selectVerificationScope(
       surface.paths,
       this.#options.config
@@ -249,21 +268,80 @@ export class VerificationService {
       );
     }
 
-    const status = aggregateVerificationStatus(results);
+    let status = aggregateVerificationStatus(results);
+    let sourceChanged = false;
+    const postflightScope = await resolveReviewScope({
+      root: this.#options.root,
+      runner: this.#options.gitRunner,
+      ...(this.#options.base === undefined ? {} : { base: this.#options.base })
+    });
+    const postflightFingerprint = await calculateSourceFingerprint(
+      this.#options.root,
+      postflightScope,
+      this.#options.gitRunner
+    );
+    if (
+      reviewScopeSignature(reviewScope) !== reviewScopeSignature(postflightScope) ||
+      sourceFingerprint !== postflightFingerprint
+    ) {
+      status = "UNKNOWN";
+      sourceChanged = true;
+    }
     let signal: FailureApproachSignal = null;
     if (status === "PASS") {
+      const taskEvidence: Record<string, string[]> = {};
+      for (const [index, result] of results.entries()) {
+        const command = commandById(this.#options.config, result.commandId);
+        const references = await this.#persistEvidence(
+          validation.value,
+          command,
+          result.startedAt,
+          result.finishedAt,
+          result,
+          sourceFingerprint
+        );
+        results[index] = { ...result, evidenceReferences: references };
+        for (const [criterionIndex, criterion] of relevantCriteria(
+          validation.value,
+          result.commandId
+        ).entries()) {
+          const reference = references[criterionIndex];
+          if (reference !== undefined) {
+            taskEvidence[criterion.id] = [
+              ...(taskEvidence[criterion.id] ?? []),
+              reference
+            ];
+          }
+        }
+      }
+      if (Object.keys(taskEvidence).length > 0) {
+        await this.#options.taskService.recordEvidence(taskId, taskEvidence);
+      }
       await this.#options.taskService.clearFailure(taskId);
     } else {
       const required = results.filter((result) => result.required);
-      const gating = required.length > 0 ? required : results;
+      const gating = required;
       const failed = gating.find(
         (result) => result.status !== "PASS"
       );
       if (failed === undefined) {
-        throw verificationError(
-          "VERIFICATION_RESULT_INVALID",
-          "Verification failed without a gating result."
+        if (!sourceChanged) {
+          throw verificationError(
+            "VERIFICATION_RESULT_INVALID",
+            "Verification failed without a required result."
+          );
+        }
+        const advanced = await this.#options.taskService.recordFailure(
+          taskId,
+          createFailureFingerprint({
+            commandId: "source-snapshot",
+            failureClass: "source-changed-during-verification",
+            exitCategory: "no-exit",
+            diagnostics: "source changed during verification"
+          })
         );
+        signal = advanced.signal;
+        return { taskId, status, surface, selection, results, signal, reviewScope, sourceFingerprint };
       }
       const advanced =
         await this.#options.taskService.recordFailure(
@@ -284,7 +362,9 @@ export class VerificationService {
       surface,
       selection,
       results,
-      signal
+      signal,
+      reviewScope,
+      sourceFingerprint
     };
   }
 }

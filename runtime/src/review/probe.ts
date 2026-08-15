@@ -3,8 +3,15 @@ import {
   type VerificationProcessRunner
 } from "../verify/spawn.js";
 import type { ReviewTargetId } from "../contracts.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { extractFinalMessage } from "./extract.js";
-import { buildTargetInvocation } from "./invocation.js";
+import {
+  hasRequiredReviewIsolation,
+  isolatedReviewEnvironment
+} from "./execute.js";
+import { buildProbeInvocation } from "./invocation.js";
 
 export type ReviewTargetProbeResult =
   | "ineligible"
@@ -43,24 +50,38 @@ export async function probeReviewTarget(
   target: ReviewTargetId,
   options: ReviewTargetProbeOptions
 ): Promise<ReviewTargetProbeResult> {
-  const invocation = buildTargetInvocation({ target, prompt: PROBE_PROMPT });
+  const deep = options.deep === true;
+  if (deep && !hasRequiredReviewIsolation(target)) {
+    return "ineligible";
+  }
+  const invocation = buildProbeInvocation({ target, prompt: PROBE_PROMPT });
   if (invocation === undefined) {
     return "ineligible";
   }
-  const deep = options.deep === true;
+  const directory = deep
+    ? await mkdtemp(join(tmpdir(), "agent-ops-review-probe-"))
+    : options.cwd;
+  try {
   const spawned = await runVerificationCommand(
     {
       id: `review-probe-${target}`,
       command: invocation.command,
       args: deep ? [...invocation.args] : ["--version"],
-      cwd: options.cwd,
+      cwd: directory,
       required: true,
       evidence: { kind: "exit-code" },
       timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS
     },
     {
-      cwd: options.cwd,
-      ...(options.runner === undefined ? {} : { runner: options.runner })
+      cwd: directory,
+      ...(options.runner === undefined ? {} : { runner: options.runner }),
+      ...(deep
+        ? {
+            stdin: invocation.stdin,
+            env: isolatedReviewEnvironment(target, directory, process.env),
+            replaceEnv: true
+          }
+        : {})
     }
   );
   if (spawned.failureClass === "missing-executable") {
@@ -76,4 +97,9 @@ export async function probeReviewTarget(
     extractFinalMessage(target, spawned.stdout) !== undefined
     ? "ok"
     : "unauthenticated";
+  } finally {
+    if (deep) {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 }

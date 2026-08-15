@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,8 +7,39 @@ import test from "node:test";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { runReviewCommand } from "../../packages/cli/src/commands/review.js";
 import type { ReviewExecutionRequest } from "../../runtime/src/review/runner.js";
+import { reportFor } from "../review/report-fixture.js";
 import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
+import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
+import type { GitRunner } from "../../runtime/src/verify/change-surface.js";
+import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fingerprint.js";
+import { buildVerificationEvidence, calculateConfigHash, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
+import { validateEvidence } from "../../runtime/src/schema/validate.js";
+
+const REVIEW_CONFIG: AgentOpsConfig = {
+  schemaVersion: 2,
+  profiles: ["core"],
+  verification: { commands: [
+    { id: "unit", command: "node", args: ["--test"], cwd: ".", required: true, evidence: { kind: "exit-code" } },
+    { id: "optional", command: "node", args: ["--check"], cwd: ".", required: false, evidence: { kind: "exit-code" } }
+  ] },
+  features: { stopVerification: { enabled: false } },
+  pathMappings: [],
+  securityExceptions: []
+};
+
+function reviewGitRunner(): GitRunner {
+  return {
+    run: async (args) => ({
+      exitCode: 0,
+      stdout: args[0] === "rev-parse"
+        ? Buffer.from(`${"a".repeat(40)}\n`)
+        : args[0] === "diff" && args[1] === "--cached"
+          ? Buffer.from("src/reviewed.ts\0")
+          : new Uint8Array()
+    })
+  };
+}
 
 const SESSION = "session-review";
 
@@ -56,7 +87,8 @@ function passing(request: ReviewExecutionRequest) {
       criterionId: criterion.id,
       status: "PASS" as const,
       evidence: [`inspected ${criterion.id}`]
-    }))
+    })),
+    report: reportFor(request.invocation.packet.criteria)
   };
 }
 
@@ -81,7 +113,7 @@ test("criterion descriptions and verifiers come from the bound task", async () =
     );
     assert.deepEqual(seen?.invocation.packet.criteria[0]?.verifierIds, ["unit"]);
     assert.match(envelope.data?.result.prompt ?? "", /The test suite passes\./);
-    assert.match(envelope.data?.result.prompt ?? "", /machine-verified by: unit/);
+    assert.match(envelope.data?.result.prompt ?? "", /BEGIN_TASK_DATA/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -226,6 +258,180 @@ test("a not-run review points the operator at doctor", async () => {
     });
     assert.equal(envelope.status, "error");
     assert.match(envelope.data?.text ?? "", /agent-ops doctor --check-auth/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("review requires current PASS evidence before it spawns", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "reviewed.ts"), "export {}\n");
+    const tasks = service(root);
+    const record = await tasks.create({
+      title: "Review verified source",
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      criteria: [
+        { id: "unit", description: "Unit tests pass.", verifierIds: ["unit"] },
+        { id: "scope", description: "Review scope is exact.", verifierIds: ["unit", "optional"] }
+      ]
+    });
+    await tasks.attach(SESSION, record.task.id);
+    const gitRunner = reviewGitRunner();
+    const scope = { mode: "worktree" as const, changedFiles: ["src/reviewed.ts"] };
+    const evidenceStore = new FileEvidenceStore(root, root);
+    const fingerprint = await calculateSourceFingerprint(root, scope, gitRunner);
+    const reference = await evidenceStore.save(buildVerificationEvidence({
+      taskId: record.task.id,
+      criterionId: "unit",
+      command: REVIEW_CONFIG.verification.commands[0]!,
+      scope: "project",
+      startedAt: "2026-08-12T03:00:00.000Z",
+      finishedAt: "2026-08-12T03:00:01.000Z",
+      exitCode: 0,
+      testCount: null,
+      status: "PASS",
+      failureClass: "none",
+      sourceFingerprint: fingerprint,
+      toolVersions: {},
+      config: REVIEW_CONFIG
+    }));
+    const scopeReference = await evidenceStore.save(buildVerificationEvidence({
+      taskId: record.task.id,
+      criterionId: "scope",
+      command: REVIEW_CONFIG.verification.commands[0]!,
+      scope: "project",
+      startedAt: "2026-08-12T03:00:00.000Z",
+      finishedAt: "2026-08-12T03:00:01.000Z",
+      exitCode: 0,
+      testCount: null,
+      status: "PASS",
+      failureClass: "none",
+      sourceFingerprint: fingerprint,
+      toolVersions: {},
+      config: REVIEW_CONFIG
+    }));
+    const optionalReference = await evidenceStore.save(buildVerificationEvidence({
+      taskId: record.task.id,
+      criterionId: "scope",
+      command: REVIEW_CONFIG.verification.commands[1]!,
+      scope: "project",
+      startedAt: "2026-08-12T03:00:00.000Z",
+      finishedAt: "2026-08-12T03:00:02.000Z",
+      exitCode: 1,
+      testCount: null,
+      status: "FAIL",
+      failureClass: "nonzero-exit",
+      sourceFingerprint: fingerprint,
+      toolVersions: {},
+      config: REVIEW_CONFIG
+    }));
+    await tasks.recordEvidence(record.task.id, {
+      unit: [reference],
+      scope: [scopeReference, optionalReference]
+    });
+    const loaded = validateEvidence(await evidenceStore.load(reference));
+    assert.equal(loaded.ok, true);
+    let calls = 0;
+    const passed = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async (request) => {
+        calls += 1;
+        return {
+          status: "PASS" as const,
+          results: [],
+          report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"])
+        };
+      }
+    });
+    assert.equal(passed.status, "ok", passed.data?.result.reason ?? "missing reason");
+    assert.equal(calls, 1);
+    assert.deepEqual(passed.data?.result.verification?.commands, [
+      { criterionId: "unit", commandId: "unit", required: true, status: "PASS", evidenceReference: reference },
+      { criterionId: "scope", commandId: "unit", required: true, status: "PASS", evidenceReference: scopeReference },
+      { criterionId: "scope", commandId: "optional", required: false, status: "FAIL", evidenceReference: optionalReference }
+    ]);
+
+    const unsafeSupportingPath = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async (request) => ({
+        status: "PASS" as const,
+        results: [],
+        report: {
+          ...reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"]),
+          supportingFilesInspected: ["missing-supporting.ts"]
+        }
+      })
+    });
+    assert.equal(unsafeSupportingPath.data?.result.reason, "unsafe-review-path");
+
+    const referencesBeforeSourceChange = await tasks.status({ sessionId: SESSION });
+    const sourceChanged = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async (request) => {
+        calls += 1;
+        await writeFile(join(root, "src", "reviewed.ts"), "export const changed = true\n");
+        return {
+          status: "PASS" as const,
+          results: [],
+          report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"])
+        };
+      }
+    });
+    assert.equal(sourceChanged.data?.result.reason, "source-changed-during-review");
+    assert.equal(sourceChanged.data?.result.report, undefined);
+    assert.deepEqual(
+      (await tasks.status({ sessionId: SESSION })).evidence,
+      referencesBeforeSourceChange.evidence
+    );
+    await writeFile(join(root, "src", "reviewed.ts"), "export {}\n");
+
+    const contradictoryReference = await evidenceStore.save(buildVerificationEvidence({
+      taskId: record.task.id,
+      criterionId: "unit",
+      command: REVIEW_CONFIG.verification.commands[0]!,
+      scope: "project",
+      startedAt: "2026-08-12T03:00:03.000Z",
+      finishedAt: "2026-08-12T03:00:03.000Z",
+      exitCode: 1,
+      testCount: null,
+      status: "PASS",
+      failureClass: "nonzero-exit",
+      sourceFingerprint: fingerprint,
+      toolVersions: {},
+      config: REVIEW_CONFIG
+    }));
+    await tasks.recordEvidence(record.task.id, { unit: [contradictoryReference] });
+    const contradictory = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async () => {
+        calls += 1;
+        return { status: "NOT_RUN" as const, reason: "missing-cli" as const };
+      }
+    });
+    assert.equal(contradictory.data?.result.reason, "verification-not-passed");
+    assert.equal(calls, 2);
+
+    const stale = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: { ...REVIEW_CONFIG, profiles: ["loop"] },
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async () => {
+        calls += 1;
+        return { status: "NOT_RUN" as const, reason: "missing-cli" as const };
+      }
+    });
+    assert.equal(stale.data?.result.reason, "stale-verification");
+    assert.equal(calls, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

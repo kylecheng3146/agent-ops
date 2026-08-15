@@ -265,10 +265,15 @@ the project configuration defines those workflows.
 
 `agent-ops review` can hand the review to another agent CLI, so the work is not
 judged by the agent that produced it. Enable it during `agent-ops init` (the
-default is off) and pick an ordered fallback chain of targets: `codex`, `agy`
-(Antigravity), and `claude`. Each is launched with its own read-only flag, and a
-target without one is skipped rather than run unsandboxed — which is why
-`opencode` is not a review target despite being a supported harness.
+default is off). Reviews require an attached task, current required
+verification evidence, and a deterministic worktree (or `--base`) scope. The
+native-schema detailed report is displayed but not persisted.
+
+Each attempt uses a fresh temporary cwd, a small allowlisted environment, and a
+target-native read-only/context-isolation mode. Currently only Claude safe mode
+meets the full isolation contract; configured Codex and Agy entries return
+`capability-unavailable` rather than run with a weaker boundary. `opencode` is
+not a review target.
 
 The first target that actually runs produces the verdict. A `FAIL` is final:
 the chain never retries elsewhere after a real verdict. `--yes` is still

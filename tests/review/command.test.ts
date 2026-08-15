@@ -12,10 +12,10 @@ test("review command returns an error envelope when review is not run", async ()
   assert.equal(envelope.status, "error");
   assert.equal(envelope.code, "REVIEW_NOT_RUN");
   assert.equal(envelope.data?.result.status, "NOT_RUN");
-  assert.match(envelope.data?.text ?? "", /missing-cli|authorization-required/);
+  assert.match(envelope.data?.text ?? "", /no-task-context/);
 });
 
-test("review command resolves configured role harness and model", async () => {
+test("review command resolves configured role metadata before task-context failure", async () => {
   const envelope = await runReviewCommand({
     args: parseArgs(["review", "--yes", "--criterion", "review"]),
     authorized: true,
@@ -26,15 +26,8 @@ test("review command resolves configured role harness and model", async () => {
       model: "review-model",
       effort: "high"
     }],
-    execute: async () => ({
-      status: "PASS",
-      results: [{
-        criterionId: "review",
-        status: "PASS" as const,
-        evidence: ["review-output"]
-      }]
-    })
+    execute: async () => { throw new Error("must not execute without a task"); }
   });
-  assert.equal(envelope.status, "ok");
+  assert.equal(envelope.status, "error");
   assert.match(envelope.data?.text ?? "", /claude|review-model|high/);
 });

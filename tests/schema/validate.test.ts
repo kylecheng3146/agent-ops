@@ -648,7 +648,7 @@ test("JSON Schema documents expose the same top-level versioned fields", async (
   const cases = [
     ["config.schema.json", "valid-config.json", 2],
     ["task.schema.json", "valid-task.json", 1],
-    ["evidence.schema.json", "valid-evidence.json", 1],
+    ["evidence.schema.json", "valid-evidence.json", 2],
     ["manifest.schema.json", "valid-manifest.json", 2]
   ] as const;
 

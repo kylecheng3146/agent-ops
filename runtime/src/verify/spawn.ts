@@ -26,6 +26,8 @@ export interface ProcessRequest {
   readonly cwd: string;
   readonly shell: boolean;
   readonly env?: Readonly<Record<string, string>>;
+  readonly replaceEnv?: boolean;
+  readonly stdin?: string;
 }
 
 export interface ProcessCompletion {
@@ -58,6 +60,9 @@ export interface RunVerificationCommandOptions {
   readonly cwd: string;
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string>>;
+  /** Use exactly `env` instead of inheriting the parent process environment. */
+  readonly replaceEnv?: boolean;
+  readonly stdin?: string;
   readonly now?: () => number;
   readonly outputLimitBytes?: number;
   readonly terminationGraceMs?: number;
@@ -276,13 +281,17 @@ implements VerificationProcessRunner {
       cwd: request.cwd,
       detached: this.#platform !== "win32",
       env: {
-        ...process.env,
+        ...(request.replaceEnv === true ? {} : process.env),
         ...(request.env ?? {})
       },
       shell: request.shell,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [request.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true
     });
+    if (request.stdin !== undefined && child.stdin !== null) {
+      child.stdin.on("error", () => {});
+      child.stdin.end(request.stdin);
+    }
     let settled = false;
     const completion = new Promise<ProcessCompletion>((resolve) => {
       child.once("error", (error: Error & { code?: string }) => {
@@ -433,7 +442,9 @@ export async function runVerificationCommand(
       args: [...command.args],
       cwd: options.cwd,
       shell: command.shell === true,
-      ...(options.env === undefined ? {} : { env: options.env })
+      ...(options.env === undefined ? {} : { env: options.env }),
+      ...(options.replaceEnv === true ? { replaceEnv: true } : {}),
+      ...(options.stdin === undefined ? {} : { stdin: options.stdin })
     });
   } catch {
     return emptyResult(

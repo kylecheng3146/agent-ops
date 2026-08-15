@@ -59,6 +59,7 @@ export interface ParsedArgs {
   criteria?: string[];
   evidence?: string[];
   sessionId?: string;
+  base?: string;
   dryRun: boolean;
   json: boolean;
   yes: boolean;
@@ -145,6 +146,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let targetVersion: string | undefined;
   let title: string | undefined;
   let sessionId: string | undefined;
+  let base: string | undefined;
   const profiles: Profile[] = [];
   const reviewTargets: ReviewTargetId[] = [];
   const criteria: string[] = [];
@@ -257,6 +259,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(token);
         }
         sessionId = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--base": {
+        if (base !== undefined) {
+          duplicate(token);
+        }
+        base = readOptionValue(argv, index, token);
         index += 1;
         break;
       }
@@ -378,6 +388,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       evidence.length > 0 ||
       reviewTargets.length > 0 ||
       sessionId !== undefined ||
+      base !== undefined ||
       checkAuth ||
       dryRun ||
       yes
@@ -429,6 +440,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "--target-version may be used only with update."
+    );
+  }
+  if (base !== undefined && command !== "verify" && command !== "review") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--base may be used only with verify or review."
     );
   }
   if (
@@ -504,6 +521,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       evidence.length > 0 ||
       dryRun ||
       yes ||
+      base !== undefined ||
       (taskId !== undefined && sessionId !== undefined))
   ) {
     throw new CliArgumentError(
@@ -538,6 +556,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(evidence.length === 0 ? {} : { evidence }),
     ...(sessionId === undefined ? {} : { sessionId }),
+    ...(base === undefined ? {} : { base }),
     ...(checkAuth ? { checkAuth } : {}),
     dryRun,
     json,

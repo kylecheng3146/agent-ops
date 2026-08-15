@@ -41,19 +41,25 @@ Enable it during `agent-ops init`, or by hand:
 ```json
 {
   "reviewRoles": [
-    { "role": "independent-review", "targets": ["codex", "agy"] }
+    { "role": "independent-review", "targets": ["claude"] }
   ]
 }
 ```
 
-`targets` is an **ordered fallback chain**. Supported targets and the read-only
-flags they are launched with:
+`targets` is an **ordered fallback chain**. Every review locks to the
+staged/unstaged/untracked surface (or a clean `--base <ref>...HEAD` range),
+requires fresh PASS evidence for required checks, and prints a complete native
+schema report without persisting it.
+
+Every attempt starts from a fresh temporary cwd with a narrow environment. The
+following target identities may be configured; only Claude currently meets the
+complete context-isolation contract and can execute automatically:
 
 | Target | Invocation | Read-only |
 | --- | --- | --- |
-| `codex` | `codex exec` | `-s read-only` |
-| `agy` (Antigravity) | `agy -p` | `--sandbox --mode plan` |
-| `claude` | `claude -p` | `--permission-mode plan` |
+| `codex` | `codex exec` | retained; `capability-unavailable` |
+| `agy` (Antigravity) | `agy -p` | retained; `capability-unavailable` |
+| `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
 `opencode` is **not** a review target even though it is a supported harness.
 Its `--agent plan` is rejected as a subagent and silently falls back to a
@@ -72,9 +78,11 @@ of the chain. It still runs when it is the only configured target, with a
 `reviewer == host` warning.
 
 Criterion descriptions come from the task bound to the current session, so a
-review needs an attached task; `--criterion` filters those ids. Results are
-appended to the task's evidence with a `review:<target>:` prefix, and only
-while the task is active — a completed task is printed, never rewritten.
+review needs an attached task created under the current policy configuration;
+`--criterion` filters those ids. Run `agent-ops verify` first: review rejects
+stale, failed, or source-mismatched required evidence before any model call.
+Compact PASS evidence is appended with a `review:<target>:` prefix; the full
+human-readable report is transient. Completed tasks are never rewritten.
 
 `--yes` is still required for every review run: init selection decides which
 targets are permitted, `--yes` decides whether to spend money now.

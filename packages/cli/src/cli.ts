@@ -60,6 +60,7 @@ Options:
   --criterion <json>                    Repeatable
   --evidence <criterion-id=reference>   Repeatable
   --session <id>
+  --base <git-ref>                    Verify/review a clean committed range
   --dry-run
   --json
   --yes
