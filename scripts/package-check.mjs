@@ -11,17 +11,19 @@ const packJson = join(root, "pack.json");
 const consumer = join(root, "consumer");
 const isolatedHome = join(root, "home");
 await mkdir(isolatedHome, { recursive: true });
+const childEnv = { ...process.env };
+// npm run forwards allow-scripts as a CLI flag, which project installs reject.
+delete childEnv.npm_config_allow_scripts;
+delete childEnv.NPM_CONFIG_ALLOW_SCRIPTS;
+childEnv.npm_config_cache = join(root, "npm-cache");
+childEnv.AGENT_OPS_HOME = isolatedHome;
 
 function run(command, args, options = {}) {
   return execFileSync(command, args, {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      ...process.env,
-      npm_config_cache: join(root, "npm-cache"),
-      AGENT_OPS_HOME: isolatedHome
-    },
+    env: childEnv,
     ...options,
     shell: process.platform === "win32" && command === npm
   });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -78,20 +78,23 @@ try {
     consumer,
     tarball
   ]);
-  installed = join(
+  const installedPackage = join(
     consumer,
     "node_modules",
     "@kylecheng3146",
-    "agent-ops",
-    "dist",
-    "packages",
-    "cli",
-    "src",
-    "bin.js"
+    "agent-ops"
   );
+  installed = join(installedPackage, "dist", "packages", "cli", "src", "bin.js");
 
+  const packageManifest = JSON.parse(
+    await readFile(join(installedPackage, "package.json"), "utf8")
+  );
   const version = probe(["--version"], { cwd: consumer });
-  if (version.status !== 0 || !version.output.includes("0.1.7")) {
+  if (
+    typeof packageManifest.version !== "string" ||
+    version.status !== 0 ||
+    !version.output.includes(packageManifest.version)
+  ) {
     throw new Error(`Installed --version failed: ${version.output}`);
   }
   assertJson(
