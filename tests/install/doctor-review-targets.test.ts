@@ -99,9 +99,11 @@ test("a missing executable fails with install-or-remove guidance", async () => {
     results: { codex: "missing-executable" }
   });
   assert.equal(check.status, "FAIL");
-  assert.equal(check.code, "UPDATE_REQUIRED");
+  // review-targets fixes are `<target> login`, installing the executable, or
+  // a config edit — never `agent-ops update` — so it carries no code.
+  assert.equal(check.code, undefined);
   assert.match(check.message, /codex not found/);
-  assert.match(check.message, /reviewRoles\[\]\.targets/);
+  assert.match(check.remediation ?? "", /reviewRoles\[\]\.targets/);
 });
 
 test("--check-auth turns an unauthenticated target into a FAIL with the login command", async () => {
@@ -112,8 +114,9 @@ test("--check-auth turns an unauthenticated target into a FAIL with the login co
     recorded
   });
   assert.equal(check.status, "FAIL");
+  assert.equal(check.code, undefined);
   assert.match(check.message, /agy is installed but not authenticated/);
-  assert.match(check.message, /agy login/);
+  assert.match(check.remediation ?? "", /agy login/);
   assert.deepEqual(recorded.probed, ["agy"]);
 });
 

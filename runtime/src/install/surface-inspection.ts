@@ -31,6 +31,7 @@ export interface HarnessSurfaceStatus {
   readonly status: "managed" | "foreign" | "missing" | "unknown";
   readonly managedHandlerCount: number;
   readonly foreignHandlerCount: number;
+  readonly reason?: string;
 }
 
 export interface SurfaceInspectionOptions {
@@ -382,7 +383,8 @@ export async function inspectHarnessSurfaces(
           path: surface.path,
           status: "unknown",
           managedHandlerCount: 0,
-          foreignHandlerCount: 0
+          foreignHandlerCount: 0,
+          reason: "Outside the installation root; not inspected by design."
         });
         continue;
       }
@@ -395,7 +397,10 @@ export async function inspectHarnessSurfaces(
             path: surface.path,
             status: "missing",
             managedHandlerCount: 0,
-            foreignHandlerCount: 0
+            foreignHandlerCount: 0,
+            ...(surface.access === "inspect-only"
+              ? { reason: "Optional file that agent-ops never writes." }
+              : {})
           });
           continue;
         }

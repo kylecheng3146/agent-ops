@@ -203,7 +203,16 @@ alters an intact path-independent managed rules artifact,
 `artifact-staleness` reports `DEGRADED` with `UPDATE_REQUIRED`. `agent-ops
 update` regenerates the artifact and clears that result; a missing or
 hash-mismatched artifact remains an `artifacts` `FAIL`. Without the new trust
-grant, trust-gated hooks remain stale. Stop is report-only: it continues the
+grant, trust-gated hooks remain stale.
+
+Doctor never writes, and some findings have no fix: a surface outside the
+installation root, or a capability a harness only partially supports by
+descriptor declaration (opencode's `lifecycle-summary`, for example), report
+`UNKNOWN` or `DEGRADED` permanently and exit 0. CI that wants automatic
+repair calls `agent-ops update` / `agent-ops trust grant` directly rather
+than parsing doctor's output.
+
+Stop is report-only: it continues the
 harness for `PASS`, `FAIL`, or `UNKNOWN`, emits only bounded command ID, exit
 code, test-count, config-hash, and timestamp evidence, and never completes a
 task. Config v1 migrates deterministically to v2 with Stop disabled; old

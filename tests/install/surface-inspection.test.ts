@@ -64,6 +64,11 @@ test("inventories managed, foreign, missing, and external surfaces without value
     );
     assert.equal(byKey.get("claude/project-local")?.status, "missing");
     assert.equal(byKey.get("claude/user-settings")?.status, "unknown");
+    assert.equal(byKey.get("claude/claude-settings")?.reason, undefined);
+    assert.match(
+      byKey.get("claude/user-settings")?.reason ?? "",
+      /outside the installation root/i
+    );
     assert.deepEqual(
       byKey.get("codex/codex-hooks"),
       {
@@ -76,6 +81,11 @@ test("inventories managed, foreign, missing, and external surfaces without value
       }
     );
     assert.equal(byKey.get("opencode/opencode-plugin")?.status, "managed");
+    assert.equal(byKey.get("opencode/opencode-config")?.status, "missing");
+    assert.match(
+      byKey.get("opencode/opencode-config")?.reason ?? "",
+      /never writes/i
+    );
     assert.equal(
       JSON.stringify(statuses).includes("foreign-hook-command"),
       false

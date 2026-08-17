@@ -124,7 +124,10 @@ try {
       code: "UPDATE_PLAN_READY"
     },
     { args: ["trust", "status", "--json"], status: 0, code: "TRUST_STATUS" },
-    { args: ["doctor", "--json"], status: 1, code: "DOCTOR_UNKNOWN" },
+    // A fresh install with no probes wired only produces UNKNOWN checks
+    // carrying no `code` (e.g. repository-trust with no verification
+    // configured), which is a benign finding, not a fault — exit 0.
+    { args: ["doctor", "--json"], status: 0, code: "DOCTOR_UNKNOWN" },
     { args: ["task", "status", "--json"], status: 0, code: "TASK_LISTED" },
     { args: ["verify", "--task", "missing", "--json"], status: 1, code: "TASK_NOT_FOUND" },
     { args: ["review", "--json"], status: 1, code: "REVIEW_NOT_RUN" }

@@ -4,6 +4,34 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.10]
+
+- **Behavior change:** `agent-ops doctor` now exits non-zero only when a
+  check `FAIL`s or names a specific agent-ops command to run (its `code`
+  field). Previously any `UNKNOWN`, `UNSUPPORTED`, or `DEGRADED` status
+  forced exit 1 — including permanently benign findings like
+  `smoke-availability` on a project with no configured verification, or
+  opencode's descriptor-declared `DEGRADED` `lifecycle-summary`. A doctor
+  invocation that used to always fail on an otherwise healthy install will
+  now correctly succeed. Scripts that relied on doctor's exit code as a
+  generic "everything is PASS" gate should check `report.checks` directly if
+  they need that stricter behavior.
+- `repository-trust` reports `UNKNOWN` with no actionable code when
+  `verification.commands` is empty — trust is only required to unblock Stop
+  verification, so an install that never configured verification has nothing
+  for `trust grant` to unlock. It still fails, unconditionally, when the
+  binding is `STALE`.
+- `review-targets` no longer carries `UPDATE_REQUIRED`; its fixes (`<target>
+  login`, installing the executable, or editing `reviewRoles[].targets`) were
+  never `agent-ops update` and now live in `remediation` instead.
+- Added `remediation` to every non-`PASS` doctor check: a plain-string
+  explanation of what to do, or that nothing needs to be done. Text output
+  prints it as an indented `  → ` line; `--json` exposes it as a field.
+- Added `reason` to `HarnessSurfaceStatus` for surfaces outside the
+  installation root or optional files agent-ops never writes, so
+  `surface-inventory`'s `Surfaces:` listing explains itself instead of
+  reading as an unexplained fault.
+
 ## [0.1.7]
 
 - `agent-ops review` now spawns a real independent reviewer. Previously it
