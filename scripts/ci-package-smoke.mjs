@@ -127,7 +127,10 @@ try {
     0,
     "INIT_APPLIED"
   );
-  assertJson(probe(["doctor", "--json"], { cwd: fixture }), 1, "DOCTOR_UNKNOWN");
+  // A fresh install with no probes wired only produces UNKNOWN checks
+  // carrying no `code` (e.g. repository-trust with no verification
+  // configured), which is a benign finding, not a fault — exit 0.
+  assertJson(probe(["doctor", "--json"], { cwd: fixture }), 0, "DOCTOR_UNKNOWN");
   process.stdout.write("installed package smoke passed\n");
 } finally {
   await rm(root, { recursive: true, force: true });
