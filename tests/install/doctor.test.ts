@@ -741,6 +741,127 @@ test("reports OpenCode lifecycle summaries as degraded behavior", async () => {
   }
 });
 
+test("omits remediation on PASS and carries it on every non-PASS check", async () => {
+  const root = await createFreshInstallation();
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+    for (const item of report.checks) {
+      if (item.status === "PASS") {
+        assert.equal(item.remediation, undefined, `${item.id} PASS should omit remediation`);
+      } else {
+        assert.ok(
+          item.remediation !== undefined && item.remediation.length > 0,
+          `${item.id} ${item.status} should carry remediation`
+        );
+      }
+    }
+
+    await writeFile(join(root, ".agent-ops", "config.json"), "{broken");
+    const broken = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+    const configCheck = broken.checks.find(({ id }) => id === "config");
+    assert.equal(configCheck?.status, "FAIL");
+    assert.doesNotMatch(
+      configCheck?.remediation ?? "",
+      /^Run `agent-ops init`/
+    );
+    assert.match(configCheck?.remediation ?? "", /not run/i);
+
+    const artifactsCheck = broken.checks.find(({ id }) => id === "artifacts");
+    if (artifactsCheck?.status === "FAIL") {
+      assert.match(artifactsCheck.remediation ?? "", /overwrit/i);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("marks descriptor-declared degradation as needing no action", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-opencode-remediation-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["opencode"],
+        profiles: ["advisory"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+    const lifecycle = report.checks.find(({ id }) => id === "lifecycle-summary");
+    assert.equal(lifecycle?.status, "DEGRADED");
+    assert.match(lifecycle?.remediation ?? "", /no action/i);
+    assert.equal(lifecycle?.code, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("smoke-availability UNKNOWN needs no action", async () => {
+  const root = await createInstallation();
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: {
+        hookRegistration: () => true,
+        repositoryTrust: async () => true,
+        smokeAvailability: () => "UNKNOWN"
+      }
+    });
+    const smoke = report.checks.find(({ id }) => id === "smoke-availability");
+    assert.equal(smoke?.status, "UNKNOWN");
+    assert.match(smoke?.remediation ?? "", /no action/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("review-targets failures carry remediation but no code", async () => {
+  const root = await createInstallation();
+  try {
+    const configSource = `${JSON.stringify({
+      ...CONFIG,
+      reviewRoles: [{ role: "independent-review", targets: ["codex"] }]
+    })}\n`;
+    await writeFile(join(root, ".agent-ops", "config.json"), configSource);
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: {
+        ...passingProbes(),
+        reviewTarget: () => "missing-executable"
+      }
+    });
+    const reviewTargets = report.checks.find(({ id }) => id === "review-targets");
+    assert.equal(reviewTargets?.status, "FAIL");
+    assert.equal(reviewTargets?.code, undefined);
+    assert.ok(
+      reviewTargets?.remediation !== undefined &&
+        reviewTargets.remediation.length > 0
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("treats an empty profile list as no lifecycle capability", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-doctor-empty-profile-"));
   try {

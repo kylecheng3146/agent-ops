@@ -165,9 +165,21 @@ directory. `update` also requires that the project already has a valid managed
 `.agent-ops/manifest.json` created by `init`.
 
 The commands after `init --yes` are post-apply operations. `doctor` reports
-`UNKNOWN` for a probe that has nothing to verify yet: `repository-trust` until
-`trust grant` runs, and `smoke-availability` until the configuration declares a
-verification command.
+`UNKNOWN` for a probe that has nothing to verify yet: `repository-trust`
+until `trust grant` runs (only actionable once `verification.commands` is
+configured — a project that never runs verification has nothing for trust
+to unlock), and `smoke-availability` until the configuration declares a
+verification command. Every non-`PASS` check carries a `remediation` string
+explaining what, if anything, to do about it; text output prints it as an
+indented `  → ` line, and `--json` exposes it as a field. `doctor` never
+writes: it only reports what `agent-ops update` or `agent-ops trust grant`
+would fix.
+
+`doctor` exits non-zero only when a check `FAIL`s or names a specific
+agent-ops command to run. `UNKNOWN`, `UNSUPPORTED`, and a `DEGRADED` check
+with no such command (for example, a harness that only partially supports a
+capability by design, such as opencode's `lifecycle-summary`) are permanent,
+benign findings and exit 0 — there is nothing to fix.
 
 `artifact-staleness` reports `DEGRADED` with `UPDATE_REQUIRED` when a toolkit
 upgrade or effective profile or capability change makes intact managed rules

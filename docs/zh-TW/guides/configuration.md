@@ -183,7 +183,15 @@ agent-ops trust grant
 path-independent managed rules artifact 改變時，`artifact-staleness` 會回報帶有
 `UPDATE_REQUIRED` 的 `DEGRADED`。`agent-ops update` 會重新產生 artifact 並清除
 這個結果；artifact 缺失或 hash 不符時，`artifacts` check 仍為 `FAIL`。未重新
-grant trust 時，trust-gated hook 仍會是 stale。Stop 是 report-only：`PASS`、`FAIL`
+grant trust 時，trust-gated hook 仍會是 stale。
+
+doctor 從不寫入檔案，部分結果本來就無法修復：安裝根目錄以外的 surface，
+或 harness 依 descriptor 宣告只部分支援的 capability（例如 opencode 的
+`lifecycle-summary`），會永久回報 `UNKNOWN` 或 `DEGRADED` 且 exit 0。若 CI
+需要自動修復，請直接呼叫 `agent-ops update` / `agent-ops trust grant`，
+不要解析 doctor 的輸出。
+
+Stop 是 report-only：`PASS`、`FAIL`
 與 `UNKNOWN` 都會讓 harness 繼續，只輸出有界的 command ID、exit code、test-count、
 config-hash 與 timestamp evidence，且永遠不會完成 task。Config v1 會決定性遷移
 為 Stop disabled 的 v2；舊 binary 無法讀取遷移後的 config，routing migration

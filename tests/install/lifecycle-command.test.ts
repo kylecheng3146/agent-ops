@@ -71,7 +71,9 @@ test("doctor command reports PASS only when every probe passes", async () => {
     await install(root);
     const unknown = await runDoctorCommand({ root });
     assert.equal(unknown.code, "DOCTOR_UNKNOWN");
-    assert.equal(unknown.status, "error");
+    // Wiring nothing (no probes) is itself benign — every unresolved check is
+    // an UNKNOWN with no actionable `code`, so the envelope stays "ok".
+    assert.equal(unknown.status, "ok");
     assert.match(unknown.data?.text ?? "", /UNKNOWN repository-trust/);
 
     const passing = await runDoctorCommand({

@@ -18,7 +18,7 @@ import type {
   InstallScope
 } from "../../../runtime/src/contracts.js";
 import {
-  hookRegistrationSatisfied,
+  hookRegistrationDrift,
   repositoryTrustStatus,
   smokeAvailabilityStatus
 } from "../../../runtime/src/install/probes.js";
@@ -226,20 +226,67 @@ process.exitCode = await runCli(
               root,
               toolkitVersion: CLI_VERSION,
               probes: {
-                hookRegistration: async () =>
-                  hookRegistrationSatisfied({
+                hookRegistration: async () => {
+                  const drifted = hookRegistrationDrift({
                     harness: await installedHarness(root),
                     config,
                     sources: await hookSources(
                       root,
                       args.scope === "user" ? "user" : "project"
                     )
-                  }),
-                repositoryTrust: async () =>
-                  repositoryTrustStatus(
-                    await repositoryTrust(root, config, CLI_VERSION)
-                  ),
-                smokeAvailability: () => smokeAvailabilityStatus(config),
+                  });
+                  return drifted.length === 0
+                    ? { status: "PASS" as const }
+                    : {
+                        status: "FAIL" as const,
+                        message: `Hook registration is missing for ${drifted.join(", ")}.`,
+                        code: "UPDATE_REQUIRED",
+                        remediation: "Run `agent-ops update`."
+                      };
+                },
+                repositoryTrust: async () => {
+                  const trust = await repositoryTrust(root, config, CLI_VERSION);
+                  const status = repositoryTrustStatus(trust);
+                  if (trust === "STALE") {
+                    return {
+                      status,
+                      message: "Repository trust binding is stale.",
+                      code: "TRUST_REQUIRED",
+                      remediation: "Run `agent-ops trust grant`."
+                    };
+                  }
+                  if (trust === "UNTRUSTED") {
+                    const verificationConfigured =
+                      config.verification.commands.length > 0;
+                    return {
+                      status,
+                      message: verificationConfigured
+                        ? "Repository is not trusted; Stop verification will not run."
+                        : "Repository is not trusted.",
+                      ...(verificationConfigured
+                        ? {
+                            code: "TRUST_REQUIRED",
+                            remediation: "Run `agent-ops trust grant`."
+                          }
+                        : {
+                            remediation:
+                              "No action needed; trust is only required once verification.commands is set."
+                          })
+                    };
+                  }
+                  return { status };
+                },
+                smokeAvailability: () => {
+                  const status = smokeAvailabilityStatus(config);
+                  return status === "UNKNOWN"
+                    ? {
+                        status,
+                        message: "verification.commands is empty.",
+                        remediation:
+                          "No action needed; add verification.commands to .agent-ops/config.json to enable smoke checks."
+                      }
+                    : { status };
+                },
                 reviewTarget: async (target, deep) =>
                   await probeReviewTarget(target, { cwd: root, deep })
               },

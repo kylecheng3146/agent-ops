@@ -11,6 +11,24 @@ export interface HookRegistrationInput {
 }
 
 /**
+ * Returns the harness ids missing an agent-ops owned handler for the hook
+ * events implied by the installed profiles. Empty when installations without
+ * hook capabilities have nothing to register.
+ */
+export function hookRegistrationDrift(
+  input: HookRegistrationInput
+): readonly HarnessId[] {
+  const capabilities =
+    input.config.profiles.length === 0
+      ? []
+      : resolveCapabilities(input.config).capabilities;
+  return input.harness.filter((id) => {
+    const descriptor = harnessDescriptor(id);
+    return !descriptor.control.hookRegistered(input.sources[id], capabilities);
+  });
+}
+
+/**
  * Hook registration is satisfied when every hook event implied by the
  * installed profiles carries an agent-ops owned handler for every installed
  * harness. Installations without hook capabilities have nothing to register.
@@ -18,14 +36,7 @@ export interface HookRegistrationInput {
 export function hookRegistrationSatisfied(
   input: HookRegistrationInput
 ): boolean {
-  const capabilities =
-    input.config.profiles.length === 0
-      ? []
-      : resolveCapabilities(input.config).capabilities;
-  return input.harness.every((id) => {
-    const descriptor = harnessDescriptor(id);
-    return descriptor.control.hookRegistered(input.sources[id], capabilities);
-  });
+  return hookRegistrationDrift(input).length === 0;
 }
 
 /**

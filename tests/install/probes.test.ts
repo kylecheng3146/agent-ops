@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  hookRegistrationDrift,
   hookRegistrationSatisfied,
   repositoryTrustStatus,
   smokeAvailabilityStatus
@@ -192,6 +193,25 @@ test("opencode registration is checked against the capability-implied plugin hoo
       sources: { opencode: source.replace("tool.execute.before", "foreign") }
     }),
     false
+  );
+});
+
+test("hook registration drift names the harnesses missing owned handlers", () => {
+  assert.deepEqual(
+    hookRegistrationDrift({
+      harness: ["codex", "claude"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: CLAUDE_SETTINGS, codex: null }
+    }),
+    ["codex"]
+  );
+  assert.deepEqual(
+    hookRegistrationDrift({
+      harness: ["codex", "claude"],
+      config: hookConfig(["core", "advisory"]),
+      sources: { claude: CLAUDE_SETTINGS, codex: CODEX_HOOKS }
+    }),
+    []
   );
 });
 

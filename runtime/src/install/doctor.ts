@@ -60,9 +60,18 @@ export interface DoctorCheck {
   readonly status: DoctorStatus;
   readonly message: string;
   readonly code?: string;
+  readonly remediation?: string;
 }
 
-export type DoctorProbeResult = boolean | DoctorStatus;
+export type DoctorProbeResult =
+  | boolean
+  | DoctorStatus
+  | {
+      readonly status: DoctorStatus;
+      readonly message?: string;
+      readonly remediation?: string;
+      readonly code?: string;
+    };
 
 export type DoctorProbe = () =>
   | DoctorProbeResult
@@ -122,11 +131,16 @@ function check(
   id: DoctorCheckId,
   status: DoctorStatus,
   message: string,
-  code?: string
+  code?: string,
+  remediation?: string
 ): DoctorCheck {
-  return code === undefined
-    ? { id, status, message }
-    : { id, status, message, code };
+  return {
+    id,
+    status,
+    message,
+    ...(code === undefined ? {} : { code }),
+    ...(remediation === undefined ? {} : { remediation })
+  };
 }
 
 function parseNodeVersion(
@@ -159,7 +173,9 @@ function checkNodeVersion(version: string): DoctorCheck {
     return check(
       "node-version",
       "FAIL",
-      `Node ${version} does not meet the minimum version 22.14.0.`
+      `Node ${version} does not meet the minimum version 22.14.0.`,
+      undefined,
+      "Install Node 22.14.0 or newer."
     );
   }
   return check(
@@ -245,7 +261,9 @@ async function checkManifest(root: string): Promise<ManifestCheckResult> {
       check: check(
         "manifest",
         "FAIL",
-        "Installation manifest is missing, unsafe, or invalid."
+        "Installation manifest is missing, unsafe, or invalid.",
+        undefined,
+        "Run `agent-ops init` to create a managed installation."
       )
     };
   }
@@ -262,7 +280,9 @@ async function checkConfig(root: string): Promise<ConfigCheckResult> {
       check: check(
         "config",
         "FAIL",
-        "Configuration is missing, unsafe, or invalid JSON."
+        "Configuration is missing, unsafe, or invalid JSON.",
+        undefined,
+        `Fix ${CONFIG_PATH}. Do not run \`agent-ops init\` — it would discard configuration.`
       )
     };
   }
@@ -276,7 +296,11 @@ async function checkConfig(root: string): Promise<ConfigCheckResult> {
         "FAIL",
         error === undefined
           ? "Configuration failed validation."
-          : `Configuration failed validation: ${error.code} at ${error.path}.`
+          : `Configuration failed validation: ${error.code} at ${error.path}.`,
+        undefined,
+        error === undefined
+          ? `Fix ${CONFIG_PATH}. Do not run \`agent-ops init\` — it would discard configuration.`
+          : `Fix ${error.path} in ${CONFIG_PATH}. Do not run \`agent-ops init\` — it would discard configuration.`
       )
     };
   }
@@ -295,7 +319,9 @@ async function checkArtifacts(
       check: check(
         "artifacts",
         "FAIL",
-        "Artifacts cannot be verified without a valid manifest."
+        "Artifacts cannot be verified without a valid manifest.",
+        undefined,
+        "Run `agent-ops init` to create a managed installation."
       ),
       hashesByPath: new Map()
     };
@@ -331,7 +357,10 @@ async function checkArtifacts(
         : check(
             "artifacts",
             "FAIL",
-            `Managed artifacts failed verification: ${failures.join(", ")}.`
+            `Managed artifacts failed verification: ${failures.join(", ")}.`,
+            "UPDATE_REQUIRED",
+            `Run \`agent-ops update\` to restore managed artifacts. This overwrites ` +
+              `${failures.join(", ")}; any local edits to those files will be lost.`
           ),
     hashesByPath
   };
@@ -347,21 +376,27 @@ function checkArtifactStaleness(
     return check(
       "artifact-staleness",
       "UNKNOWN",
-      "Managed artifact staleness cannot be assessed without a valid manifest and configuration."
+      "Managed artifact staleness cannot be assessed without a valid manifest and configuration.",
+      undefined,
+      "No action needed; fix the manifest or config check above first."
     );
   }
   if (artifacts.check.status !== "PASS") {
     return check(
       "artifact-staleness",
       "UNKNOWN",
-      "Managed artifact staleness cannot be assessed until artifact integrity passes."
+      "Managed artifact staleness cannot be assessed until artifact integrity passes.",
+      undefined,
+      "No action needed; fix the artifacts check above first."
     );
   }
   if (toolkitVersion === undefined) {
     return check(
       "artifact-staleness",
       "UNKNOWN",
-      "Managed artifact staleness cannot be assessed without the running toolkit version."
+      "Managed artifact staleness cannot be assessed without the running toolkit version.",
+      undefined,
+      "No action needed; the CLI did not report its own version."
     );
   }
 
@@ -392,7 +427,9 @@ function checkArtifactStaleness(
     return check(
       "artifact-staleness",
       "UNKNOWN",
-      "Managed artifact staleness could not be assessed safely."
+      "Managed artifact staleness could not be assessed safely.",
+      undefined,
+      "No action needed; staleness could not be computed."
     );
   }
 
@@ -403,7 +440,9 @@ function checkArtifactStaleness(
       return check(
         "artifact-staleness",
         "UNKNOWN",
-        "Managed artifact staleness could not be assessed safely."
+        "Managed artifact staleness could not be assessed safely.",
+        undefined,
+        "No action needed; staleness could not be computed."
       );
     }
     if (actualHash !== expectedHash) {
@@ -420,7 +459,8 @@ function checkArtifactStaleness(
         "artifact-staleness",
         "DEGRADED",
         `Managed artifacts need update: ${stalePaths.join(", ")}; run agent-ops update.`,
-        "UPDATE_REQUIRED"
+        "UPDATE_REQUIRED",
+        "Run `agent-ops update`."
       );
 }
 
@@ -432,7 +472,9 @@ async function checkMarkers(
     return check(
       "markers",
       "FAIL",
-      "Managed blocks cannot be verified without a valid manifest."
+      "Managed blocks cannot be verified without a valid manifest.",
+      undefined,
+      "Run `agent-ops init` to create a managed installation."
     );
   }
 
@@ -460,17 +502,27 @@ async function checkMarkers(
     return check(
       "markers",
       "FAIL",
-      `Managed block markers failed verification: ${failures.join(", ")}.`
+      `Managed block markers failed verification: ${failures.join(", ")}.`,
+      "UPDATE_REQUIRED",
+      "Run `agent-ops update`."
     );
   }
   if (legacyPaths.length > 0) {
     return check(
       "markers",
       "DEGRADED",
-      `Legacy managed routing blocks need migration: ${legacyPaths.join(", ")}.`
+      `Legacy managed routing blocks need migration: ${legacyPaths.join(", ")}.`,
+      "UPDATE_REQUIRED",
+      "Run `agent-ops update`."
     );
   }
   return check("markers", "PASS", "All managed block markers are intact.");
+}
+
+function defaultProbeRemediation(status: DoctorStatus): string | undefined {
+  return status === "PASS" || status === "FAIL"
+    ? undefined
+    : "No action needed; nothing to verify yet.";
 }
 
 async function checkProbe(
@@ -481,10 +533,31 @@ async function checkProbe(
   probe: DoctorProbe | undefined
 ): Promise<DoctorCheck> {
   if (probe === undefined) {
-    return check(id, "UNKNOWN", "No probe was provided.");
+    return check(
+      id,
+      "UNKNOWN",
+      "No probe was provided.",
+      undefined,
+      "No action needed; this check requires wiring from the CLI."
+    );
   }
   try {
     const result = await probe();
+    if (typeof result === "object") {
+      const status = result.status;
+      return check(
+        id,
+        status,
+        result.message ??
+          (status === "PASS"
+            ? "Probe passed."
+            : status === "FAIL"
+              ? "Probe failed."
+              : "Probe has nothing to verify yet."),
+        result.code,
+        result.remediation ?? defaultProbeRemediation(status)
+      );
+    }
     const status: DoctorStatus =
       typeof result === "boolean" ? (result ? "PASS" : "FAIL") : result;
     return check(
@@ -494,7 +567,9 @@ async function checkProbe(
         ? "Probe passed."
         : status === "FAIL"
           ? "Probe failed."
-          : "Probe has nothing to verify yet."
+          : "Probe has nothing to verify yet.",
+      undefined,
+      defaultProbeRemediation(status)
     );
   } catch {
     return check(id, "FAIL", "Probe failed.");
@@ -509,7 +584,9 @@ function checkLifecycleSummary(
     return check(
       "lifecycle-summary",
       "UNKNOWN",
-      "Lifecycle summary cannot be assessed without a valid manifest and configuration."
+      "Lifecycle summary cannot be assessed without a valid manifest and configuration.",
+      undefined,
+      "No action needed; fix the manifest or config check above first."
     );
   }
   const hasLifecycleSummary =
@@ -537,7 +614,9 @@ function checkLifecycleSummary(
     return check(
       "lifecycle-summary",
       "UNKNOWN",
-      `Lifecycle summary registration is missing for ${missing.join(", ")}.`
+      `Lifecycle summary registration is missing for ${missing.join(", ")}.`,
+      undefined,
+      "No action needed; the named harness has no lifecycle-summary registration."
     );
   }
   const unsupported = registrations
@@ -547,7 +626,9 @@ function checkLifecycleSummary(
     return check(
       "lifecycle-summary",
       "UNSUPPORTED",
-      `Lifecycle summary is not dispatched for ${unsupported.join(", ")}; advisory runtime wiring is unavailable.`
+      `Lifecycle summary is not dispatched for ${unsupported.join(", ")}; advisory runtime wiring is unavailable.`,
+      undefined,
+      "No action needed; the named harness does not dispatch lifecycle-summary."
     );
   }
   const degraded = registrations
@@ -557,7 +638,9 @@ function checkLifecycleSummary(
     return check(
       "lifecycle-summary",
       "DEGRADED",
-      `Lifecycle summary is degraded for ${degraded.join(", ")}.`
+      `Lifecycle summary is degraded for ${degraded.join(", ")}.`,
+      undefined,
+      "No action needed; the named harness only partially supports lifecycle-summary."
     );
   }
   const unknown = registrations
@@ -567,7 +650,9 @@ function checkLifecycleSummary(
     return check(
       "lifecycle-summary",
       "UNKNOWN",
-      `Lifecycle summary support is unknown for ${unknown.join(", ")}.`
+      `Lifecycle summary support is unknown for ${unknown.join(", ")}.`,
+      undefined,
+      "No action needed; support for the named harness has not been characterized."
     );
   }
   return check(
@@ -590,7 +675,9 @@ async function checkSurfaceInventory(
       check: check(
         "surface-inventory",
         "UNKNOWN",
-        "Harness surfaces cannot be inventoried without a valid manifest and configuration."
+        "Harness surfaces cannot be inventoried without a valid manifest and configuration.",
+        undefined,
+        "No action needed; fix the manifest or config check above first."
       ),
       surfaces: []
     };
@@ -609,7 +696,11 @@ async function checkSurfaceInventory(
         unknown.length > 0 ? "UNKNOWN" : "PASS",
         unknown.length > 0
           ? `${unknown.length} harness surface(s) could not be inspected.`
-          : "Harness surfaces were inventoried without exposing settings values."
+          : "Harness surfaces were inventoried without exposing settings values.",
+        undefined,
+        unknown.length > 0
+          ? "No action needed; see Surfaces below for which ones and why."
+          : undefined
       ),
       surfaces
     };
@@ -618,7 +709,9 @@ async function checkSurfaceInventory(
       check: check(
         "surface-inventory",
         "UNKNOWN",
-        "Harness surfaces could not be inspected safely."
+        "Harness surfaces could not be inspected safely.",
+        undefined,
+        "No action needed; inspection failed safely."
       ),
       surfaces: []
     };
@@ -634,7 +727,9 @@ async function checkRegistrationDrift(
     return check(
       "registration-drift",
       "UNKNOWN",
-      "Hook registration drift cannot be assessed without a valid manifest and configuration."
+      "Hook registration drift cannot be assessed without a valid manifest and configuration.",
+      undefined,
+      "No action needed; fix the manifest or config check above first."
     );
   }
   try {
@@ -656,24 +751,20 @@ async function checkRegistrationDrift(
           "registration-drift",
           "FAIL",
           `Hook registration drift detected for ${drifted.join(", ")}; run agent-ops update.`,
-          "UPDATE_REQUIRED"
+          "UPDATE_REQUIRED",
+          "Run `agent-ops update`."
         );
   } catch {
     return check(
       "registration-drift",
       "UNKNOWN",
-      "Hook registration drift could not be assessed safely."
+      "Hook registration drift could not be assessed safely.",
+      undefined,
+      "No action needed; drift could not be computed."
     );
   }
 }
 
-/**
- * Guidance lives in `message` rather than a `remediation` field: as of this
- * check, `remediation` does not exist on DoctorCheck. Because target
- * authentication failures surface as one unexplained review failure — the
- * chain deliberately does not sniff stderr for "not logged in" — this text is
- * the operator's only route out, so it names the exact command.
- */
 async function checkReviewTargets(
   config: AgentOpsConfig | undefined,
   probe: DoctorReviewTargetProbe | undefined,
@@ -703,36 +794,36 @@ async function checkReviewTargets(
       return check(
         "review-targets",
         "FAIL",
-        `${target} not found. Install it, or remove "${target}" from ` +
-          "reviewRoles[].targets.",
-        "UPDATE_REQUIRED"
+        `${target} not found.`,
+        undefined,
+        `Install ${target}, or remove "${target}" from reviewRoles[].targets.`
       );
     }
     if (result === "ineligible") {
       return check(
         "review-targets",
         "FAIL",
-        `${target} has no read-only mode and cannot review. Remove ` +
-          `"${target}" from reviewRoles[].targets.`,
-        "UPDATE_REQUIRED"
+        `${target} has no read-only mode and cannot review.`,
+        undefined,
+        `Remove "${target}" from reviewRoles[].targets.`
       );
     }
     if (result === "timeout") {
       return check(
         "review-targets",
         "FAIL",
-        `${target} did not answer in time. Re-run: ` +
-          "agent-ops doctor --check-auth",
-        "UPDATE_REQUIRED"
+        `${target} did not answer in time.`,
+        undefined,
+        "Re-run: agent-ops doctor --check-auth"
       );
     }
     if (checkAuth && result !== "ok") {
       return check(
         "review-targets",
         "FAIL",
-        `${target} is installed but not authenticated, or it rejected the ` +
-          `call. Run: ${target} login`,
-        "UPDATE_REQUIRED"
+        `${target} is installed but not authenticated, or it rejected the call.`,
+        undefined,
+        `Run: ${target} login`
       );
     }
   }

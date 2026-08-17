@@ -15,9 +15,10 @@ function formatDoctorReport(report: DoctorReport): string {
   const surfaces = report.surfaces ?? [];
   return `${[
     "Installation doctor",
-    ...report.checks.map(({ id, status, message, code }) =>
-      `- ${status} ${id}${code === undefined ? "" : ` [${code}]`}: ${message}`
-    ),
+    ...report.checks.flatMap(({ id, status, message, code, remediation }) => [
+      `- ${status} ${id}${code === undefined ? "" : ` [${code}]`}: ${message}`,
+      ...(remediation === undefined ? [] : [`  → ${remediation}`])
+    ]),
     ...(surfaces.length === 0
       ? []
       : [
@@ -29,10 +30,12 @@ function formatDoctorReport(report: DoctorReport): string {
               path,
               status,
               managedHandlerCount,
-              foreignHandlerCount
+              foreignHandlerCount,
+              reason
             }) =>
               `- ${status} ${harness}/${surfaceId}: ${path} ` +
-              `(managed ${managedHandlerCount}, foreign ${foreignHandlerCount})`
+              `(managed ${managedHandlerCount}, foreign ${foreignHandlerCount})` +
+              (reason === undefined ? "" : ` (${reason})`)
           )
         ])
   ].join("\n")}\n`;
@@ -72,20 +75,21 @@ export async function runDoctorCommand(
       : hasDegraded
         ? "Installation diagnostics found degraded checks."
         : "Installation diagnostics passed.";
+  // Exit non-zero only when there is something to do: a hard failure, or a
+  // check that names an agent-ops command via `code`. UNKNOWN, UNSUPPORTED,
+  // and codeless DEGRADED (e.g. a harness-declared permanent degradation)
+  // are benign findings and must not force a non-zero exit.
+  const isActionable = report.checks.some(
+    ({ status, code: checkCode }) => status === "FAIL" || checkCode !== undefined
+  );
   return {
     code,
-    status:
-      hasFailure || hasUnsupported || hasUnknown || hasDegraded
-        ? "error"
-        : "ok",
+    status: isActionable ? "error" : "ok",
     data: {
       report,
       message,
       text: formatDoctorReport(report)
     },
-    errors:
-      hasFailure || hasUnsupported || hasUnknown || hasDegraded
-        ? [{ code, message }]
-        : []
+    errors: isActionable ? [{ code, message }] : []
   };
 }
