@@ -358,6 +358,7 @@ process.exitCode = await runCli(
               args,
               authorized: args.yes,
               tasks: taskService,
+              ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
               ...(reviewSessionId === undefined
                 ? {}
                 : { sessionId: reviewSessionId }),

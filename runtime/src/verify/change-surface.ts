@@ -122,7 +122,6 @@ export async function collectChangeSurface(
     "diff",
     "--cached",
     "--name-only",
-    "--full-name",
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
@@ -131,7 +130,6 @@ export async function collectChangeSurface(
   const unstaged = await collectPaths(runner, [
     "diff",
     "--name-only",
-    "--full-name",
     "--no-renames",
     "--no-ext-diff",
     "--no-textconv",
@@ -183,7 +181,7 @@ export async function collectBaseChangePaths(
   base: string
 ): Promise<string[]> {
   return await collectPaths(runner, [
-    "diff", "--name-only", "--full-name", "--no-renames", "--no-ext-diff",
+    "diff", "--name-only", "--no-renames", "--no-ext-diff",
     "--no-textconv", "-z", `${base}...HEAD`
   ]);
 }
