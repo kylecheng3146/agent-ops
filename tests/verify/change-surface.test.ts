@@ -17,11 +17,11 @@ function argvKey(args: readonly string[]): string {
 }
 
 const STAGED_ARGS = [
-  "diff", "--cached", "--name-only", "--full-name", "--no-renames",
+  "diff", "--cached", "--name-only", "--no-renames",
   "--no-ext-diff", "--no-textconv", "-z"
 ] as const;
 const UNSTAGED_ARGS = [
-  "diff", "--name-only", "--full-name", "--no-renames", "--no-ext-diff",
+  "diff", "--name-only", "--no-renames", "--no-ext-diff",
   "--no-textconv", "-z"
 ] as const;
 
