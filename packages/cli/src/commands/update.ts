@@ -38,6 +38,7 @@ export interface UpdateCommandData {
 }
 
 export function formatUpdatePlan(plan: UpdatePlan): string {
+  const detectedVerification = plan.installation.detectedVerification;
   return formatOperationPlan({
     title: "Update plan",
     metadata: [
@@ -52,7 +53,18 @@ export function formatUpdatePlan(plan: UpdatePlan): string {
                   `${fromVersion} -> ${toVersion}`
               )
               .join(", ")
-      }`
+      }`,
+      ...(detectedVerification.length === 0
+        ? []
+        : [
+            "Detected verifiers (review before confirming):",
+            ...detectedVerification.map(
+              (command) =>
+                `  - ${command.id}: ${command.command} ${command.args.join(
+                  " "
+                )}`.trimEnd()
+            )
+          ])
     ],
     operations: toPublicUpdatePlan(plan).installation.operations
   });
