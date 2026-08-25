@@ -4,7 +4,10 @@ import type {
   FileOperation,
   OperationDisclosure
 } from "../../../runtime/src/fs/transaction.js";
-import type { InstallManifest } from "../../../runtime/src/contracts.js";
+import type {
+  InstallManifest,
+  VerificationCommand
+} from "../../../runtime/src/contracts.js";
 import type { InstallPlan } from "../../../runtime/src/install/plan.js";
 import type { UpdatePlan } from "../../../runtime/src/install/update.js";
 import type { UninstallPlan } from "../../../runtime/src/install/uninstall.js";
@@ -42,6 +45,7 @@ export interface PublicInstallPlan {
   readonly capabilities: InstallPlan["capabilities"];
   readonly manifest: InstallManifest;
   readonly operations: readonly PublicFileOperation[];
+  readonly detectedVerification: readonly VerificationCommand[];
 }
 
 export interface PublicUpdatePlan {
@@ -110,7 +114,8 @@ export function toPublicInstallPlan(plan: InstallPlan): PublicInstallPlan {
     profiles: plan.profiles,
     capabilities: plan.capabilities,
     manifest: plan.manifest,
-    operations: toPublicOperations(plan.operations)
+    operations: toPublicOperations(plan.operations),
+    detectedVerification: plan.detectedVerification
   };
 }
 

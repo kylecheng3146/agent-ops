@@ -14,8 +14,12 @@ import {
   type ManagedHookRecord,
   type ManagedMarkerRecord,
   type ManagedPathRecord,
-  type Profile
+  type Profile,
+  type VerificationCommand,
+  type VerificationConfig
 } from "../contracts.js";
+import { discoverProject } from "../discovery/index.js";
+import type { VerifierProposal } from "../discovery/types.js";
 import { sha256 } from "../fs/hash.js";
 import {
   applyManagedBlock,
@@ -99,6 +103,8 @@ export interface InstallPlan {
   readonly scope: InstallScope;
   readonly harness: Harness;
   readonly profiles: readonly Profile[];
+  /** Verifier commands proposed by stack detection to fill an empty verification config; empty when none applied. */
+  readonly detectedVerification: readonly VerificationCommand[];
   readonly capabilities: readonly Capability[];
   readonly manifest: InstallManifest;
   readonly operations: FileOperation[];
@@ -147,27 +153,69 @@ async function readCurrentFile(
   }
 }
 
+/**
+ * Converts a stack-detected verifier proposal into a verification command.
+ * Proposal IDs use a colon-separated namespace (e.g. "node:test"); config
+ * IDs must be kebab-case identifiers.
+ */
+function verificationCommandFromProposal(
+  proposal: VerifierProposal
+): VerificationCommand {
+  return {
+    id: proposal.id.replace(/:/g, "-"),
+    command: proposal.command,
+    args: proposal.args,
+    cwd: proposal.cwd,
+    required: proposal.required,
+    evidence: proposal.evidence
+  };
+}
+
+/**
+ * Verification commands are never invented for a project that already
+ * declares them; detection only fills the gap while the field is empty, so
+ * a deliberate "remove all verifiers" edit is not silently reversed by a
+ * different stack adapter next run.
+ */
+async function detectVerificationCommands(
+  root: string
+): Promise<VerificationCommand[]> {
+  const discovery = await discoverProject(root);
+  if (discovery.kind !== "project") {
+    return [];
+  }
+  return discovery.proposals
+    .filter((proposal) => proposal.confidence === "high")
+    .map(verificationCommandFromProposal);
+}
+
 function formatConfig(
   profiles: readonly Profile[],
   existing?: {
-    readonly verification: unknown;
+    readonly verification: VerificationConfig;
     readonly features: AgentOpsFeatures;
     readonly pathMappings: unknown;
     readonly securityExceptions: unknown;
     readonly reviewRoles?: readonly ReviewRoleConfig[];
   },
-  reviewTargets: readonly ReviewTargetId[] = []
+  reviewTargets: readonly ReviewTargetId[] = [],
+  detectedCommands: readonly VerificationCommand[] = []
 ): string {
   // Absent reviewRoles means external review is disabled; an empty selection
   // must therefore omit the field rather than write an empty array.
   const reviewRoles = reviewTargets.length > 0
     ? [{ role: "independent-review", targets: [...reviewTargets] }]
     : existing?.reviewRoles;
+  const verification =
+    existing?.verification !== undefined &&
+    existing.verification.commands.length > 0
+      ? existing.verification
+      : { commands: detectedCommands };
   return `${JSON.stringify(
     {
       schemaVersion: CONFIG_SCHEMA_VERSION,
       profiles,
-      verification: existing?.verification ?? { commands: [] },
+      verification,
       features: existing?.features ?? {
         stopVerification: {
           enabled: false
@@ -194,6 +242,7 @@ async function planConfig(
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
+  detectedVerification: readonly VerificationCommand[];
 }> {
   const current = await readCurrentFile(root, CONFIG_PATH);
   const owned = findOwnedArtifact(existingManifest, CONFIG_PATH);
@@ -206,7 +255,7 @@ async function planConfig(
 
   let existingConfig:
     | {
-        readonly verification: unknown;
+        readonly verification: VerificationConfig;
         readonly features: AgentOpsFeatures;
         readonly pathMappings: unknown;
         readonly securityExceptions: unknown;
@@ -256,7 +305,17 @@ async function planConfig(
     existingConfig = result.value;
   }
 
-  const content = formatConfig(profiles, existingConfig, reviewTargets);
+  const detectedCommands =
+    existingConfig === undefined ||
+    existingConfig.verification.commands.length === 0
+      ? await detectVerificationCommands(root)
+      : [];
+  const content = formatConfig(
+    profiles,
+    existingConfig,
+    reviewTargets,
+    detectedCommands
+  );
   return {
     operation: {
       kind: "write",
@@ -269,7 +328,8 @@ async function planConfig(
       path: CONFIG_PATH,
       hash: sha256(content),
       owner: "agent-ops"
-    }
+    },
+    detectedVerification: detectedCommands
   };
 }
 
@@ -940,6 +1000,7 @@ export async function createInstallPlan(
     profiles: resolved.profiles,
     capabilities: resolved.capabilities,
     manifest,
-    operations
+    operations,
+    detectedVerification: config.detectedVerification
   };
 }

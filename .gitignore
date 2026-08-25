@@ -13,3 +13,11 @@ coverage/
 .DS_Store
 Thumbs.db
 *.log
+
+# agent-ops init files
+.agent-ops/
+.claude/
+.codex/
+.opencode/
+AGENTS.md
+CLAUDE.md

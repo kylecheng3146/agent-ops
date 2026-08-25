@@ -37,6 +37,7 @@ export interface InitCommandData {
 
 export function formatInstallPlan(plan: InstallPlan): string {
   const hooks = plan.manifest.hooks ?? [];
+  const detectedVerification = plan.detectedVerification;
   return formatOperationPlan({
     title: "Installation plan",
     metadata: [
@@ -52,6 +53,17 @@ export function formatInstallPlan(plan: InstallPlan): string {
                 `  - ${hook.harness}: ${hook.path} (${hook.events.join(
                   ", "
                 )})`
+            )
+          ]),
+      ...(detectedVerification.length === 0
+        ? []
+        : [
+            "Detected verifiers (review before confirming):",
+            ...detectedVerification.map(
+              (command) =>
+                `  - ${command.id}: ${command.command} ${command.args.join(
+                  " "
+                )}`.trimEnd()
             )
           ])
     ],
