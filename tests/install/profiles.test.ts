@@ -181,7 +181,14 @@ test("common routing templates use only managed specification paths", async () =
     ].map((match) => match[1]);
 
     assert.match(content, /Loop Engineering/);
-    assert.deepEqual(referencedMarkdownPaths, [template.target]);
+    if (template.target.endsWith("CLAUDE.md")) {
+      // Claude Code only auto-loads via the `@path` import syntax, so the
+      // managed path appears bare rather than in a code span.
+      assert.deepEqual(referencedMarkdownPaths, []);
+      assert.match(content, /^@\.agent-ops\/CLAUDE\.md$/mu);
+    } else {
+      assert.deepEqual(referencedMarkdownPaths, [template.target]);
+    }
     assert.doesNotMatch(content, /<!--\s*agent-ops:/i);
     assert.doesNotMatch(content, /(?:^|\s)\/(?:Users|home)\//);
     assert.equal(

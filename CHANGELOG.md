@@ -4,6 +4,16 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.14]
+
+- **Fix:** the managed `claude-routing` block in `CLAUDE.md` now uses Claude
+  Code's `@.agent-ops/CLAUDE.md` import syntax instead of prose. The previous
+  wording ("Load `.agent-ops/CLAUDE.md` as the agent-ops managed baseline")
+  was inert in Claude Code, so the baseline was never loaded. The old body is
+  registered as legacy, so `agent-ops update` migrates existing projects in
+  place without touching surrounding user text. Codex/`AGENTS.md` routing is
+  unchanged.
+
 ## [0.1.10]
 
 - **Behavior change:** `agent-ops doctor` now exits non-zero only when a

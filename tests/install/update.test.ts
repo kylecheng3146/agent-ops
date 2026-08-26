@@ -32,7 +32,7 @@ const CODEX_LEGACY_BODY =
 const CLAUDE_START = "<!-- agent-ops:start claude-routing v1 -->";
 const CLAUDE_END = "<!-- agent-ops:end claude-routing -->";
 const CLAUDE_DESIRED_BODY =
-  "## Loop Engineering\n\nLoad `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+  "## Loop Engineering\n\n@.agent-ops/CLAUDE.md\n\nThe file above is the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
 const CLAUDE_LEGACY_BODY =
   "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
 

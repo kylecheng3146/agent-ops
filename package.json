@@ -1,6 +1,6 @@
 {
   "name": "@kylecheng3146/agent-ops",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Evidence-driven development loops for Codex, Claude Code, and opencode",
   "type": "module",
   "license": "MIT",

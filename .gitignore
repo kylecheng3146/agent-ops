@@ -21,3 +21,12 @@ Thumbs.db
 .opencode/
 AGENTS.md
 CLAUDE.md
+
+# agent-ops:start loop-state v1
+.codex/loop-goal.md
+.codex/loop-state.md
+.codex/loop-telemetry.jsonl
+.claude/loop-goal.md
+.claude/loop-state.md
+.claude/loop-telemetry.jsonl
+# agent-ops:end loop-state
