@@ -4,6 +4,10 @@ import {
   type UninstallPlan
 } from "../../../../runtime/src/install/uninstall.js";
 import type { ParsedArgs } from "../args.js";
+import type {
+  TrustBinding,
+  TrustStore
+} from "../../../../runtime/src/security/trust.js";
 import {
   okEnvelope,
   type CliEnvelope
@@ -11,14 +15,21 @@ import {
 import { formatOperationPlan } from "../plan-output.js";
 import {
   toPublicUninstallPlan,
+  type PublicTrustChange,
   type PublicUninstallPlan
 } from "../public-plan.js";
+import {
+  formatTrustChange,
+  planTrustRevoke
+} from "./trust.js";
 
 export interface UninstallCommandOptions {
   readonly args: ParsedArgs;
   readonly root: string;
   readonly isTTY: boolean;
-  confirm(plan: UninstallPlan): Promise<boolean>;
+  readonly trustStore?: TrustStore;
+  calculateTrustBinding?(): Promise<TrustBinding | null>;
+  confirm(plan: UninstallPlan, trust: PublicTrustChange): Promise<boolean>;
 }
 
 export interface UninstallCommandData {
@@ -28,11 +39,15 @@ export interface UninstallCommandData {
   readonly text?: string;
 }
 
-function formatUninstallPlan(plan: UninstallPlan): string {
+function formatUninstallPlan(
+  plan: UninstallPlan,
+  trust?: PublicTrustChange
+): string {
   return formatOperationPlan({
     title: "Uninstall plan",
     metadata: [
       `Installed: ${plan.installed ? "yes" : "no"}`,
+      ...(trust === undefined ? [] : formatTrustChange(trust)),
       ...(plan.manifest === null
         ? []
         : [
@@ -47,14 +62,35 @@ function formatUninstallPlan(plan: UninstallPlan): string {
 function uninstallError(
   code: string,
   message: string,
-  plan: UninstallPlan
+  plan: UninstallPlan,
+  trust: PublicTrustChange,
+  applied = false
 ): CliEnvelope<UninstallCommandData> {
   return {
     code,
     status: "error",
-    data: { applied: false, plan: toPublicUninstallPlan(plan), message },
+    data: { applied, plan: toPublicUninstallPlan(plan, trust), message },
     errors: [{ code, message }]
   };
+}
+
+async function trustChange(
+  options: UninstallCommandOptions,
+  plan: UninstallPlan
+): Promise<PublicTrustChange> {
+  if (plan.manifest?.scope === "user") {
+    return { action: "skipped", reason: "user-scope" };
+  }
+  if (
+    options.calculateTrustBinding === undefined ||
+    options.trustStore === undefined
+  ) {
+    return { action: "skipped", reason: "not-configured" };
+  }
+  const binding = await options.calculateTrustBinding();
+  return binding === null
+    ? { action: "skipped", reason: "no-verification-commands" }
+    : await planTrustRevoke(binding, options.trustStore);
 }
 
 export async function runUninstallCommand(
@@ -68,35 +104,56 @@ export async function runUninstallCommand(
       message: "No managed installation exists."
     });
   }
+  const trust = await trustChange(options, plan);
   if (options.args.dryRun) {
     return okEnvelope("UNINSTALL_PLAN_READY", {
       applied: false,
-      plan: toPublicUninstallPlan(plan),
+      plan: toPublicUninstallPlan(plan, trust),
       message: "Uninstall plan calculated; no files were changed.",
-      text: formatUninstallPlan(plan)
+      text: formatUninstallPlan(plan, trust)
     });
   }
   if (!options.args.yes && !options.isTTY) {
     return uninstallError(
       "UNINSTALL_CONFIRMATION_REQUIRED",
       "Non-interactive uninstall requires --yes.",
-      plan
+      plan,
+      trust
     );
   }
   if (
     !options.args.yes &&
-    !(await options.confirm(plan))
+    !(await options.confirm(plan, trust))
   ) {
     return uninstallError(
       "UNINSTALL_CANCELLED",
       "Uninstall was cancelled; no files were changed.",
-      plan
+      plan,
+      trust
     );
   }
   await applyUninstallPlan(options.root, plan);
+  if (trust.action === "revoke") {
+    try {
+      if (
+        options.trustStore === undefined ||
+        !(await options.trustStore.revoke(trust.binding))
+      ) {
+        throw new Error("Trust record changed during uninstall.");
+      }
+    } catch {
+      return uninstallError(
+        "UNINSTALL_TRUST_FAILED",
+        "Uninstall was applied, but repository trust was not revoked. Run `agent-ops trust revoke`.",
+        plan,
+        trust,
+        true
+      );
+    }
+  }
   return okEnvelope("UNINSTALL_APPLIED", {
     applied: true,
-    plan: toPublicUninstallPlan(plan),
+    plan: toPublicUninstallPlan(plan, trust),
     message: "Managed installation content was removed."
   });
 }

@@ -184,6 +184,29 @@ test("registers the Claude loop lifecycle through its generated launcher", async
   );
 });
 
+test("registers the Claude loop through PowerShell on Windows", () => {
+  const managed = buildClaudeHookSettings(
+    ["project-loop"],
+    "C:\\Program Files\\agent-ops\\hook-entry.js",
+    "win32"
+  );
+  for (const event of LOOP_EVENTS) {
+    const group = managed.hooks[event]?.[0];
+    assert.deepEqual(
+      group?.hooks[0],
+      {
+        type: "command",
+        shell: "powershell",
+        command:
+          `& "${"${CLAUDE_PROJECT_DIR}"}/.claude/hooks/agent-ops-loop.ps1" ` +
+          `"${event}" "--managed-by=agent-ops"`,
+        timeout: 30
+      },
+      event
+    );
+  }
+});
+
 test("normalizes only fields used by Claude hook policy", () => {
   assert.deepEqual(
     normalizeClaudeHookInput({
@@ -358,4 +381,30 @@ test("surfaces non-interactive trust limitations", () => {
       }
     ]
   );
+});
+
+test("blocks the Stop event when verification reports FAIL", () => {
+  const parsed = JSON.parse(
+    claudeHookOutput("Stop", {
+      action: "continue",
+      status: "FAIL",
+      code: "STOP_VERIFICATION_FINISHED",
+      evidence: {
+        commandResults: [
+          { commandId: "unit", exitCode: 0, testCount: 12 },
+          { commandId: "independent-review", exitCode: 1, testCount: null }
+        ],
+        configHash: "a".repeat(64),
+        timestamp: "2026-08-01T00:00:00.000Z"
+      }
+    }).stdout
+  ) as {
+    readonly decision: string;
+    readonly reason: string;
+    readonly evidence: unknown;
+  };
+  assert.equal(parsed.decision, "block");
+  assert.match(parsed.reason, /independent-review/u);
+  assert.match(parsed.reason, /agent-ops review/u);
+  assert.equal(parsed.reason.includes("unit"), false);
 });

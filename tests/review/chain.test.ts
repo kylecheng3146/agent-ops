@@ -211,6 +211,19 @@ test("unparseable output is terminal, not a reason to try another target", async
   }
 });
 
+test("a nonzero reviewer exit reports missing authentication", async () => {
+  const { result, attempts } = await run(
+    ["claude", "agy"],
+    [{ exitCode: 1 }, { stdout: passing("claude") }]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(
+    result.status === "NOT_RUN" ? result.reason : undefined,
+    "login-required"
+  );
+  assert.equal(attempts.length, 1);
+});
+
 test("protocol violations report unparseable-output rather than FAIL", async () => {
   const violations: readonly unknown[] = [
     [],

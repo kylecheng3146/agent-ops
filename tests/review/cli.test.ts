@@ -8,6 +8,8 @@ test("review accepts independent-review options", () => {
     "review",
     "--harness",
     "codex",
+    "--task",
+    "task-one",
     "--criterion",
     "tests",
     "--evidence",
@@ -16,6 +18,7 @@ test("review accepts independent-review options", () => {
   ]), {
     command: "review",
     harness: ["codex"],
+    taskId: "task-one",
     criteria: ["tests"],
     evidence: ["tests=report.json"],
     profiles: [],

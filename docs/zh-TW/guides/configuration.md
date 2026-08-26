@@ -42,8 +42,9 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 ```
 
 `targets` 是**有序的後備鏈**。每次 review 都鎖定 staged／unstaged／untracked
-變更（或乾淨的 `--base <ref>...HEAD`），並要求必要驗證的最新 PASS evidence；
-完整原生 schema report 會顯示給人看，但不會持久化。
+變更（或乾淨的 `--base <ref>...HEAD`）。裸跑使用內建 `change-quality` 準則；
+`--task` 使用 task criteria，並要求必要驗證的最新 PASS evidence。完整 report
+會顯示給人看，PASS 後只持久化 source-fingerprint attestation。
 
 每次嘗試都從新的暫存 cwd 與最小環境啟動。目前只有 Claude 具備完整的
 context-isolation 合約，能自動執行：
@@ -90,18 +91,24 @@ agent-ops doctor --check-auth # 每個目標一次真實 print 呼叫
 ### Project-local loop profile
 
 `--profile loop` 是明確 opt-in 的 project-scope profile。請選擇 `codex`、
-`claude` 或兩者（例如 `--harness codex,claude`）；它需要 POSIX-compatible
-`bash`，目前尚未支援 Windows launcher。建議先 dry run：
+`claude` 或兩者（例如 `--harness codex,claude`）。Claude Code 已支援原生
+Windows，會使用產生的 PowerShell launcher；Codex 的 loop launcher 仍需要
+POSIX-compatible `bash`。建議先 dry run：
 
 ```bash
 agent-ops init --dry-run --scope project --harness codex,claude --profile loop --json
 agent-ops init --scope project --harness codex,claude --profile loop --yes
 ```
 
-對每個選定且支援的 harness，agent-ops 只擁有一個小型 launcher：
-`.codex/hooks/agent-ops-loop.sh` 或 `.claude/hooks/agent-ops-loop.sh`。兩個
-launcher 都委派給同一個已安裝的 Node runtime，因此不會複製 project-specific
-loop script。Codex 只會在 `.codex/config.toml` 不存在時建立它。首次安裝會在不
+在原生 Windows 上，除非 Codex 是在 POSIX environment 執行，請選擇
+`--harness claude`；Codex loop 仍會呼叫 `bash`。
+
+對每個選定且支援的 harness，agent-ops 擁有最小的 native launcher：Codex 是
+`.codex/hooks/agent-ops-loop.sh`；Claude Code 是
+`.claude/hooks/agent-ops-loop.sh` 與 `.claude/hooks/agent-ops-loop.ps1`。兩個
+Claude launcher 都委派給同一個已安裝的 Node runtime，因此不會複製
+project-specific loop script。Windows 產生的 settings 會選用 PowerShell
+launcher。Codex 只會在 `.codex/config.toml` 不存在時建立它。首次安裝會在不
 覆寫既有內容的前提下，於選定 harness directory 建立 `loop-goal.md`、
 `loop-state.md` 與 `loop-telemetry.jsonl`；並以 hash-commented `.gitignore`
 block 忽略這些 local file。
@@ -175,7 +182,6 @@ config v2 feature，必須明確啟用且至少提供一個已確認的 command�
 
 ```bash
 agent-ops update
-agent-ops trust grant
 ```
 
 未執行 `update` 時，doctor 可因 registration drift 回報 `UPDATE_REQUIRED`。另
@@ -183,12 +189,12 @@ agent-ops trust grant
 path-independent managed rules artifact 改變時，`artifact-staleness` 會回報帶有
 `UPDATE_REQUIRED` 的 `DEGRADED`。`agent-ops update` 會重新產生 artifact 並清除
 這個結果；artifact 缺失或 hash 不符時，`artifacts` check 仍為 `FAIL`。未重新
-grant trust 時，trust-gated hook 仍會是 stale。
+project update 經確認後，若有 verifier 會自動更新 stale trust binding。
 
 doctor 從不寫入檔案，部分結果本來就無法修復：安裝根目錄以外的 surface，
 或 harness 依 descriptor 宣告只部分支援的 capability（例如 opencode 的
 `lifecycle-summary`），會永久回報 `UNKNOWN` 或 `DEGRADED` 且 exit 0。若 CI
-需要自動修復，請直接呼叫 `agent-ops update` / `agent-ops trust grant`，
+需要自動修復，請直接呼叫 `agent-ops update`；也可手動呼叫 `agent-ops trust grant`，
 不要解析 doctor 的輸出。
 
 Stop 是 report-only：`PASS`、`FAIL`

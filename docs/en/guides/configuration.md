@@ -47,9 +47,10 @@ Enable it during `agent-ops init`, or by hand:
 ```
 
 `targets` is an **ordered fallback chain**. Every review locks to the
-staged/unstaged/untracked surface (or a clean `--base <ref>...HEAD` range),
-requires fresh PASS evidence for required checks, and prints a complete native
-schema report without persisting it.
+staged/unstaged/untracked surface (or a clean `--base <ref>...HEAD` range).
+A bare review uses the built-in `change-quality` criterion; `--task` uses the
+task criteria and requires fresh PASS evidence for required checks. The full
+report is printed, and PASS persists only a source-fingerprint attestation.
 
 Every attempt starts from a fresh temporary cwd with a narrow environment. The
 following target identities may be configured; only Claude currently meets the
@@ -102,20 +103,25 @@ interactive OAuth, so there is no `--fix`. Run `<target> login` yourself.
 ### Project-local loop profile
 
 `--profile loop` is an opt-in project-scope profile. Select `codex`, `claude`,
-or both (for example, `--harness codex,claude`); it requires a
-POSIX-compatible `bash` and does not support Windows launchers yet. Start with
-a dry run:
+or both (for example, `--harness codex,claude`). Claude Code supports native
+Windows through a generated PowerShell launcher; Codex's loop launcher still
+requires POSIX-compatible `bash`. Start with a dry run:
 
 ```bash
 agent-ops init --dry-run --scope project --harness codex,claude --profile loop --json
 agent-ops init --scope project --harness codex,claude --profile loop --yes
 ```
 
-For each selected supported harness, agent-ops owns exactly one small launcher:
-`.codex/hooks/agent-ops-loop.sh` or `.claude/hooks/agent-ops-loop.sh`. Both
-launchers delegate to the same installed Node runtime, so they do not copy a
-project-specific loop script. Codex also gets `.codex/config.toml` only when it
-is absent. First installation seeds, without replacing existing content,
+On native Windows, select `--harness claude` unless Codex is running in a
+POSIX environment; the Codex loop still invokes `bash`.
+
+For each selected supported harness, agent-ops owns the minimal native
+launchers: `.codex/hooks/agent-ops-loop.sh` for Codex, and
+`.claude/hooks/agent-ops-loop.sh` plus `.claude/hooks/agent-ops-loop.ps1` for
+Claude Code. Both Claude launchers delegate to the same installed Node
+runtime, so they do not copy a project-specific loop script. On Windows,
+Claude's generated settings select the PowerShell launcher. Codex also gets
+`.codex/config.toml` only when it is absent. First installation seeds, without replacing existing content,
 `loop-goal.md`, `loop-state.md`, and `loop-telemetry.jsonl` under the selected
 harness directory. A hash-commented `.gitignore` block ignores those local
 files.
@@ -194,7 +200,6 @@ Changing this feature changes native registration. Run:
 
 ```bash
 agent-ops update
-agent-ops trust grant
 ```
 
 Without `update`, doctor can report `UPDATE_REQUIRED` for registration drift.
@@ -202,14 +207,14 @@ Separately, after a toolkit upgrade or effective profile or capability change
 alters an intact path-independent managed rules artifact,
 `artifact-staleness` reports `DEGRADED` with `UPDATE_REQUIRED`. `agent-ops
 update` regenerates the artifact and clears that result; a missing or
-hash-mismatched artifact remains an `artifacts` `FAIL`. Without the new trust
-grant, trust-gated hooks remain stale.
+hash-mismatched artifact remains an `artifacts` `FAIL`. Confirmed project
+updates automatically replace the stale trust binding when verifiers exist.
 
 Doctor never writes, and some findings have no fix: a surface outside the
 installation root, or a capability a harness only partially supports by
 descriptor declaration (opencode's `lifecycle-summary`, for example), report
 `UNKNOWN` or `DEGRADED` permanently and exit 0. CI that wants automatic
-repair calls `agent-ops update` / `agent-ops trust grant` directly rather
+repair calls `agent-ops update` or the manual `agent-ops trust grant` directly rather
 than parsing doctor's output.
 
 Stop is report-only: it continues the

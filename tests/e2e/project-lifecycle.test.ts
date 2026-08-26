@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 import { CLI_VERSION } from "../../packages/cli/src/version.js";
@@ -16,7 +17,13 @@ const CLAUDE_LEGACY_BODY =
   "Use `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
 
 test("project lifecycle applies, trusts, routes, and uninstalls managed state", async () => {
-  const { root, result } = runBuiltCli([
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-e2e-"));
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({ scripts: { test: "node --test" } })
+  );
+  await writeFile(join(root, "package-lock.json"), "{}\n");
+  const { result } = runBuiltCli([
     "init",
     "--scope",
     "project",
@@ -26,10 +33,11 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     "core",
     "--yes",
     "--json"
-  ]);
+  ], root);
   try {
     assert.equal(result.status, 0);
     assert.match(result.stdout, /INIT_APPLIED/);
+    assert.equal(JSON.parse(result.stdout).data.plan.trust.action, "grant");
     await access(join(root, ".agent-ops", "manifest.json"));
 
     const dryRun = runBuiltCli([
@@ -61,9 +69,6 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     assert.notEqual(invalidConfig.status, 0);
     await writeFile(configPath, validConfig);
 
-    const granted = runBuiltCli(["trust", "grant", "--yes", "--json"], root).result;
-    assert.equal(granted.status, 0);
-    assert.match(granted.stdout, /TRUST_GRANTED/);
     const trusted = runBuiltCli(["trust", "status", "--json"], root).result;
     assert.equal(trusted.status, 0);
     assert.match(trusted.stdout, /TRUSTED/);
@@ -81,6 +86,14 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     ], root).result;
     assert.equal(updated.status, 0);
     assert.match(updated.stdout, /UPDATE_APPLIED/);
+    assert.equal(
+      JSON.parse(updated.stdout).data.plan.installation.trust.action,
+      "grant"
+    );
+    assert.match(
+      runBuiltCli(["trust", "status", "--json"], root).result.stdout,
+      /TRUSTED/
+    );
     assert.ok(
       (await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8")).includes(
         `Toolkit version: ${CLI_VERSION}`
@@ -130,6 +143,12 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     const uninstall = runBuiltCli(["uninstall", "--yes", "--json"], root).result;
     assert.equal(uninstall.status, 0);
     assert.match(uninstall.stdout, /UNINSTALL_APPLIED/);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(join(root, ".agent-ops", "state", "trust.json"), "utf8")
+      ).records,
+      []
+    );
     await assert.rejects(access(join(root, ".agent-ops", "manifest.json")));
     assert.equal(await readFile(join(root, "unmanaged.txt"), "utf8"), "keep me\n");
   } finally {

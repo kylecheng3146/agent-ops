@@ -7,6 +7,7 @@ import {
   okEnvelope,
   type CliEnvelope
 } from "../output.js";
+import type { PublicTrustChange } from "../public-plan.js";
 
 export type TrustAction = "grant" | "revoke" | "status";
 
@@ -25,6 +26,43 @@ export interface TrustCommandData {
   trust?: TrustStatusResult;
   revoked?: boolean;
   message?: string;
+}
+
+export async function planTrustGrant(
+  binding: TrustBinding,
+  store: TrustStore
+): Promise<PublicTrustChange> {
+  const trust = await store.status(binding);
+  return {
+    action: trust.status === "TRUSTED" ? "unchanged" : "grant",
+    binding,
+    status: trust.status
+  };
+}
+
+export async function planTrustRevoke(
+  binding: TrustBinding,
+  store: TrustStore
+): Promise<PublicTrustChange> {
+  const trust = await store.status(binding);
+  return {
+    action: trust.status === "TRUSTED" ? "revoke" : "unchanged",
+    binding,
+    status: trust.status
+  };
+}
+
+export function formatTrustChange(trust: PublicTrustChange): string[] {
+  if (trust.action === "skipped") {
+    return [`Trust: skipped (${trust.reason})`];
+  }
+  return [
+    `Trust: ${trust.action} (current: ${trust.status})`,
+    `  - canonical path: ${trust.binding.canonicalPath}`,
+    `  - remote identity: ${trust.binding.remoteIdentity}`,
+    `  - config hash: ${trust.binding.configHash}`,
+    `  - runtime hash: ${trust.binding.runtimeHash}`
+  ];
 }
 
 function trustError(

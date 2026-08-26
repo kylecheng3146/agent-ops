@@ -4,7 +4,10 @@ import type {
 } from "../contracts.js";
 import { calculateConfigHash } from "../config/hash.js";
 import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
-import type { StopVerifierReport } from "./events.js";
+import type { HookCommandEvidence, StopVerifierReport } from "./events.js";
+import { findReviewAttestation } from "../review/attestation.js";
+import { resolveReviewScope } from "../review/scope.js";
+import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {
   aggregateVerificationStatus,
   executeConfiguredCommand,
@@ -50,6 +53,8 @@ function commandById(
   }
   return command;
 }
+
+export const REVIEW_GATE_COMMAND_ID = "independent-review";
 
 export class StopVerificationService {
   readonly #options: StopVerificationServiceOptions;
@@ -97,6 +102,42 @@ export class StopVerificationService {
     }
   }
 
+  /**
+   * Reports whether the current source state carries a passing independent
+   * review. Returns null when no gate applies: an unchanged tree, or a
+   * repository this service cannot inspect. Infrastructure that cannot answer
+   * stays fail-open — only a resolvable change surface with no attestation
+   * fails closed.
+   */
+  async #reviewGate(): Promise<HookCommandEvidence | null> {
+    if ((this.#options.config.reviewRoles ?? []).length === 0) {
+      return null;
+    }
+    let fingerprint: string;
+    try {
+      const scope = await resolveReviewScope({
+        root: this.#options.root,
+        runner: this.#options.gitRunner
+      });
+      fingerprint = await calculateSourceFingerprint(
+        this.#options.root,
+        scope,
+        this.#options.gitRunner
+      );
+    } catch {
+      return null;
+    }
+    const attestation = await findReviewAttestation(
+      this.#options.root,
+      fingerprint
+    );
+    return {
+      commandId: REVIEW_GATE_COMMAND_ID,
+      exitCode: attestation === null ? 1 : 0,
+      testCount: null
+    };
+  }
+
   async verify(): Promise<StopVerifierReport> {
     this.#assertReady();
     const surface = await collectChangeSurface(this.#options.gitRunner);
@@ -119,15 +160,20 @@ export class StopVerificationService {
       });
       executions.push(result);
     }
-    const results: StopVerifierReport["results"] = executions.map(
-      ({ commandId, exitCode, testCount }) => ({
+    const reviewGate = await this.#reviewGate();
+    const results: StopVerifierReport["results"] = [
+      ...executions.map(({ commandId, exitCode, testCount }) => ({
         commandId,
         exitCode,
         testCount
-      })
-    );
+      })),
+      ...(reviewGate === null ? [] : [reviewGate])
+    ];
     return {
-      status: aggregateVerificationStatus(executions),
+      status:
+        reviewGate !== null && reviewGate.exitCode !== 0
+          ? "FAIL"
+          : aggregateVerificationStatus(executions),
       results
     };
   }

@@ -22,6 +22,20 @@ export function claudeHookOutput(
   const denialReason =
     result.remedy === undefined ? result.code : `${result.code}: ${result.remedy}`;
   if (event === "Stop" && result.evidence !== undefined) {
+    if (result.status === "FAIL") {
+      const failed = result.evidence.commandResults
+        .filter(({ exitCode }) => exitCode !== 0)
+        .map(({ commandId }) => commandId);
+      return json({
+        decision: "block",
+        reason:
+          `agent-ops: ${result.code} reported FAIL for ${failed.join(", ")}. ` +
+          "Resolve every failing item — an unsatisfied independent-review " +
+          "gate is cleared by running `agent-ops review` to a PASS — then " +
+          "stop again.",
+        evidence: result.evidence
+      });
+    }
     return json({
       systemMessage: `agent-ops: ${result.code}`,
       evidence: result.evidence

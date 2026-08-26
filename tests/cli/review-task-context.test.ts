@@ -15,6 +15,7 @@ import type { GitRunner } from "../../runtime/src/verify/change-surface.js";
 import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fingerprint.js";
 import { buildVerificationEvidence, calculateConfigHash, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../runtime/src/schema/validate.js";
+import { findReviewAttestation } from "../../runtime/src/review/attestation.js";
 
 const REVIEW_CONFIG: AgentOpsConfig = {
   schemaVersion: 2,
@@ -123,7 +124,9 @@ test("--criterion filters the bound task and rejects unknown ids", async () => {
   const { root, tasks } = await withTask(true);
   try {
     const filtered = await runReviewCommand({
-      args: parseArgs(["review", "--yes", "--criterion", "scope"]),
+      args: parseArgs([
+        "review", "--task", "task-1", "--yes", "--criterion", "scope"
+      ]),
       authorized: true,
       tasks,
       sessionId: SESSION,
@@ -135,22 +138,27 @@ test("--criterion filters the bound task and rejects unknown ids", async () => {
       ["scope"]
     );
 
-    const unknown = await runReviewCommand({
-      args: parseArgs(["review", "--yes", "--criterion", "nope"]),
-      authorized: true,
-      tasks,
-      sessionId: SESSION,
-      execute: async (request) => passing(request)
-    });
-    assert.equal(unknown.status, "error");
-    assert.equal(unknown.code, "REVIEW_NOT_RUN");
-    assert.equal(unknown.data?.result.reason, "no-task-context");
+    await assert.rejects(
+      runReviewCommand({
+        args: parseArgs([
+          "review", "--task", "task-1", "--yes", "--criterion", "nope"
+        ]),
+        authorized: true,
+        tasks,
+        sessionId: SESSION,
+        execute: async (request) => passing(request)
+      }),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "REVIEW_CRITERIA_NOT_FOUND"
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("no bound task reports no-task-context and spawns nothing", async () => {
+test("an unattached session falls back to the generic change review", async () => {
   const { root, tasks } = await withTask(false);
   try {
     let calls = 0;
@@ -164,10 +172,66 @@ test("no bound task reports no-task-context and spawns nothing", async () => {
         return passing(request);
       }
     });
-    assert.equal(envelope.status, "error");
-    assert.equal(envelope.data?.result.status, "NOT_RUN");
-    assert.equal(envelope.data?.result.reason, "no-task-context");
-    assert.equal(calls, 0);
+    assert.equal(envelope.status, "ok");
+    assert.equal(envelope.data?.result.status, "PASS");
+    assert.equal(calls, 1);
+    assert.deepEqual(
+      envelope.data?.result.results?.map(({ criterionId }) => criterionId),
+      ["change-quality"]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("generic PASS writes a source-bound attestation without a task id", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
+  const gitRunner = reviewGitRunner();
+  try {
+    await mkdir(join(root, "src"), { recursive: true });
+    await writeFile(join(root, "src", "reviewed.ts"), "export {};\n");
+    const envelope = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]),
+      authorized: true,
+      root,
+      gitRunner,
+      execute: async (request) => ({
+        ...passing(request),
+        report: reportFor(
+          request.invocation.packet.criteria,
+          "PASS",
+          ["src/reviewed.ts"]
+        )
+      })
+    });
+    assert.equal(envelope.status, "ok");
+    const scope = envelope.data?.result.scope;
+    assert.ok(scope);
+    const fingerprint = await calculateSourceFingerprint(root, scope, gitRunner);
+    const stored = await findReviewAttestation(root, fingerprint);
+    assert.equal(stored?.taskId, undefined);
+    assert.equal(stored?.status, "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an explicit missing task remains a task error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
+  try {
+    await assert.rejects(
+      runReviewCommand({
+        args: parseArgs(["review", "--task", "missing", "--yes"]),
+        authorized: true,
+        tasks: service(root),
+        taskId: "missing",
+        execute: async (request) => passing(request)
+      }),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "TASK_NOT_FOUND"
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

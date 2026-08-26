@@ -130,7 +130,9 @@ try {
     { args: ["doctor", "--json"], status: 0, code: "DOCTOR_UNKNOWN" },
     { args: ["task", "status", "--json"], status: 0, code: "TASK_LISTED" },
     { args: ["verify", "--task", "missing", "--json"], status: 1, code: "TASK_NOT_FOUND" },
-    { args: ["review", "--json"], status: 1, code: "REVIEW_NOT_RUN" }
+    // Generic review now reaches Git scope before reviewer authorization; the
+    // package consumer is deliberately not a repository.
+    { args: ["review", "--json"], status: 1, code: "CHANGE_SURFACE_GIT_FAILED" }
   ];
   for (const check of checks) {
     const result = probe(process.execPath, [installed, ...check.args], {

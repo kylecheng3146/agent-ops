@@ -67,7 +67,8 @@ async function loadOptionalConfig(path: string) {
 
 export async function loadEffectiveConfig(
   root: string,
-  scope: InstallScope
+  scope: InstallScope,
+  projectOverride?: AgentOpsConfig
 ): Promise<MergedConfig> {
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const userPath = join(home, ".agent-ops", "config.json");
@@ -94,7 +95,9 @@ export async function loadEffectiveConfig(
       });
     }
   }
-  const project = await loadOptionalConfig(projectPath);
+  const project = projectOverride === undefined
+    ? await loadOptionalConfig(projectPath)
+    : { sourcePath: projectPath, config: projectOverride };
   if (project !== null) {
     layers.push({
       source: "project",
@@ -185,12 +188,7 @@ export async function repositoryTrust(
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const state = localStatePaths(home);
   try {
-    const binding = await calculateTrustBinding({
-      repositoryPath: root,
-      remoteUrl: repositoryRemoteUrl(root),
-      configHash: calculateConfigHash(config),
-      runtimeHash: sha256(cliVersion)
-    });
+    const binding = await repositoryTrustBinding(root, config, cliVersion);
     return (
       await new FileTrustStore(
         state.trustStore,
@@ -200,4 +198,17 @@ export async function repositoryTrust(
   } catch {
     return "UNTRUSTED";
   }
+}
+
+export async function repositoryTrustBinding(
+  root: string,
+  config: AgentOpsConfig,
+  cliVersion: string
+) {
+  return await calculateTrustBinding({
+    repositoryPath: root,
+    remoteUrl: repositoryRemoteUrl(root),
+    configHash: calculateConfigHash(config),
+    runtimeHash: sha256(cliVersion)
+  });
 }

@@ -106,7 +106,8 @@ export interface HarnessControlAdapter {
   readonly ownSettingsKeys?: readonly string[];
   readonly buildHooks?: (
     capabilities: readonly Capability[],
-    runtimePath: string
+    runtimePath: string,
+    platform?: NodeJS.Platform
   ) => HarnessHookSettings;
   readonly mergeHooks?: (
     existing: unknown,
@@ -241,7 +242,8 @@ function createJsonDescriptor(options: {
   readonly ownSettingsKeys: readonly string[];
   readonly buildHooks: (
     capabilities: readonly Capability[],
-    runtimePath: string
+    runtimePath: string,
+    platform?: NodeJS.Platform
   ) => HarnessHookSettings;
   readonly mergeHooks: (
     existing: unknown,
@@ -337,8 +339,8 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
     hookPath: ".claude/settings.json",
     surfaces: claudeSurfaces,
     ownSettingsKeys: ["hooks"],
-    buildHooks: (capabilities, runtimePath) =>
-      buildClaudeHookSettings(capabilities, runtimePath),
+    buildHooks: (capabilities, runtimePath, platform) =>
+      buildClaudeHookSettings(capabilities, runtimePath, platform),
     mergeHooks: (existing, managed) =>
       mergeClaudeSettings(existing, managed as never),
     stripHooks: (existing) =>
@@ -534,7 +536,8 @@ export function managedRules(
       "",
       "Treat `.agent-ops/config.json` as verifier authority. Discovery output is",
       "only a proposal until a user confirms it. Repository commands require an",
-      "explicit matching trust record; installation approval never grants trust.",
+      "exact matching trust record. Confirmed project init/update grants it",
+      "automatically when verification commands are configured.",
       ""
     );
   }

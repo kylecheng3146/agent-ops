@@ -48,10 +48,7 @@ test("review routes an explicit task through real Git preflight", () => {
     const unknown = runBuiltCli([
       "review", "--task", "task-missing", "--yes", "--json"
     ], root).result;
-    assert.equal(
-      JSON.parse(unknown.stdout).data.result.reason,
-      "no-task-context"
-    );
+    assert.equal(JSON.parse(unknown.stdout).code, "TASK_NOT_FOUND");
   } finally {
     cleanupE2eRoot(root);
   }

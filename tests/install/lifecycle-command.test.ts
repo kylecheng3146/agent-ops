@@ -25,6 +25,31 @@ import {
   commonHarnessAdapters
 } from "../../runtime/src/install/harness.js";
 import { createInstallPlan } from "../../runtime/src/install/plan.js";
+import type {
+  TrustBinding,
+  TrustStore
+} from "../../runtime/src/security/trust.js";
+
+const BINDING: TrustBinding = {
+  canonicalPath: "/project",
+  remoteIdentity: "example.com/owner/repository",
+  configHash: "a".repeat(64),
+  runtimeHash: "b".repeat(64)
+};
+
+function fakeTrustStore(
+  events: string[],
+  status: "STALE" | "TRUSTED" | "UNTRUSTED"
+): TrustStore {
+  return {
+    status: async () => ({ status, mismatchedFields: [] }),
+    grant: async () => { events.push("grant"); },
+    revoke: async () => {
+      events.push("revoke");
+      return true;
+    }
+  };
+}
 
 async function install(root: string): Promise<void> {
   await applyInstallPlan(
@@ -99,6 +124,8 @@ test("doctor command reports PASS only when every probe passes", async () => {
 
 test("update command supports offline dry-run and explicit apply", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
+  const trustEvents: string[] = [];
+  const store = fakeTrustStore(trustEvents, "STALE");
   try {
     await install(root);
     const dryRun = await runUpdateCommand({
@@ -107,11 +134,16 @@ test("update command supports offline dry-run and explicit apply", async () => {
       adapters: commonHarnessAdapters(),
       targetVersion: "0.2.0",
       isTTY: false,
+      trustStore: store,
+      calculateTrustBinding: async () => BINDING,
       confirm: async () => {
         throw new Error("dry-run must not confirm");
       }
     });
     assert.equal(dryRun.code, "UPDATE_PLAN_READY");
+    assert.equal(dryRun.data?.plan.installation.trust?.action, "grant");
+    assert.match(dryRun.data?.text ?? "", /Trust: grant/u);
+    assert.deepEqual(trustEvents, []);
     assert.match(dryRun.data?.text ?? "", /Target version: 0\.2\.0/);
     assert.match(
       await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
@@ -124,11 +156,14 @@ test("update command supports offline dry-run and explicit apply", async () => {
       adapters: commonHarnessAdapters(),
       targetVersion: "0.2.0",
       isTTY: false,
+      trustStore: store,
+      calculateTrustBinding: async () => BINDING,
       confirm: async () => {
         throw new Error("--yes must not confirm");
       }
     });
     assert.equal(applied.code, "UPDATE_APPLIED");
+    assert.deepEqual(trustEvents, ["grant"]);
     assert.match(
       await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"),
       /Toolkit version: 0\.2\.0/
@@ -140,18 +175,24 @@ test("update command supports offline dry-run and explicit apply", async () => {
 
 test("uninstall command dry-runs then removes only managed content", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
+  const trustEvents: string[] = [];
+  const store = fakeTrustStore(trustEvents, "TRUSTED");
   try {
     await install(root);
     const dryRun = await runUninstallCommand({
       args: parseArgs(["uninstall", "--dry-run"]),
       root,
       isTTY: false,
+      trustStore: store,
+      calculateTrustBinding: async () => BINDING,
       confirm: async () => {
         throw new Error("dry-run must not confirm");
       }
     });
     assert.equal(dryRun.code, "UNINSTALL_PLAN_READY");
     assert.match(dryRun.data?.text ?? "", /Uninstall plan/);
+    assert.equal(dryRun.data?.plan.trust?.action, "revoke");
+    assert.deepEqual(trustEvents, []);
     assert.match(
       await readFile(join(root, "AGENTS.md"), "utf8"),
       /agent-ops:start agents-routing/
@@ -161,17 +202,71 @@ test("uninstall command dry-runs then removes only managed content", async () =>
       args: parseArgs(["uninstall", "--yes"]),
       root,
       isTTY: false,
+      trustStore: store,
+      calculateTrustBinding: async () => BINDING,
       confirm: async () => {
         throw new Error("--yes must not confirm");
       }
     });
     assert.equal(applied.code, "UNINSTALL_APPLIED");
+    assert.deepEqual(trustEvents, ["revoke"]);
     await assert.rejects(readFile(join(root, "AGENTS.md")));
     await assert.rejects(
       readFile(join(root, ".agent-ops", "manifest.json"))
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("trust failures report the already-applied lifecycle change", async () => {
+  const updateRoot = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
+  const uninstallRoot = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
+  const failingStore: TrustStore = {
+    status: async () => ({ status: "UNTRUSTED", mismatchedFields: [] }),
+    grant: async () => { throw new Error("denied"); },
+    revoke: async () => { throw new Error("denied"); }
+  };
+  try {
+    await install(updateRoot);
+    const updated = await runUpdateCommand({
+      args: parseArgs(["update", "--yes"]),
+      root: updateRoot,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      isTTY: false,
+      trustStore: failingStore,
+      calculateTrustBinding: async () => BINDING,
+      confirm: async () => false
+    });
+    assert.equal(updated.code, "UPDATE_TRUST_FAILED");
+    assert.equal(updated.data?.applied, true);
+    assert.match(
+      await readFile(join(updateRoot, ".agent-ops", "AGENTS.md"), "utf8"),
+      /Toolkit version: 0\.2\.0/u
+    );
+
+    await install(uninstallRoot);
+    const revokeStore: TrustStore = {
+      ...failingStore,
+      status: async () => ({ status: "TRUSTED", mismatchedFields: [] })
+    };
+    const uninstalled = await runUninstallCommand({
+      args: parseArgs(["uninstall", "--yes"]),
+      root: uninstallRoot,
+      isTTY: false,
+      trustStore: revokeStore,
+      calculateTrustBinding: async () => BINDING,
+      confirm: async () => false
+    });
+    assert.equal(uninstalled.code, "UNINSTALL_TRUST_FAILED");
+    assert.equal(uninstalled.data?.applied, true);
+    await assert.rejects(
+      readFile(join(uninstallRoot, ".agent-ops", "manifest.json"))
+    );
+  } finally {
+    await rm(updateRoot, { recursive: true, force: true });
+    await rm(uninstallRoot, { recursive: true, force: true });
   }
 });
 

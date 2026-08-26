@@ -7,6 +7,10 @@ import {
 } from "../../../../runtime/src/install/plan.js";
 import { applyInstallPlan } from "../../../../runtime/src/install/apply.js";
 import type { ParsedArgs } from "../args.js";
+import type {
+  TrustBinding,
+  TrustStore
+} from "../../../../runtime/src/security/trust.js";
 import {
   okEnvelope,
   type CliEnvelope
@@ -14,8 +18,13 @@ import {
 import { formatOperationPlan } from "../plan-output.js";
 import {
   toPublicInstallPlan,
-  type PublicInstallPlan
+  type PublicInstallPlan,
+  type PublicTrustChange
 } from "../public-plan.js";
+import {
+  formatTrustChange,
+  planTrustGrant
+} from "./trust.js";
 
 export interface InitCommandOptions {
   readonly args: ParsedArgs;
@@ -25,7 +34,9 @@ export interface InitCommandOptions {
   readonly toolkitVersion?: string;
   readonly hookRuntimePath?: string;
   readonly hookTargets?: readonly HookTargetSelection[];
-  confirm(plan: InstallPlan): Promise<boolean>;
+  readonly trustStore?: TrustStore;
+  calculateTrustBinding?(config: InstallPlan["config"]): Promise<TrustBinding | null>;
+  confirm(plan: InstallPlan, trust: PublicTrustChange): Promise<boolean>;
 }
 
 export interface InitCommandData {
@@ -35,7 +46,10 @@ export interface InitCommandData {
   readonly text?: string;
 }
 
-export function formatInstallPlan(plan: InstallPlan): string {
+export function formatInstallPlan(
+  plan: InstallPlan,
+  trust?: PublicTrustChange
+): string {
   const hooks = plan.manifest.hooks ?? [];
   const detectedVerification = plan.detectedVerification;
   return formatOperationPlan({
@@ -44,6 +58,7 @@ export function formatInstallPlan(plan: InstallPlan): string {
       `Scope: ${plan.scope}`,
       `Harness: ${plan.harness}`,
       `Profiles: ${plan.profiles.join(", ")}`,
+      ...(trust === undefined ? [] : formatTrustChange(trust)),
       ...(hooks.length === 0
         ? ["Hooks: none selected"]
         : [
@@ -89,14 +104,35 @@ function appliedMessage(plan: InstallPlan): string {
 function initError(
   code: string,
   message: string,
-  plan: InstallPlan
+  plan: InstallPlan,
+  trust: PublicTrustChange,
+  applied = false
 ): CliEnvelope<InitCommandData> {
   return {
     code,
     status: "error",
-    data: { applied: false, plan: toPublicInstallPlan(plan), message },
+    data: { applied, plan: toPublicInstallPlan(plan, trust), message },
     errors: [{ code, message }]
   };
+}
+
+async function trustChange(
+  options: InitCommandOptions,
+  plan: InstallPlan
+): Promise<PublicTrustChange> {
+  if (plan.scope === "user") {
+    return { action: "skipped", reason: "user-scope" };
+  }
+  if (
+    options.calculateTrustBinding === undefined ||
+    options.trustStore === undefined
+  ) {
+    return { action: "skipped", reason: "not-configured" };
+  }
+  const binding = await options.calculateTrustBinding(plan.config);
+  return binding === null
+    ? { action: "skipped", reason: "no-verification-commands" }
+    : await planTrustGrant(binding, options.trustStore);
 }
 
 export async function runInitCommand(
@@ -134,37 +170,56 @@ export async function runInitCommand(
       ? {}
       : { reviewTargets: args.reviewTargets })
   });
+  const trust = await trustChange(options, plan);
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {
       applied: false,
-      plan: toPublicInstallPlan(plan),
+      plan: toPublicInstallPlan(plan, trust),
       message: "Installation plan calculated; no files were written.",
-      text: formatInstallPlan(plan)
+      text: formatInstallPlan(plan, trust)
     });
   }
   if (!args.yes && !options.isTTY) {
     return initError(
       "INIT_CONFIRMATION_REQUIRED",
       "Non-interactive init requires --yes after all choices are explicit.",
-      plan
+      plan,
+      trust
     );
   }
   if (
     !args.yes &&
     options.isTTY &&
-    !(await options.confirm(plan))
+    !(await options.confirm(plan, trust))
   ) {
     return initError(
       "INIT_CANCELLED",
       "Installation was cancelled; no files were written.",
-      plan
+      plan,
+      trust
     );
   }
 
   await applyInstallPlan(options.root, plan);
+  if (trust.action === "grant") {
+    try {
+      if (options.trustStore === undefined) {
+        throw new Error("Trust store is unavailable.");
+      }
+      await options.trustStore.grant(trust.binding);
+    } catch {
+      return initError(
+        "INIT_TRUST_FAILED",
+        "Installation was applied, but repository trust was not granted. Run `agent-ops trust grant --yes`.",
+        plan,
+        trust,
+        true
+      );
+    }
+  }
   return okEnvelope("INIT_APPLIED", {
     applied: true,
-    plan: toPublicInstallPlan(plan),
+    plan: toPublicInstallPlan(plan, trust),
     message: appliedMessage(plan)
   });
 }

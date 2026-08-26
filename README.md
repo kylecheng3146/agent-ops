@@ -67,8 +67,8 @@ agent-ops uninstall --dry-run --json
 ### Project-local loop
 
 `loop` is an explicit, project-only profile for Codex, Claude Code, or both.
-It requires a POSIX-compatible `bash`; the generated native launchers are
-`.sh` files, so Windows is not currently a supported loop host. Preview it
+Claude Code supports native Windows through a generated PowerShell launcher;
+Codex's loop launcher still requires POSIX-compatible `bash`. Preview it
 first, then install only after reviewing the plan. `loop` also implies the
 `core` baseline, so the project retains the managed rules and routing files:
 
@@ -77,12 +77,16 @@ agent-ops init --dry-run --scope project --harness codex,claude --profile loop -
 agent-ops init --scope project --harness codex,claude --profile loop --yes
 ```
 
-It creates one small managed launcher per selected native host:
+On native Windows, select `--harness claude` unless Codex is running in a
+POSIX environment; the Codex loop still invokes `bash`.
+
+It creates managed launchers per selected native host:
 
 - Codex: `.codex/hooks/agent-ops-loop.sh`, `.codex/config.toml` when absent,
   `.codex/loop-goal.md`, `.codex/loop-state.md`, and
   `.codex/loop-telemetry.jsonl`.
-- Claude Code: `.claude/hooks/agent-ops-loop.sh`, `.claude/loop-goal.md`,
+- Claude Code: `.claude/hooks/agent-ops-loop.sh`,
+  `.claude/hooks/agent-ops-loop.ps1`, `.claude/loop-goal.md`,
   `.claude/loop-state.md`, and `.claude/loop-telemetry.jsonl`.
 
 The launchers delegate to one installed Node runtime; agent-ops does not copy
@@ -146,8 +150,10 @@ node dist/packages/cli/src/bin.js init \
   --dry-run --scope project --harness all --profile core --json
 ```
 
-After reviewing the plan, apply it explicitly with `--yes`. Trust, diagnostics,
-updates, and removal are separate commands:
+After reviewing the plan, apply it explicitly with `--yes`. Confirmed
+project-scope init/update automatically grants the displayed trust binding when
+verification commands are configured; uninstall revokes it. Diagnostics and
+manual trust management remain separate commands:
 
 ```bash
 node dist/packages/cli/src/bin.js init --scope project --harness all --profile core --yes
@@ -165,11 +171,9 @@ directory. `update` also requires that the project already has a valid managed
 `.agent-ops/manifest.json` created by `init`.
 
 The commands after `init --yes` are post-apply operations. `doctor` reports
-`UNKNOWN` for a probe that has nothing to verify yet: `repository-trust`
-until `trust grant` runs (only actionable once `verification.commands` is
-configured — a project that never runs verification has nothing for trust
-to unlock), and `smoke-availability` until the configuration declares a
-verification command. Every non-`PASS` check carries a `remediation` string
+`UNKNOWN` for a probe that has nothing to verify yet: `repository-trust` when
+no verification command exists, and `smoke-availability` until the
+configuration declares one. Every non-`PASS` check carries a `remediation` string
 explaining what, if anything, to do about it; text output prints it as an
 indented `  → ` line, and `--json` exposes it as a field. `doctor` never
 writes: it only reports what `agent-ops update` or `agent-ops trust grant`
@@ -239,9 +243,9 @@ only with confirmed commands, for example the relevant config fragment is:
 }
 ```
 
-After changing Stop configuration, run `agent-ops update` so native
-registrations match the config, then `agent-ops trust grant` to bind the
-current config. Stop is report-only: `PASS`, `FAIL`, and `UNKNOWN` continue
+After changing Stop configuration, run `agent-ops update`; its approved plan
+updates native registrations and the exact trust binding together. Stop is
+report-only: `PASS`, `FAIL`, and `UNKNOWN` continue
 the harness, emit bounded command evidence, and never complete a task.
 Config v1 migrates to config v2 with Stop disabled; migration invalidates the
 old trust binding, and pre-v1 binaries cannot read the migrated config.
@@ -277,9 +281,10 @@ the project configuration defines those workflows.
 
 `agent-ops review` can hand the review to another agent CLI, so the work is not
 judged by the agent that produced it. Enable it during `agent-ops init` (the
-default is off). Reviews require an attached task, current required
-verification evidence, and a deterministic worktree (or `--base`) scope. The
-native-schema detailed report is displayed but not persisted.
+default is off). A bare review applies the built-in `change-quality` criterion
+to a deterministic worktree (or `--base`) scope. `--task` reviews keep their
+task criteria and require current verification evidence. The detailed report
+is displayed; a minimal source-fingerprint attestation is persisted after PASS.
 
 Each attempt uses a fresh temporary cwd, a small allowlisted environment, and a
 target-native read-only/context-isolation mode. Currently only Claude safe mode

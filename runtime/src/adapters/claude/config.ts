@@ -6,7 +6,8 @@ import type { ClaudeSupportedEvent } from "./events.js";
 interface ClaudeCommandHook {
   readonly type: "command";
   readonly command: string;
-  readonly args: readonly string[];
+  readonly args?: readonly string[];
+  readonly shell?: "powershell";
   readonly timeout: number;
 }
 
@@ -41,6 +42,8 @@ const CLAUDE_LOOP_EVENTS: readonly ClaudeSupportedEvent[] = [
 const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
 const CLAUDE_LOOP_LAUNCHER =
   "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.sh";
+const CLAUDE_WINDOWS_LOOP_LAUNCHER =
+  "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.ps1";
 
 export function claudeSettingsTarget(
   scope: InstallScope
@@ -83,29 +86,44 @@ function matcherGroup(
   };
 }
 
-function loopMatcherGroup(event: ClaudeSupportedEvent): ClaudeMatcherGroup {
+function powershellLoopCommand(event: ClaudeSupportedEvent): string {
+  return `& "${CLAUDE_WINDOWS_LOOP_LAUNCHER}" "${event}" "${CLAUDE_HOOK_MARKER}"`;
+}
+
+function loopMatcherGroup(
+  event: ClaudeSupportedEvent,
+  platform: NodeJS.Platform
+): ClaudeMatcherGroup {
+  const hook: ClaudeCommandHook =
+    platform === "win32"
+      ? {
+          type: "command",
+          shell: "powershell",
+          command: powershellLoopCommand(event),
+          timeout: 30
+        }
+      : {
+          type: "command",
+          command: "bash",
+          args: [
+            CLAUDE_LOOP_LAUNCHER,
+            event,
+            CLAUDE_HOOK_MARKER
+          ],
+          timeout: 30
+        };
   return {
     ...(event === "PreToolUse" || event === "PermissionRequest"
       ? { matcher: "Bash" }
       : {}),
-    hooks: [
-      {
-        type: "command",
-        command: "bash",
-        args: [
-          CLAUDE_LOOP_LAUNCHER,
-          event,
-          CLAUDE_HOOK_MARKER
-        ],
-        timeout: 30
-      }
-    ]
+    hooks: [hook]
   };
 }
 
 export function buildClaudeHookSettings(
   capabilities: readonly Capability[],
-  runtimePath: string
+  runtimePath: string,
+  platform: NodeJS.Platform = process.platform
 ): ClaudeHookSettings {
   if (
     runtimePath.length === 0 ||
@@ -120,7 +138,7 @@ export function buildClaudeHookSettings(
   const hooks: Record<string, readonly ClaudeMatcherGroup[]> = {};
   if (capabilities.includes("project-loop")) {
     for (const event of CLAUDE_LOOP_EVENTS) {
-      hooks[event] = [loopMatcherGroup(event)];
+      hooks[event] = [loopMatcherGroup(event, platform)];
     }
   } else {
     if (capabilities.includes("lifecycle-summary")) {
@@ -146,15 +164,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * ours merely by carrying the marker string.
  */
 export function isClaudeManagedHandler(handler: unknown): boolean {
-  if (!isRecord(handler) || !Array.isArray(handler.args)) {
+  if (!isRecord(handler) || handler.type !== "command") {
     return false;
   }
   return (
     (handler.command === "node" &&
+      Array.isArray(handler.args) &&
       handler.args[3] === CLAUDE_HOOK_MARKER) ||
     (handler.command === "bash" &&
+      Array.isArray(handler.args) &&
       handler.args[0] === CLAUDE_LOOP_LAUNCHER &&
-      handler.args[2] === CLAUDE_HOOK_MARKER)
+      handler.args[2] === CLAUDE_HOOK_MARKER) ||
+    (handler.shell === "powershell" &&
+      handler.args === undefined &&
+      typeof handler.command === "string" &&
+      CLAUDE_LOOP_EVENTS.some(
+        (event) => handler.command === powershellLoopCommand(event)
+      ))
   );
 }
 
