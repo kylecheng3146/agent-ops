@@ -294,10 +294,13 @@ const AGENTS_ROUTING: HarnessRoutingSpec = {
   ]
 };
 
+// ponytail: Claude Code only auto-loads files via the `@path` import syntax.
+// Prose ("Load X as the baseline") is inert there, so the import line is the routing.
 const CLAUDE_ROUTING: HarnessRoutingSpec = {
   desired:
-    "## Loop Engineering\n\nLoad `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.\n",
+    "## Loop Engineering\n\n@.agent-ops/CLAUDE.md\n\nThe file above is the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.\n",
   legacy: [
+    "## Loop Engineering\n\nLoad `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.\n",
     "## Loop Engineering\n\nUse `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.\n"
   ]
 };

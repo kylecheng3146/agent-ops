@@ -1,4 +1,6 @@
 ## Loop Engineering
 
-Load `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.
+@.agent-ops/CLAUDE.md
+
+The file above is the agent-ops managed baseline.
 Project-specific instructions in this file remain authoritative.

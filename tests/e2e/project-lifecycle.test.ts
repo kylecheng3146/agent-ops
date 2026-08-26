@@ -11,7 +11,7 @@ const CODEX_DESIRED_BODY =
 const CODEX_LEGACY_BODY =
   "Use `.agent-ops/AGENTS.md` as the canonical Loop Engineering specification for this project.";
 const CLAUDE_DESIRED_BODY =
-  "Load `.agent-ops/CLAUDE.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
+  "@.agent-ops/CLAUDE.md\n\nThe file above is the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.";
 const CLAUDE_LEGACY_BODY =
   "Use `.agent-ops/CLAUDE.md` as the canonical Loop Engineering specification for this project.";
 
@@ -177,7 +177,7 @@ test("project lifecycle migrates both legacy routing bodies without changing use
     );
     assert.match(
       await readFile(join(root, "CLAUDE.md"), "utf8"),
-      /user text before[\s\S]*Load `\.agent-ops\/CLAUDE\.md`[\s\S]*user text after/u
+      /user text before[\s\S]*@\.agent-ops\/CLAUDE\.md[\s\S]*user text after/u
     );
   } finally {
     cleanupE2eRoot(root);
