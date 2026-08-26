@@ -147,7 +147,8 @@ test("prefers direct exec and keeps paths with spaces as one argument", () => {
 test("registers the Claude loop lifecycle through its generated launcher", async () => {
   const managed = buildClaudeHookSettings(
     ["project-loop"],
-    "/opt/agent ops/hook-entry.js"
+    "/opt/agent ops/hook-entry.js",
+    "linux"
   );
   assert.deepEqual(Object.keys(managed.hooks), LOOP_EVENTS);
   assert.equal(managed.hooks.Stop, undefined);
