@@ -129,6 +129,6 @@ test("the fallback-safe prompt carries the complete report contract", async () =
     "changedFilesInspected:string[]",
     "supportingFilesInspected:string[]"
   ]) {
-    assert.match(result.prompt, new RegExp(field.replace(/[\[\]]/gu, "\\$&")));
+    assert.ok(result.prompt.includes(field));
   }
 });
