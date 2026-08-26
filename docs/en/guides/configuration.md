@@ -52,14 +52,15 @@ A bare review uses the built-in `change-quality` criterion; `--task` uses the
 task criteria and requires fresh PASS evidence for required checks. The full
 report is printed, and PASS persists only a source-fingerprint attestation.
 
-Every attempt starts from a fresh temporary cwd with a narrow environment. The
-following target identities may be configured; only Claude currently meets the
-complete context-isolation contract and can execute automatically:
+Every attempt starts from a fresh temporary cwd and native read-only mode.
+Claude uses complete safe-mode isolation. Codex and Agy preserve their existing
+login environment to support normal OAuth sessions, so they provide weaker
+context isolation but still cannot modify the repository:
 
 | Target | Invocation | Read-only |
 | --- | --- | --- |
-| `codex` | `codex exec` | retained; `capability-unavailable` |
-| `agy` (Antigravity) | `agy -p` | retained; `capability-unavailable` |
+| `codex` | `codex exec` | `-s read-only --ephemeral --ignore-user-config` |
+| `agy` (Antigravity) | `agy -p` | `--sandbox --mode plan --disable-slash-commands` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
 `opencode` is **not** a review target even though it is a supported harness.
@@ -67,12 +68,11 @@ Its `--agent plan` is rejected as a subagent and silently falls back to a
 writable agent, so it cannot satisfy the read-only precondition. A target with
 no read-only flag is skipped rather than run unsandboxed.
 
-The chain advances only when no review happened — the executable is missing,
-the spawn failed, or the attempt timed out (120s per target by default,
-overridable with `timeoutMs`). A `FAIL` verdict is **terminal**: the chain
-never retries another target after a real verdict, because that would be
-automated review shopping. Unparseable output is terminal too, since it points
-at a prompt or CLI-version mismatch worth surfacing.
+The chain advances whenever an attempt produces no valid verdict — including a
+missing executable, spawn failure, timeout (300s per target by default), login
+failure, oversized output, or unparseable output. Every attempt and reason is
+preserved in human and JSON output. A `PASS` or `FAIL` verdict is **terminal**,
+so the chain cannot shop for a passing review.
 
 If Claude Code is the host (`CLAUDECODE` is set), `claude` is moved to the end
 of the chain. It still runs when it is the only configured target, with a

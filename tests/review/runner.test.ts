@@ -5,6 +5,7 @@ import {
   runIndependentReview,
   type ReviewInvocation
 } from "../../runtime/src/review/runner.js";
+import { renderReviewResult } from "../../runtime/src/review/render.js";
 import { reportFor } from "./report-fixture.js";
 
 const invocation: ReviewInvocation = {
@@ -89,4 +90,45 @@ test("review evidence is redacted and safe for human or JSON output", async () =
   assert.equal(result.status, "PASS");
   assert.notEqual(result.results?.[0]?.evidence[0], sensitive);
   assert.doesNotMatch(result.results?.[0]?.evidence[0] ?? "", /hidden/);
+});
+
+test("review attempts survive JSON and human rendering", async () => {
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      status: "PASS",
+      results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+      report: reportFor(invocation.packet.criteria),
+      attempts: [
+        { target: "codex", status: "NOT_RUN", reason: "login-required" },
+        { target: "agy", status: "PASS" }
+      ]
+    })
+  });
+
+  assert.deepEqual(result.attempts, [
+    { target: "codex", status: "NOT_RUN", reason: "login-required" },
+    { target: "agy", status: "PASS" }
+  ]);
+  assert.match(renderReviewResult(result), /codex: NOT_RUN \(login-required\)/);
+  assert.match(renderReviewResult(result), /agy: PASS/);
+});
+
+test("the fallback-safe prompt carries the complete report contract", async () => {
+  const result = await runIndependentReview({
+    invocation,
+    authorized: false,
+    execute: async () => ({ status: "NOT_RUN", reason: "missing-cli" })
+  });
+  for (const field of [
+    "summary:string",
+    "results:[",
+    "findings:[",
+    "residualRisks:string[]",
+    "changedFilesInspected:string[]",
+    "supportingFilesInspected:string[]"
+  ]) {
+    assert.match(result.prompt, new RegExp(field.replace(/[\[\]]/gu, "\\$&")));
+  }
 });

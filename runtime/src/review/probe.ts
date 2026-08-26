@@ -8,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractFinalMessage } from "./extract.js";
 import {
-  hasRequiredReviewIsolation,
   isolatedReviewEnvironment
 } from "./execute.js";
 import { buildProbeInvocation } from "./invocation.js";
@@ -51,9 +50,6 @@ export async function probeReviewTarget(
   options: ReviewTargetProbeOptions
 ): Promise<ReviewTargetProbeResult> {
   const deep = options.deep === true;
-  if (deep && !hasRequiredReviewIsolation(target)) {
-    return "ineligible";
-  }
   const invocation = buildProbeInvocation({ target, prompt: PROBE_PROMPT });
   if (invocation === undefined) {
     return "ineligible";

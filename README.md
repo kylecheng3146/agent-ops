@@ -287,14 +287,16 @@ task criteria and require current verification evidence. The detailed report
 is displayed; a minimal source-fingerprint attestation is persisted after PASS.
 
 Each attempt uses a fresh temporary cwd, a small allowlisted environment, and a
-target-native read-only/context-isolation mode. Currently only Claude safe mode
-meets the full isolation contract; configured Codex and Agy entries return
-`capability-unavailable` rather than run with a weaker boundary. `opencode` is
-not a review target.
+target-native read-only mode. Claude additionally uses its complete safe mode;
+Codex ignores user config and persistence, while Agy disables slash-command
+expansion. Codex and Agy preserve their existing login environment, so their
+context isolation is intentionally weaker than Claude's. `opencode` is not a
+review target.
 
-The first target that actually runs produces the verdict. A `FAIL` is final:
-the chain never retries elsewhere after a real verdict. `--yes` is still
-required for every run, since each run spends another provider's quota.
+The first valid `PASS` or `FAIL` is final. Attempts that produce no verdict —
+including login failures and unparseable output — advance to the next target
+and remain visible in the result's `attempts`. `--yes` is still required for
+every run, since each run spends another provider's quota.
 
 Authentication is diagnosed, never guessed:
 

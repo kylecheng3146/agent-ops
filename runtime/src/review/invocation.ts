@@ -99,11 +99,12 @@ export function buildTargetInvocation(
         "exec",
         "-",
         "--skip-git-repo-check",
-        "--output-schema",
-        reviewSchemaPath(),
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
         ...(request.repositoryRoot === undefined
           ? []
-          : ["--add-dir", request.repositoryRoot, "--ephemeral", "--ignore-rules"]),
+          : ["-C", request.repositoryRoot]),
         ...shared
       ],
       stdin: request.prompt
@@ -111,7 +112,9 @@ export function buildTargetInvocation(
   }
   const isolation = request.target === "claude"
     ? ["--no-session-persistence", "--safe-mode", "--disable-slash-commands"]
-    : [];
+    : request.target === "agy"
+      ? ["--disable-slash-commands"]
+      : [];
   return {
     command: request.target,
     args: [
@@ -141,13 +144,18 @@ export function buildProbeInvocation(
   if (request.target === "codex") {
     return {
       command: "codex",
-      args: ["exec", "-", "--skip-git-repo-check", ...readOnly],
+      args: [
+        "exec", "-", "--skip-git-repo-check", "--ephemeral",
+        "--ignore-user-config", "--ignore-rules", ...readOnly
+      ],
       stdin: request.prompt
     };
   }
   const isolation = request.target === "claude"
     ? ["--no-session-persistence", "--safe-mode", "--disable-slash-commands"]
-    : [];
+    : request.target === "agy"
+      ? ["--disable-slash-commands"]
+      : [];
   return {
     command: request.target,
     args: ["-p", "--output-format", "json", ...isolation, ...readOnly],
