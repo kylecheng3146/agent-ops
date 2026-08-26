@@ -25,6 +25,15 @@ export function renderReviewResult(result: ReviewRunResult): string {
   if (result.independence !== undefined) {
     lines.push(`Independence: ${result.independence}.`);
   }
+  if (result.attempts !== undefined) {
+    lines.push("Attempts:");
+    for (const attempt of result.attempts) {
+      lines.push(
+        `- ${attempt.target}: ${attempt.status}` +
+        `${attempt.reason === undefined ? "" : ` (${safe(attempt.reason)})`}`
+      );
+    }
+  }
   if (result.verification !== undefined) {
     lines.push("Machine verification:");
     for (const command of result.verification.commands) {

@@ -4,6 +4,22 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.16]
+
+- `agent-ops review` now runs configured Codex and Agy targets with their
+  native read-only modes instead of skipping them for incomplete context
+  isolation. Existing login state is preserved, Codex ignores user config and
+  persistence, and Agy disables slash-command expansion.
+- Review fallback now continues after any attempt that produces no valid
+  verdict, including login failures, oversized output, and unparseable output.
+  Human and JSON results include the ordered `attempts` and their reasons;
+  `PASS` and `FAIL` remain terminal. The default per-target timeout is now five
+  minutes so full Codex reviews are not constrained by the lightweight probe's
+  two-minute budget.
+- Managed rules invoke `agent-ops review --yes`, so completion review is
+  actually authorized, and private-state reads avoid redundant `chmod` calls
+  while still repairing unsafe permissions when needed.
+
 ## [0.1.14]
 
 - **Fix:** the managed `claude-routing` block in `CLAUDE.md` now uses Claude

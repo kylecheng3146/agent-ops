@@ -529,7 +529,7 @@ export function managedRules(
       "3. Apply the smallest safe change.",
       "4. Run evidence-producing verification for every criterion.",
       "5. Obtain independent review before claiming completion, via",
-      "   `agent-ops review` (or the CLI's equivalent invocation). Never call a",
+      "   `agent-ops review --yes` (or the CLI's equivalent invocation). Never call a",
       "   review-target CLI (agy, codex, claude) directly — direct calls skip",
       "   the enforced read-only sandbox flags and can hang or fail on command",
       "   permission prompts.",

@@ -86,6 +86,19 @@ test("codex runs outside a trusted git directory", () => {
   assert.ok(!argsFor("agy").includes("--skip-git-repo-check"));
 });
 
+test("codex opens the repository as its read-only working root", () => {
+  const args = buildTargetInvocation({
+    target: "codex",
+    prompt: PROMPT,
+    repositoryRoot: "/repository"
+  })?.args ?? [];
+  assert.deepEqual(args.slice(args.indexOf("-C"), args.indexOf("-C") + 2), [
+    "-C",
+    "/repository"
+  ]);
+  assert.ok(!args.includes("--add-dir"));
+});
+
 test("only the JSON-envelope targets get an output-format flag", () => {
   assert.ok(argsFor("claude").join(" ").includes("--output-format json"));
   assert.ok(argsFor("agy").join(" ").includes("--output-format json"));
@@ -93,12 +106,12 @@ test("only the JSON-envelope targets get an output-format flag", () => {
   assert.ok(!argsFor("codex").includes("--json"));
 });
 
-test("every invocation uses its native structured-output schema", () => {
+test("envelope targets use native schemas while Codex stays runtime-validated", () => {
   for (const target of ["claude", "agy", "codex"] as const) {
     const args = argsFor(target, { model: "m", effort: "high" });
     assert.ok(!args.includes("-o"));
     if (target === "codex") {
-      assert.ok(args.includes("--output-schema"));
+      assert.ok(!args.includes("--output-schema"));
       continue;
     }
     assert.ok(args.includes("--json-schema"));

@@ -346,6 +346,7 @@ function sourceChangedResult(result: ReviewRunResult): ReviewRunResult {
     ...(result.independence === undefined
       ? {}
       : { independence: result.independence }),
+    ...(result.attempts === undefined ? {} : { attempts: result.attempts }),
     ...(result.verification === undefined
       ? {}
       : { verification: result.verification })

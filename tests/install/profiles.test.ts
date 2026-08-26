@@ -12,7 +12,9 @@ import {
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import {
   COMMON_AGENTS_BLOCK,
-  COMMON_CLAUDE_BLOCK
+  COMMON_CLAUDE_BLOCK,
+  harnessDescriptor,
+  managedRules
 } from "../../runtime/src/install/harness.js";
 
 const LOOP_PROFILE = ["loop"] as never;
@@ -198,4 +200,13 @@ test("common routing templates use only managed specification paths", async () =
         : COMMON_CLAUDE_BLOCK
     );
   }
+});
+
+test("managed rules authorize the independent review invocation", () => {
+  const content = managedRules(harnessDescriptor("codex"), {
+    scope: "project",
+    profiles: ["core"],
+    capabilities: ["rules", "review"]
+  });
+  assert.match(content, /agent-ops review --yes/);
 });

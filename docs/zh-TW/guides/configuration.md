@@ -46,23 +46,24 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 `--task` 使用 task criteria，並要求必要驗證的最新 PASS evidence。完整 report
 會顯示給人看，PASS 後只持久化 source-fingerprint attestation。
 
-每次嘗試都從新的暫存 cwd 與最小環境啟動。目前只有 Claude 具備完整的
-context-isolation 合約，能自動執行：
+每次嘗試都從新的暫存 cwd 與原生唯讀模式啟動。Claude 使用完整 safe-mode
+隔離；Codex 與 Agy 為了支援既有 OAuth 登入而保留登入環境，因此 context
+隔離較弱，但仍不能修改 repository：
 
 | 目標 | 呼叫方式 | 唯讀 |
 | --- | --- | --- |
-| `codex` | `codex exec` | 保留設定；`capability-unavailable` |
-| `agy`（Antigravity）| `agy -p` | 保留設定；`capability-unavailable` |
+| `codex` | `codex exec` | `-s read-only --ephemeral --ignore-user-config` |
+| `agy`（Antigravity）| `agy -p` | `--sandbox --mode plan --disable-slash-commands` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
 `opencode` **不是** review 目標，即使它是支援的 harness。它的 `--agent plan`
 會被判定為 subagent 而遭拒，並靜默退回可寫入的 agent，因此無法滿足唯讀前置
 條件。沒有唯讀旗標的目標會被跳過，不會在無沙箱狀態下執行。
 
-只有在「根本沒審到」時才換下一家 —— 執行檔不存在、spawn 失敗、或逾時
-（每個目標預設 120 秒，可用 `timeoutMs` 覆寫）。`FAIL` 判定是**終局**：
-拿到真實判定後絕不再試下一家，否則就變成自動化的 review shopping。
-無法解析的輸出同樣終局，因為那代表 prompt 約定或 CLI 版本不合，該浮出來修。
+只要沒有取得有效 verdict 就換下一家，包括執行檔不存在、spawn 失敗、逾時
+（每個目標預設 300 秒）、登入失敗、輸出過大或無法解析。文字與 JSON 輸出
+都會保留每次 attempt 及原因。`PASS` 或 `FAIL` 判定是**終局**，因此不會產生
+自動化的 review shopping。
 
 若 host 是 Claude Code（`CLAUDECODE` 已設定），`claude` 會被移到鏈尾。
 當它是唯一設定的目標時仍會執行，並附上 `reviewer == host` 警告。

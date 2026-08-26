@@ -513,6 +513,14 @@ function privateStateError(path: string, cause?: unknown): AgentOpsError {
   );
 }
 
+function privateStatePermissionsError(path: string, cause: unknown): AgentOpsError {
+  return new AgentOpsError(
+    "PRIVATE_STATE_PERMISSIONS_INVALID",
+    `Private state permissions could not be repaired: ${path}`,
+    { cause }
+  );
+}
+
 function containedSegments(
   path: string,
   anchorDirectory: string
@@ -578,8 +586,12 @@ async function inspectPath(
     ) {
       throw privateStateError(current);
     }
-    if (!isLeaf) {
-      await chmod(current, 0o700);
+    if (!isLeaf && (status.mode & 0o777) !== 0o700) {
+      try {
+        await chmod(current, 0o700);
+      } catch (error) {
+        throw privateStatePermissionsError(current, error);
+      }
     }
   }
   return true;
@@ -651,7 +663,13 @@ export async function readPrivateFile(
     if (!status.isFile()) {
       throw privateStateError(path);
     }
-    await handle.chmod(0o600);
+    if ((status.mode & 0o777) !== 0o600) {
+      try {
+        await handle.chmod(0o600);
+      } catch (error) {
+        throw privateStatePermissionsError(path, error);
+      }
+    }
     return await handle.readFile("utf8");
   } catch (error) {
     if (isMissing(error)) {

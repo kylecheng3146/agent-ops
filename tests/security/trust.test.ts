@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import {
+  chmod,
   lstat,
   mkdtemp,
   mkdir,
@@ -194,6 +195,32 @@ test("revoke is exact, idempotent, and local state is owner-only", async () => {
     assert.equal(await store.revoke(binding), true);
     assert.equal(await store.revoke(binding), false);
     assert.equal((await store.status(binding)).status, "UNTRUSTED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("status repairs loose private-state permissions", { skip: process.platform === "win32" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
+  try {
+    const repositoryPath = join(root, "repository");
+    await mkdir(repositoryPath);
+    const binding = await calculateTrustBinding({
+      repositoryPath,
+      remoteUrl: "ssh://git@example.com/owner/repository.git",
+      configHash: CONFIG_HASH,
+      runtimeHash: RUNTIME_HASH
+    });
+    const stateDirectory = join(root, "private-state");
+    const storePath = join(stateDirectory, "trust.json");
+    const store = new FileTrustStore(storePath, root);
+    await store.grant(binding, "2026-07-23T00:00:00Z");
+    await chmod(stateDirectory, 0o755);
+    await chmod(storePath, 0o644);
+
+    assert.equal((await store.status(binding)).status, "TRUSTED");
+    assert.equal((await lstat(stateDirectory)).mode & 0o777, 0o700);
+    assert.equal((await lstat(storePath)).mode & 0o777, 0o600);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -46,17 +46,28 @@ test("deep Claude probe uses a fresh isolated process context", async () => {
   await assert.rejects(lstat(request?.cwd ?? "/project"));
 });
 
-test("deep probes reject targets without required isolation controls", async () => {
-  let calls = 0;
+test("deep Codex probes preserve login while ignoring user config", async () => {
+  let request: ProcessRequest | undefined;
   const runner: VerificationProcessRunner = {
-    start() {
-      calls += 1;
-      throw new Error("must not spawn");
+    start(value) {
+      request = value;
+      return {
+        pid: 1,
+        stdout: bytes("OK"),
+        stderr: bytes(""),
+        completion: Promise.resolve({ exitCode: 0, signal: null }),
+        terminateTree: async () => {}
+      };
     }
   };
   assert.equal(
     await probeReviewTarget("codex", { cwd: "/project", deep: true, runner }),
-    "ineligible"
+    "ok"
   );
-  assert.equal(calls, 0);
+  assert.notEqual(request?.cwd, "/project");
+  assert.equal(request?.env?.HOME, request?.cwd);
+  assert.notEqual(request?.env?.CODEX_HOME, undefined);
+  for (const flag of ["--ephemeral", "--ignore-user-config", "--ignore-rules"]) {
+    assert.ok(request?.args.includes(flag), `missing ${flag}`);
+  }
 });
