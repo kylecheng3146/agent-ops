@@ -200,7 +200,7 @@ test("revoke is exact, idempotent, and local state is owner-only", async () => {
   }
 });
 
-test("status repairs loose private-state permissions", async () => {
+test("status repairs loose private-state permissions", { skip: process.platform === "win32" }, async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
   try {
     const repositoryPath = join(root, "repository");
