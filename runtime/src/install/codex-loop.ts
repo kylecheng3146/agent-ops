@@ -67,6 +67,14 @@ export function loopLauncherArtifactId(harness: LoopHarness): string {
   return `${harness}-loop-launcher`;
 }
 
+export function loopWindowsLauncherPath(harness: "claude"): string {
+  return `${loopRoot(harness)}/hooks/agent-ops-loop.ps1`;
+}
+
+export function loopWindowsLauncherArtifactId(harness: "claude"): string {
+  return `${harness}-loop-launcher-windows`;
+}
+
 function assertRuntimePath(runtimePath: string): void {
   if (
     runtimePath.length === 0 ||
@@ -85,6 +93,10 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
+function powershellQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
 function loopEntryPath(hookRuntimePath: string): string {
   assertRuntimePath(hookRuntimePath);
   return `${hookRuntimePath.slice(0, -"hook-entry.js".length)}loop-entry.js`;
@@ -100,6 +112,21 @@ export function buildLoopLauncher(
     `# agent-ops: generated ${harness} loop v1`,
     "set -uo pipefail",
     `exec node ${shellQuote(runtimePath)} ${harness} "$@"`,
+    ""
+  ].join("\n");
+}
+
+export function buildPowerShellLoopLauncher(
+  harness: "claude",
+  hookRuntimePath: string
+): string {
+  const runtimePath = loopEntryPath(hookRuntimePath);
+  return [
+    `# agent-ops: generated ${harness} Windows loop v1`,
+    "$ErrorActionPreference = \"Stop\"",
+    `$runtimePath = ${powershellQuote(runtimePath)}`,
+    `& node $runtimePath ${harness} @args`,
+    "exit $LASTEXITCODE",
     ""
   ].join("\n");
 }
@@ -184,12 +211,25 @@ export function planLoopContribution(options: {
       "The loop profile requires the installed hook runtime path."
     );
   }
-  return {
-    artifacts: harnesses.map((harness) => ({
+  const artifacts = harnesses.flatMap((harness) => [
+    {
       id: loopLauncherArtifactId(harness),
       path: loopLauncherPath(harness),
       content: buildLoopLauncher(harness, options.hookRuntimePath ?? "")
-    })),
+    },
+    ...(harness === "claude"
+      ? [{
+          id: loopWindowsLauncherArtifactId(harness),
+          path: loopWindowsLauncherPath(harness),
+          content: buildPowerShellLoopLauncher(
+            harness,
+            options.hookRuntimePath ?? ""
+          )
+        }]
+      : [])
+  ]);
+  return {
+    artifacts,
     blocks: [
       {
         id: LOOP_MARKER_ID,

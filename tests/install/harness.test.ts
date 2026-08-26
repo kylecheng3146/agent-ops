@@ -186,7 +186,7 @@ test("common adapters produce scoped routing blocks and managed rules", async ()
   );
   assert.ok(
     project.artifacts.every(({ content }) =>
-      content.includes("installation approval never grants trust")
+      content.includes("Confirmed project init/update grants it")
     )
   );
 

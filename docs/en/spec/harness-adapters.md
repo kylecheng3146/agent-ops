@@ -85,7 +85,8 @@ policy into project-specific scripts or alter an ordinary permission request.
 
 - Trigger: A project selects `loop` with Codex, Claude Code, or both.
 - Action: Generate only the selected `.codex/hooks/agent-ops-loop.sh` and/or
-  `.claude/hooks/agent-ops-loop.sh` launchers, register the documented loop
+  Claude's `.claude/hooks/agent-ops-loop.sh` plus
+  `.claude/hooks/agent-ops-loop.ps1` launchers, register the documented loop
   lifecycle events except `Stop`, and preserve foreign hook groups. Block only
   high-confidence literal credentials at `UserPromptSubmit` or Bash
   `PreToolUse`, and dangerous Bash commands at `PreToolUse`, using the documented native denial shape. Emit no

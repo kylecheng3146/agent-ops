@@ -50,8 +50,8 @@ export function smokeAvailabilityStatus(
 }
 
 /**
- * Installation approval never grants trust, so an ungranted repository is
- * unconfigured rather than broken. A stale binding is a real failure.
+ * User-scope installs and projects without verification commands can remain
+ * untrusted without being broken. A stale binding is a real failure.
  */
 export function repositoryTrustStatus(
   trust: "TRUSTED" | "STALE" | "UNTRUSTED"

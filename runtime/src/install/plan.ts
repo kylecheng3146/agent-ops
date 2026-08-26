@@ -83,6 +83,8 @@ export interface CreateInstallPlanOptions {
    * registration is skipped when the caller cannot supply one.
    */
   readonly hookRuntimePath?: string;
+  /** Platform used for generated native hook launchers; defaults to this host. */
+  readonly platform?: NodeJS.Platform;
   /** Explicit writable hook surfaces, keyed by harness. */
   readonly hookTargets?: readonly HookTargetSelection[];
   /** Review target CLIs to record in the managed config, in chain order. */
@@ -106,6 +108,7 @@ export interface InstallPlan {
   /** Verifier commands proposed by stack detection to fill an empty verification config; empty when none applied. */
   readonly detectedVerification: readonly VerificationCommand[];
   readonly capabilities: readonly Capability[];
+  readonly config: AgentOpsConfig;
   readonly manifest: InstallManifest;
   readonly operations: FileOperation[];
 }
@@ -189,45 +192,41 @@ async function detectVerificationCommands(
     .map(verificationCommandFromProposal);
 }
 
-function formatConfig(
+function buildConfig(
   profiles: readonly Profile[],
   existing?: {
     readonly verification: VerificationConfig;
     readonly features: AgentOpsFeatures;
-    readonly pathMappings: unknown;
-    readonly securityExceptions: unknown;
+    readonly pathMappings: AgentOpsConfig["pathMappings"];
+    readonly securityExceptions: AgentOpsConfig["securityExceptions"];
     readonly reviewRoles?: readonly ReviewRoleConfig[];
   },
   reviewTargets: readonly ReviewTargetId[] = [],
   detectedCommands: readonly VerificationCommand[] = []
-): string {
+): AgentOpsConfig {
   // Absent reviewRoles means external review is disabled; an empty selection
   // must therefore omit the field rather than write an empty array.
-  const reviewRoles = reviewTargets.length > 0
+  const reviewRoles: readonly ReviewRoleConfig[] | undefined = reviewTargets.length > 0
     ? [{ role: "independent-review", targets: [...reviewTargets] }]
     : existing?.reviewRoles;
   const verification =
     existing?.verification !== undefined &&
     existing.verification.commands.length > 0
       ? existing.verification
-      : { commands: detectedCommands };
-  return `${JSON.stringify(
-    {
-      schemaVersion: CONFIG_SCHEMA_VERSION,
-      profiles,
-      verification,
-      features: existing?.features ?? {
-        stopVerification: {
-          enabled: false
-        }
-      },
-      pathMappings: existing?.pathMappings ?? [],
-      securityExceptions: existing?.securityExceptions ?? [],
-      ...(reviewRoles === undefined ? {} : { reviewRoles })
+      : { commands: [...detectedCommands] };
+  return {
+    schemaVersion: CONFIG_SCHEMA_VERSION,
+    profiles: [...profiles],
+    verification,
+    features: existing?.features ?? {
+      stopVerification: {
+        enabled: false
+      }
     },
-    null,
-    2
-  )}\n`;
+    pathMappings: existing?.pathMappings ?? [],
+    securityExceptions: existing?.securityExceptions ?? [],
+    ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] })
+  };
 }
 
 async function planConfig(
@@ -242,6 +241,7 @@ async function planConfig(
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
+  config: AgentOpsConfig;
   detectedVerification: readonly VerificationCommand[];
 }> {
   const current = await readCurrentFile(root, CONFIG_PATH);
@@ -257,8 +257,8 @@ async function planConfig(
     | {
         readonly verification: VerificationConfig;
         readonly features: AgentOpsFeatures;
-        readonly pathMappings: unknown;
-        readonly securityExceptions: unknown;
+        readonly pathMappings: AgentOpsConfig["pathMappings"];
+        readonly securityExceptions: AgentOpsConfig["securityExceptions"];
         readonly reviewRoles?: readonly ReviewRoleConfig[];
       }
     | undefined;
@@ -310,12 +310,13 @@ async function planConfig(
     existingConfig.verification.commands.length === 0
       ? await detectVerificationCommands(root)
       : [];
-  const content = formatConfig(
+  const config = buildConfig(
     profiles,
     existingConfig,
     reviewTargets,
     detectedCommands
   );
+  const content = `${JSON.stringify(config, null, 2)}\n`;
   return {
     operation: {
       kind: "write",
@@ -329,6 +330,7 @@ async function planConfig(
       hash: sha256(content),
       owner: "agent-ops"
     },
+    config,
     detectedVerification: detectedCommands
   };
 }
@@ -924,6 +926,7 @@ export async function createInstallPlan(
         path: hookPath,
         capabilities: resolved.capabilities,
         runtimePath: options.hookRuntimePath,
+        platform: options.platform,
         currentSource: current?.content ?? null
       });
       if (planned === null) {
@@ -999,6 +1002,7 @@ export async function createInstallPlan(
     harness: options.harness,
     profiles: resolved.profiles,
     capabilities: resolved.capabilities,
+    config: config.config,
     manifest,
     operations,
     detectedVerification: config.detectedVerification

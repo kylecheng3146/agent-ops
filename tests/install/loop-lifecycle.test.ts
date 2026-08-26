@@ -15,6 +15,7 @@ import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { applyInstallPlan } from "../../runtime/src/install/apply.js";
 import { doctorInstallation } from "../../runtime/src/install/doctor.js";
 import { commonHarnessAdapters } from "../../runtime/src/install/harness.js";
+import { buildPowerShellLoopLauncher } from "../../runtime/src/install/codex-loop.js";
 import { createInstallPlan } from "../../runtime/src/install/plan.js";
 import {
   applyUninstallPlan,
@@ -80,6 +81,55 @@ test("an explicit Codex hooks=false configuration blocks loop planning before wr
     assert.equal(
       await readFile(join(root, ".codex", "config.toml"), "utf8"),
       config
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("plans a native Windows Claude loop with a PowerShell handler", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-loop-windows-"));
+  try {
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["loop"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "C:\\Program Files\\agent-ops\\hook-entry.js",
+      platform: "win32"
+    });
+    const settingsOperation = plan.operations.find(
+      ({ path }) => path === ".claude/settings.json"
+    );
+    assert.equal(settingsOperation?.kind, "write");
+    if (settingsOperation?.kind !== "write") {
+      throw new Error("Expected Windows Claude settings write");
+    }
+    const settings = JSON.parse(settingsOperation.content) as {
+      hooks: Record<string, Array<{ hooks: Array<Record<string, unknown>> }>>;
+    };
+    const sessionStart = settings.hooks.SessionStart?.[0]?.hooks[0];
+    assert.deepEqual(sessionStart, {
+      type: "command",
+      shell: "powershell",
+      command:
+        '& "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.ps1" ' +
+        '"SessionStart" "--managed-by=agent-ops"',
+      timeout: 30
+    });
+    assert.equal(
+      plan.operations.some(
+        ({ kind, path }) =>
+          kind === "write" && path === ".claude/hooks/agent-ops-loop.ps1"
+      ),
+      true
+    );
+
+    await applyInstallPlan(root, plan);
+    assert.match(
+      await readFile(join(root, ".claude", "hooks", "agent-ops-loop.ps1"), "utf8"),
+      /& node \$runtimePath claude @args/u
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -177,6 +227,10 @@ test("update replaces only loop-owned launchers and leaves local state untouched
       await readFile(join(root, ".codex", "hooks", "agent-ops-loop.sh"), "utf8"),
       /\/opt\/agent-ops-next\/loop-entry\.js/u
     );
+    assert.match(
+      await readFile(join(root, ".claude", "hooks", "agent-ops-loop.ps1"), "utf8"),
+      /\/opt\/agent-ops-next\/loop-entry\.js/u
+    );
     assert.equal(
       await readFile(join(root, ".codex", "loop-goal.md"), "utf8"),
       codexGoal
@@ -210,6 +264,7 @@ test("uninstall removes loop wrappers, registrations, and ignore marker but reta
     for (const path of [
       ".codex/hooks/agent-ops-loop.sh",
       ".claude/hooks/agent-ops-loop.sh",
+      ".claude/hooks/agent-ops-loop.ps1",
       ".codex/hooks.json",
       ".claude/settings.json"
     ]) {
@@ -231,6 +286,18 @@ test("uninstall removes loop wrappers, registrations, and ignore marker but reta
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("quotes PowerShell launcher runtime paths", () => {
+  const launcher = buildPowerShellLoopLauncher(
+    "claude",
+    "C:\\Agent's Tools\\hook-entry.js"
+  );
+  assert.match(
+    launcher,
+    /\$runtimePath = 'C:\\Agent''s Tools\\loop-entry\.js'/u
+  );
+  assert.match(launcher, /& node \$runtimePath claude @args/u);
 });
 
 test("a changed loop launcher fails closed during uninstall planning", async () => {

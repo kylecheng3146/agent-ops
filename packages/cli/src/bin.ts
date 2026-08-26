@@ -12,6 +12,7 @@ import {
   HARNESS_IDS
 } from "../../../runtime/src/install/harness.js";
 import type {
+  AgentOpsConfig,
   Harness,
   HarnessId,
   InstallManifest,
@@ -26,15 +27,18 @@ import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
-import { FileTrustStore, calculateTrustBinding } from "../../../runtime/src/security/trust.js";
+import { FileTrustStore } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
-import { sha256 } from "../../../runtime/src/fs/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
 import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
 import { runCli } from "./cli.js";
-import { loadEffectiveConfig, repositoryTrust } from "./context.js";
+import {
+  loadEffectiveConfig,
+  repositoryTrust,
+  repositoryTrustBinding
+} from "./context.js";
 import { runHookProcess } from "./hook-process.js";
 import { selectYesNo, writeBanner } from "./ui.js";
 import { CLI_VERSION } from "./version.js";
@@ -140,14 +144,15 @@ function gitRunner(root: string) {
 }
 
 async function confirmInit(
-  plan: Parameters<typeof formatInstallPlan>[0]
+  plan: Parameters<typeof formatInstallPlan>[0],
+  trust: NonNullable<Parameters<typeof formatInstallPlan>[1]>
 ): Promise<boolean> {
   writeBanner({
     isTTY: process.stdout.isTTY === true,
     columns: process.stdout.columns,
     write: (value) => process.stdout.write(value)
   });
-  return await confirmPlan(formatInstallPlan(plan));
+  return await confirmPlan(formatInstallPlan(plan, trust));
 }
 
 async function confirmPlan(text: string): Promise<boolean> {
@@ -157,6 +162,21 @@ async function confirmPlan(text: string): Promise<boolean> {
     { input: process.stdin, output: process.stdout },
     false
   );
+}
+
+function trustStore(): FileTrustStore {
+  const state = localStatePaths(process.env.AGENT_OPS_HOME ?? homedir());
+  return new FileTrustStore(state.trustStore, state.anchorDirectory);
+}
+
+async function plannedTrustBinding(
+  root: string,
+  projectConfig?: AgentOpsConfig
+) {
+  const config = (await loadEffectiveConfig(root, "project", projectConfig)).config;
+  return config.verification.commands.length === 0
+    ? null
+    : await repositoryTrustBinding(root, config, CLI_VERSION);
 }
 
 const argv = process.argv.slice(2);
@@ -204,6 +224,7 @@ process.exitCode = await runCli(
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true;
           if (args.command === "init") {
+            const store = trustStore();
             return await runInitCommand({
               args,
               root,
@@ -214,7 +235,10 @@ process.exitCode = await runCli(
               ...(args.hookTargets === undefined
                 ? {}
                 : { hookTargets: args.hookTargets }),
-              confirm: async (plan) => await confirmInit(plan)
+              trustStore: store,
+              calculateTrustBinding: async (config) =>
+                await plannedTrustBinding(root, config),
+              confirm: async (plan, trust) => await confirmInit(plan, trust)
             });
           }
           if (args.command === "doctor") {
@@ -296,15 +320,20 @@ process.exitCode = await runCli(
             });
           }
           if (args.command === "uninstall") {
+            const store = trustStore();
             return await runUninstallCommand({
               args,
               root,
               isTTY,
-              confirm: async (plan) =>
-                await confirmPlan(formatUninstallPlan(plan))
+              trustStore: store,
+              calculateTrustBinding: async () =>
+                await plannedTrustBinding(root),
+              confirm: async (plan, trust) =>
+                await confirmPlan(formatUninstallPlan(plan, trust))
             });
           }
           if (args.command === "update") {
+            const store = trustStore();
             return await runUpdateCommand({
               args,
               root,
@@ -316,8 +345,11 @@ process.exitCode = await runCli(
               ...(args.hookTargets === undefined
                 ? {}
                 : { hookTargets: args.hookTargets }),
-              confirm: async (plan) =>
-                await confirmPlan(formatUpdatePlan(plan)),
+              trustStore: store,
+              calculateTrustBinding: async (config) =>
+                await plannedTrustBinding(root, config),
+              confirm: async (plan, trust) =>
+                await confirmPlan(formatUpdatePlan(plan, trust)),
               ...(args.targetVersion === undefined
                 ? {}
                 : { targetVersion: args.targetVersion })
@@ -434,25 +466,11 @@ process.exitCode = await runCli(
               root,
               args.scope === "user" ? "user" : "project"
             )).config;
-            const state = localStatePaths(
-              process.env.AGENT_OPS_HOME ?? homedir()
+            const binding = await repositoryTrustBinding(
+              root,
+              config,
+              CLI_VERSION
             );
-            const remote = (() => {
-              try {
-                return execFileSync("git", ["config", "--get", "remote.origin.url"], {
-                  cwd: root,
-                  encoding: "utf8"
-                }).trim();
-              } catch {
-                return `local:${root}`;
-              }
-            })();
-            const binding = await calculateTrustBinding({
-              repositoryPath: root,
-              remoteUrl: remote,
-              configHash: calculateConfigHash(config),
-              runtimeHash: sha256(CLI_VERSION)
-            });
             return await runTrustCommand({
               action: args.action as "grant" | "revoke" | "status",
               yes: args.yes,
@@ -460,7 +478,7 @@ process.exitCode = await runCli(
               calculateBinding: async () => binding,
               presentBinding: async () => undefined,
               confirmGrant: async () => await confirmPlan(JSON.stringify(binding, null, 2)),
-              store: new FileTrustStore(state.trustStore, state.anchorDirectory)
+              store: trustStore()
             });
           }
           return errorEnvelope(

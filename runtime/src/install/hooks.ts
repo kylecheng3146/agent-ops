@@ -59,6 +59,7 @@ export function planHookRegistration(options: {
   readonly path?: string;
   readonly capabilities: readonly Capability[];
   readonly runtimePath: string;
+  readonly platform?: NodeJS.Platform;
   readonly currentSource: string | null;
 }): HookRegistrationPlan | null {
   const descriptor = harnessDescriptor(options.harness);
@@ -73,7 +74,8 @@ export function planHookRegistration(options: {
   const path = options.path ?? hookRegistrationPath(options.harness, options.scope);
   const managed = descriptor.control.buildHooks(
     options.capabilities,
-    options.runtimePath
+    options.runtimePath,
+    options.platform
   );
   const events = Object.keys(managed.hooks) as HookEventName[];
   if (events.length === 0) {

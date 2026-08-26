@@ -72,8 +72,8 @@ Claude Code launcher 後使用同一個 shared runtime。它 MUST NOT 將 policy
 project-specific script，也不得改變一般 permission request。
 
 - Trigger: Project 以 Codex、Claude Code 或兩者選擇 `loop`。
-- Action: 只產生選定的 `.codex/hooks/agent-ops-loop.sh` 與／或
-  `.claude/hooks/agent-ops-loop.sh` launcher，註冊文件化的 loop lifecycle event
+- Action: 只產生選定的 `.codex/hooks/agent-ops-loop.sh` 與／或 Claude 的
+  `.claude/hooks/agent-ops-loop.sh`、`.claude/hooks/agent-ops-loop.ps1` launcher，註冊文件化的 loop lifecycle event
   （不含 `Stop`），並保留 foreign hook group。只在 `UserPromptSubmit` 或 Bash
   `PreToolUse` 的 high-confidence literal credential，以及 `PreToolUse` 的危險 Bash command 時，使用
   文件化的 native denial shape 進行 blocking。對 `PermissionRequest`（包括

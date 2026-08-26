@@ -538,6 +538,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review accepts harness, criteria, evidence, scope, dry-run, json, and yes options."
     );
   }
+  if (
+    command === "review" &&
+    taskId === undefined &&
+    (criteria.length > 0 || evidence.length > 0)
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Review criteria and evidence require --task."
+    );
+  }
   if (command === "review" && harness !== undefined && harness.length !== 1) {
     invalidValue("--harness", harness.join(","));
   }

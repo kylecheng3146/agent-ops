@@ -22,6 +22,8 @@ import {
   LOOP_MARKER_VERSION,
   loopIgnoreContent,
   loopLauncherArtifactId,
+  loopWindowsLauncherArtifactId,
+  loopWindowsLauncherPath,
   loopLauncherPath,
   selectedLoopHarnesses
 } from "./codex-loop.js";
@@ -141,11 +143,17 @@ export function assertSupportedManifestOwnership(
   const requiredArtifactPaths = new Set<string>([
     pathKey(".agent-ops/config.json")
   ]);
+  const optionalArtifactPaths = new Set<string>();
   const expectedMarkers = new Map<string, ExpectedManagedMarker>();
   const expectedMarkerPaths = new Set<string>();
   const loopHarnesses = selectedLoopHarnesses(harnesses);
   const hasLoopArtifacts = manifest.artifacts.some(({ id }) =>
-    loopHarnesses.some((harness) => id === loopLauncherArtifactId(harness))
+    loopHarnesses.some(
+      (harness) =>
+        id === loopLauncherArtifactId(harness) ||
+        (harness === "claude" &&
+          id === loopWindowsLauncherArtifactId(harness))
+    )
   );
   const hasLoopMarker = manifest.markers.some(
     ({ id }) => id === LOOP_MARKER_ID
@@ -222,6 +230,16 @@ export function assertSupportedManifestOwnership(
         ids: new Set([loopLauncherArtifactId(harness)])
       });
       requiredArtifactPaths.add(pathKey(path));
+      if (harness === "claude") {
+        const windowsPath = loopWindowsLauncherPath(harness);
+        expectedArtifactPaths.set(pathKey(windowsPath), {
+          path: windowsPath,
+          ids: new Set([loopWindowsLauncherArtifactId(harness)])
+        });
+        // Older loop manifests predate the Windows launcher. Accept them so
+        // update and uninstall remain backward-compatible.
+        optionalArtifactPaths.add(pathKey(windowsPath));
+      }
     }
     expectedMarkerPaths.add(pathKey(".gitignore"));
     expectedMarkers.set(LOOP_MARKER_ID, expectedLoopMarker(manifest));
@@ -230,15 +248,25 @@ export function assertSupportedManifestOwnership(
     ? recordedOpencodePluginPath ??
       harnessHookPath("opencode", manifest.scope, root)
     : null;
-  const optionalArtifactCount =
+  if (
     opencodePluginPath !== null &&
     expectedArtifactPaths.has(pathKey(opencodePluginPath))
-      ? 1
-      : 0;
+  ) {
+    optionalArtifactPaths.add(pathKey(opencodePluginPath));
+  }
+  const optionalArtifactCount = [...optionalArtifactPaths].filter((path) =>
+    expectedArtifactPaths.has(path)
+  ).length;
+  const manifestArtifactPaths = new Set(
+    manifest.artifacts.map(({ path }) => pathKey(path))
+  );
   if (
-    (manifest.artifacts.length !== requiredArtifactPaths.size &&
-      manifest.artifacts.length !== requiredArtifactPaths.size +
-        optionalArtifactCount) ||
+    [...requiredArtifactPaths].some(
+      (path) => !manifestArtifactPaths.has(path)
+    ) ||
+    manifest.artifacts.length < requiredArtifactPaths.size ||
+    manifest.artifacts.length >
+      requiredArtifactPaths.size + optionalArtifactCount ||
     manifest.markers.length !== expectedMarkerPaths.size
   ) {
     throw manifestOwnershipError();

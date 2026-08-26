@@ -198,6 +198,9 @@ export function createReviewExecutor(
       if (spawned.stdoutTruncated || spawned.stderrTruncated) {
         return { status: "NOT_RUN", reason: "output-too-large", harness: target };
       }
+      if (spawned.failureClass === "nonzero-exit") {
+        return { status: "NOT_RUN", reason: "login-required", harness: target };
+      }
       const payload = extractReviewObject(target, spawned.stdout);
       const parsed = payload === undefined
         ? undefined

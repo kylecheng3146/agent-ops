@@ -16,6 +16,7 @@ import {
   type ReviewVerificationSummary
 } from "../../../../runtime/src/review/runner.js";
 import { renderReviewResult } from "../../../../runtime/src/review/render.js";
+import { saveReviewAttestation } from "../../../../runtime/src/review/attestation.js";
 import {
   resolveReviewRole,
   type ReviewRole,
@@ -89,6 +90,13 @@ interface TaskContext {
   readonly criteria: readonly ReviewCriterion[];
 }
 
+const GENERIC_REQUEST = "Review the current Git change surface.";
+const GENERIC_CRITERIA: readonly ReviewCriterion[] = [{
+  id: "change-quality",
+  description:
+    "The change is correct, safe, backward compatible, focused, and verified in proportion to its risk; report every material defect as a finding."
+}];
+
 /**
  * Criterion descriptions come from the task store, never from the id. A
  * reviewer handed `criterion: tests` cannot review anything, so a review with
@@ -112,8 +120,15 @@ async function taskContext(
   let record;
   try {
     record = await tasks.status(query);
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (
+      options.taskId === undefined &&
+      error instanceof AgentOpsError &&
+      error.code === "TASK_SESSION_UNATTACHED"
+    ) {
+      return undefined;
+    }
+    throw error;
   }
   const requested = options.args.criteria ?? [];
   const criteria = record.task.criteria
@@ -130,7 +145,10 @@ async function taskContext(
     criteria.length === 0 ||
     (requested.length > 0 && criteria.length !== requested.length)
   ) {
-    return undefined;
+    throw new AgentOpsError(
+      "REVIEW_CRITERIA_NOT_FOUND",
+      "Every requested review criterion must exist on the selected task."
+    );
   }
   return {
     taskId: record.task.id,
@@ -216,7 +234,7 @@ async function currentEvidence(
 async function preflightReview(
   options: ReviewCommandOptions,
   context: TaskContext,
-  scope: ReviewScope
+  sourceFingerprint: string
 ): Promise<ReviewPreflight> {
   if (
     options.config === undefined ||
@@ -228,11 +246,6 @@ async function preflightReview(
     return { ok: false, reason: "stale-verification" };
   }
   const configHash = calculateConfigHash(options.config);
-  const sourceFingerprint = await calculateSourceFingerprint(
-    options.root,
-    scope,
-    options.gitRunner
-  );
   const commands: ReviewVerificationCommandSummary[] = [];
   for (const criterion of context.criteria) {
     for (const commandId of criterion.verifierIds ?? []) {
@@ -358,17 +371,8 @@ export async function runReviewCommand(
       requirement: separator < 0 ? value : value.slice(separator + 1)
     };
   });
-  if (context === undefined) {
-    return notRunEnvelope({
-      status: "NOT_RUN",
-      reason: "no-task-context",
-      harness: target,
-      model: role?.model ?? options.model ?? "configured",
-      effort: role?.effort ?? options.effort ?? "configured",
-      prompt: ""
-    });
-  }
   let scope: ReviewScope | undefined;
+  let sourceFingerprint: string | undefined;
   let verification: ReviewVerificationSummary | undefined;
   if (options.root !== undefined && options.gitRunner !== undefined) {
     try {
@@ -402,7 +406,12 @@ export async function runReviewCommand(
         scope
       });
     }
-    if (options.policyConfigHash !== undefined) {
+    sourceFingerprint = await calculateSourceFingerprint(
+      options.root,
+      scope,
+      options.gitRunner
+    );
+    if (context !== undefined && options.policyConfigHash !== undefined) {
       if (context.policyConfigHash === null) {
         return notRunEnvelope({
           status: "NOT_RUN", reason: "reviewer-policy-baseline-missing",
@@ -418,21 +427,29 @@ export async function runReviewCommand(
         });
       }
     }
-    const preflight = await preflightReview(options, context, scope);
-    if (!preflight.ok) {
-      return notRunEnvelope({
-        status: "NOT_RUN", reason: preflight.reason,
-        harness: target, model: role?.model ?? options.model ?? "configured",
-        effort: role?.effort ?? options.effort ?? "configured", prompt: "", scope
-      });
+    if (context !== undefined) {
+      const preflight = await preflightReview(
+        options,
+        context,
+        sourceFingerprint
+      );
+      if (!preflight.ok) {
+        return notRunEnvelope({
+          status: "NOT_RUN", reason: preflight.reason,
+          harness: target, model: role?.model ?? options.model ?? "configured",
+          effort: role?.effort ?? options.effort ?? "configured", prompt: "", scope
+        });
+      }
+      verification = preflight.summary;
     }
-    verification = preflight.summary;
   }
-  const criteria: ReviewCriterion[] = [...context.criteria];
+  const criteria: ReviewCriterion[] = [
+    ...(context?.criteria ?? GENERIC_CRITERIA)
+  ];
   let packet;
   try {
     packet = buildReviewPacket({
-      request: context.title,
+      request: context?.title ?? GENERIC_REQUEST,
       criteria,
       artifactRefs: scope?.changedFiles ?? [],
       evidenceRequirements
@@ -506,18 +523,15 @@ export async function runReviewCommand(
       const currentHash = options.currentPolicyConfigHash === undefined
         ? options.policyConfigHash
         : await options.currentPolicyConfigHash();
-      const postflightFingerprint = verification === undefined
-        ? undefined
-        : await calculateSourceFingerprint(
-            options.root,
-            postflight,
-            options.gitRunner as GitRunner
-          );
+      const postflightFingerprint = await calculateSourceFingerprint(
+          options.root,
+          postflight,
+          options.gitRunner as GitRunner
+        );
       if (
         reviewScopeSignature(scope) !== reviewScopeSignature(postflight) ||
         (options.policyConfigHash !== undefined && currentHash !== options.policyConfigHash) ||
-        (verification !== undefined &&
-          postflightFingerprint !== verification.sourceFingerprint)
+        postflightFingerprint !== sourceFingerprint
       ) {
         return notRunEnvelope(sourceChangedResult(result));
       }
@@ -528,6 +542,7 @@ export async function runReviewCommand(
   // Evidence is only appended while the task is active: a completed record
   // must stay exactly as it was verified.
   if (
+    context !== undefined &&
     options.tasks !== undefined &&
     result.status === "PASS" &&
     context.active &&
@@ -542,6 +557,23 @@ export async function runReviewCommand(
         ])
       )
     );
+  }
+  // The attestation is what a Stop gate reads. It is keyed by the verified
+  // source fingerprint, so it stops satisfying the gate the moment the tree
+  // changes again.
+  if (
+    options.root !== undefined &&
+    result.status === "PASS" &&
+    sourceFingerprint !== undefined
+  ) {
+    await saveReviewAttestation(options.root, {
+      schemaVersion: 1,
+      ...(context === undefined ? {} : { taskId: context.taskId }),
+      harness: result.harness,
+      status: "PASS",
+      sourceFingerprint,
+      createdAt: new Date().toISOString()
+    });
   }
   const message =
     result.status === "PASS"

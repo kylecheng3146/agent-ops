@@ -19,6 +19,28 @@ import type {
   HarnessInstallAdapter
 } from "../../runtime/src/install/harness.js";
 import { commonHarnessAdapters } from "../../runtime/src/install/harness.js";
+import type {
+  TrustBinding,
+  TrustStore
+} from "../../runtime/src/security/trust.js";
+
+const BINDING: TrustBinding = {
+  canonicalPath: "/project",
+  remoteIdentity: "example.com/owner/repository",
+  configHash: "a".repeat(64),
+  runtimeHash: "b".repeat(64)
+};
+
+function fakeTrustStore(
+  events: string[],
+  status: "STALE" | "TRUSTED" | "UNTRUSTED" = "UNTRUSTED"
+): TrustStore {
+  return {
+    status: async () => ({ status, mismatchedFields: [] }),
+    grant: async () => { events.push("grant"); },
+    revoke: async () => false
+  };
+}
 
 function codexAdapter(): HarnessInstallAdapter {
   return {
@@ -174,10 +196,16 @@ test("non-interactive apply requires yes after choices are complete", async () =
   }
 });
 
-test("yes applies only the fully specified plan and never grants trust", async () => {
+test("yes applies the plan and grants the displayed repository trust", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
   let confirmations = 0;
+  const trustEvents: string[] = [];
   try {
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: "node --test" } })
+    );
+    await writeFile(join(root, "package-lock.json"), "{}\n");
     const result = await runInitCommand(
       options(
         root,
@@ -192,6 +220,11 @@ test("yes applies only the fully specified plan and never grants trust", async (
           "--yes"
         ],
         {
+          trustStore: fakeTrustStore(trustEvents),
+          calculateTrustBinding: async (config) => {
+            assert.ok(config.verification.commands.length > 0);
+            return BINDING;
+          },
           confirm: async () => {
             confirmations += 1;
             return true;
@@ -204,13 +237,71 @@ test("yes applies only the fully specified plan and never grants trust", async (
     assert.equal(result.code, "INIT_APPLIED");
     assert.equal(result.data?.applied, true);
     assert.equal(confirmations, 0);
+    assert.equal(result.data?.plan.trust?.action, "grant");
+    assert.deepEqual(
+      result.data?.plan.trust?.action === "grant"
+        ? result.data.plan.trust.binding
+        : undefined,
+      BINDING
+    );
+    assert.deepEqual(trustEvents, ["grant"]);
     assert.match(
       await readFile(join(root, "AGENTS.md"), "utf8"),
       /agent-ops:start codex-routing/
     );
-    await assert.rejects(
-      readFile(join(root, ".agent-ops", "trust.json"))
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("dry-run discloses trust without writing and exact trust is not rewritten", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  const trustEvents: string[] = [];
+  try {
+    const result = await runInitCommand(
+      options(
+        root,
+        [
+          "init", "--scope", "project", "--harness", "codex",
+          "--profile", "core", "--dry-run", "--json"
+        ],
+        {
+          trustStore: fakeTrustStore(trustEvents, "TRUSTED"),
+          calculateTrustBinding: async () => BINDING
+        }
+      )
     );
+    assert.equal(result.data?.plan.trust?.action, "unchanged");
+    assert.match(result.data?.text ?? "", /Trust: unchanged/u);
+    assert.match(result.data?.text ?? "", new RegExp(BINDING.configHash, "u"));
+    assert.deepEqual(trustEvents, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("user-scope init never calculates repository trust", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  try {
+    const result = await runInitCommand(
+      options(
+        root,
+        [
+          "init", "--scope", "user", "--harness", "codex",
+          "--profile", "core", "--dry-run", "--json"
+        ],
+        {
+          trustStore: fakeTrustStore([]),
+          calculateTrustBinding: async () => {
+            throw new Error("user scope must not calculate repository trust");
+          }
+        }
+      )
+    );
+    assert.deepEqual(result.data?.plan.trust, {
+      action: "skipped",
+      reason: "user-scope"
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

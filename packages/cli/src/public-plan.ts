@@ -8,6 +8,10 @@ import type {
   InstallManifest,
   VerificationCommand
 } from "../../../runtime/src/contracts.js";
+import type {
+  TrustBinding,
+  TrustStatus
+} from "../../../runtime/src/security/trust.js";
 import type { InstallPlan } from "../../../runtime/src/install/plan.js";
 import type { UpdatePlan } from "../../../runtime/src/install/update.js";
 import type { UninstallPlan } from "../../../runtime/src/install/uninstall.js";
@@ -38,6 +42,17 @@ export type PublicFileOperation =
   | PublicOpaqueWrite
   | PublicRemoveOperation;
 
+export type PublicTrustChange =
+  | {
+      readonly action: "grant" | "revoke" | "unchanged";
+      readonly binding: TrustBinding;
+      readonly status: TrustStatus;
+    }
+  | {
+      readonly action: "skipped";
+      readonly reason: "no-verification-commands" | "user-scope" | "not-configured";
+    };
+
 export interface PublicInstallPlan {
   readonly scope: InstallPlan["scope"];
   readonly harness: InstallPlan["harness"];
@@ -46,6 +61,7 @@ export interface PublicInstallPlan {
   readonly manifest: InstallManifest;
   readonly operations: readonly PublicFileOperation[];
   readonly detectedVerification: readonly VerificationCommand[];
+  readonly trust?: PublicTrustChange;
 }
 
 export interface PublicUpdatePlan {
@@ -59,6 +75,7 @@ export interface PublicUninstallPlan {
   readonly manifest: UninstallPlan["manifest"];
   readonly manifestHash: UninstallPlan["manifestHash"];
   readonly operations: readonly PublicFileOperation[];
+  readonly trust?: PublicTrustChange;
 }
 
 const OPAQUE_SUMMARY = "Opaque managed settings content withheld.";
@@ -107,7 +124,10 @@ export function toPublicOperations(
   return operations.map(toPublicOperation);
 }
 
-export function toPublicInstallPlan(plan: InstallPlan): PublicInstallPlan {
+export function toPublicInstallPlan(
+  plan: InstallPlan,
+  trust?: PublicTrustChange
+): PublicInstallPlan {
   return {
     scope: plan.scope,
     harness: plan.harness,
@@ -115,25 +135,31 @@ export function toPublicInstallPlan(plan: InstallPlan): PublicInstallPlan {
     capabilities: plan.capabilities,
     manifest: plan.manifest,
     operations: toPublicOperations(plan.operations),
-    detectedVerification: plan.detectedVerification
+    detectedVerification: plan.detectedVerification,
+    ...(trust === undefined ? {} : { trust })
   };
 }
 
-export function toPublicUpdatePlan(plan: UpdatePlan): PublicUpdatePlan {
+export function toPublicUpdatePlan(
+  plan: UpdatePlan,
+  trust?: PublicTrustChange
+): PublicUpdatePlan {
   return {
     targetVersion: plan.targetVersion,
     migrationSteps: plan.migrationSteps,
-    installation: toPublicInstallPlan(plan.installation)
+    installation: toPublicInstallPlan(plan.installation, trust)
   };
 }
 
 export function toPublicUninstallPlan(
-  plan: UninstallPlan
+  plan: UninstallPlan,
+  trust?: PublicTrustChange
 ): PublicUninstallPlan {
   return {
     installed: plan.installed,
     manifest: plan.manifest,
     manifestHash: plan.manifestHash,
-    operations: toPublicOperations(plan.operations)
+    operations: toPublicOperations(plan.operations),
+    ...(trust === undefined ? {} : { trust })
   };
 }

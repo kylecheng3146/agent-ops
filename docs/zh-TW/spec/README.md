@@ -6,8 +6,8 @@ Harness adapter 規則涵蓋 Codex、Claude Code 與 opencode。opencode 整合�
 產生的 local plugin，不管理 `opencode.json`。
 
 Configuration 與 manifest 分開版本化。Config v1 會遷移為預設 disabled Stop
-verification 的 config v2；變更 capability 後必須先執行 `agent-ops update`，
-再執行 `agent-ops trust grant`。Stop verification 必須明確啟用、具備 trust、
+verification 的 config v2；變更 capability 後必須執行經確認的 project
+`agent-ops update`，有 verifier 時會一併更新 trust。Stop verification 必須明確啟用、具備 trust、
 為 report-only，且永遠不會完成 task。Dry-run plan 會隱藏 foreign settings
 內容；routing migration 一旦套用即為單向。
 

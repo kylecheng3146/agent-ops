@@ -220,7 +220,8 @@ test("plans native loop launchers and first-install local state", async () => {
         .map(({ path }) => path),
       [
         ".codex/hooks/agent-ops-loop.sh",
-        ".claude/hooks/agent-ops-loop.sh"
+        ".claude/hooks/agent-ops-loop.sh",
+        ".claude/hooks/agent-ops-loop.ps1"
       ]
     );
     for (const path of [
