@@ -82,8 +82,10 @@ policy 設定仍相同的 task；`--criterion` 用來篩選 id。請先執行
 每次執行 review 仍需 `--yes`：init 的勾選決定「允許哪些目標」，
 `--yes` 決定「現在是否要花錢」。
 
-因為不從 stderr 嗅探認證狀態，未登入的 CLI 會表現為一次 review 失敗。
-用以下指令診斷：
+Reviewer 失敗會依輸出採保守分類：可辨識的認證訊息為 `login-required`，
+quota 訊息為 `quota-exhausted`，其他非零退出則為 `capability-unavailable`。
+只有偵測到認證失敗時，review 才會建議執行 `doctor --check-auth`。
+可用以下指令確認目標的認證狀態：
 
 ```bash
 agent-ops doctor              # 只驗執行檔存在：零 token、零網路

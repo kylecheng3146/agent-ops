@@ -142,6 +142,37 @@ test("an attempt diagnostic reaches the rendered report, redacted", async () => 
   assert.doesNotMatch(rendered, /abcdef123456/);
 });
 
+test("authentication advice is shown only for an authentication failure", async () => {
+  for (const [reason, expected] of [
+    ["login-required", true],
+    ["capability-unavailable", false]
+  ] as const) {
+    const result = await runIndependentReview({
+      invocation,
+      authorized: true,
+      execute: async () => ({ status: "NOT_RUN", reason })
+    });
+    assert.equal(
+      renderReviewResult(result).includes("doctor --check-auth"),
+      expected
+    );
+  }
+
+  const mixed = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      status: "NOT_RUN",
+      reason: "capability-unavailable",
+      attempts: [
+        { target: "codex", status: "NOT_RUN", reason: "login-required" },
+        { target: "claude", status: "NOT_RUN", reason: "capability-unavailable" }
+      ]
+    })
+  });
+  assert.match(renderReviewResult(mixed), /doctor --check-auth/);
+});
+
 test("a refuted PASS is reported as FAIL with the challenge rendered", async () => {
   const sensitive = ["Author", "ization: hidden"].join("");
   const challenge = reportFor(invocation.packet.criteria, "FAIL");

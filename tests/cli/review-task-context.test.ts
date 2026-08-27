@@ -307,7 +307,7 @@ test("without --yes nothing is spawned and no evidence is written", async () => 
   }
 });
 
-test("a not-run review points the operator at doctor", async () => {
+test("a non-auth not-run review does not point the operator at auth diagnostics", async () => {
   const { root, tasks } = await withTask(true);
   try {
     const envelope = await runReviewCommand({
@@ -321,7 +321,7 @@ test("a not-run review points the operator at doctor", async () => {
       })
     });
     assert.equal(envelope.status, "error");
-    assert.match(envelope.data?.text ?? "", /agent-ops doctor --check-auth/);
+    assert.doesNotMatch(envelope.data?.text ?? "", /agent-ops doctor --check-auth/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

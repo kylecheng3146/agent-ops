@@ -26,11 +26,9 @@ export interface ReviewAttempt {
   readonly status: "PASS" | "FAIL" | "NOT_RUN";
   readonly reason?: string;
   /**
-   * The target's own redacted complaint, when it produced one. `reason` is a
-   * classification and stays coarse — a rejected call reads as
-   * "login-required" whether the credential or the flag shape was wrong. This
-   * carries the distinguishing detail into structured output, where progress
-   * lines do not reach.
+   * The target's own redacted complaint, when it produced one. This carries
+   * the distinguishing detail into structured output, where progress lines do
+   * not reach.
    */
   readonly diagnostic?: string;
 }

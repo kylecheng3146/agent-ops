@@ -50,7 +50,12 @@ export function renderReviewResult(result: ReviewRunResult): string {
     for (const error of result.validationErrors ?? []) {
       lines.push(`- ${safe(error.path)}: ${safe(error.code)} — ${safe(error.message)}`);
     }
-    lines.push("Run: agent-ops doctor --check-auth to verify target authentication.");
+    if (
+      result.reason === "login-required" ||
+      result.attempts?.some((attempt) => attempt.reason === "login-required")
+    ) {
+      lines.push("Run: agent-ops doctor --check-auth to verify target authentication.");
+    }
     return `${lines.join("\n")}\n`;
   }
   const report = result.report;
