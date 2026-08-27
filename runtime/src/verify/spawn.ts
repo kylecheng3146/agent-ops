@@ -152,6 +152,12 @@ async function* readableBytes(
   }
 }
 
+/**
+ * Retains the last `limit` bytes rather than the first. Every reporter this
+ * runtime parses — node:test, pytest, jest, vitest — prints its summary line
+ * last, and its failure list just before it, so head-truncating a large run
+ * discards exactly the part that carries the evidence.
+ */
 async function captureOutput(
   stream: AsyncIterable<Uint8Array>,
   limit: number
@@ -159,18 +165,28 @@ async function captureOutput(
   const chunks: Buffer[] = [];
   let storedBytes = 0;
   let truncated = false;
+  const retain = (chunk: Buffer): void => {
+    chunks.push(chunk);
+    storedBytes += chunk.length;
+    while (storedBytes > limit) {
+      const oldest = chunks[0];
+      if (oldest === undefined) {
+        break;
+      }
+      truncated = true;
+      const excess = storedBytes - limit;
+      if (oldest.length <= excess) {
+        chunks.shift();
+        storedBytes -= oldest.length;
+      } else {
+        chunks[0] = oldest.subarray(excess);
+        storedBytes -= excess;
+      }
+    }
+  };
   try {
     for await (const value of stream) {
-      const chunk = Buffer.from(value);
-      const remaining = limit - storedBytes;
-      if (remaining > 0) {
-        const retained = chunk.subarray(0, remaining);
-        chunks.push(retained);
-        storedBytes += retained.length;
-      }
-      if (chunk.length > remaining) {
-        truncated = true;
-      }
+      retain(Buffer.from(value));
     }
   } catch {
     return {

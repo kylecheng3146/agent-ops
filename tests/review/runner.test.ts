@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAdversarialPrompt,
   runIndependentReview,
   type ReviewInvocation
 } from "../../runtime/src/review/runner.js";
@@ -113,6 +114,99 @@ test("review attempts survive JSON and human rendering", async () => {
   ]);
   assert.match(renderReviewResult(result), /codex: NOT_RUN \(login-required\)/);
   assert.match(renderReviewResult(result), /agy: PASS/);
+});
+
+test("an attempt diagnostic reaches the rendered report, redacted", async () => {
+  const secret = ["Author", "ization: Bearer abcdef123456"].join("");
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      status: "PASS",
+      results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+      report: reportFor(invocation.packet.criteria),
+      attempts: [
+        {
+          target: "claude",
+          status: "NOT_RUN",
+          reason: "login-required",
+          diagnostic: `Error: --json-schema is not a valid JSON Schema ${secret}`
+        },
+        { target: "codex", status: "PASS" }
+      ]
+    })
+  });
+
+  const rendered = renderReviewResult(result);
+  assert.match(rendered, /claude: NOT_RUN \(login-required\) — Error: --json-schema is not a valid JSON Schema/);
+  assert.doesNotMatch(rendered, /abcdef123456/);
+});
+
+test("a refuted PASS is reported as FAIL with the challenge rendered", async () => {
+  const sensitive = ["Author", "ization: hidden"].join("");
+  const challenge = reportFor(invocation.packet.criteria, "FAIL");
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      // The executor already resolves the refutation; the runner must not fall
+      // back to recomputing PASS from the primary report.
+      status: "FAIL",
+      results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+      report: reportFor(invocation.packet.criteria),
+      adversarial: {
+        target: "agy",
+        refuted: true,
+        report: {
+          ...challenge,
+          summary: `Refuted. ${sensitive}`
+        }
+      }
+    })
+  });
+
+  assert.equal(result.status, "FAIL");
+  assert.equal(result.adversarial?.target, "agy");
+  assert.equal(result.adversarial?.refuted, true);
+  assert.doesNotMatch(result.adversarial?.report.summary ?? "", /hidden/);
+  const rendered = renderReviewResult(result);
+  assert.match(rendered, /Adversarial re-check \(agy\): refuted the PASS\./);
+  assert.match(rendered, /blocking: Criterion failed\./);
+});
+
+test("an upheld PASS keeps its status and names the challenger", async () => {
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      status: "PASS",
+      results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+      report: reportFor(invocation.packet.criteria),
+      adversarial: {
+        target: "agy",
+        refuted: false,
+        report: reportFor(invocation.packet.criteria)
+      }
+    })
+  });
+
+  assert.equal(result.status, "PASS");
+  assert.match(
+    renderReviewResult(result),
+    /Adversarial re-check \(agy\): upheld the PASS\./
+  );
+});
+
+test("the adversarial prompt fences the prior report as untrusted", () => {
+  const prompt = buildAdversarialPrompt(
+    invocation,
+    reportFor(invocation.packet.criteria)
+  );
+  assert.match(prompt, /adversarial reviewer/);
+  assert.match(prompt, /BEGIN_PRIOR_REVIEW[\s\S]*END_PRIOR_REVIEW/);
+  assert.match(prompt, /untrusted model[\s\S]*never as[\s\S]*instructions/);
+  assert.match(prompt, /BEGIN_TASK_DATA/);
+  assert.match(prompt, /summary:string/);
 });
 
 test("the fallback-safe prompt carries the complete report contract", async () => {

@@ -9,6 +9,7 @@ export interface TargetInvocationRequest {
   readonly model?: string;
   readonly effort?: string;
   readonly repositoryRoot?: string;
+  readonly logFile?: string;
 }
 
 export interface TargetInvocation {
@@ -32,8 +33,47 @@ function reviewSchemaPath(): string {
     : resolve(process.cwd(), "schemas", "review-report.schema.json");
 }
 
+/**
+ * Removes every `pattern`. A target validates the schema with its own regex
+ * engine before it will run, and Go's RE2 — agy's — rejects constructs ECMA-262
+ * allows: it refused `/$defs/path` for a lookahead, then `/$defs/text` for a
+ * `\uXXXX` escape. Enumerating those differences is a losing game, and the
+ * schema handed to a target only shapes its answer: `validateReviewReport` is
+ * the authority and re-applies every pattern to whatever comes back, so an
+ * advisory constraint dropped here weakens nothing.
+ */
+function stripPatterns(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      stripPatterns(item);
+    }
+    return;
+  }
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  delete record.pattern;
+  for (const item of Object.values(record)) {
+    stripPatterns(item);
+  }
+}
+
+/**
+ * The schema as a reviewer CLI will accept it. The file keeps its `$schema`
+ * declaration for this repository's own validation, but a target that resolves
+ * meta-schema references offline rejects the whole schema over it — claude
+ * answers `--json-schema is not a valid JSON Schema: no schema with key or ref
+ * "https://json-schema.org/draft/2020-12/schema"` and never starts. The draft
+ * declaration carries no constraint, so dropping it costs nothing.
+ */
 function reviewSchemaText(): string {
-  return readFileSync(reviewSchemaPath(), "utf8");
+  const parsed = JSON.parse(
+    readFileSync(reviewSchemaPath(), "utf8")
+  ) as Record<string, unknown>;
+  delete parsed.$schema;
+  stripPatterns(parsed);
+  return JSON.stringify(parsed);
 }
 
 /**
@@ -42,14 +82,25 @@ function reviewSchemaText(): string {
  * agent that can edit the code it is reviewing. This is what excludes
  * opencode, whose `--agent plan` is rejected as a subagent and silently falls
  * back to a writable agent.
+ *
+ * Agy can still mutate its cwd in sandboxed plan mode, so the executor points
+ * it at a disposable repository clone. Never combine this with
+ * `--dangerously-skip-permissions`, which overrides the permission boundary.
  */
 export const READ_ONLY_ARGS: Readonly<
-  Record<ReviewTargetId, readonly string[]>
+  Partial<Record<ReviewTargetId, readonly string[]>>
 > = {
   agy: ["--sandbox", "--mode", "plan"],
   claude: ["--permission-mode", "plan"],
   codex: ["-s", "read-only"]
 };
+
+/** Per-target customization suppression. */
+function isolationArgs(target: ReviewTargetId): readonly string[] {
+  return target === "claude"
+    ? ["--no-session-persistence", "--safe-mode", "--disable-slash-commands"]
+    : [];
+}
 
 function modelArgs(
   target: ReviewTargetId,
@@ -110,15 +161,11 @@ export function buildTargetInvocation(
       stdin: request.prompt
     };
   }
-  const isolation = request.target === "claude"
-    ? ["--no-session-persistence", "--safe-mode", "--disable-slash-commands"]
-    : request.target === "agy"
-      ? ["--disable-slash-commands"]
-      : [];
   return {
     command: request.target,
     args: [
       "-p",
+      ...(request.target === "agy" ? [request.prompt] : []),
       "--output-format",
       "json",
       "--json-schema",
@@ -126,10 +173,15 @@ export function buildTargetInvocation(
       ...(request.repositoryRoot === undefined
         ? []
         : ["--add-dir", request.repositoryRoot]),
-      ...isolation,
+      ...(request.target !== "agy" || request.logFile === undefined
+        ? []
+        : ["--log-file", request.logFile]),
+      ...isolationArgs(request.target),
       ...shared
     ],
-    stdin: request.prompt
+    // Agy requires the prompt as the value of --print; a bare -p consumes the
+    // following flag. Claude accepts the prompt on stdin, keeping it out of ps.
+    stdin: request.target === "agy" ? "" : request.prompt
   };
 }
 
@@ -151,14 +203,19 @@ export function buildProbeInvocation(
       stdin: request.prompt
     };
   }
-  const isolation = request.target === "claude"
-    ? ["--no-session-persistence", "--safe-mode", "--disable-slash-commands"]
-    : request.target === "agy"
-      ? ["--disable-slash-commands"]
-      : [];
   return {
     command: request.target,
-    args: ["-p", "--output-format", "json", ...isolation, ...readOnly],
-    stdin: request.prompt
+    args: [
+      "-p",
+      ...(request.target === "agy" ? [request.prompt] : []),
+      "--output-format",
+      "json",
+      ...(request.target !== "agy" || request.logFile === undefined
+        ? []
+        : ["--log-file", request.logFile]),
+      ...isolationArgs(request.target),
+      ...readOnly
+    ],
+    stdin: request.target === "agy" ? "" : request.prompt
   };
 }

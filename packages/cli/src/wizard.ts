@@ -11,7 +11,10 @@ import type {
   Profile,
   ReviewTargetId
 } from "../../../runtime/src/contracts.js";
-import { DEFAULT_REVIEW_TARGETS } from "../../../runtime/src/review/roles.js";
+import {
+  DEFAULT_REVIEW_TARGETS,
+  REVIEW_TARGET_ORDER
+} from "../../../runtime/src/review/roles.js";
 import {
   HARNESS_IDS,
   resolveHarnessSelection
@@ -26,7 +29,7 @@ import {
 const SCOPES = new Set<string>(["project", "user"]);
 const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
 const DEFAULT_HARNESS: readonly HarnessId[] = [];
-const REVIEW_TARGET_SET = new Set<string>(DEFAULT_REVIEW_TARGETS);
+const REVIEW_TARGET_SET = new Set<string>(REVIEW_TARGET_ORDER);
 
 /**
  * External review spawns another paid CLI, so every entry point defaults to
@@ -43,12 +46,11 @@ const REVIEW_TARGET_CHOICES: readonly SelectChoice<ReviewTargetId>[] =
   DEFAULT_REVIEW_TARGETS.map((id) => ({
     label: id,
     value: id,
-    description:
-      id === "codex"
-        ? "Retained for future isolation support; currently not auto-run."
-        : id === "agy"
-          ? "Retained for future isolation support; currently not auto-run."
-          : "Runs in fresh safe mode with context isolation."
+    description: id === "codex"
+      ? "Runs read-only from its own credential home."
+      : id === "agy"
+        ? "Runs in sandboxed plan mode against a disposable clone."
+        : "Runs in fresh safe mode with context isolation."
   }));
 
 function selectReviewTargets(raw: string): ReviewTargetId[] {
@@ -66,7 +68,7 @@ function selectReviewTargets(raw: string): ReviewTargetId[] {
     }
   }
   // Declared order wins: the chain order is the option list, not click order.
-  return DEFAULT_REVIEW_TARGETS.filter((target) =>
+  return REVIEW_TARGET_ORDER.filter((target) =>
     values.includes(target)
   ) as ReviewTargetId[];
 }

@@ -168,7 +168,10 @@ export async function runTaskCommand(
         criteria: (options.args.criteria ?? []).map(parseCriterion),
         ...(options.policyConfigHash === undefined
           ? {}
-          : { policyConfigHash: options.policyConfigHash })
+          : { policyConfigHash: options.policyConfigHash }),
+        ...(options.args.parentTaskId === undefined
+          ? {}
+          : { parentTaskId: options.args.parentTaskId })
       });
       return taskEnvelope(
         action,
@@ -179,10 +182,15 @@ export async function runTaskCommand(
     }
     if (action === "status") {
       if (options.args.taskId === undefined && sessionId === undefined) {
-        const records = await options.service.list();
+        const parentTaskId = options.args.parentTaskId;
+        const records = await options.service.list(
+          parentTaskId === undefined ? {} : { parentTaskId }
+        );
         return okEnvelope("TASK_LISTED", {
           action,
-          message: `Listed ${records.length} task(s).`,
+          message: parentTaskId === undefined
+            ? `Listed ${records.length} task(s).`
+            : `Listed ${records.length} subtask(s) of ${parentTaskId}.`,
           records,
           text: renderTaskList(records)
         });

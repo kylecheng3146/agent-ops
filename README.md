@@ -288,10 +288,10 @@ is displayed; a minimal source-fingerprint attestation is persisted after PASS.
 
 Each attempt uses a fresh temporary cwd, a small allowlisted environment, and a
 target-native read-only mode. Claude additionally uses its complete safe mode;
-Codex ignores user config and persistence, while Agy disables slash-command
-expansion. Codex and Agy preserve their existing login environment, so their
-context isolation is intentionally weaker than Claude's. `opencode` is not a
-review target.
+Codex ignores user config and persistence, while Agy runs in sandboxed plan
+mode against a disposable repository clone. Codex and Agy preserve their
+existing login environment, so their context isolation is intentionally weaker
+than Claude's. `opencode` is not a review target.
 
 The first valid `PASS` or `FAIL` is final. Attempts that produce no verdict —
 including login failures and unparseable output — advance to the next target

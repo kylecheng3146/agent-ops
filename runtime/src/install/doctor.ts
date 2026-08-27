@@ -788,44 +788,58 @@ async function checkReviewTargets(
         "Login state unverified; run: agent-ops doctor --check-auth"
     );
   }
+  // Every target is probed before reporting: an ineligible entry is only
+  // DEGRADED, so returning at the first one would hide a genuinely broken
+  // eligible target behind it and make the verdict depend on ordering.
+  const failures: DoctorCheck[] = [];
+  const degraded: DoctorCheck[] = [];
   for (const target of targets) {
     const result = await probe(target, checkAuth);
     if (result === "missing-executable") {
-      return check(
+      failures.push(check(
         "review-targets",
         "FAIL",
         `${target} not found.`,
         undefined,
         `Install ${target}, or remove "${target}" from reviewRoles[].targets.`
-      );
+      ));
+      continue;
     }
     if (result === "ineligible") {
-      return check(
+      // Not a broken installation: review simply skips this target. A FAIL here
+      // would light up every config that merely still names one.
+      degraded.push(check(
         "review-targets",
-        "FAIL",
-        `${target} has no read-only mode and cannot review.`,
+        "DEGRADED",
+        `${target} has no read-only mode and is skipped when reviewing.`,
         undefined,
         `Remove "${target}" from reviewRoles[].targets.`
-      );
+      ));
+      continue;
     }
     if (result === "timeout") {
-      return check(
+      failures.push(check(
         "review-targets",
         "FAIL",
         `${target} did not answer in time.`,
         undefined,
         "Re-run: agent-ops doctor --check-auth"
-      );
+      ));
+      continue;
     }
     if (checkAuth && result !== "ok") {
-      return check(
+      failures.push(check(
         "review-targets",
         "FAIL",
         `${target} is installed but not authenticated, or it rejected the call.`,
         undefined,
         `Run: ${target} login`
-      );
+      ));
     }
+  }
+  const worst = failures[0] ?? degraded[0];
+  if (worst !== undefined) {
+    return worst;
   }
   return check(
     "review-targets",

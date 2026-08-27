@@ -55,6 +55,8 @@ Options:
   --check-auth                        Doctor only: probe each review target's
                                       authentication with one real call
   --task <id>
+  --parent <task-id>                  Task create: record a subtask of this
+                                      task; task status: list its subtasks
   --target-version <version>          Update target version (offline-capable)
   --title <text>
   --criterion <json>                    Repeatable

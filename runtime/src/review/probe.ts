@@ -50,14 +50,20 @@ export async function probeReviewTarget(
   options: ReviewTargetProbeOptions
 ): Promise<ReviewTargetProbeResult> {
   const deep = options.deep === true;
-  const invocation = buildProbeInvocation({ target, prompt: PROBE_PROMPT });
-  if (invocation === undefined) {
-    return "ineligible";
-  }
   const directory = deep
     ? await mkdtemp(join(tmpdir(), "agent-ops-review-probe-"))
     : options.cwd;
   try {
+  const invocation = buildProbeInvocation({
+    target,
+    prompt: PROBE_PROMPT,
+    ...(deep && target === "agy"
+      ? { logFile: join(directory, "agy.log") }
+      : {})
+  });
+  if (invocation === undefined) {
+    return "ineligible";
+  }
   const spawned = await runVerificationCommand(
     {
       id: `review-probe-${target}`,

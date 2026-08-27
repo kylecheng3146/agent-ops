@@ -48,20 +48,25 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 
 每次嘗試都從新的暫存 cwd 與原生唯讀模式啟動。Claude 使用完整 safe-mode
 隔離；Codex 與 Agy 為了支援既有 OAuth 登入而保留登入環境，因此 context
-隔離較弱，但仍不能修改 repository：
+隔離較弱。Agy 會取得一次性 clone，即使 sandboxed plan mode 寫入 cwd，也無法
+修改來源 repository：
 
 | 目標 | 呼叫方式 | 唯讀 |
 | --- | --- | --- |
 | `codex` | `codex exec` | `-s read-only --ephemeral --ignore-user-config` |
-| `agy`（Antigravity）| `agy -p` | `--sandbox --mode plan --disable-slash-commands` |
+| `agy` | `agy --print <prompt>` | `--sandbox --mode plan` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
 `opencode` **不是** review 目標，即使它是支援的 harness。它的 `--agent plan`
 會被判定為 subagent 而遭拒，並靜默退回可寫入的 agent，因此無法滿足唯讀前置
 條件。沒有唯讀旗標的目標會被跳過，不會在無沙箱狀態下執行。
 
+Agy 的 prompt 會直接作為 `--print` 的值；裸用 `-p` 會誤吞下一個 flag。
+agent-ops 刻意不傳會繞過權限邊界的 `--dangerously-skip-permissions`，也不傳會
+使 plan mode 失效的 `--disable-slash-commands`。
+
 只要沒有取得有效 verdict 就換下一家，包括執行檔不存在、spawn 失敗、逾時
-（每個目標預設 300 秒）、登入失敗、輸出過大或無法解析。文字與 JSON 輸出
+（每個目標預設 900 秒）、登入失敗、輸出過大或無法解析。文字與 JSON 輸出
 都會保留每次 attempt 及原因。`PASS` 或 `FAIL` 判定是**終局**，因此不會產生
 自動化的 review shopping。
 

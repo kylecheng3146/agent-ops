@@ -67,6 +67,12 @@ test("review extraction accepts only each target's native structured field", () 
   });
   assert.deepEqual(extractReviewObject("claude", envelope), JSON.parse(payload));
   assert.deepEqual(extractReviewObject("agy", JSON.stringify({ response: payload })), JSON.parse(payload));
+  assert.deepEqual(
+    extractReviewObject("agy", JSON.stringify({
+      response: { ...JSON.parse(payload), toolAction: "review", toolSummary: "done" }
+    })),
+    JSON.parse(payload)
+  );
   assert.deepEqual(extractReviewObject("codex", payload), JSON.parse(payload));
   assert.equal(extractReviewObject("claude", JSON.stringify({ result: payload })), undefined);
   assert.equal(extractReviewObject("codex", `prose ${payload}`), undefined);

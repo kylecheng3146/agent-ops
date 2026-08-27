@@ -281,6 +281,126 @@ test("reads schema version 1 task records created before failure fingerprints", 
   }
 });
 
+test("subtasks record their parent and stay independently completable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
+  try {
+    let next = 0;
+    const tasks = service(root, () => `task-${(next += 1)}`);
+    const parent = await tasks.create(input("Parent work"));
+    const child = await tasks.create({
+      ...input("Subtask work"),
+      parentTaskId: parent.task.id
+    });
+    const unrelated = await tasks.create(input("Unrelated work"));
+
+    assert.equal(child.task.parentTaskId, parent.task.id);
+    assert.equal(parent.task.parentTaskId, undefined);
+    assert.deepEqual(
+      (await tasks.list({ parentTaskId: parent.task.id })).map(
+        (record) => record.task.id
+      ),
+      [child.task.id]
+    );
+    assert.equal((await tasks.list()).length, 3);
+    assert.equal(
+      (await tasks.list({ parentTaskId: unrelated.task.id })).length,
+      0
+    );
+
+    // Completing a subtask leaves the parent exactly as it was: the split is
+    // tracking only, never a completion side effect.
+    await tasks.complete(child.task.id, {
+      "criterion-create": ["evidence/create.json"],
+      "criterion-complete": ["evidence/complete.json"]
+    });
+    const parentAfter = await tasks.status({ taskId: parent.task.id });
+    assert.equal(parentAfter.status, "active");
+    assert.deepEqual(parentAfter.evidence, {});
+    assert.match(await tasks.export(child.task.id), /^Parent task: task-1$/m);
+    assert.doesNotMatch(await tasks.export(parent.task.id), /Parent task:/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a subtask requires a known, unarchived parent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
+  try {
+    let next = 0;
+    const tasks = service(root, () => `task-${(next += 1)}`);
+    await assert.rejects(
+      tasks.create({ ...input(), parentTaskId: "task-missing" }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "TASK_PARENT_NOT_FOUND"
+    );
+
+    const parent = await tasks.create(input("Parent work"));
+    await tasks.archive(parent.task.id);
+    await assert.rejects(
+      tasks.create({ ...input(), parentTaskId: parent.task.id }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "TASK_PARENT_NOT_ACTIVE"
+    );
+    // The rejected creations left nothing behind.
+    assert.equal((await tasks.list()).length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("task state written before subtasks existed still loads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
+  const statePath = join(root, ".agent-ops", "tasks", "state.json");
+  try {
+    await mkdir(join(root, ".agent-ops", "tasks"), { recursive: true });
+    await writeFile(
+      statePath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        tasks: [
+          {
+            task: {
+              schemaVersion: 1,
+              id: "task-legacy",
+              title: "Legacy task state",
+              criteria: input().criteria
+            },
+            status: "active",
+            evidence: {},
+            createdAt: "2026-07-22T12:00:00.000Z",
+            updatedAt: "2026-07-22T12:00:00.000Z",
+            completedAt: null,
+            archivedAt: null
+          }
+        ],
+        sessions: []
+      }, null, 2)}\n`
+    );
+
+    const tasks = service(root);
+    const records = await tasks.list();
+    assert.equal(records[0]?.task.parentTaskId, undefined);
+    // A parent filter must not sweep in parentless legacy records.
+    assert.equal((await tasks.list({ parentTaskId: "task-legacy" })).length, 0);
+    // The legacy record is still a usable parent, and rewriting the file with a
+    // subtask alongside it keeps both readable.
+    const child = await tasks.create({
+      ...input("Subtask of legacy"),
+      parentTaskId: "task-legacy"
+    });
+    assert.deepEqual(
+      (await tasks.list({ parentTaskId: "task-legacy" })).map(
+        (record) => record.task.id
+      ),
+      [child.task.id]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("task command returns stable human and JSON views", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
   try {
@@ -326,6 +446,64 @@ test("task command returns stable human and JSON views", async () => {
     stdout.length = 0;
     writeEnvelope(sink, result, false);
     assert.match(stdout.join(""), /^# CLI task$/m);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the task CLI creates subtasks and lists them by parent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
+  try {
+    let next = 0;
+    const tasks = service(root, () => `task-${(next += 1)}`);
+    const criterionArgs = [
+      "--criterion",
+      JSON.stringify({
+        id: "criterion-one",
+        description: "First CLI outcome.",
+        verifierIds: ["unit"]
+      }),
+      "--criterion",
+      JSON.stringify({
+        id: "criterion-two",
+        description: "Second CLI outcome.",
+        verifierIds: ["unit"]
+      })
+    ];
+    const create = async (extra: readonly string[] = []) =>
+      await runTaskCommand({
+        args: parseArgs([
+          "task", "create", "--title", "CLI task", ...criterionArgs, ...extra
+        ]),
+        service: tasks
+      });
+
+    await create();
+    const child = await create(["--parent", "task-1"]);
+    assert.equal(child.code, "TASK_CREATED");
+    assert.equal(child.data?.record?.task.parentTaskId, "task-1");
+    assert.match(child.data?.text ?? "", /^Parent task: task-1$/m);
+
+    const listed = await runTaskCommand({
+      args: parseArgs(["task", "status", "--parent", "task-1"]),
+      service: tasks
+    });
+    assert.equal(listed.code, "TASK_LISTED");
+    assert.equal(listed.data?.message, "Listed 1 subtask(s) of task-1.");
+    assert.deepEqual(
+      listed.data?.records?.map((record) => record.task.id),
+      ["task-2"]
+    );
+
+    const missingParent = await runTaskCommand({
+      args: parseArgs([
+        "task", "create", "--title", "Orphan", ...criterionArgs,
+        "--parent", "task-absent"
+      ]),
+      service: tasks
+    });
+    assert.equal(missingParent.code, "TASK_PARENT_NOT_FOUND");
+    assert.equal(missingParent.status, "error");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

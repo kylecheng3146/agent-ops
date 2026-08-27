@@ -541,6 +541,16 @@ export function managedRules(
       ""
     );
   }
+  if (context.capabilities.includes("task")) {
+    lines.push(
+      "Split a change that exceeds five acceptance criteria into subtasks:",
+      "`agent-ops task create --parent <task-id>` records one, and",
+      "`agent-ops task status --parent <task-id>` lists them. Each subtask",
+      "carries its own criteria, verification, and independent review;",
+      "completing one never completes its parent.",
+      ""
+    );
+  }
   if (context.capabilities.includes("lifecycle-summary")) {
     lines.push(
       "Advisory lifecycle summaries and local logs are informational. Advisory",

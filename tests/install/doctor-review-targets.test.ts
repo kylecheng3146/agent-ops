@@ -131,6 +131,44 @@ test("--check-auth probes each configured target exactly once", async () => {
   assert.doesNotMatch(check.message, /unverified/);
 });
 
+test("an ineligible target degrades rather than fails the check", async () => {
+  const recorded: Recorded = { probed: [] };
+  const check = await reviewCheck(["agy", "claude"], {
+    checkAuth: true,
+    results: { agy: "ineligible" },
+    recorded
+  });
+  assert.equal(check.status, "DEGRADED");
+  assert.match(check.message, /agy has no read-only mode/);
+  assert.match(check.remediation ?? "", /Remove "agy"/);
+  assert.deepEqual(recorded.probed, ["agy", "claude"]);
+});
+
+test("a broken eligible target outranks an ineligible one, in either order", async () => {
+  for (const targets of [
+    ["agy", "claude"] as const,
+    ["claude", "agy"] as const
+  ]) {
+    for (const broken of [
+      "missing-executable",
+      "timeout",
+      "unauthenticated"
+    ] as const) {
+      const recorded: Recorded = { probed: [] };
+      const check = await reviewCheck(targets, {
+        checkAuth: true,
+        results: { agy: "ineligible", claude: broken },
+        recorded
+      });
+      const label = `${targets.join(",")}/${broken}`;
+      // An ineligible entry must never short-circuit the probe of a real failure.
+      assert.equal(check.status, "FAIL", label);
+      assert.match(check.message, /claude/, label);
+      assert.deepEqual(recorded.probed, [...targets], label);
+    }
+  }
+});
+
 test("the check never reports UNKNOWN, so a healthy install keeps its exit code", async () => {
   for (const targets of [undefined, ["codex"] as const]) {
     for (const checkAuth of [false, true]) {

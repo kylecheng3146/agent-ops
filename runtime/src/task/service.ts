@@ -24,6 +24,8 @@ export interface CreateTaskInput {
   readonly criteria: readonly AcceptanceCriterion[];
   /** CLI task creation captures this; callers without it remain compatible. */
   readonly policyConfigHash?: string;
+  /** Records this task as a subtask of an existing, non-archived task. */
+  readonly parentTaskId?: string;
 }
 
 export interface TaskServiceOptions {
@@ -169,7 +171,10 @@ export class TaskService {
       schemaVersion: TASK_SCHEMA_VERSION,
       id: this.#generateId(),
       title: input.title,
-      criteria: [...input.criteria]
+      criteria: [...input.criteria],
+      ...(input.parentTaskId === undefined
+        ? {}
+        : { parentTaskId: input.parentTaskId })
     };
     const validation = validateTask(task);
     if (!validation.ok) {
@@ -190,6 +195,25 @@ export class TaskService {
           `Task ID already exists: ${validation.value.id}`
         );
       }
+      // A dangling parent would make the subtask unfindable by its own parent
+      // filter, so the reference is resolved once, at creation.
+      if (input.parentTaskId !== undefined) {
+        const parent = state.tasks.find(
+          (record) => record.task.id === input.parentTaskId
+        );
+        if (parent === undefined) {
+          throw taskError(
+            "TASK_PARENT_NOT_FOUND",
+            `Parent task not found: ${input.parentTaskId}`
+          );
+        }
+        if (parent.status === "archived") {
+          throw taskError(
+            "TASK_PARENT_NOT_ACTIVE",
+            "An archived task cannot take new subtasks."
+          );
+        }
+      }
       const record: StoredTaskRecord = {
         task: validation.value,
         status: "active",
@@ -206,9 +230,16 @@ export class TaskService {
     });
   }
 
-  async list(): Promise<readonly StoredTaskRecord[]> {
+  async list(
+    filter: { readonly parentTaskId?: string } = {}
+  ): Promise<readonly StoredTaskRecord[]> {
     const state = await this.#store.read();
     return state.tasks
+      .filter(
+        (record) =>
+          filter.parentTaskId === undefined ||
+          record.task.parentTaskId === filter.parentTaskId
+      )
       .map(cloneRecord)
       .sort(
         (left, right) =>
