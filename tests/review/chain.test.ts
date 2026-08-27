@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { basename } from "node:path";
 import test from "node:test";
 
 import type { ReviewTargetId } from "../../runtime/src/contracts.js";
@@ -602,12 +603,12 @@ test("an ineligible target is skipped before agy runs sandboxed", async () => {
   );
   assert.equal(result.status, "PASS");
   assert.deepEqual(attempts.map((attempt) => attempt.command), ["agy"]);
-  assert.match(attempts[0]?.cwd ?? "", /\/repository$/);
+  assert.equal(basename(attempts[0]?.cwd ?? ""), "repository");
   assert.equal(
     attempts[0]?.args[attempts[0].args.indexOf("--add-dir") + 1],
     attempts[0]?.cwd
   );
-  assert.match(attempts[0]?.args[1] ?? "", /Repository root: .*\/repository/);
+  assert.ok(attempts[0]?.args[1]?.includes(`Repository root: ${attempts[0].cwd}`));
 });
 
 test("agy also challenges a PASS from inside its disposable clone", async () => {
@@ -617,12 +618,12 @@ test("agy also challenges a PASS from inside its disposable clone", async () => 
   );
   assert.equal(result.status, "PASS");
   assert.deepEqual(attempts.map((attempt) => attempt.command), ["codex", "agy"]);
-  assert.match(attempts[1]?.cwd ?? "", /\/repository$/);
+  assert.equal(basename(attempts[1]?.cwd ?? ""), "repository");
   assert.equal(
     attempts[1]?.args[attempts[1].args.indexOf("--add-dir") + 1],
     attempts[1]?.cwd
   );
-  assert.match(attempts[1]?.args[1] ?? "", /Repository root: .*\/repository/);
+  assert.ok(attempts[1]?.args[1]?.includes(`Repository root: ${attempts[1].cwd}`));
 });
 
 test("target environments preserve login state without sharing the review cwd", () => {
