@@ -30,7 +30,8 @@ export function renderReviewResult(result: ReviewRunResult): string {
     for (const attempt of result.attempts) {
       lines.push(
         `- ${attempt.target}: ${attempt.status}` +
-        `${attempt.reason === undefined ? "" : ` (${safe(attempt.reason)})`}`
+        `${attempt.reason === undefined ? "" : ` (${safe(attempt.reason)})`}` +
+        `${attempt.diagnostic === undefined ? "" : ` — ${safe(attempt.diagnostic)}`}`
       );
     }
   }
@@ -65,6 +66,22 @@ export function renderReviewResult(result: ReviewRunResult): string {
   } else {
     for (const finding of report.findings) {
       lines.push(`- [${finding.severity}] ${finding.blocking ? "blocking" : "non-blocking"}: ${safe(finding.title)}`);
+      lines.push(`  ${safe(finding.details)}`);
+      lines.push(`  Recommendation: ${safe(finding.recommendation)}`);
+      lines.push(...finding.locations.map((location) => `  Location: ${safe(location.path)}${location.line === undefined ? "" : `:${location.line}`}`));
+      lines.push(...finding.evidence.map((evidence) => `  Evidence: ${safe(evidence)}`));
+    }
+  }
+  if (result.adversarial !== undefined) {
+    const { target, refuted, report: challenge } = result.adversarial;
+    // Without this block a refuted review reads as all-criteria-PASS yet FAIL.
+    lines.push(
+      "",
+      `Adversarial re-check (${target}): ${refuted ? "refuted the PASS" : "upheld the PASS"}.`,
+      safe(challenge.summary)
+    );
+    for (const finding of challenge.findings.filter((item) => item.blocking)) {
+      lines.push(`- [${finding.severity}] blocking: ${safe(finding.title)}`);
       lines.push(`  ${safe(finding.details)}`);
       lines.push(`  Recommendation: ${safe(finding.recommendation)}`);
       lines.push(...finding.locations.map((location) => `  Location: ${safe(location.path)}${location.line === undefined ? "" : `:${location.line}`}`));

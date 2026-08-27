@@ -793,7 +793,7 @@ function validateCriterion(
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "schemaVersion", "title"],
+    ["criteria", "id", "parentTaskId", "schemaVersion", "title"],
     TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
@@ -801,6 +801,20 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   }
   if (!isIdentifier(root.id)) {
     return failure("INVALID_ID", "$.id", "Invalid task ID.");
+  }
+  if (root.parentTaskId !== undefined && !isIdentifier(root.parentTaskId)) {
+    return failure(
+      "INVALID_ID",
+      "$.parentTaskId",
+      "Invalid parent task ID."
+    );
+  }
+  if (root.parentTaskId === root.id) {
+    return failure(
+      "TASK_PARENT_INVALID",
+      "$.parentTaskId",
+      "A task cannot be its own parent."
+    );
   }
   if (!isNonEmptyString(root.title)) {
     return failure("INVALID_TITLE", "$.title", "Task title is required.");

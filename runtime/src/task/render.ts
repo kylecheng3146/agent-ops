@@ -20,6 +20,9 @@ export function renderTaskMarkdown(record: StoredTaskRecord): string {
     `# ${safeTaskText(record.task.title)}`,
     "",
     `Task ID: ${record.task.id}`,
+    ...(record.task.parentTaskId === undefined
+      ? []
+      : [`Parent task: ${record.task.parentTaskId}`]),
     `Status: ${record.status}`,
     `Created: ${record.createdAt}`,
     `Updated: ${record.updatedAt}`,

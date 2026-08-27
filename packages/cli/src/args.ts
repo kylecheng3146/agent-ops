@@ -54,6 +54,8 @@ export interface ParsedArgs {
   /** Authorizes doctor's expensive review-target authentication probe. */
   checkAuth?: boolean;
   taskId?: string;
+  /** Parent task: assigns one on create, filters by one on status. */
+  parentTaskId?: string;
   targetVersion?: string;
   title?: string;
   criteria?: string[];
@@ -143,6 +145,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let harness: Harness | undefined;
   const hookTargets: HookTargetSelection[] = [];
   let taskId: string | undefined;
+  let parentTaskId: string | undefined;
   let targetVersion: string | undefined;
   let title: string | undefined;
   let sessionId: string | undefined;
@@ -225,6 +228,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(token);
         }
         taskId = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--parent": {
+        if (parentTaskId !== undefined) {
+          duplicate(token);
+        }
+        parentTaskId = readOptionValue(argv, index, token);
         index += 1;
         break;
       }
@@ -382,6 +393,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       hookTargets.length > 0 ||
       profiles.length > 0 ||
       taskId !== undefined ||
+      parentTaskId !== undefined ||
       targetVersion !== undefined ||
       title !== undefined ||
       criteria.length > 0 ||
@@ -434,6 +446,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "Task target options may be used only with task or verify."
+    );
+  }
+  if (command !== "task" && parentTaskId !== undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--parent may be used only with task create or task status."
     );
   }
   if (command !== "update" && targetVersion !== undefined) {
@@ -491,20 +509,26 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         (title !== undefined ||
           criteria.length > 0 ||
           evidence.length > 0 ||
+          // --parent filters the listing, so it cannot name a single target.
+          (parentTaskId !== undefined &&
+            (taskId !== undefined || sessionId !== undefined)) ||
           (taskId !== undefined && sessionId !== undefined))) ||
       (action === "attach" &&
         (title !== undefined ||
           criteria.length > 0 ||
-          evidence.length > 0)) ||
+          evidence.length > 0 ||
+          parentTaskId !== undefined)) ||
       (action === "complete" &&
         (title !== undefined ||
           criteria.length > 0 ||
-          sessionId !== undefined)) ||
+          sessionId !== undefined ||
+          parentTaskId !== undefined)) ||
       ((action === "archive" || action === "export") &&
         (title !== undefined ||
           criteria.length > 0 ||
           evidence.length > 0 ||
-          sessionId !== undefined));
+          sessionId !== undefined ||
+          parentTaskId !== undefined));
     if (taskOptionInvalid) {
       throw new CliArgumentError(
         "CLI_OPTION_NOT_ALLOWED",
@@ -560,6 +584,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(hookTargets.length === 0 ? {} : { hookTargets }),
     profiles,
     ...(taskId === undefined ? {} : { taskId }),
+    ...(parentTaskId === undefined ? {} : { parentTaskId }),
     ...(targetVersion === undefined ? {} : { targetVersion }),
     ...(title === undefined ? {} : { title }),
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),

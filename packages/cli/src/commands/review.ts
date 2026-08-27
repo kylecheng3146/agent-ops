@@ -505,7 +505,10 @@ export async function runReviewCommand(
         });
       }
       try {
-        await assertSafeSupportingPaths(options.root, result.report.supportingFilesInspected);
+        await assertSafeSupportingPaths(options.root, [
+          ...result.report.supportingFilesInspected,
+          ...(result.adversarial?.report.supportingFilesInspected ?? [])
+        ]);
       } catch (error) {
         if (scopeReason(error) === "unsafe-review-path") {
           return notRunEnvelope({

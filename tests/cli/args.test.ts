@@ -163,6 +163,44 @@ test("rejects task options that an action would ignore", () => {
   }
 });
 
+test("--parent belongs to task create and task status only", () => {
+  assert.equal(
+    parseArgs(["task", "create", "--title", "x", "--parent", "task-one"])
+      .parentTaskId,
+    "task-one"
+  );
+  assert.equal(
+    parseArgs(["task", "status", "--parent", "task-one"]).parentTaskId,
+    "task-one"
+  );
+  for (const argv of [
+    ["task", "attach", "--task", "task-one", "--parent", "task-two"],
+    ["task", "complete", "--task", "task-one", "--parent", "task-two"],
+    ["task", "archive", "--task", "task-one", "--parent", "task-two"],
+    ["task", "export", "--task", "task-one", "--parent", "task-two"],
+    // A parent filter lists many tasks, so it cannot name a single one.
+    ["task", "status", "--task", "task-one", "--parent", "task-two"],
+    ["task", "status", "--session", "session-one", "--parent", "task-two"],
+    ["verify", "--parent", "task-one"],
+    ["review", "--parent", "task-one"],
+    ["doctor", "--parent", "task-one"]
+  ]) {
+    assert.throws(
+      () => parseArgs(argv),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.code === "CLI_OPTION_NOT_ALLOWED",
+      argv.join(" ")
+    );
+  }
+  assert.throws(
+    () => parseArgs(["task", "status", "--parent", "a", "--parent", "b"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_DUPLICATE_OPTION"
+  );
+});
+
 test("parses repeated profiles and boolean flags", () => {
   assert.deepEqual(
     parseArgs([

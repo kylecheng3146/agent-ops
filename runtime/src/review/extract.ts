@@ -25,6 +25,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Agy appends plan UI metadata even when native JSON Schema is enabled. */
+function withoutAgyPlanMetadata(
+  value: Record<string, unknown>
+): Record<string, unknown> {
+  const { toolAction: _toolAction, toolSummary: _toolSummary, ...report } = value;
+  return report;
+}
+
 /**
  * The model's answer as text, before any JSON contract is applied. Returns
  * undefined rather than throwing so the caller can report
@@ -77,7 +85,10 @@ export function extractReviewObject(
   const key = target === "claude" ? "structured_output" : "response";
   const value = envelope?.[key];
   if (isRecord(value)) {
-    return value;
+    return target === "agy" ? withoutAgyPlanMetadata(value) : value;
   }
-  return typeof value === "string" ? extractJsonObject(value) : undefined;
+  const parsed = typeof value === "string" ? extractJsonObject(value) : undefined;
+  return parsed === undefined || target !== "agy"
+    ? parsed
+    : withoutAgyPlanMetadata(parsed);
 }

@@ -37,9 +37,9 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 review target MUST 以其自身的唯讀機制啟動；沒有唯讀機制的 target MUST 被跳過，而非在無沙箱狀態下執行。
 
 - Trigger: 為已設定的 target 組建 review invocation。
-- Action: 傳入 `-s read-only`（codex）、`--sandbox --mode plan`（agy）或 `--permission-mode plan`（claude）；其餘 target 視為不合格。
+- Action: 傳入 `-s read-only`（codex）、`--sandbox --mode plan`（agy）或 `--permission-mode plan`（claude）；agy 必須在一次性 repository clone 中執行；其餘 target 視為不合格。
 - Evidence: spawn 出的 argv 含該 target 的唯讀旗標。
-- Positive: `opencode 不是 review target：--agent plan 會靜默退回可寫入的 agent。`
+- Positive: `agy 使用 sandboxed plan mode；opencode 仍不合格。`
 - Negative: `信任 prompt 能阻止審查者修改檔案。`
 
 ## REVIEW-CHAIN-001
@@ -47,10 +47,21 @@ review target MUST 以其自身的唯讀機制啟動；沒有唯讀機制的 tar
 已設定的 targets 組成有序後備鏈，MUST 僅在「沒有審到」時換下一家，且 MUST NOT 在取得判定後繼續往下試。
 
 - Trigger: 某個已設定的 target 不存在、spawn 失敗或逾時。
-- Action: 試下一個 target；遇到 PASS、FAIL 或無法解析的輸出即停止並回報該結果。
+- Action: 無法解析輸出時試下一個 target；遇到第一個 PASS 或 FAIL 即停止並回報。
 - Evidence: spawn 次數等於判定之前的失敗次數。
-- Positive: `codex 的 FAIL 是終局；不會再問 agy 第二意見。`
+- Positive: `codex 的 FAIL 是終局；不會再問任何 target 第二意見。`
 - Negative: `FAIL 之後改試其他 target，直到有人回報 PASS。`
+
+## REVIEW-ADVERSARIAL-001
+
+PASS MUST 交給另一個合格 target 嘗試反駁，且反駁成立時 MUST 使整體判定為 FAIL。
+
+- Trigger: primary target 回報 PASS，且尚有未走過的合格 target。host target 永不擔任挑戰者。
+- Action: 將前一份 report 以不可信資料交給該 target 並要求它反駁；反駁成立即回報 FAIL，且無論結果都記錄為 `adversarial`。
+- Evidence: `adversarial` 記載挑戰者與是否反駁成立；未能產出 report 的挑戰者則記錄在 attempt 清單。
+- Positive: `codex 判 PASS，claude 找到 blocking 缺陷，整體判定 FAIL。`
+- Negative: `為了讓複查看起來有效而編造反駁。`
+- Note: 只有一個可用 target 時，primary 判定不受挑戰即成立。FAIL 已是終局，不再複查。
 
 ## REVIEW-CONTRACT-001
 

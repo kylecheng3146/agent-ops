@@ -434,6 +434,26 @@ test("review requires current PASS evidence before it spawns", async () => {
     });
     assert.equal(unsafeSupportingPath.data?.result.reason, "unsafe-review-path");
 
+    const unsafeAdversarialSupportingPath = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async (request) => {
+        const report = reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"]);
+        return {
+          status: "PASS" as const,
+          results: [],
+          report,
+          adversarial: {
+            target: "agy" as const,
+            refuted: false,
+            report: { ...report, supportingFilesInspected: ["missing-supporting.ts"] }
+          }
+        };
+      }
+    });
+    assert.equal(unsafeAdversarialSupportingPath.data?.result.reason, "unsafe-review-path");
+
     const referencesBeforeSourceChange = await tasks.status({ sessionId: SESSION });
     const sourceChanged = await runReviewCommand({
       args: parseArgs(["review", "--yes"]), authorized: true, tasks,

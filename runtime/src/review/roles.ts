@@ -8,9 +8,20 @@ import type {
 export type { ReviewRole, ReviewRoleConfig, ReviewTargetId };
 
 /**
- * Default chain order. codex first because its stdout is the bare final message
- * (nothing to unwrap), then agy's flat envelope. claude is last because it is
- * the only host we can detect, and `orderChain` would push it back anyway.
+ * Every target id, in chain order. codex first because its stdout is the bare
+ * final message (nothing to unwrap), then agy's flat envelope. claude is last
+ * because it is the only host we can detect, and `orderChain` would push it
+ * back anyway. This is the list a configured selection is validated and
+ * canonically ordered against, so a configuration that names agy keeps loading.
+ */
+export const REVIEW_TARGET_ORDER: readonly ReviewTargetId[] = [
+  "codex",
+  "agy",
+  "claude"
+];
+
+/**
+ * What a new installation is offered and configured with.
  */
 export const DEFAULT_REVIEW_TARGETS: readonly ReviewTargetId[] = [
   "codex",

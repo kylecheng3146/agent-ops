@@ -9,6 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { VerificationCommand } from "../../runtime/src/contracts.js";
+import { parseTestCount } from "../../runtime/src/verify/test-count.js";
 import {
   NodeVerificationProcessRunner,
   runVerificationCommand,
@@ -209,10 +210,27 @@ test("bounds stdout and stderr independently", async () => {
     ))
   });
 
-  assert.equal(result.stdout, "abcde");
-  assert.equal(result.stderr, "12345");
+  // Truncation keeps the tail: test reporters print their summary and failure
+  // list last, so the head is the disposable end of a large run.
+  assert.equal(result.stdout, "bcdef");
+  assert.equal(result.stderr, "23456");
   assert.equal(result.stdoutTruncated, true);
   assert.equal(result.stderrTruncated, true);
+});
+
+test("a truncated run still yields the trailing test-count summary", async () => {
+  const result = await runVerificationCommand(command(), {
+    cwd: "/workspace",
+    outputLimitBytes: 64,
+    runner: runnerWith(() => completedProcess(
+      { exitCode: 0, signal: null },
+      chunks("noise\n".repeat(200), "# tests 674\n# pass 674\n# fail 0\n"),
+      chunks("")
+    ))
+  });
+
+  assert.equal(result.stdoutTruncated, true);
+  assert.equal(parseTestCount(result.stdout), 674);
 });
 
 test("times out by terminating the complete process tree with bounded grace", async () => {

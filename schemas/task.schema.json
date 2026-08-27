@@ -15,6 +15,9 @@
     "title": {
       "$ref": "#/$defs/nonEmptyString"
     },
+    "parentTaskId": {
+      "$ref": "#/$defs/id"
+    },
     "criteria": {
       "type": "array",
       "minItems": 2,

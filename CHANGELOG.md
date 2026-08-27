@@ -4,6 +4,35 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- A passing independent review is now handed to a second, different target
+  asked to refute it. A successful refutation makes the run `FAIL` and keeps
+  both reports; the challenge appears as `adversarial` in JSON and in the
+  rendered report. With only one usable target the primary verdict stands, and
+  the host target is never used as the challenger.
+- `agent-ops task create --parent <task-id>` records a subtask and
+  `agent-ops task status --parent <task-id>` lists a task's subtasks. Subtasks
+  keep their own criteria, verification, and review; completing one never
+  completes its parent. Task state written before this release still loads.
+- Review attempts now carry the target's own redacted complaint as
+  `diagnostic`, so a rejected call is distinguishable from a missing login in
+  JSON output and not only in progress text. The capability gate names the
+  help-output flags it could not find, and an adversarial challenger that never
+  ran is recorded on the attempt list rather than only reported.
+- `agy` review now passes its prompt as the value of `--print` instead of
+  letting a bare `-p` consume the next flag. It runs in sandboxed plan mode,
+  operates on a disposable repository clone, remains in the default target
+  chain, and never receives
+  `--dangerously-skip-permissions`.
+- Fixed: `claude` could not review on an interactively authenticated install.
+  Its credential home was replaced and `USER` was absent from the reviewer
+  environment, so it reported "not logged in". Isolation now rests on
+  `--safe-mode`, which disables user customization while keeping auth. The
+  schema handed to a reviewer also drops its `$schema` declaration, which
+  claude rejected outright.
+- Fixed: bounded command output kept its head rather than its tail, discarding
+  the trailing summary line that carries the test count. A suite whose output
+  exceeded the limit could never produce `test-count` evidence.
+
 ## [0.1.16]
 
 - `agent-ops review` now runs configured Codex and Agy targets with their

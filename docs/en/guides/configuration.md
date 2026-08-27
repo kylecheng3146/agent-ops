@@ -55,12 +55,13 @@ report is printed, and PASS persists only a source-fingerprint attestation.
 Every attempt starts from a fresh temporary cwd and native read-only mode.
 Claude uses complete safe-mode isolation. Codex and Agy preserve their existing
 login environment to support normal OAuth sessions, so they provide weaker
-context isolation but still cannot modify the repository:
+context isolation. Agy receives a disposable clone and cannot modify the source
+repository even if sandboxed plan mode writes to its cwd:
 
 | Target | Invocation | Read-only |
 | --- | --- | --- |
 | `codex` | `codex exec` | `-s read-only --ephemeral --ignore-user-config` |
-| `agy` (Antigravity) | `agy -p` | `--sandbox --mode plan --disable-slash-commands` |
+| `agy` | `agy --print <prompt>` | `--sandbox --mode plan` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
 `opencode` is **not** a review target even though it is a supported harness.
@@ -68,8 +69,13 @@ Its `--agent plan` is rejected as a subagent and silently falls back to a
 writable agent, so it cannot satisfy the read-only precondition. A target with
 no read-only flag is skipped rather than run unsandboxed.
 
+For Agy, agent-ops passes the prompt as the value of `--print`; a bare `-p`
+would consume the following flag instead. It deliberately does not pass
+`--dangerously-skip-permissions`, which overrides the permission boundary, or
+`--disable-slash-commands`, which disables plan-mode behavior.
+
 The chain advances whenever an attempt produces no valid verdict — including a
-missing executable, spawn failure, timeout (300s per target by default), login
+missing executable, spawn failure, timeout (900s per target by default), login
 failure, oversized output, or unparseable output. Every attempt and reason is
 preserved in human and JSON output. A `PASS` or `FAIL` verdict is **terminal**,
 so the chain cannot shop for a passing review.

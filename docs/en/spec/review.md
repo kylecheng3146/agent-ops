@@ -37,9 +37,9 @@ A review target MUST be launched with its own read-only mechanism, and a target
 without one MUST be skipped rather than run unsandboxed.
 
 - Trigger: Building a review invocation for a configured target.
-- Action: Pass `-s read-only` (codex), `--sandbox --mode plan` (agy), or `--permission-mode plan` (claude); treat any other target as ineligible.
+- Action: Pass `-s read-only` (codex), `--sandbox --mode plan` (agy), or `--permission-mode plan` (claude); run agy against a disposable repository clone; treat any other target as ineligible.
 - Evidence: The spawned argv contains the target's read-only flags.
-- Positive: `opencode is not a review target: --agent plan silently falls back to a writable agent.`
+- Positive: `agy receives sandboxed plan mode; opencode remains ineligible.`
 - Negative: `Trust the prompt to stop the reviewer from editing files.`
 
 ## REVIEW-CHAIN-001
@@ -48,10 +48,27 @@ Configured targets form an ordered fallback chain that MUST advance only when
 no review happened, and MUST NOT advance past a verdict.
 
 - Trigger: A configured target is missing, fails to spawn, or times out.
-- Action: Try the next target; on PASS, FAIL, or unparseable output, stop and report that outcome.
+- Action: Try the next target after unparseable output; stop and report the first PASS or FAIL.
 - Evidence: The number of spawned attempts matches the failures that preceded the verdict.
-- Positive: `codex FAIL is final; agy is never asked for a second opinion.`
+- Positive: `codex FAIL is final; no other target is asked for a second opinion.`
 - Negative: `Retry other targets after a FAIL until one reports PASS.`
+
+## REVIEW-ADVERSARIAL-001
+
+A PASS MUST be offered to a different eligible target for refutation, and a
+successful refutation MUST make the run FAIL.
+
+- Trigger: The primary target returns PASS and another eligible target has not
+  already been walked past. The host target never serves as the challenger.
+- Action: Send that target the prior report as untrusted data and ask it to
+  refute the verdict; report FAIL when it does, and record the challenge as
+  `adversarial` either way.
+- Evidence: `adversarial` names the challenging target and whether it refuted;
+  a challenger that produced no report appears on the attempt list instead.
+- Positive: `codex passed, claude found a blocking defect, the run failed.`
+- Negative: `Manufacture a refutation so the challenge looks effective.`
+- Note: With one usable target the primary verdict stands unchallenged. A FAIL
+  is already terminal and is never re-checked.
 
 ## REVIEW-CONTRACT-001
 

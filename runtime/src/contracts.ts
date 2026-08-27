@@ -115,6 +115,13 @@ export interface AgentTask {
   id: string;
   title: string;
   criteria: AcceptanceCriterion[];
+  /**
+   * The task this one was decomposed from, when it is a subtask. Absent on
+   * standalone tasks, which is every task written before decomposition
+   * existed. It records the split only: a subtask keeps its own criteria,
+   * evidence, and lifecycle, and completing one does not touch its parent.
+   */
+  parentTaskId?: string;
 }
 
 export interface VerificationEvidence {
