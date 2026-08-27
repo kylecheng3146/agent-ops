@@ -329,7 +329,7 @@ test("unparseable output advances to the next target", async () => {
   }
 });
 
-test("a rejected call surfaces the target's own complaint, redacted", async () => {
+test("a non-auth rejection surfaces the target's own complaint, redacted", async () => {
   const secret = ["Author", "ization: Bearer abcdef123456"].join("");
   const { result, progress } = await run(
     ["claude", "codex"],
@@ -339,14 +339,14 @@ test("a rejected call surfaces the target's own complaint, redacted", async () =
     ]
   );
   const line = progress.find((value) => value.startsWith("claude:")) ?? "";
-  assert.match(line, /login-required/);
+  assert.match(line, /capability-unavailable/);
   assert.match(line, /-p took "--output-format" as its prompt/);
   assert.doesNotMatch(line, /abcdef123456/);
 
   // Progress is suppressed under --json, so the complaint has to survive on the
   // attempt itself or a machine consumer is left with the bare guess.
   const attempt = result.attempts?.find((item) => item.target === "claude");
-  assert.equal(attempt?.reason, "login-required");
+  assert.equal(attempt?.reason, "capability-unavailable");
   assert.match(attempt?.diagnostic ?? "", /-p took "--output-format" as its prompt/);
   assert.doesNotMatch(JSON.stringify(result), /abcdef123456/);
 });
@@ -396,7 +396,7 @@ test("an unavailable challenger is recorded, not merely reported", async () => {
   assert.equal(result.status === "PASS" ? result.adversarial : "unset", undefined);
   const challenger = result.attempts?.find((item) => item.target === "codex");
   assert.equal(challenger?.status, "NOT_RUN");
-  assert.equal(challenger?.reason, "login-required");
+  assert.equal(challenger?.reason, "quota-exhausted");
   assert.match(challenger?.diagnostic ?? "", /quota exhausted/);
   assert.ok(progress.some((line) => /adversarial re-check unavailable/.test(line)));
 });
@@ -407,7 +407,7 @@ test("a rejected call with nothing to say still explains itself", async () => {
     [{ exitCode: 1 }, { stdout: passing("codex") }]
   );
   const attempt = result.attempts?.find((item) => item.target === "claude");
-  assert.equal(attempt?.reason, "login-required");
+  assert.equal(attempt?.reason, "capability-unavailable");
   // Silence is itself the finding: a bare reason code would leave a JSON
   // consumer unable to tell a missing login from a target that said nothing.
   assert.match(attempt?.diagnostic ?? "", /rejected with exit 1 and no output/);
@@ -446,10 +446,10 @@ test("truncated output names the stream that overflowed", async () => {
   assert.match(attempt?.diagnostic ?? "", /stdout exceeded the capture limit/);
 });
 
-test("a nonzero reviewer exit falls back after reporting missing authentication", async () => {
+test("a nonzero reviewer exit falls back after reporting explicit missing authentication", async () => {
   const { result, attempts } = await run(
     ["claude", "codex"],
-    [{ exitCode: 1 }, { stdout: passing("codex") }]
+    [{ exitCode: 1, stderr: "Error: not logged in" }, { stdout: passing("codex") }]
   );
   assert.equal(result.status, "PASS");
   assert.equal(attempts.length, 2);
@@ -458,6 +458,22 @@ test("a nonzero reviewer exit falls back after reporting missing authentication"
   assert.equal(rejected?.reason, "login-required");
   assert.notEqual(rejected?.diagnostic, undefined);
   assert.deepEqual(verdict, { target: "codex", status: "PASS" });
+});
+
+test("a sandbox permission failure is not reported as missing authentication", async () => {
+  const { result, progress } = await run(
+    ["codex", "claude"],
+    [
+      { exitCode: 1, stderr: "Operation not permitted (os error 1)" },
+      { stdout: passing("claude") }
+    ]
+  );
+
+  assert.equal(result.status, "PASS");
+  assert.match(progress[0] ?? "", /capability-unavailable/);
+  const rejected = result.attempts?.find((attempt) => attempt.target === "codex");
+  assert.equal(rejected?.reason, "capability-unavailable");
+  assert.match(rejected?.diagnostic ?? "", /Operation not permitted/);
 });
 
 test("protocol violations report unparseable-output rather than FAIL", async () => {

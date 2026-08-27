@@ -148,6 +148,20 @@ function firstComplaint(...streams: readonly string[]): string | undefined {
   return undefined;
 }
 
+function rejectedCallReason(output: string): ReviewUnavailableReason {
+  if (/\b(?:quota|rate limit|usage limit|too many requests)\b/iu.test(output)) {
+    return "quota-exhausted";
+  }
+  if (
+    /\b(?:not logged in|login required|log in to|authentication required|unauthenticated|unauthorized)\b/iu.test(output) ||
+    /\b(?:invalid|expired)\s+(?:api key|token|credential)/iu.test(output) ||
+    /\b401\b/u.test(output)
+  ) {
+    return "login-required";
+  }
+  return "capability-unavailable";
+}
+
 type TargetAttemptOutcome =
   | { readonly kind: "verdict"; readonly report: ReviewReport }
   | {
@@ -371,12 +385,9 @@ async function attemptTarget(
       );
     }
     if (spawned.failureClass === "nonzero-exit") {
-      // A rejected call is usually missing authentication, but a stale flag
-      // shape exits non-zero too, and reporting only "login-required" sends
-      // the reader to `doctor --check-auth` for a problem it cannot see. The
-      // target's own first line of complaint distinguishes the two.
+      const output = `${spawned.stderr}\n${spawned.stdout}`;
       return skip(
-        "login-required",
+        rejectedCallReason(output),
         firstComplaint(spawned.stderr, spawned.stdout) ??
           `the call was rejected with exit ${spawned.exitCode ?? "unknown"} and no output`
       );

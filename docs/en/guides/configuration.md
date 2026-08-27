@@ -94,8 +94,11 @@ human-readable report is transient. Completed tasks are never rewritten.
 `--yes` is still required for every review run: init selection decides which
 targets are permitted, `--yes` decides whether to spend money now.
 
-Because target authentication is not sniffed from stderr, an unauthenticated
-CLI surfaces as one review failure. Diagnose it with:
+Reviewer failures are classified conservatively from their output: recognizable
+authentication messages become `login-required`, quota messages become
+`quota-exhausted`, and other non-zero exits become `capability-unavailable`.
+The review suggests `doctor --check-auth` only when an authentication failure
+was detected. Confirm target authentication with:
 
 ```bash
 agent-ops doctor              # presence only: no tokens, no network
