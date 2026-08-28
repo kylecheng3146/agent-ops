@@ -9,6 +9,7 @@ import { cleanupE2eRoot, runBuiltCli } from "./helpers.js";
 test("project init dry-run covers each native harness selection", () => {
   for (const profile of ["core", "advisory", "guardrails"] as const) {
     for (const harness of [
+      "agy",
       "claude",
       "codex",
       "opencode",

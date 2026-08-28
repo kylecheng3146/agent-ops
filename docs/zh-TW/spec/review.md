@@ -42,6 +42,11 @@ review target MUST 以其自身的唯讀機制啟動；沒有唯讀機制的 tar
 - Positive: `agy 使用 sandboxed plan mode；opencode 仍不合格。`
 - Negative: `信任 prompt 能阻止審查者修改檔案。`
 
+每次 review 都 MUST 使用全新 session（`sessionIsolation: "fresh"`）並在
+disposable repository clone 中執行。review chain 優先選擇不同於 hosting CLI 的
+target；沒有其他可用 target 時，才允許同 CLI 的 fresh review，但輸出 MUST 明確
+標示 `DEGRADED: isolated self-review`。不得 resume 開發 session 作為獨立審查。
+
 ## REVIEW-CHAIN-001
 
 已設定的 targets 組成有序後備鏈，MUST 僅在「沒有審到」時換下一家，且 MUST NOT 在取得判定後繼續往下試。

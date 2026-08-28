@@ -6,6 +6,17 @@ import type {
   Profile
 } from "../contracts.js";
 import {
+  buildAgyHookSettings,
+  isAgyHookRegistered,
+  isAgyManagedHook,
+  mergeAgyHooks,
+  stripAgyHooks
+} from "../adapters/agy/config.js";
+import { AGY_CAPABILITY_REGISTRATIONS } from "../adapters/agy/events.js";
+import { normalizeAgyHookInput } from "../adapters/agy/input.js";
+import { agyHookOutput } from "../adapters/agy/output.js";
+import { agySurfaces } from "../adapters/agy/surfaces.js";
+import {
   buildClaudeHookSettings,
   isClaudeManagedHandler,
   mergeClaudeSettings,
@@ -51,6 +62,7 @@ import {
 export type { HarnessId } from "../contracts.js";
 
 export const HARNESS_IDS: readonly HarnessId[] = [
+  "agy",
   "codex",
   "claude",
   "opencode"
@@ -307,7 +319,61 @@ const CLAUDE_ROUTING: HarnessRoutingSpec = {
   ]
 };
 
+const AGY_ROUTING: HarnessRoutingSpec = {
+  desired:
+    "## Loop Engineering\n\nLoad `.agent-ops/GEMINI.md` as the agent-ops managed baseline.\nProject-specific instructions in this file remain authoritative.\n",
+  legacy: []
+};
+
 const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
+  agy: {
+    id: "agy",
+    control: {
+      instructionFile: "GEMINI.md",
+      routing: AGY_ROUTING,
+      hookPath: ".agents/hooks.json",
+      hookPathForScope: (scope) =>
+        scope === "project" ? ".agents/hooks.json" : ".gemini/config/hooks.json",
+      surfaces: agySurfaces,
+      ownSettingsKeys: [],
+      buildHooks: buildAgyHookSettings,
+      mergeHooks: mergeAgyHooks,
+      stripHooks: stripAgyHooks,
+      isManagedHandler: isAgyManagedHook,
+      registrations: AGY_CAPABILITY_REGISTRATIONS,
+      hookRegistered: (source, capabilities) =>
+        isAgyHookRegistered(parseJsonSource(source), capabilities),
+      plan: async (context) => {
+        if (context.scope === "project") {
+          return await planCommonHarnessContribution("codex", context);
+        }
+        const descriptor = DESCRIPTORS.agy;
+        return {
+          artifacts: [{
+            id: "gemini-rules",
+            path: ".agent-ops/GEMINI.md",
+            content: managedRules(descriptor, context)
+          }],
+          blocks: [{
+            id: "agy-routing",
+            path: ".gemini/GEMINI.md",
+            version: 1,
+            content: AGY_ROUTING.desired
+          }]
+        };
+      }
+    },
+    runtime: {
+      normalizeInput: normalizeAgyHookInput,
+      formatOutput: agyHookOutput,
+      formatRuntimeFailure: (event, capability, remedy) =>
+        agyHookOutput(event, runtimeFailureResult(
+          capability,
+          AGY_CAPABILITY_REGISTRATIONS,
+          remedy
+        ))
+    }
+  },
   codex: createJsonDescriptor({
     id: "codex",
     instructionFile: "AGENTS.md",
@@ -533,6 +599,9 @@ export function managedRules(
       "   review-target CLI (agy, codex, claude) directly — direct calls skip",
       "   the enforced read-only sandbox flags and can hang or fail on command",
       "   permission prompts.",
+      "   Set `AGENT_OPS_HOST` to the current CLI id when invoking review so",
+      "   agent-ops tries a different CLI first and uses isolated self-review",
+      "   only when no other configured reviewer is usable.",
       "",
       "Treat `.agent-ops/config.json` as verifier authority. Discovery output is",
       "only a proposal until a user confirms it. Repository commands require an",

@@ -123,6 +123,47 @@ test("dry-run returns the complete plan without writing", async () => {
   }
 });
 
+test("init warns about an unavailable agy without blocking the plan", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  try {
+    const result = await runInitCommand({
+      ...options(root, [
+        "init", "--scope", "project", "--harness", "agy",
+        "--profile", "core", "--dry-run", "--json"
+      ]),
+      adapters: commonHarnessAdapters(),
+      agyWarning: () => "agy is not installed"
+    });
+    assert.deepEqual(result.data?.warnings, ["agy is not installed"]);
+    assert.match(result.data?.text ?? "", /Warnings:[\s\S]*agy is not installed/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("init shows agy warnings before interactive confirmation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
+  try {
+    let shown: readonly string[] | undefined;
+    const result = await runInitCommand({
+      ...options(root, [
+        "init", "--scope", "project", "--harness", "agy", "--profile", "core"
+      ]),
+      adapters: commonHarnessAdapters(),
+      isTTY: true,
+      agyWarning: () => "agy is not installed",
+      confirm: async (_plan, _trust, warnings) => {
+        shown = warnings;
+        return false;
+      }
+    });
+    assert.equal(result.code, "INIT_CANCELLED");
+    assert.deepEqual(shown, ["agy is not installed"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("public init plans hide foreign Claude settings values", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-init-"));
   try {

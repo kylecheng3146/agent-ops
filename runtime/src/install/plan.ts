@@ -555,11 +555,11 @@ function assertLoopProfileSupport(
   }
   if (
     scope !== "project" ||
-    !harness.some((id) => id === "codex" || id === "claude")
+    !harness.some((id) => id === "agy" || id === "codex" || id === "claude")
   ) {
     throw new AgentOpsError(
       "LOOP_PROFILE_UNSUPPORTED",
-      "The loop profile requires project scope and the Codex or Claude harness."
+      "The loop profile requires project scope and the agy, Codex, or Claude harness."
     );
   }
 }

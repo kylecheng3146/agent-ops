@@ -58,6 +58,17 @@ test("accepting external review records the declared order and probes once each"
   assert.deepEqual(recorded.probed, ["codex", "agy"]);
 });
 
+test("external review defaults to the selected review-capable harnesses", async () => {
+  const recorded: Recorded = { questions: [], probed: [] };
+  const args = await completeInitChoices(
+    parseArgs(["init"]),
+    scriptedIo(["project", "agy,claude", "core", "y", ""], recorded),
+    { probeReviewTarget: probe(recorded) }
+  );
+  assert.deepEqual(args.reviewTargets, ["agy", "claude"]);
+  assert.deepEqual(recorded.probed, ["agy", "claude"]);
+});
+
 test("a failing probe warns but still completes the install", async () => {
   const recorded: Recorded = { questions: [], probed: [] };
   const warnings: string[] = [];

@@ -2,11 +2,11 @@
 
 Keep project configuration explicit and layered. Choose scope, harness, and profile deliberately; do not infer trust or security exceptions from `--yes`.
 
-Use `--harness all` to select Codex, Claude Code, and opencode, or pass a
+Use `--harness all` to select agy, Codex, Claude Code, and opencode, or pass a
 comma-separated subset such as `codex,opencode`. `both` remains an input alias
 for the legacy Codex plus Claude selection.
 
-Project Codex and opencode installations share the managed supplemental
+Project agy, Codex, and opencode installations share the managed supplemental
 `AGENTS.md` routing block and the `.agent-ops/AGENTS.md` rules artifact. The
 block loads the managed baseline while project-specific instructions remain
 authoritative. Claude uses the corresponding `CLAUDE.md` route and
@@ -15,8 +15,9 @@ the agent-ops-owned `.opencode/plugins/agent-ops.js` file; `opencode.json` is
 never modified. The plugin is generated with the installed absolute runtime
 path, so update it through `agent-ops update` rather than editing it manually.
 
-At user scope, Codex and opencode keep separate routing files under `.codex/`
-and `.opencode/`; the global opencode plugin is placed under
+At user scope, agy uses `.agent-ops/GEMINI.md` and the shared Gemini surface
+`.gemini/GEMINI.md`; Codex and opencode keep separate routing files under
+`.codex/` and `.opencode/`. The global opencode plugin is placed under
 `.config/opencode/plugins/`, or under `$XDG_CONFIG_HOME/opencode/plugins/`
 when that variable points inside the managed user root. If OpenCode is
 configured with `$OPENCODE_CONFIG_DIR`, the plugin is placed under its
@@ -52,7 +53,8 @@ A bare review uses the built-in `change-quality` criterion; `--task` uses the
 task criteria and requires fresh PASS evidence for required checks. The full
 report is printed, and PASS persists only a source-fingerprint attestation.
 
-Every attempt starts from a fresh temporary cwd and native read-only mode.
+Every attempt starts from a fresh session and disposable repository clone with
+native read-only mode.
 Claude uses complete safe-mode isolation. Codex and Agy preserve their existing
 login environment to support normal OAuth sessions, so they provide weaker
 context isolation. Agy receives a disposable clone and cannot modify the source
@@ -63,6 +65,10 @@ repository even if sandboxed plan mode writes to its cwd:
 | `codex` | `codex exec` | `-s read-only --ephemeral --ignore-user-config` |
 | `agy` | `agy --print <prompt>` | `--sandbox --mode plan` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
+
+The chain prefers a target different from the hosting CLI. If no other target
+is usable, a fresh same-target session is allowed but is reported as
+`DEGRADED: isolated self-review`; a development session is never resumed.
 
 `opencode` is **not** a review target even though it is a supported harness.
 Its `--agent plan` is rejected as a subagent and silently falls back to a
@@ -135,7 +141,13 @@ Claude's generated settings select the PowerShell launcher. Codex also gets
 harness directory. A hash-commented `.gitignore` block ignores those local
 files.
 
-The loop runs `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
+For agy, the loop uses the native `PreInvocation` and `PreToolUse(run_command)`
+subset and is reported as degraded. Project hooks live in `.agents/hooks.json`;
+user hooks live in `.gemini/config/hooks.json`. User-scope rules modify the
+shared Gemini rule surface at `.gemini/GEMINI.md`. agy 1.1.12 or newer is
+required for machine-readable `/hooks` diagnostics.
+
+The full Codex/Claude loop runs `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
 `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`,
 `SubagentStart`, and `SubagentStop`, but never adds `Stop`. It blocks only
 high-confidence literal secrets in prompts or Bash commands, plus dangerous
@@ -236,6 +248,10 @@ one-way after it is applied.
 To narrow an existing installation, pass the desired list to `agent-ops update
 --harness`; shared paths remain managed while removed harness-owned artifacts,
 markers, and hooks are reconciled.
+
+To remove only one integrated harness, use `agent-ops uninstall --harness agy`
+(or another installed id). The remaining manifest and shared paths stay in
+place; omit `--harness` to remove the complete managed installation.
 
 Installations using the previous canonical routing wording are migrated by
 `agent-ops update`. If a managed block was edited, the command fails closed

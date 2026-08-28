@@ -51,6 +51,10 @@ export function reviewTargets(
 export function detectHostTarget(
   env: Readonly<Record<string, string | undefined>>
 ): ReviewTargetId | undefined {
+  const explicit = env.AGENT_OPS_HOST;
+  if (explicit === "agy" || explicit === "claude" || explicit === "codex") {
+    return explicit;
+  }
   return env.CLAUDECODE === undefined ? undefined : "claude";
 }
 

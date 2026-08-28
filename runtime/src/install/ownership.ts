@@ -44,14 +44,18 @@ function expectedMarker(
   id: HarnessId,
   markerId: string
 ): ExpectedManagedMarker {
-  const descriptor = harnessDescriptor(id);
+  const descriptor = harnessDescriptor(
+    id === "agy" && manifest.scope === "project" ? "codex" : id
+  );
   const markers = managedBlockMarkers(markerId, 1, "html");
   return {
     id: markerId,
     path:
       manifest.scope === "project"
         ? descriptor.control.instructionFile
-        : `.${id}/${descriptor.control.instructionFile}`,
+        : id === "agy"
+          ? ".gemini/GEMINI.md"
+          : `.${id}/${descriptor.control.instructionFile}`,
     startMarker: markers.start,
     endMarker: markers.end,
     markerStyle: "html",
@@ -177,7 +181,9 @@ export function assertSupportedManifestOwnership(
     throw manifestOwnershipError();
   }
   for (const id of harnesses) {
-    const descriptor = harnessDescriptor(id);
+    const descriptor = harnessDescriptor(
+      id === "agy" && manifest.scope === "project" ? "codex" : id
+    );
     const artifactPath = `.agent-ops/${descriptor.control.instructionFile}`;
     const artifactKey = pathKey(artifactPath);
     const artifactEntry = expectedArtifactPaths.get(artifactKey);
@@ -195,7 +201,9 @@ export function assertSupportedManifestOwnership(
     const markerPath =
       manifest.scope === "project"
         ? descriptor.control.instructionFile
-        : `.${id}/${descriptor.control.instructionFile}`;
+        : id === "agy"
+          ? ".gemini/GEMINI.md"
+          : `.${id}/${descriptor.control.instructionFile}`;
     const markerKey = pathKey(markerPath);
     expectedMarkerPaths.add(markerKey);
     const currentId = routingBlockId(id, manifest.scope, descriptor);

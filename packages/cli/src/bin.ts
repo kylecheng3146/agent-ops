@@ -19,6 +19,8 @@ import type {
   InstallScope
 } from "../../../runtime/src/contracts.js";
 import {
+  agyRuntimeStatus,
+  agyVersionSupported,
   hookRegistrationDrift,
   repositoryTrustStatus,
   smokeAvailabilityStatus
@@ -145,14 +147,15 @@ function gitRunner(root: string) {
 
 async function confirmInit(
   plan: Parameters<typeof formatInstallPlan>[0],
-  trust: NonNullable<Parameters<typeof formatInstallPlan>[1]>
+  trust: NonNullable<Parameters<typeof formatInstallPlan>[1]>,
+  warnings: readonly string[] = []
 ): Promise<boolean> {
   writeBanner({
     isTTY: process.stdout.isTTY === true,
     columns: process.stdout.columns,
     write: (value) => process.stdout.write(value)
   });
-  return await confirmPlan(formatInstallPlan(plan, trust));
+  return await confirmPlan(formatInstallPlan(plan, trust, warnings));
 }
 
 async function confirmPlan(text: string): Promise<boolean> {
@@ -180,6 +183,17 @@ async function plannedTrustBinding(
 }
 
 const argv = process.argv.slice(2);
+
+function runAgy(
+  args: readonly string[],
+  options: { readonly cwd?: string; readonly timeout?: number } = {}
+): string {
+  return execFileSync("agy", [...args], {
+    ...options,
+    encoding: "utf8",
+    ...(process.platform === "win32" ? { shell: true } : {})
+  });
+}
 
 if (argv[0] === "hook") {
   process.exitCode = await runHookProcess(
@@ -232,16 +246,28 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              agyWarning: () => {
+                try {
+                  const output = runAgy(["--version"], { timeout: 5_000 });
+                  return agyVersionSupported(output)
+                    ? undefined
+                    : "agy is installed, but version 1.1.12 or newer is required; run `agent-ops doctor` after updating.";
+                } catch {
+                  return "agy is not installed or could not be started; install agy 1.1.12 or newer, then run `agent-ops doctor`.";
+                }
+              },
               ...(args.hookTargets === undefined
                 ? {}
                 : { hookTargets: args.hookTargets }),
               trustStore: store,
               calculateTrustBinding: async (config) =>
                 await plannedTrustBinding(root, config),
-              confirm: async (plan, trust) => await confirmInit(plan, trust)
+              confirm: async (plan, trust, warnings) =>
+                await confirmInit(plan, trust, warnings)
             });
           }
           if (args.command === "doctor") {
+            const doctorManifest = await installedManifest(root);
             const config = (await loadEffectiveConfig(
               root,
               args.scope === "user" ? "user" : "project"
@@ -250,6 +276,32 @@ process.exitCode = await runCli(
               root,
               toolkitVersion: CLI_VERSION,
               probes: {
+                ...(doctorManifest?.harness.includes("agy") === true
+                  ? {
+                      agyRuntime: () => {
+                        try {
+                          return agyRuntimeStatus(
+                            runAgy(["--version"]),
+                            runAgy([
+                              "-p", "/hooks", "--output-format", "json",
+                              ...(doctorManifest.scope === "project"
+                                ? ["--new-project"]
+                                : [])
+                            ], { cwd: root }),
+                            doctorManifest.hooks?.find(
+                              ({ harness }) => harness === "agy"
+                            )?.events ?? []
+                          );
+                        } catch {
+                          return {
+                            status: "FAIL" as const,
+                            message: "agy is missing or could not report its loaded hooks.",
+                            remediation: "Install agy 1.1.12 or newer and run `agent-ops doctor` again."
+                          };
+                        }
+                      }
+                    }
+                  : {}),
                 hookRegistration: async () => {
                   const drifted = hookRegistrationDrift({
                     harness: await installedHarness(root),
@@ -334,25 +386,40 @@ process.exitCode = await runCli(
           }
           if (args.command === "update") {
             const store = trustStore();
+            const manifest = await installedManifest(root);
+            const addAgy =
+              isTTY &&
+              !args.yes &&
+              args.harness === undefined &&
+              manifest !== null &&
+              !manifest.harness.includes("agy") &&
+              await selectYesNo(
+                "Add newly supported harness: agy?",
+                { input: process.stdin, output: process.stdout },
+                false
+              );
+            const updateArgs = addAgy
+              ? { ...args, harness: [...(manifest?.harness ?? []), "agy" as const] }
+              : args;
             return await runUpdateCommand({
-              args,
+              args: updateArgs,
               root,
               adapters: commonHarnessAdapters(),
               registry: new NpmRegistryClient(),
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
-              ...(args.hookTargets === undefined
+              ...(updateArgs.hookTargets === undefined
                 ? {}
-                : { hookTargets: args.hookTargets }),
+                : { hookTargets: updateArgs.hookTargets }),
               trustStore: store,
               calculateTrustBinding: async (config) =>
                 await plannedTrustBinding(root, config),
               confirm: async (plan, trust) =>
                 await confirmPlan(formatUpdatePlan(plan, trust)),
-              ...(args.targetVersion === undefined
+              ...(updateArgs.targetVersion === undefined
                 ? {}
-                : { targetVersion: args.targetVersion })
+                : { targetVersion: updateArgs.targetVersion })
             });
           }
           const taskService = new TaskService(

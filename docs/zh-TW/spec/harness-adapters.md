@@ -2,7 +2,7 @@
 
 English source version: 2026-08-03. Revalidate: when the English specification or any vendor reference changes.
 
-本文件所述 OpenCode plugin 行為已於 2026-07-31 依據[官方 plugin 文件](https://opencode.ai/docs/plugins/)與[Bun shell 文件](https://bun.sh/docs/runtime/shell)檢查；Codex 與 Claude Code loop-hook 行為已於 2026-08-03 依據 [Codex hook 文件](https://developers.openai.com/codex/config-advanced#hooks) 與 [Claude Code hook 文件](https://code.claude.com/docs/en/hooks) 檢查。
+本文件所述 OpenCode plugin 行為已於 2026-07-31 依據[官方 plugin 文件](https://opencode.ai/docs/plugins/)與[Bun shell 文件](https://bun.sh/docs/runtime/shell)檢查；Codex 與 Claude Code loop-hook 行為已於 2026-08-03 依據 [Codex hook 文件](https://developers.openai.com/codex/config-advanced#hooks) 與 [Claude Code hook 文件](https://code.claude.com/docs/en/hooks) 檢查；agy hook 行為已於 2026-08-28 依據[官方 Antigravity hook 文件](https://antigravity.google/docs/hooks) 檢查。任何 vendor 參考變更時都必須重新驗證。
 
 ## HARNESS-ADAPTER-001
 
@@ -68,13 +68,15 @@ event、native output encode 與 runtime-failure output。
 ## HARNESS-ADAPTER-006
 
 Project-local `loop` profile MUST 是 opt-in、project scoped，並在最小的 Codex 與
-Claude Code launcher 後使用同一個 shared runtime。它 MUST NOT 將 policy 複製到
-project-specific script，也不得改變一般 permission request。
+Claude Code launcher 後使用同一個 shared runtime；agy 使用原生支援的 lifecycle
+子集，並明確回報為 degraded。它 MUST NOT 將 policy 複製到 project-specific
+script，也不得改變一般 permission request。
 
-- Trigger: Project 以 Codex、Claude Code 或兩者選擇 `loop`。
+- Trigger: Project 以 agy、Codex、Claude Code 或任意組合選擇 `loop`。
 - Action: 只產生選定的 `.codex/hooks/agent-ops-loop.sh` 與／或 Claude 的
   `.claude/hooks/agent-ops-loop.sh`、`.claude/hooks/agent-ops-loop.ps1` launcher，註冊文件化的 loop lifecycle event
-  （不含 `Stop`），並保留 foreign hook group。只在 `UserPromptSubmit` 或 Bash
+  （不含 `Stop`），並保留 foreign hook group。agy 只註冊原生
+  `PreInvocation`／`PreToolUse(run_command)` hook，不產生 shell launcher。只在 `UserPromptSubmit` 或 Bash
   `PreToolUse` 的 high-confidence literal credential，以及 `PreToolUse` 的危險 Bash command 時，使用
   文件化的 native denial shape 進行 blocking。對 `PermissionRequest`（包括
   escalated permission）不得輸出 decision。
@@ -86,11 +88,11 @@ project-specific script，也不得改變一般 permission request。
 
 目前 registration matrix 刻意不對稱：
 
-| Capability | Codex | Claude Code | OpenCode |
-| --- | --- | --- | --- |
-| lifecycle-summary | supported | supported | degraded |
-| command-policy | unknown | supported | supported |
-| optional-stop-verify | unsupported | supported | degraded |
+| Capability | agy | Codex | Claude Code | OpenCode |
+| --- | --- | --- | --- | --- |
+| lifecycle-summary | degraded | supported | supported | degraded |
+| command-policy | supported | unknown | supported | supported |
+| optional-stop-verify | degraded | unsupported | supported | degraded |
 
 Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安裝的 config
 被分類為無效時，Claude Code 可輸出文件化的 `PreToolUse` denial shape；受管理的
@@ -98,6 +100,12 @@ OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface 上 throw 
 denial 或 unavailable-runtime error。Codex 維持 `unknown` 且絕不輸出 denial。
 Fixture test 只斷言這些 wire 與 plugin shape；它們不證明 host 會實際遵守 denial。
 每個 `SessionStart` 與 `Stop` failure path 都維持 fail-open。
+
+agy adapter 在 project scope 與 Codex、OpenCode 共用 `AGENTS.md` routing；user
+scope 管理 `.agent-ops/GEMINI.md` 與 shared `.gemini/GEMINI.md` rule surface。
+其 native hook 使用 camelCase input，command-policy block 回傳
+`decision: "deny"`，且不會強迫 Stop 繼續。在 Windows 透過 `cmd /c` 呼叫產生的
+command。
 
 Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 disabled。
 每個 Stop 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠

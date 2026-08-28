@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -198,6 +198,70 @@ test("project lifecycle migrates both legacy routing bodies without changing use
       await readFile(join(root, "CLAUDE.md"), "utf8"),
       /user text before[\s\S]*@\.agent-ops\/CLAUDE\.md[\s\S]*user text after/u
     );
+  } finally {
+    cleanupE2eRoot(root);
+  }
+});
+
+test("agy lifecycle runs through init, doctor, update, and selective uninstall", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-e2e-agy-"));
+  const fakeBin = join(root, "bin");
+  await mkdir(fakeBin);
+  const fakeAgyPath = join(fakeBin, process.platform === "win32" ? "agy.cmd" : "agy");
+  const fakeAgySource = process.platform === "win32"
+    ? [
+        "@echo off",
+        'if "%1"=="--version" (echo agy 1.1.12&exit /b 0)',
+        "echo {\"command\":{\"data\":{\"hooks\":[{\"name\":\"agent-ops\",\"enabled\":true,\"actions\":[{\"event\":\"PreInvocation\",\"command\":\"node hook-entry.js agy SessionStart --managed-by=agent-ops\"}]}]}}}"
+      ].join("\r\n") + "\r\n"
+    : [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then echo "agy 1.1.12"; exit 0; fi',
+        "printf '%s\\n' '{\"command\":{\"data\":{\"hooks\":[{\"name\":\"agent-ops\",\"enabled\":true,\"actions\":[{\"event\":\"PreInvocation\",\"command\":\"node hook-entry.js agy SessionStart --managed-by=agent-ops\"}]}]}}}'"
+      ].join("\n") + "\n";
+  await writeFile(
+    fakeAgyPath,
+    fakeAgySource
+  );
+  await chmod(fakeAgyPath, 0o755);
+  const environment = {
+    PATH: `${fakeBin}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`
+  };
+  try {
+    const initialized = runBuiltCli([
+      "init", "--scope", "project", "--harness", "agy,codex",
+      "--profile", "advisory", "--yes", "--json"
+    ], root, root, environment).result;
+    assert.equal(initialized.status, 0);
+    assert.match(initialized.stdout, /INIT_APPLIED/u);
+
+    const doctor = runBuiltCli(["doctor", "--json"], root, root, environment).result;
+    assert.equal(doctor.status, 0);
+    const doctorPayload = JSON.parse(doctor.stdout) as {
+      data?: { report?: { checks?: readonly { id?: string; status?: string }[] } };
+    };
+    assert.equal(
+      doctorPayload.data?.report?.checks?.find(({ id }) => id === "agy-runtime")?.status,
+      "PASS"
+    );
+
+    const updated = runBuiltCli([
+      "update", "--target-version", "0.2.0", "--yes", "--json"
+    ], root, root, environment).result;
+    assert.equal(updated.status, 0);
+    assert.match(updated.stdout, /UPDATE_APPLIED/u);
+
+    const removed = runBuiltCli([
+      "uninstall", "--harness", "agy", "--yes", "--json"
+    ], root, root, environment).result;
+    assert.equal(removed.status, 0);
+    assert.match(removed.stdout, /UNINSTALL_APPLIED/u);
+    const remaining = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { harness: string[] };
+    assert.deepEqual(remaining.harness, ["codex"]);
+    await assert.rejects(access(join(root, ".agents", "hooks.json")));
+    await access(join(root, ".codex", "hooks.json"));
   } finally {
     cleanupE2eRoot(root);
   }

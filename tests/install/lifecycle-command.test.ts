@@ -219,6 +219,37 @@ test("uninstall command dry-runs then removes only managed content", async () =>
   }
 });
 
+test("selective uninstall preserves repository trust for remaining harnesses", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
+  const trustEvents: string[] = [];
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["agy", "codex"],
+        profiles: ["core"],
+        adapters: commonHarnessAdapters(),
+        toolkitVersion: "0.1.0"
+      })
+    );
+    const result = await runUninstallCommand({
+      args: parseArgs(["uninstall", "--harness", "agy", "--yes"]),
+      root,
+      isTTY: false,
+      trustStore: fakeTrustStore(trustEvents, "TRUSTED"),
+      calculateTrustBinding: async () => BINDING,
+      confirm: async () => false
+    });
+    assert.equal(result.code, "UNINSTALL_APPLIED");
+    assert.equal(result.data?.plan.trust?.action, "unchanged");
+    assert.deepEqual(trustEvents, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("trust failures report the already-applied lifecycle change", async () => {
   const updateRoot = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
   const uninstallRoot = await mkdtemp(join(tmpdir(), "agent-ops-lifecycle-cli-"));
