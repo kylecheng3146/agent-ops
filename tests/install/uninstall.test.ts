@@ -51,6 +51,81 @@ async function install(root: string): Promise<void> {
   await applyInstallPlan(root, plan);
 }
 
+test("selective uninstall removes agy while preserving shared and Claude content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-selective-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["agy", "codex", "claude"],
+        profiles: ["core"],
+        adapters: commonHarnessAdapters(),
+        reviewTargets: ["agy", "codex", "claude"]
+      })
+    );
+    const plan = await createUninstallPlan(root, ["agy"]);
+    assert.equal(plan.resultingManifest?.harness.join(","), "codex,claude");
+    assert.ok(
+      plan.operations.some(
+        ({ kind, path }) => kind === "write" && path === ".agent-ops/manifest.json"
+      )
+    );
+    assert.ok(
+      !plan.operations.some(
+        ({ path }) => path === ".agent-ops/AGENTS.md" || path === "AGENTS.md"
+      )
+    );
+    await applyUninstallPlan(root, plan);
+    const manifest = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { harness: string[] };
+    assert.deepEqual(manifest.harness, ["codex", "claude"]);
+    assert.match(await readFile(join(root, "AGENTS.md"), "utf8"), /agents-routing/u);
+    assert.ok(await readFile(join(root, ".agent-ops", "AGENTS.md"), "utf8"));
+    assert.ok(await readFile(join(root, ".agent-ops", "CLAUDE.md"), "utf8"));
+    assert.deepEqual(
+      (JSON.parse(await readFile(join(root, ".agent-ops", "config.json"), "utf8")) as {
+        reviewRoles: { targets: string[] }[];
+      }).reviewRoles[0]?.targets,
+      ["codex", "claude"]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("selective uninstall removes only agy hooks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-selective-"));
+  try {
+    await applyInstallPlan(
+      root,
+      await createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["agy", "codex"],
+        profiles: ["advisory"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+      })
+    );
+    await applyUninstallPlan(root, await createUninstallPlan(root, ["agy"]));
+    await assert.rejects(readFile(join(root, ".agents", "hooks.json")));
+    assert.match(
+      await readFile(join(root, ".codex", "hooks.json"), "utf8"),
+      /agent-ops/u
+    );
+    const manifest = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    ) as { harness: string[]; hooks?: { harness: string }[] };
+    assert.deepEqual(manifest.harness, ["codex"]);
+    assert.deepEqual(manifest.hooks?.map(({ harness }) => harness), ["codex"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("uninstall removes only managed files and blocks", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-uninstall-"));
   try {

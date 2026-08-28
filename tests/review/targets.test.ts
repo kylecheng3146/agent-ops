@@ -138,7 +138,10 @@ test("orderChain moves a detected host to the end without dropping it", () => {
   assert.deepEqual(orderChain(["codex", "agy"], "claude"), ["codex", "agy"]);
 });
 
-test("host detection recognizes Claude Code only", () => {
+test("host detection accepts an explicit current CLI and otherwise recognizes Claude", () => {
+  assert.equal(detectHostTarget({ AGENT_OPS_HOST: "agy" }), "agy");
+  assert.equal(detectHostTarget({ AGENT_OPS_HOST: "codex" }), "codex");
+  assert.equal(detectHostTarget({ AGENT_OPS_HOST: "unknown" }), undefined);
   assert.equal(detectHostTarget({ CLAUDECODE: "1" }), "claude");
   assert.equal(detectHostTarget({}), undefined);
   assert.equal(

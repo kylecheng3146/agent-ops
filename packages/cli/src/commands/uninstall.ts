@@ -52,7 +52,10 @@ function formatUninstallPlan(
         ? []
         : [
             `Scope: ${plan.manifest.scope}`,
-            `Harness: ${plan.manifest.harness}`
+            `Harness: ${plan.manifest.harness}`,
+            ...(plan.selectedHarnesses === undefined
+              ? []
+              : [`Removing harness: ${plan.selectedHarnesses.join(", ")}`])
           ])
     ],
     operations: toPublicUninstallPlan(plan).operations
@@ -81,6 +84,20 @@ async function trustChange(
   if (plan.manifest?.scope === "user") {
     return { action: "skipped", reason: "user-scope" };
   }
+  if (plan.resultingManifest !== undefined) {
+    if (
+      options.calculateTrustBinding === undefined ||
+      options.trustStore === undefined
+    ) {
+      return { action: "skipped", reason: "not-configured" };
+    }
+    const binding = await options.calculateTrustBinding();
+    if (binding === null) {
+      return { action: "skipped", reason: "no-verification-commands" };
+    }
+    const status = await options.trustStore.status(binding);
+    return { action: "unchanged", binding, status: status.status };
+  }
   if (
     options.calculateTrustBinding === undefined ||
     options.trustStore === undefined
@@ -96,7 +113,7 @@ async function trustChange(
 export async function runUninstallCommand(
   options: UninstallCommandOptions
 ): Promise<CliEnvelope<UninstallCommandData>> {
-  const plan = await createUninstallPlan(options.root);
+  const plan = await createUninstallPlan(options.root, options.args.harness);
   if (!plan.installed) {
     return okEnvelope("UNINSTALL_NOT_INSTALLED", {
       applied: false,
@@ -154,7 +171,9 @@ export async function runUninstallCommand(
   return okEnvelope("UNINSTALL_APPLIED", {
     applied: true,
     plan: toPublicUninstallPlan(plan, trust),
-    message: "Managed installation content was removed."
+      message: plan.selectedHarnesses === undefined
+        ? "Managed installation content was removed."
+        : `Managed ${plan.selectedHarnesses.join(", ")} harness content was removed; remaining harnesses were preserved.`
   });
 }
 

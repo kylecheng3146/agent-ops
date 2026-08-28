@@ -2,8 +2,10 @@
 
 此目錄是英文規範的繁體中文導讀；規範 rule ID 以英文版本為準。
 
-Harness adapter 規則涵蓋 Codex、Claude Code 與 opencode。opencode 整合是
-產生的 local plugin，不管理 `opencode.json`。
+Harness adapter 規則涵蓋 agy、Codex、Claude Code 與 opencode。opencode 整合是
+產生的 local plugin，不管理 `opencode.json`。agy 在 project scope 共用
+`AGENTS.md` routing、使用原生 hooks，對不足以完整支援 loop 的 lifecycle
+能力明確標示 degraded。
 
 Configuration 與 manifest 分開版本化。Config v1 會遷移為預設 disabled Stop
 verification 的 config v2；變更 capability 後必須執行經確認的 project

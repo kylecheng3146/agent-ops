@@ -51,6 +51,8 @@ export type DoctorCheckId =
   | "registration-drift"
   | "hook-registration"
   | "lifecycle-summary"
+  | "project-loop"
+  | "agy-runtime"
   | "repository-trust"
   | "review-targets"
   | "smoke-availability";
@@ -83,6 +85,7 @@ export type DoctorReviewTargetProbe = (
 ) => Promise<ReviewTargetProbeResult> | ReviewTargetProbeResult;
 
 export interface DoctorProbes {
+  readonly agyRuntime?: DoctorProbe;
   readonly hookRegistration?: DoctorProbe;
   readonly repositoryTrust?: DoctorProbe;
   readonly smokeAvailability?: DoctorProbe;
@@ -527,6 +530,7 @@ function defaultProbeRemediation(status: DoctorStatus): string | undefined {
 
 async function checkProbe(
   id:
+    | "agy-runtime"
     | "hook-registration"
     | "repository-trust"
     | "smoke-availability",
@@ -660,6 +664,22 @@ function checkLifecycleSummary(
     "PASS",
     "Lifecycle summary is reachable for every selected harness."
   );
+}
+
+function checkProjectLoop(
+  manifest: InstallManifest | undefined,
+  config: AgentOpsConfig | undefined
+): DoctorCheck | undefined {
+  if (manifest === undefined || config === undefined || !config.profiles.includes("loop")) {
+    return undefined;
+  }
+  return manifest.harness.includes("agy")
+    ? check(
+        "project-loop",
+        "DEGRADED",
+        "agy loop uses only PreInvocation and PreToolUse(run_command); prompt, permission, compact, and subagent events are unavailable."
+      )
+    : check("project-loop", "PASS", "Project loop events are fully registered.");
 }
 
 async function checkSurfaceInventory(
@@ -885,6 +905,13 @@ export async function doctorInstallation(
       options.probes?.hookRegistration
     ),
     checkLifecycleSummary(manifest.manifest, config.config),
+    ...(() => {
+      const projectLoop = checkProjectLoop(manifest.manifest, config.config);
+      return projectLoop === undefined ? [] : [projectLoop];
+    })(),
+    ...(manifest.manifest?.harness.includes("agy") === true
+      ? [await checkProbe("agy-runtime", options.probes?.agyRuntime)]
+      : []),
     await checkProbe(
       "repository-trust",
       options.probes?.repositoryTrust

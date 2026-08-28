@@ -23,7 +23,14 @@ export function renderReviewResult(result: ReviewRunResult): string {
     );
   }
   if (result.independence !== undefined) {
-    lines.push(`Independence: ${result.independence}.`);
+    lines.push(
+      result.independence === "same-target"
+        ? "Independence: DEGRADED (same-target isolated self-review)."
+        : `Independence: ${result.independence}.`
+    );
+  }
+  if (result.sessionIsolation !== undefined) {
+    lines.push(`Session isolation: ${result.sessionIsolation}.`);
   }
   if (result.attempts !== undefined) {
     lines.push("Attempts:");

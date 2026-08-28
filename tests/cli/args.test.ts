@@ -497,7 +497,7 @@ test("accepts harness lists, aliases, and rejects unusable selections", () => {
   );
   assert.deepEqual(
     parseArgs(["init", "--harness", "all", "--profile", "core"]).harness,
-    ["codex", "claude", "opencode"]
+    ["agy", "codex", "claude", "opencode"]
   );
   assert.deepEqual(
     parseArgs(["init", "--harness", "both", "--profile", "core"]).harness,

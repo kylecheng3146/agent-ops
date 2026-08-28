@@ -129,14 +129,24 @@ test("every supported registration is reachable through the real hook command", 
       const stopping = registration.normalizedEvent === "stop";
       let advisoryCalls = 0;
       const stdin = lifecycle
-        ? harness === "claude"
+        ? harness === "agy"
+          ? JSON.stringify({ invocationNum: 1, workspacePaths: ["/repo"] })
+          : harness === "claude"
           ? JSON.stringify({ hook_event_name: "SessionStart", cwd: "/repo" })
           : harness === "codex"
             ? JSON.stringify({ hook_event_name: "SessionStart", cwd: "/repo" })
             : JSON.stringify({ event: "SessionStart", projectRoot: "/repo" })
         : stopping
           ? JSON.stringify({ hook_event_name: "Stop", cwd: "/repo" })
-        : harness === "claude"
+        : harness === "agy"
+          ? JSON.stringify({
+              workspacePaths: ["/repo"],
+              toolCall: {
+                name: "run_command",
+                args: { CommandLine: "git push --force origin main" }
+              }
+            })
+          : harness === "claude"
           ? JSON.stringify({
               hook_event_name: "PreToolUse",
               cwd: "/repo",
@@ -211,7 +221,9 @@ test("every supported registration is reachable through the real hook command", 
 test("advisory failure stays fail-open for every harness protocol", async () => {
   for (const harness of HARNESS_IDS) {
     const stdin =
-      harness === "opencode"
+      harness === "agy"
+        ? JSON.stringify({ invocationNum: 1, workspacePaths: ["/repo"] })
+        : harness === "opencode"
         ? JSON.stringify({ event: "SessionStart", projectRoot: "/repo" })
         : JSON.stringify({ hook_event_name: "SessionStart", cwd: "/repo" });
     const output = await runHookCommand({

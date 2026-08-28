@@ -12,7 +12,8 @@ export interface CliResult {
 export function runBuiltCli(
   args: readonly string[],
   root = mkdtempSync(join(tmpdir(), "agent-ops-e2e-")),
-  home = root
+  home = root,
+  environment: Readonly<Record<string, string | undefined>> = {}
 ): { readonly result: CliResult; readonly root: string } {
   try {
     const stdout: string[] = [];
@@ -27,7 +28,7 @@ export function runBuiltCli(
             cwd: root,
             encoding: "utf8",
             stdio: ["ignore", "pipe", "pipe"],
-            env: { ...process.env, AGENT_OPS_HOME: home }
+            env: { ...process.env, AGENT_OPS_HOME: home, ...environment }
           }
         )
       );

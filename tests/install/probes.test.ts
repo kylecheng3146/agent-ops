@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agyRuntimeStatus,
+  agyVersionSupported,
   hookRegistrationDrift,
   hookRegistrationSatisfied,
   repositoryTrustStatus,
@@ -66,6 +68,40 @@ const LEGACY_CODEX_HOOKS = {
   }
 };
 
+test("agy version probe shares the doctor minimum", () => {
+  assert.equal(agyVersionSupported("agy 1.1.11"), false);
+  assert.equal(agyVersionSupported("agy 1.1.12"), true);
+  assert.equal(agyVersionSupported("agy 1.2.0"), true);
+});
+
+test("agy runtime probe enforces version and loaded hook state", () => {
+  const loaded = JSON.stringify({ command: { data: { hooks: [{
+    name: "agent-ops",
+    enabled: true,
+    actions: [
+      { event: "PreInvocation", command: "node hook.js agy SessionStart --managed-by=agent-ops" },
+      { event: "PreToolUse", command: "node hook.js agy PreToolUse --managed-by=agent-ops" }
+    ]
+  }] } } });
+  const loopEvents = ["SessionStart", "PreToolUse"] as const;
+  assert.equal((agyRuntimeStatus("agy 1.1.11", loaded, loopEvents) as { status: string }).status, "FAIL");
+  assert.equal((agyRuntimeStatus("agy 1.1.12", loaded, loopEvents) as { status: string }).status, "PASS");
+  assert.equal((agyRuntimeStatus("agy 1.1.22", JSON.stringify({ command: { data: { hooks: [] } } }), loopEvents) as { status: string }).status, "FAIL");
+  assert.equal((agyRuntimeStatus("agy 1.1.22", JSON.stringify({ command: { data: { hooks: [] } } }), []) as { status: string }).status, "PASS");
+  const partial = JSON.stringify({ command: { data: { hooks: [{
+    name: "agent-ops",
+    enabled: true,
+    actions: [{ event: "PreToolUse", command: "node hook.js agy PreToolUse --managed-by=agent-ops" }]
+  }] } } });
+  assert.equal((agyRuntimeStatus("agy 1.1.22", partial, loopEvents) as { status: string }).status, "FAIL");
+  const lookalike = JSON.stringify({ command: { data: { hooks: [{
+    name: "foreign",
+    enabled: true,
+    actions: [{ command: "echo agent-ops" }]
+  }] } } });
+  assert.equal((agyRuntimeStatus("agy 1.1.22", lookalike, ["PreToolUse"]) as { status: string }).status, "FAIL");
+});
+
 function hookConfig(
   profiles: AgentOpsConfig["profiles"],
   stopVerification = false
@@ -101,6 +137,14 @@ test("core-only installations have no hooks to register", () => {
       harness: ["codex", "claude"],
       config: hookConfig(["core"]),
       sources: { claude: null, codex: null }
+    }),
+    true
+  );
+  assert.equal(
+    hookRegistrationSatisfied({
+      harness: ["agy"],
+      config: hookConfig(["core"]),
+      sources: { agy: null }
     }),
     true
   );

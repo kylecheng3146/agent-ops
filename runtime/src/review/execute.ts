@@ -322,29 +322,31 @@ async function attemptTarget(
         "skipping"
       );
     }
-    if (target === "agy") {
-      const snapshotRoot = join(attemptDirectory, "repository");
-      const snapshotError = await snapshotRepository(
-        request,
-        snapshotRoot,
-        options
-      );
-      if (snapshotError !== undefined) {
-        return skip("capability-unavailable", snapshotError, "skipping");
-      }
-      invocation = buildTargetInvocation({
-        ...invocationRequest,
-        prompt: [
-          `Repository root: ${snapshotRoot}`,
-          "Run every repository-relative inspection in that directory.",
-          "For terminal commands, use only git status, git diff, git log, or git show; " +
-            "read specific files with file-reading tools instead of ls, find, cat, or rg.",
-          request.prompt
-        ].join("\n"),
-        repositoryRoot: snapshotRoot
-      });
-      executionDirectory = snapshotRoot;
+    const snapshotRoot = join(attemptDirectory, "repository");
+    const snapshotError = await snapshotRepository(
+      request,
+      snapshotRoot,
+      options
+    );
+    if (snapshotError !== undefined) {
+      return skip("capability-unavailable", snapshotError, "skipping");
     }
+    invocation = buildTargetInvocation({
+      ...invocationRequest,
+      ...(target === "agy"
+        ? {
+            prompt: [
+              `Repository root: ${snapshotRoot}`,
+              "Run every repository-relative inspection in that directory.",
+              "For terminal commands, use only git status, git diff, git log, or git show; " +
+                "read specific files with file-reading tools instead of ls, find, cat, or rg.",
+              request.prompt
+            ].join("\n")
+          }
+        : {}),
+      repositoryRoot: snapshotRoot
+    });
+    executionDirectory = snapshotRoot;
     if (invocation === undefined) {
       return skip("capability-unavailable", "review invocation disappeared", "skipping");
     }
@@ -515,7 +517,7 @@ export function createReviewExecutor(
 
     for (const [index, target] of chain.entries()) {
       if (target === host) {
-        report(`${target}: reviewer == host; no independent target configured`);
+        report(`${target}: no other usable CLI remained; running isolated self-review`);
       }
       const outcome = await attemptTarget(
         {
@@ -550,7 +552,8 @@ export function createReviewExecutor(
         report: reportValue,
         harness: target,
         attempts,
-        independence
+        independence,
+        sessionIsolation: "fresh" as const
       };
       if (status === "FAIL") {
         return { status, ...verdict };

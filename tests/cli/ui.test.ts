@@ -183,6 +183,25 @@ test("selectOptions explains choices and supports selecting all", async () => {
   assert.equal(input.rawMode, false);
 });
 
+test("selectOptions can intentionally start with no selection", async () => {
+  const input = new FakeRawInput();
+  const output = new FakeOutput();
+  const resultPromise = selectOptions(
+    "Harness",
+    [{ label: "agy", value: "agy" }, { label: "codex", value: "codex" }],
+    { input: input as never, output: output as never },
+    [],
+    { startEmpty: true }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(output.text.replace(/\u001b\[[0-9;]*m/gu, ""), /❯ ○ agy/u);
+  input.pressKey("return");
+  assert.match(output.text, /Choose at least one option/u);
+  input.pressKey("space");
+  input.pressKey("return");
+  assert.deepEqual(await resultPromise, ["agy"]);
+});
+
 test("selectYesNo exits on Ctrl-C without resolving", async () => {
   const input = new FakeRawInput();
   const output = new FakeOutput();

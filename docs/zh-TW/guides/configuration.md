@@ -2,11 +2,11 @@
 
 保持 project 設定明確且分層。請刻意選擇 scope、harness 與 profile；不要從 `--yes` 推論 trust 或安全例外。
 
-使用 `--harness all` 選取 Codex、Claude Code 與 opencode，或傳入
+使用 `--harness all` 選取 agy、Codex、Claude Code 與 opencode，或傳入
 `codex,opencode` 這類逗號分隔的子集。`both` 仍是 legacy Codex 加 Claude
 selection 的 input alias。
 
-Project Codex 與 opencode installation 共用 managed supplemental
+Project agy、Codex 與 opencode installation 共用 managed supplemental
 `AGENTS.md` routing block 與 `.agent-ops/AGENTS.md` rules artifact。該 block
 只載入 managed baseline，並保留 project-specific instructions 的權威性。
 Claude 使用對應的 `CLAUDE.md` route 與 `.agent-ops/CLAUDE.md` artifact。Opencode 另外取得
@@ -14,8 +14,9 @@ agent-ops 擁有的 `.opencode/plugins/agent-ops.js`；不會修改 `opencode.js
 Plugin 使用安裝時的 absolute runtime path 產生，因此請透過
 `agent-ops update` 更新，不要手動編輯。
 
-User scope 下，Codex 與 opencode 的 routing file 分別位於 `.codex/` 與
-`.opencode/`；global opencode plugin 預設位於 `.config/opencode/plugins/`，
+User scope 下，agy 使用 `.agent-ops/GEMINI.md` 與共用 Gemini surface
+`.gemini/GEMINI.md`；Codex 與 opencode 的 routing file 分別位於 `.codex/` 與
+`.opencode/`。Global opencode plugin 預設位於 `.config/opencode/plugins/`，
 若 `$XDG_CONFIG_HOME` 指向 managed user root 內的目錄，則改用
 `$XDG_CONFIG_HOME/opencode/plugins/`。若 OpenCode 設定了
 `$OPENCODE_CONFIG_DIR`，則 plugin 會放在其 `plugins/` 目錄。只有 profile
@@ -46,7 +47,7 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 `--task` 使用 task criteria，並要求必要驗證的最新 PASS evidence。完整 report
 會顯示給人看，PASS 後只持久化 source-fingerprint attestation。
 
-每次嘗試都從新的暫存 cwd 與原生唯讀模式啟動。Claude 使用完整 safe-mode
+每次嘗試都從全新 session、一次性 repository clone 與原生唯讀模式啟動。Claude 使用完整 safe-mode
 隔離；Codex 與 Agy 為了支援既有 OAuth 登入而保留登入環境，因此 context
 隔離較弱。Agy 會取得一次性 clone，即使 sandboxed plan mode 寫入 cwd，也無法
 修改來源 repository：
@@ -56,6 +57,10 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 | `codex` | `codex exec` | `-s read-only --ephemeral --ignore-user-config` |
 | `agy` | `agy --print <prompt>` | `--sandbox --mode plan` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
+
+review chain 優先選擇不同於 hosting CLI 的 target。沒有其他可用 target 時，才允許
+全新的同 CLI session，但輸出會標示 `DEGRADED: isolated self-review`；不得 resume
+開發 session。
 
 `opencode` **不是** review 目標，即使它是支援的 harness。它的 `--agent plan`
 會被判定為 subagent 而遭拒，並靜默退回可寫入的 agent，因此無法滿足唯讀前置
@@ -121,7 +126,12 @@ launcher。Codex 只會在 `.codex/config.toml` 不存在時建立它。首次�
 `loop-state.md` 與 `loop-telemetry.jsonl`；並以 hash-commented `.gitignore`
 block 忽略這些 local file。
 
-Loop 會執行 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、
+agy 會安裝原生 `PreInvocation` 與 `PreToolUse(run_command)` 子集，doctor
+會將 loop 標示為 degraded。Project hook 位於 `.agents/hooks.json`，user hook
+位於 `.gemini/config/hooks.json`；user scope 會修改共享 Gemini rule surface
+`.gemini/GEMINI.md`。機器可讀的 `/hooks` 診斷要求 agy 1.1.12 以上。
+
+完整 Codex/Claude loop 會執行 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、
 `PermissionRequest`、`PostToolUse`、`PreCompact`、`PostCompact`、
 `SubagentStart` 與 `SubagentStop`，但永遠不加入 `Stop`。它只攔截
 high-confidence 的 literal secret prompt 或 Bash command，以及危險 Bash command
@@ -214,6 +224,10 @@ config-hash 與 timestamp evidence，且永遠不會完成 task。Config v1 會�
 若要縮減既有 installation，請將目標清單傳給
 `agent-ops update --harness`；shared path 會繼續受管理，被移除 harness
 擁有的 artifact、marker 與 hook 則會被安全同步。
+
+若只要移除單一已整合 harness，可使用
+`agent-ops uninstall --harness agy`（或其他已安裝 id）。剩餘 manifest 與
+shared path 會保留；省略 `--harness` 才會移除整套 managed installation。
 
 使用舊版 canonical routing wording 的 installation 會由
 `agent-ops update` 遷移；若 managed block 曾被修改，指令會 fail closed，

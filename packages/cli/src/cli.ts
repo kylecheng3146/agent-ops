@@ -47,7 +47,7 @@ Commands:
 
 Options:
   --scope <project|user>
-  --harness <all|both|claude|codex|opencode|comma-separated>  Init/update
+  --harness <all|both|agy|claude|codex|opencode|comma-separated>  Init/update/uninstall
   --hook-target <harness=surface-id>  Repeatable advanced init/update option
   --profile <core|advisory|guardrails|loop>  Repeatable
   --review-target <codex|agy|claude>  Repeatable init option; external review

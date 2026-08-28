@@ -6,7 +6,9 @@ documentation](https://bun.sh/docs/runtime/shell) on 2026-07-31. Codex and
 Claude Code loop-hook behavior was checked against their [Codex hook
 documentation](https://developers.openai.com/codex/config-advanced#hooks) and
 [Claude Code hook documentation](https://code.claude.com/docs/en/hooks) on
-2026-08-03. Revalidate: when any vendor reference changes.
+2026-08-03. Agy hook behavior was checked against the [official Antigravity
+hook documentation](https://antigravity.google/docs/hooks) on 2026-08-28.
+Revalidate: when any vendor reference changes.
 
 ## HARNESS-ADAPTER-001
 
@@ -80,14 +82,17 @@ decoding, normalized events, native output encoding, and runtime-failure output.
 ## HARNESS-ADAPTER-006
 
 The project-local `loop` profile MUST be opt-in, project scoped, and use one
-shared runtime behind minimal Codex and Claude Code launchers. It MUST NOT copy
+shared runtime behind minimal Codex and Claude Code launchers; agy uses its
+native supported lifecycle subset and is reported as degraded. It MUST NOT copy
 policy into project-specific scripts or alter an ordinary permission request.
 
-- Trigger: A project selects `loop` with Codex, Claude Code, or both.
+- Trigger: A project selects `loop` with agy, Codex, Claude Code, or any combination.
 - Action: Generate only the selected `.codex/hooks/agent-ops-loop.sh` and/or
   Claude's `.claude/hooks/agent-ops-loop.sh` plus
   `.claude/hooks/agent-ops-loop.ps1` launchers, register the documented loop
-  lifecycle events except `Stop`, and preserve foreign hook groups. Block only
+  lifecycle events except `Stop`, and preserve foreign hook groups. For agy,
+  register only native `PreInvocation`/`PreToolUse(run_command)` hooks and do
+  not generate a shell launcher. Block only
   high-confidence literal credentials at `UserPromptSubmit` or Bash
   `PreToolUse`, and dangerous Bash commands at `PreToolUse`, using the documented native denial shape. Emit no
   decision for `PermissionRequest`, including escalated permissions.
@@ -99,11 +104,11 @@ policy into project-specific scripts or alter an ordinary permission request.
 
 The current registration matrix is intentionally asymmetric:
 
-| Capability | Codex | Claude Code | OpenCode |
-| --- | --- | --- | --- |
-| lifecycle-summary | supported | supported | degraded |
-| command-policy | unknown | supported | supported |
-| optional-stop-verify | unsupported | supported | degraded |
+| Capability | agy | Codex | Claude Code | OpenCode |
+| --- | --- | --- | --- | --- |
+| lifecycle-summary | degraded | supported | supported | degraded |
+| command-policy | supported | unknown | supported | supported |
+| optional-stop-verify | degraded | unsupported | supported | degraded |
 
 For runtime-failure handling, only `command-policy` is fail-closed. Claude
 Code can emit its documented `PreToolUse` denial shape for a classified invalid
@@ -112,6 +117,12 @@ throw its documented denial or unavailable-runtime error for its supported Bash
 surface. Codex remains `unknown` and never emits a denial. Fixture tests assert
 these wire and plugin shapes only; they do not prove that a host honors a
 denial. Every `SessionStart` and `Stop` failure path remains fail-open.
+
+The agy adapter uses project `AGENTS.md` routing alongside Codex and OpenCode;
+at user scope it manages `.agent-ops/GEMINI.md` and a managed block in the
+shared `.gemini/GEMINI.md` rule surface. Its native hooks use camelCase input,
+return `decision: "deny"` for command-policy blocks, and never force a Stop
+continuation. On Windows the generated command is invoked through `cmd /c`.
 
 Stop verification is explicit, trusted, report-only, and disabled by default.
 Every Stop result continues the native harness and may carry only bounded

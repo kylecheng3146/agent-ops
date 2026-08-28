@@ -173,6 +173,15 @@ function managedJsonCount(
   return jsonHandlerCounts(source, isManagedHandler)?.managed ?? 0;
 }
 
+function desiredHookEvents(
+  harness: HarnessId,
+  events: readonly string[]
+): HookEventName[] {
+  return events.map((event) =>
+    harness === "agy" && event === "PreInvocation" ? "SessionStart" : event
+  ) as HookEventName[];
+}
+
 export async function inspectHarnessRegistrations(options: {
   readonly root: string;
   readonly manifest: InstallManifest;
@@ -190,9 +199,9 @@ export async function inspectHarnessRegistrations(options: {
     const desiredEvents =
       control.buildHooks === undefined
         ? []
-        : (Object.keys(
+        : desiredHookEvents(harness, Object.keys(
             control.buildHooks(capabilities, "probe").hooks
-          ) as HookEventName[]);
+          ));
 
     if (control.buildHooks !== undefined) {
       const surfaces = harnessSurfaces(
@@ -309,6 +318,12 @@ function jsonHandlerCounts(
   }
   if (!isRecord(parsed)) {
     return null;
+  }
+  if (isManagedHandler?.(parsed) === true) {
+    return {
+      managed: 1,
+      foreign: Math.max(0, Object.keys(parsed).length - 1)
+    };
   }
   const hooks = parsed.hooks;
   if (hooks === undefined) {

@@ -75,6 +75,7 @@ export interface SelectChoice<T> {
 }
 
 export interface SelectOptionsOptions {
+  readonly startEmpty?: boolean;
   readonly selectAll?: boolean;
   readonly selectAllLabel?: string;
   readonly selectAllDescription?: string;
@@ -349,7 +350,11 @@ export async function selectOptions<T>(
       defaultValues.includes(choice.value) ? [index] : []
     )
   );
-  if (defaultIndexes.size === 0 && options.selectAll !== true) {
+  if (
+    defaultIndexes.size === 0 &&
+    options.selectAll !== true &&
+    options.startEmpty !== true
+  ) {
     defaultIndexes.add(0);
   }
   if (

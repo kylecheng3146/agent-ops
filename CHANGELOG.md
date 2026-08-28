@@ -4,6 +4,15 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.20]
+
+- Added first-class agy harness integration, including native rules, hooks,
+  doctor probes, degraded loop support, Windows command handling, and
+  selective uninstall that preserves other harnesses.
+- Review now prefers a different CLI in a fresh disposable clone, records
+  `sessionIsolation: "fresh"`, renders same-target self-review as degraded,
+  and treats malformed reviewer output as `NOT_RUN` with bounded diagnostics.
+
 - A passing independent review is now handed to a second, different target
   asked to refute it. A successful refutation makes the run `FAIL` and keeps
   both reports; the challenge appears as `adversarial` in JSON and in the

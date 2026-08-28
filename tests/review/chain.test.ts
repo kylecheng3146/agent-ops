@@ -102,8 +102,8 @@ function fakeRunner(script: readonly Scripted[]): {
 
 /**
  * Each target's real transport shape: claude nests the answer under
- * `structured_output`, agy under `response`, codex prints it bare. Sharing one shape across targets
- * would make these tests pass for the wrong reason.
+ * `structured_output`, while codex prints it bare. Sharing one shape across
+ * envelope and bare-output targets would make these tests pass for the wrong reason.
  */
 function envelope(results: unknown, target: ReviewTargetId = "agy"): string {
   const failed = Array.isArray(results) && results.some(
@@ -130,9 +130,7 @@ function envelope(results: unknown, target: ReviewTargetId = "agy"): string {
   if (target === "codex") {
     return payload;
   }
-  return JSON.stringify(
-    target === "claude" ? { structured_output: JSON.parse(payload) } : { response: payload }
-  );
+  return JSON.stringify({ structured_output: JSON.parse(payload) });
 }
 
 function passing(target: ReviewTargetId = "agy"): string {
@@ -609,7 +607,7 @@ test("the detected host is tried last and warned about when it is alone", async 
   assert.equal(result.status, "PASS");
   assert.deepEqual(alone.attempts.map((attempt) => attempt.command), ["claude"]);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? "", /reviewer == host/);
+  assert.match(warnings[0] ?? "", /isolated self-review/);
 });
 
 test("an ineligible target is skipped before agy runs sandboxed", async () => {
@@ -640,6 +638,20 @@ test("agy also challenges a PASS from inside its disposable clone", async () => 
     attempts[1]?.cwd
   );
   assert.ok(attempts[1]?.args[1]?.includes(`Repository root: ${attempts[1].cwd}`));
+});
+
+test("every reviewer target runs from its disposable clone", async () => {
+  for (const target of ["codex", "claude"] as const) {
+    const { result, attempts } = await run([target], [{ stdout: passing(target) }]);
+    assert.equal(result.status, "PASS");
+    assert.equal(basename(attempts[0]?.cwd ?? ""), "repository");
+    if (target === "codex") {
+      assert.equal(
+        attempts[0]?.args[attempts[0].args.indexOf("-C") + 1],
+        attempts[0]?.cwd
+      );
+    }
+  }
 });
 
 test("target environments preserve login state without sharing the review cwd", () => {

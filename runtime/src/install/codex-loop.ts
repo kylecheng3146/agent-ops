@@ -199,10 +199,13 @@ export function planLoopContribution(options: {
     return { artifacts: [], blocks: [] };
   }
   const harnesses = selectedLoopHarnesses(options.harnesses);
-  if (options.scope !== "project" || harnesses.length === 0) {
+  if (
+    options.scope !== "project" ||
+    (harnesses.length === 0 && !options.harnesses.includes("agy"))
+  ) {
     throw new AgentOpsError(
       "LOOP_PROFILE_UNSUPPORTED",
-      "The loop profile requires project scope and the Codex or Claude harness."
+      "The loop profile requires project scope and the agy, Codex, or Claude harness."
     );
   }
   if (options.hookRuntimePath === undefined) {
@@ -210,6 +213,9 @@ export function planLoopContribution(options: {
       "LOOP_RUNTIME_REQUIRED",
       "The loop profile requires the installed hook runtime path."
     );
+  }
+  if (harnesses.length === 0) {
+    return { artifacts: [], blocks: [] };
   }
   const artifacts = harnesses.flatMap((harness) => [
     {

@@ -53,11 +53,17 @@ const REVIEW_TARGET_CHOICES: readonly SelectChoice<ReviewTargetId>[] =
         : "Runs in fresh safe mode with context isolation."
   }));
 
-function selectReviewTargets(raw: string): ReviewTargetId[] {
+function selectReviewTargets(
+  raw: string,
+  defaults: readonly ReviewTargetId[] = []
+): ReviewTargetId[] {
   const values = raw
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+  if (values.length === 0) {
+    return REVIEW_TARGET_ORDER.filter((target) => defaults.includes(target)) as ReviewTargetId[];
+  }
   for (const value of values) {
     if (!REVIEW_TARGET_SET.has(value)) {
       throw new CliArgumentError(
@@ -129,11 +135,11 @@ const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
   {
     label: "loop",
     value: "loop",
-    description: "Installs the shared Codex and Claude Code local loop with secret and destructive-command interception."
+    description: "Installs the local loop; agy uses its supported lifecycle subset and is reported as degraded."
   }
 ];
 const WIZARD_SUBTITLE =
-  "Safe setup for Codex, Claude Code, and opencode with profile-driven rules, verification, and hooks.";
+  "Safe setup for agy, Codex, Claude Code, and opencode with profile-driven rules, verification, and hooks.";
 
 interface PromptSession {
   question(prompt: string): Promise<string>;
@@ -264,6 +270,7 @@ export async function completeInitChoices(
         selectorIo,
         [...DEFAULT_HARNESS],
         {
+          startEmpty: true,
           selectAll: true,
           selectAllLabel: "Select all",
           selectAllDescription: "Install for every supported harness."
@@ -298,12 +305,16 @@ export async function completeInitChoices(
         ],
         selectorIo
       ));
-    const reviewTargets = args.reviewTargets ?? (enabled
+    const eligibleReviewChoices = REVIEW_TARGET_CHOICES.filter((choice) =>
+      harness.includes(choice.value)
+    );
+    const reviewTargets = args.reviewTargets ?? (enabled && eligibleReviewChoices.length > 0
       ? await selectOptions<ReviewTargetId>(
           "Review targets (multi-select: tried in listed order)",
-          REVIEW_TARGET_CHOICES,
+          eligibleReviewChoices,
           selectorIo,
-          []
+          REVIEW_TARGET_ORDER.filter((target) => harness.includes(target)),
+          { startEmpty: true }
         )
       : []);
     await probeReviewTargets(reviewTargets, setup);
@@ -342,6 +353,9 @@ export async function completeInitChoices(
             )
           );
 
+    const defaultReviewTargets = REVIEW_TARGET_ORDER.filter((target) =>
+      harness.includes(target)
+    );
     const reviewTargets = args.reviewTargets ?? (
       affirmative(
         await session.question(
@@ -350,8 +364,9 @@ export async function completeInitChoices(
       )
         ? selectReviewTargets(
             await session.question(
-              `Review targets (${DEFAULT_REVIEW_TARGETS.join(",")}): `
-            )
+              `Review targets (${defaultReviewTargets.join(",") || "none"}): `
+            ),
+            defaultReviewTargets
           )
         : []
     );

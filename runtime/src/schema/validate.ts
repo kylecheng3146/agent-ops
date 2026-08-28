@@ -31,7 +31,7 @@ const WINDOWS_RESERVED_SEGMENT =
 const PROFILE_VALUES = new Set(["advisory", "core", "guardrails", "loop"]);
 const EVIDENCE_KINDS = new Set(["exit-code", "file", "test-count"]);
 const SCOPE_VALUES = new Set(["project", "user"]);
-const HARNESS_VALUES = new Set(["claude", "codex", "opencode"]);
+const HARNESS_VALUES = new Set(["agy", "claude", "codex", "opencode"]);
 const REVIEW_ROLE_VALUES = new Set([
   "deep-reasoning",
   "implementation",
@@ -42,7 +42,7 @@ const REVIEW_ROLE_VALUES = new Set([
 // docs/plans/2026-08-12-external-review-cli-targets.md.
 const REVIEW_TARGET_VALUES = new Set(["agy", "claude", "codex"]);
 // opencode's plugin is a managed artifact, not a ManagedHookRecord entry.
-const HOOK_HARNESS_VALUES = new Set(["claude", "codex"]);
+const HOOK_HARNESS_VALUES = new Set(["agy", "claude", "codex"]);
 const HOOK_EVENT_VALUES = new Set([
   "SessionStart",
   "UserPromptSubmit",

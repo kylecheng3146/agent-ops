@@ -17,7 +17,7 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": {
-        "enum": ["codex", "claude", "opencode"]
+        "enum": ["agy", "codex", "claude", "opencode"]
       }
     },
     "artifacts": {
@@ -127,7 +127,7 @@
           "$ref": "#/$defs/relativePath"
         },
         "harness": {
-          "enum": ["codex", "claude"]
+          "enum": ["agy", "codex", "claude"]
         },
         "events": {
           "type": "array",

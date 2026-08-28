@@ -34,21 +34,29 @@ export interface InitCommandOptions {
   readonly toolkitVersion?: string;
   readonly hookRuntimePath?: string;
   readonly hookTargets?: readonly HookTargetSelection[];
+  /** Optional runtime probe; init warns but never blocks on an agy binary. */
+  agyWarning?(): string | undefined;
   readonly trustStore?: TrustStore;
   calculateTrustBinding?(config: InstallPlan["config"]): Promise<TrustBinding | null>;
-  confirm(plan: InstallPlan, trust: PublicTrustChange): Promise<boolean>;
+  confirm(
+    plan: InstallPlan,
+    trust: PublicTrustChange,
+    warnings?: readonly string[]
+  ): Promise<boolean>;
 }
 
 export interface InitCommandData {
   readonly applied: boolean;
   readonly plan: PublicInstallPlan;
   readonly message: string;
+  readonly warnings?: readonly string[];
   readonly text?: string;
 }
 
 export function formatInstallPlan(
   plan: InstallPlan,
-  trust?: PublicTrustChange
+  trust?: PublicTrustChange,
+  warnings: readonly string[] = []
 ): string {
   const hooks = plan.manifest.hooks ?? [];
   const detectedVerification = plan.detectedVerification;
@@ -58,6 +66,12 @@ export function formatInstallPlan(
       `Scope: ${plan.scope}`,
       `Harness: ${plan.harness}`,
       `Profiles: ${plan.profiles.join(", ")}`,
+      ...(plan.scope === "user" && plan.harness.includes("agy")
+        ? ["Notice: .gemini/GEMINI.md is a shared Gemini rule surface."]
+        : []),
+      ...(warnings.length === 0
+        ? []
+        : ["Warnings:", ...warnings.map((warning) => `  - ${warning}`)]),
       ...(trust === undefined ? [] : formatTrustChange(trust)),
       ...(hooks.length === 0
         ? ["Hooks: none selected"]
@@ -106,12 +120,21 @@ function initError(
   message: string,
   plan: InstallPlan,
   trust: PublicTrustChange,
+  warnings: readonly string[] = [],
   applied = false
 ): CliEnvelope<InitCommandData> {
+  const displayMessage = warnings.length === 0
+    ? message
+    : `${message}\nWarnings:\n${warnings.map((warning) => `- ${warning}`).join("\n")}`;
   return {
     code,
     status: "error",
-    data: { applied, plan: toPublicInstallPlan(plan, trust), message },
+    data: {
+      applied,
+      plan: toPublicInstallPlan(plan, trust),
+      message: displayMessage,
+      ...(warnings.length === 0 ? {} : { warnings })
+    },
     errors: [{ code, message }]
   };
 }
@@ -171,12 +194,23 @@ export async function runInitCommand(
       : { reviewTargets: args.reviewTargets })
   });
   const trust = await trustChange(options, plan);
+  const warnings = plan.harness.includes("agy") && options.agyWarning !== undefined
+    ? (() => {
+        try {
+          const warning = options.agyWarning();
+          return warning === undefined ? [] : [warning];
+        } catch {
+          return ["agy could not be probed; run `agent-ops doctor` to verify it."];
+        }
+      })()
+    : [];
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {
       applied: false,
       plan: toPublicInstallPlan(plan, trust),
       message: "Installation plan calculated; no files were written.",
-      text: formatInstallPlan(plan, trust)
+      ...(warnings.length === 0 ? {} : { warnings }),
+      text: formatInstallPlan(plan, trust, warnings)
     });
   }
   if (!args.yes && !options.isTTY) {
@@ -184,19 +218,21 @@ export async function runInitCommand(
       "INIT_CONFIRMATION_REQUIRED",
       "Non-interactive init requires --yes after all choices are explicit.",
       plan,
-      trust
+      trust,
+      warnings
     );
   }
   if (
     !args.yes &&
     options.isTTY &&
-    !(await options.confirm(plan, trust))
+    !(await options.confirm(plan, trust, warnings))
   ) {
     return initError(
       "INIT_CANCELLED",
       "Installation was cancelled; no files were written.",
       plan,
-      trust
+      trust,
+      warnings
     );
   }
 
@@ -213,13 +249,18 @@ export async function runInitCommand(
         "Installation was applied, but repository trust was not granted. Run `agent-ops trust grant --yes`.",
         plan,
         trust,
+        warnings,
         true
       );
     }
   }
+  const message = appliedMessage(plan);
   return okEnvelope("INIT_APPLIED", {
     applied: true,
     plan: toPublicInstallPlan(plan, trust),
-    message: appliedMessage(plan)
+    message: warnings.length === 0
+      ? message
+      : `${message}\nWarnings:\n${warnings.map((warning) => `- ${warning}`).join("\n")}`,
+    ...(warnings.length === 0 ? {} : { warnings })
   });
 }

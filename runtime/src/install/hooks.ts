@@ -77,7 +77,11 @@ export function planHookRegistration(options: {
     options.runtimePath,
     options.platform
   );
-  const events = Object.keys(managed.hooks) as HookEventName[];
+  const events = Object.keys(managed.hooks).map((event) =>
+    options.harness === "agy" && event === "PreInvocation"
+      ? "SessionStart"
+      : event
+  ) as HookEventName[];
   if (events.length === 0) {
     return null;
   }
@@ -106,6 +110,9 @@ function onlyManagedRemains(
   harness: HarnessId,
   value: Record<string, unknown>
 ): boolean {
+  if (harness === "agy") {
+    return Object.keys(value).length === 0;
+  }
   const ownKeys = new Set(
     harnessDescriptor(harness).control.ownSettingsKeys ?? []
   );

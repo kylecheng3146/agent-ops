@@ -42,6 +42,12 @@ without one MUST be skipped rather than run unsandboxed.
 - Positive: `agy receives sandboxed plan mode; opencode remains ineligible.`
 - Negative: `Trust the prompt to stop the reviewer from editing files.`
 
+Every attempted review MUST run in a fresh session (`sessionIsolation:
+"fresh"`) and in a disposable repository clone. The reviewer chain prefers a
+different CLI from the hosting CLI; when no other usable target exists,
+same-target fresh review is allowed but MUST render as `DEGRADED: isolated
+self-review`. A resumed development session is never an independent review.
+
 ## REVIEW-CHAIN-001
 
 Configured targets form an ordered fallback chain that MUST advance only when

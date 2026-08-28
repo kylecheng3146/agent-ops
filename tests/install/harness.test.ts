@@ -321,6 +321,20 @@ test("support declarations match the current real hook fidelity", () => {
   );
 
   assert.deepEqual(supportByHarness, {
+    agy: {
+      "lifecycle-summary": {
+        support: "degraded",
+        runtimeFailure: "fail-open"
+      },
+      "command-policy": {
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      "optional-stop-verify": {
+        support: "degraded",
+        runtimeFailure: "fail-open"
+      }
+    },
     codex: {
       "lifecycle-summary": {
         support: "supported",

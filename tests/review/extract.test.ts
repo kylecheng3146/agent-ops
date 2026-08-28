@@ -66,13 +66,14 @@ test("review extraction accepts only each target's native structured field", () 
     structured_output: JSON.parse(payload)
   });
   assert.deepEqual(extractReviewObject("claude", envelope), JSON.parse(payload));
-  assert.deepEqual(extractReviewObject("agy", JSON.stringify({ response: payload })), JSON.parse(payload));
   assert.deepEqual(
     extractReviewObject("agy", JSON.stringify({
-      response: { ...JSON.parse(payload), toolAction: "review", toolSummary: "done" }
+      response: `${payload}\nnot canonical`,
+      structured_output: JSON.parse(payload)
     })),
     JSON.parse(payload)
   );
+  assert.equal(extractReviewObject("agy", JSON.stringify({ response: payload })), undefined);
   assert.deepEqual(extractReviewObject("codex", payload), JSON.parse(payload));
   assert.equal(extractReviewObject("claude", JSON.stringify({ result: payload })), undefined);
   assert.equal(extractReviewObject("codex", `prose ${payload}`), undefined);

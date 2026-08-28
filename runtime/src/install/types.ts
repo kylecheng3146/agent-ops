@@ -47,6 +47,8 @@ export interface CapabilityRegistrationSpec {
     | "optional-stop-verify";
   readonly normalizedEvent: "session-start" | "command" | "stop";
   readonly nativeEvent: "SessionStart" | "PreToolUse" | "Stop";
+  /** Actual host event when it differs from the normalized agent-ops event. */
+  readonly hostEvent?: "PreInvocation";
   readonly surfaceId: string;
   readonly support: CapabilitySupport;
   readonly runtimeFailure: RuntimeFailureMode;

@@ -1,7 +1,7 @@
 # Loop Engineering Toolkit
 
 Loop Engineering Toolkit is an evidence-driven development-loop toolkit for
-Codex, Claude Code, and opencode. It is designed to turn acceptance criteria, explicit
+agy, Codex, Claude Code, and opencode. It is designed to turn acceptance criteria, explicit
 verification, safe lifecycle hooks, and independent review into a repeatable
 engineering workflow.
 
@@ -34,9 +34,9 @@ automation. The wizard never writes files until you review and confirm its
 installation plan.
 
 The interactive multi-select screens start with no harness or profile selected.
-Choose at least one of `codex`, `claude`, and `opencode`, and at least one of
+Choose at least one of `agy`, `codex`, `claude`, and `opencode`, and at least one of
 the `core`, `advisory`, `guardrails`, and `loop` profiles before confirming. For
-scripted use, `--harness all` selects all three harnesses; comma-separated
+scripted use, `--harness all` selects all four harnesses; comma-separated
 selections such as `codex,opencode` are also supported. The legacy `both` value
 remains an alias for `codex,claude`.
 
@@ -66,7 +66,10 @@ agent-ops uninstall --dry-run --json
 
 ### Project-local loop
 
-`loop` is an explicit, project-only profile for Codex, Claude Code, or both.
+`loop` is an explicit, project-only profile for agy, Codex, and Claude Code.
+agy installs its native `PreInvocation`, `PreToolUse(run_command)`, and optional
+`Stop` subset directly in `.agents/hooks.json`; doctor reports its loop as
+degraded because prompt, permission, compact, and subagent events are unavailable.
 Claude Code supports native Windows through a generated PowerShell launcher;
 Codex's loop launcher still requires POSIX-compatible `bash`. Preview it
 first, then install only after reviewing the plan. `loop` also implies the
@@ -286,12 +289,16 @@ to a deterministic worktree (or `--base`) scope. `--task` reviews keep their
 task criteria and require current verification evidence. The detailed report
 is displayed; a minimal source-fingerprint attestation is persisted after PASS.
 
-Each attempt uses a fresh temporary cwd, a small allowlisted environment, and a
-target-native read-only mode. Claude additionally uses its complete safe mode;
-Codex ignores user config and persistence, while Agy runs in sandboxed plan
-mode against a disposable repository clone. Codex and Agy preserve their
+Each attempt uses a fresh temporary session and disposable repository clone, a
+small allowlisted environment, and a target-native read-only mode. Claude
+additionally uses its complete safe mode; Codex ignores user config and
+persistence, while Agy runs in sandboxed plan mode. Codex and Agy preserve their
 existing login environment, so their context isolation is intentionally weaker
 than Claude's. `opencode` is not a review target.
+
+The chain prefers a reviewer CLI different from the hosting CLI. If none is
+usable, a fresh same-target session is allowed but is rendered as
+`DEGRADED: isolated self-review`; a development session is never resumed.
 
 The first valid `PASS` or `FAIL` is final. Attempts that produce no verdict —
 including login failures and unparseable output — advance to the next target
@@ -313,7 +320,7 @@ See [Configuration](docs/en/guides/configuration.md) for the full contract.
 - Treat command output and current filesystem state as evidence.
 - Keep advisory automation separate from blocking guardrails.
 - Preserve user configuration through managed, reversible updates.
-- Support Codex, Claude Code, and opencode without project-specific assumptions.
+- Support agy, Codex, Claude Code, and opencode without project-specific assumptions.
 - Collect no network telemetry.
 
 ## Project status

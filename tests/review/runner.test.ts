@@ -116,6 +116,24 @@ test("review attempts survive JSON and human rendering", async () => {
   assert.match(renderReviewResult(result), /agy: PASS/);
 });
 
+test("review output records a fresh session and labels same-target as degraded", async () => {
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({
+      status: "PASS",
+      results: [{ criterionId: "tests", status: "PASS", evidence: ["review-output"] }],
+      report: reportFor(invocation.packet.criteria),
+      independence: "same-target" as const,
+      sessionIsolation: "fresh" as const
+    })
+  });
+  assert.equal(result.sessionIsolation, "fresh");
+  const rendered = renderReviewResult(result);
+  assert.match(rendered, /Independence: DEGRADED \(same-target isolated self-review\)/u);
+  assert.match(rendered, /Session isolation: fresh/u);
+});
+
 test("an attempt diagnostic reaches the rendered report, redacted", async () => {
   const secret = ["Author", "ization: Bearer abcdef123456"].join("");
   const result = await runIndependentReview({
@@ -256,4 +274,5 @@ test("the fallback-safe prompt carries the complete report contract", async () =
   ]) {
     assert.ok(result.prompt.includes(field));
   }
+  assert.match(result.prompt, /Every FAIL criterion.*blocking finding/s);
 });
