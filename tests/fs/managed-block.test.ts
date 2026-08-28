@@ -93,6 +93,65 @@ test("rejects missing, duplicate, reversed, and wrong-version markers", () => {
   }
 });
 
+test("preserves CRLF line endings across create, update, and removal", () => {
+  const options = {
+    id: "core-routing",
+    version: 1,
+    content: "Read .agent-ops/rules.md."
+  } as const;
+  const crlfBase = "# Existing\r\n";
+  const created = applyManagedBlock(crlfBase, options);
+
+  assert.equal(
+    created,
+    [
+      "# Existing",
+      "",
+      "<!-- agent-ops:start core-routing v1 -->",
+      "Read .agent-ops/rules.md.",
+      "<!-- agent-ops:end core-routing -->",
+      ""
+    ].join("\r\n")
+  );
+  assert.doesNotMatch(created, /[^\r]\n/);
+  assert.equal(applyManagedBlock(created, options), created);
+
+  const updated = applyManagedBlock(created, {
+    ...options,
+    content: "Read .agent-ops/loop.md."
+  });
+  assert.match(updated, /Read \.agent-ops\/loop\.md\.\r\n/);
+  assert.doesNotMatch(updated, /[^\r]\n/);
+
+  assert.equal(removeManagedBlock(updated, options.id), crlfBase);
+});
+
+test("leaves unrelated LF lines untouched in a mixed-ending file", () => {
+  const options = {
+    id: "core-routing",
+    version: 1,
+    content: "Read .agent-ops/rules.md."
+  } as const;
+  const mixedBase = "line one\r\nline two\nline three\r\n";
+  const created = applyManagedBlock(mixedBase, options);
+
+  assert.match(created, /^line one\r\nline two\nline three\r\n/);
+  assert.equal(removeManagedBlock(created, options.id), mixedBase);
+});
+
+test("removes an LF-delimited block cleanly even when CRLF appears elsewhere", () => {
+  const { start, end } = managedBlockMarkers("core-routing", 1);
+  const blockOnly = `${start}\nbody\r\ninside\n${end}\n`;
+
+  assert.equal(removeManagedBlock(blockOnly, "core-routing"), "");
+
+  const surrounded = `before\r\n\n${start}\nbody\r\ninside\n${end}\n\nafter\r\n`;
+  assert.equal(
+    removeManagedBlock(surrounded, "core-routing"),
+    "before\r\n\nafter\r\n"
+  );
+});
+
 test("rejects managed content that could create ambiguous markers", () => {
   assert.throws(
     () =>
