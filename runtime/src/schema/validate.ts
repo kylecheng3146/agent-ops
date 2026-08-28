@@ -525,7 +525,7 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   }
   const featuresUnknown = unknownFieldFailure(
     root.features,
-    ["stopVerification"],
+    ["completionGate", "stopVerification"],
     "$.features"
   );
   if (featuresUnknown !== undefined) {
@@ -551,6 +551,28 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
       "INVALID_FEATURE",
       "$.features.stopVerification.enabled",
       "stopVerification.enabled must be a boolean."
+    );
+  }
+  if (!isRecord(root.features.completionGate)) {
+    return failure(
+      "INVALID_TYPE",
+      "$.features.completionGate",
+      "completionGate must be an object."
+    );
+  }
+  const completionGateUnknown = unknownFieldFailure(
+    root.features.completionGate,
+    ["enabled"],
+    "$.features.completionGate"
+  );
+  if (completionGateUnknown !== undefined) {
+    return completionGateUnknown;
+  }
+  if (typeof root.features.completionGate.enabled !== "boolean") {
+    return failure(
+      "INVALID_FEATURE",
+      "$.features.completionGate.enabled",
+      "completionGate.enabled must be a boolean."
     );
   }
 

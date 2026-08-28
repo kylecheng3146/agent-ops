@@ -33,20 +33,26 @@ const RUNTIME_HASH = "b".repeat(64);
 
 test("trust config bindings use canonical property-order-independent hashes", () => {
   const first: AgentOpsConfig = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [] },
-    features: { stopVerification: { enabled: false } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled: false }
+    },
     pathMappings: [],
     securityExceptions: []
   };
   const reordered: AgentOpsConfig = {
     securityExceptions: [],
     pathMappings: [],
-    features: { stopVerification: { enabled: false } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled: false }
+    },
     verification: { commands: [] },
     profiles: ["core"],
-    schemaVersion: 2
+    schemaVersion: 3
   };
   assert.equal(calculateConfigHash(first), calculateConfigHash(reordered));
 });

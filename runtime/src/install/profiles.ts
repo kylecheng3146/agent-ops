@@ -54,5 +54,8 @@ export function resolveCapabilities(
   if (config.features.stopVerification.enabled) {
     resolved.capabilities.push("optional-stop-verify");
   }
+  if (config.features.completionGate.enabled) {
+    resolved.capabilities.push("completion-gate");
+  }
   return resolved;
 }

@@ -37,6 +37,11 @@ export interface SecurityExceptionExplanation extends SourceExplanation {
 export interface ConfigExplanation {
   schemaVersion: number;
   features: {
+    completionGate: {
+      enabled: boolean;
+      source: ConfigSource;
+      sourcePath: string;
+    };
     stopVerification: {
       enabled: boolean;
       source: ConfigSource;
@@ -53,6 +58,11 @@ export function explainConfig(merged: MergedConfig): ConfigExplanation {
   return {
     schemaVersion: merged.config.schemaVersion,
     features: {
+      completionGate: {
+        enabled: merged.config.features.completionGate.enabled,
+        source: merged.provenance.features.source,
+        sourcePath: merged.provenance.features.sourcePath
+      },
       stopVerification: {
         enabled: merged.config.features.stopVerification.enabled,
         source: merged.provenance.features.source,

@@ -26,6 +26,8 @@ export interface CreateTaskInput {
   readonly policyConfigHash?: string;
   /** Records this task as a subtask of an existing, non-archived task. */
   readonly parentTaskId?: string;
+  /** Optionally creates and attaches the task in one state mutation. */
+  readonly sessionId?: string;
 }
 
 export interface TaskServiceOptions {
@@ -167,6 +169,9 @@ export class TaskService {
         "Policy config hash must be a lowercase SHA-256 digest."
       );
     }
+    if (input.sessionId !== undefined) {
+      assertSessionId(input.sessionId);
+    }
     const task: AgentTask = {
       schemaVersion: TASK_SCHEMA_VERSION,
       id: this.#generateId(),
@@ -226,6 +231,21 @@ export class TaskService {
         policyConfigHash: input.policyConfigHash ?? null
       };
       state.tasks.push(record);
+      if (input.sessionId !== undefined) {
+        const currentIndex = state.sessions.findIndex(
+          ({ sessionId }) => sessionId === input.sessionId
+        );
+        const attachment = {
+          sessionId: input.sessionId,
+          taskId: record.task.id,
+          attachedAt: now
+        };
+        if (currentIndex === -1) {
+          state.sessions.push(attachment);
+        } else {
+          state.sessions[currentIndex] = attachment;
+        }
+      }
       return cloneRecord(record);
     });
   }

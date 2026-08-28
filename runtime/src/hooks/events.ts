@@ -5,6 +5,7 @@ export type HookAction = "block" | "continue";
 
 interface HookEventBase {
   readonly projectRoot: string;
+  readonly sessionId?: string;
 }
 
 export interface SessionStartHookEvent extends HookEventBase {
@@ -37,6 +38,8 @@ export interface ContentHookEvent extends HookEventBase {
 
 export interface StopHookEvent extends HookEventBase {
   readonly event: "stop";
+  readonly terminationReason?: string;
+  readonly fullyIdle?: boolean;
 }
 
 export interface UnsupportedHookEvent extends HookEventBase {
@@ -77,6 +80,13 @@ export interface HookDispatchOptions {
   readonly trusted: boolean;
   readonly advisory?: (event: SessionStartHookEvent) => Promise<void>;
   readonly stopVerification?: StopVerificationOptions;
+  readonly completionGate?: CompletionGateOptions;
+}
+
+export interface CompletionGateOptions {
+  readonly handle: (
+    event: NormalizedHookEvent
+  ) => Promise<HookResult | null>;
 }
 
 export interface StopVerifierReport {

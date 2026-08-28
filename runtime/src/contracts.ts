@@ -6,7 +6,7 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
-export const CONFIG_SCHEMA_VERSION = 2 as const;
+export const CONFIG_SCHEMA_VERSION = 3 as const;
 export const TASK_SCHEMA_VERSION = 1 as const;
 export const EVIDENCE_SCHEMA_VERSION = 2 as const;
 
@@ -65,6 +65,9 @@ export interface SecurityException {
 
 export interface AgentOpsFeatures {
   stopVerification: {
+    enabled: boolean;
+  };
+  completionGate: {
     enabled: boolean;
   };
 }

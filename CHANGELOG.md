@@ -4,6 +4,13 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.21]
+
+- Added agy hard completion gating with mandatory review evidence and a
+  one-time explicit stop allowance for exceptional exits.
+- Added config schema v3, native project `GEMINI.md` routing, headless `agy-run`,
+  and lifecycle-aware docs, migration, doctor, and test coverage.
+
 ## [0.1.20]
 
 - Added first-class agy harness integration, including native rules, hooks,

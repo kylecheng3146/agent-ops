@@ -6,10 +6,12 @@ Use `--harness all` to select agy, Codex, Claude Code, and opencode, or pass a
 comma-separated subset such as `codex,opencode`. `both` remains an input alias
 for the legacy Codex plus Claude selection.
 
-Project agy, Codex, and opencode installations share the managed supplemental
-`AGENTS.md` routing block and the `.agent-ops/AGENTS.md` rules artifact. The
-block loads the managed baseline while project-specific instructions remain
-authoritative. Claude uses the corresponding `CLAUDE.md` route and
+Project agy uses a managed supplemental `GEMINI.md` routing block and
+`.agent-ops/GEMINI.md` baseline. This follows the official agy CLI rule that a
+workspace-root `GEMINI.md` or `AGENTS.md` is loaded at startup. Codex and
+opencode share the corresponding `AGENTS.md` route and `.agent-ops/AGENTS.md`
+artifact. Each block loads the managed baseline while project-specific
+instructions remain authoritative. Claude uses the corresponding `CLAUDE.md` route and
 `.agent-ops/CLAUDE.md` artifact. Opencode additionally gets
 the agent-ops-owned `.opencode/plugins/agent-ops.js` file; `opencode.json` is
 never modified. The plugin is generated with the installed absolute runtime
@@ -147,6 +149,21 @@ user hooks live in `.gemini/config/hooks.json`. User-scope rules modify the
 shared Gemini rule surface at `.gemini/GEMINI.md`. agy 1.1.12 or newer is
 required for machine-readable `/hooks` diagnostics.
 
+For `agy` plus `loop`, the interactive installer recommends
+`features.completionGate.enabled`; non-interactive installs require the explicit
+`--completion-gate` flag. The gate uses the documented `conversationId`,
+`terminationReason`, and `fullyIdle` Stop fields and returns the documented
+`decision: "continue"` only for a final changed conversation that lacks current
+task, verification, or review proof. Pure Q&A, analysis, read-only diagnostics,
+error stops, max-step stops, and non-idle stops continue normally. It does not
+change Codex, Claude Code, or OpenCode Stop behavior. For headless execution use
+`agent-ops agy-run -- <agy arguments>`; a user-approved one-time escape is
+`agent-ops allow-stop --session <conversationId>` and is guarded by agy's
+documented `force_ask` decision.
+
+Official references: [agy CLI workspace rule files](https://www.antigravity.google/docs/cli/best-practices/)
+and [Antigravity hook contracts](https://www.antigravity.google/docs/hooks/).
+
 The full Codex/Claude loop runs `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
 `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`,
 `SubagentStart`, and `SubagentStop`, but never adds `Stop`. It blocks only
@@ -183,8 +200,9 @@ classified invalid installed configuration. The managed OpenCode
 `tool.execute.before` plugin can throw its documented command-policy denial or
 unavailable-runtime error for its supported Bash surface. Codex is explicitly
 non-enforcing (`unknown`). These are agent-ops output and plugin contracts, not
-proof that a host honors a denial. `SessionStart` and `Stop` failure paths stay
-fail-open for every adapter.
+proof that a host honors a denial. `SessionStart` and ordinary Stop verification
+failure paths stay fail-open. Only the explicitly enabled agy completion gate
+fails closed at final Stop.
 
 Claude's invalid-config fallback has four safeguards: (1) an absent project
 configuration stays fail-open, so only an invalid `.agent-ops/config.json` can
@@ -196,7 +214,7 @@ that shell variable. The variable is read only from the hook-process environment
 and cannot be set in agent-ops configuration, a manifest, or managed files.
 
 `guardrails` installs command policy but does not enable Stop verification. Stop
-is a separate config-v2 feature and must be explicitly enabled with at least
+is a separate config-v3 feature and must be explicitly enabled with at least
 one confirmed command:
 
 ```json

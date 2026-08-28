@@ -106,7 +106,7 @@ function verifier(
 
 function config(): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: {
       commands: [
@@ -118,6 +118,7 @@ function config(): AgentOpsConfig {
       ]
     },
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: false }
     },
     pathMappings: [

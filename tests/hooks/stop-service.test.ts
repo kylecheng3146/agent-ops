@@ -108,10 +108,13 @@ function config(
   commands: readonly VerificationCommand[] = [command()]
 ): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [...commands] },
-    features: { stopVerification: { enabled } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled }
+    },
     pathMappings: [{ path: "src", verifierIds: ["unit"] }],
     securityExceptions: []
   };

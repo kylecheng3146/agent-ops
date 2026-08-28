@@ -22,10 +22,13 @@ async function root(targets: readonly ReviewTargetId[] | undefined): Promise<str
     join(directory, ".agent-ops", "config.json"),
     `${JSON.stringify(
       {
-        schemaVersion: 2,
+        schemaVersion: 3,
         profiles: ["core"],
         verification: { commands: [] },
-        features: { stopVerification: { enabled: false } },
+        features: {
+          completionGate: { enabled: false },
+          stopVerification: { enabled: false }
+        },
         pathMappings: [],
         securityExceptions: [],
         ...(targets === undefined

@@ -12,7 +12,7 @@ import {
 
 test("config explain exposes provenance without command or reason values", () => {
   const config: AgentOpsConfig = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: {
       commands: [
@@ -27,6 +27,7 @@ test("config explain exposes provenance without command or reason values", () =>
       ]
     },
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: false }
     },
     pathMappings: [{ path: "src", verifierIds: ["test"] }],

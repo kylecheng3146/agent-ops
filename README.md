@@ -68,7 +68,8 @@ agent-ops uninstall --dry-run --json
 
 `loop` is an explicit, project-only profile for agy, Codex, and Claude Code.
 agy installs its native `PreInvocation`, `PreToolUse(run_command)`, and optional
-`Stop` subset directly in `.agents/hooks.json`; doctor reports its loop as
+`Stop` subset directly in `.agents/hooks.json`, plus project routing in
+`GEMINI.md` to `.agent-ops/GEMINI.md`; doctor reports its loop as
 degraded because prompt, permission, compact, and subagent events are unavailable.
 Claude Code supports native Windows through a generated PowerShell launcher;
 Codex's loop launcher still requires POSIX-compatible `bash`. Preview it
@@ -79,6 +80,24 @@ first, then install only after reviewing the plan. `loop` also implies the
 agent-ops init --dry-run --scope project --harness codex,claude --profile loop --json
 agent-ops init --scope project --harness codex,claude --profile loop --yes
 ```
+
+For a project agy loop, the wizard recommends the hard completion gate. In
+automation, opt in explicitly:
+
+```bash
+agent-ops init --scope project --harness agy --profile loop --completion-gate --yes
+```
+
+The gate lets pure Q&A, analysis, and read-only diagnostics stop normally. It
+activates only after that conversation creates a Git-visible net change, then
+requires an attached completed task with two to five criteria, current PASS
+evidence, and a PASS review for the current source fingerprint. It never runs
+tests or review from `Stop`. Error, max-step, and non-idle stops continue. A
+user can approve one fingerprint-bound escape with
+`agent-ops allow-stop --session <conversationId>`. Use
+`agent-ops agy-run -- <agy arguments>` for a process-exit recheck in headless or
+CI use. Codex, Claude Code, and OpenCode retain their existing non-blocking Stop
+behavior in this release.
 
 On native Windows, select `--harness claude` unless Codex is running in a
 POSIX environment; the Codex loop still invokes `bash`.
@@ -250,10 +269,10 @@ After changing Stop configuration, run `agent-ops update`; its approved plan
 updates native registrations and the exact trust binding together. Stop is
 report-only: `PASS`, `FAIL`, and `UNKNOWN` continue
 the harness, emit bounded command evidence, and never complete a task.
-Config v1 migrates to config v2 with Stop disabled; migration invalidates the
-old trust binding, and pre-v1 binaries cannot read the migrated config.
+Older configs migrate to config v3 with both Stop verification and the agy
+completion gate disabled; migration invalidates the old trust binding.
 
-The generated `AGENTS.md` and `CLAUDE.md` routing blocks are supplemental: they
+The generated `AGENTS.md`, `CLAUDE.md`, and agy `GEMINI.md` routing blocks are supplemental: they
 load the managed baseline while leaving project-specific instructions in those
 files authoritative. Existing installations with the previous canonical
 wording are migrated by `agent-ops update`; changed managed blocks still fail

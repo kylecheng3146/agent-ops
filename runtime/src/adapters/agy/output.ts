@@ -19,13 +19,17 @@ export function agyHookOutput(
     ? `agent-ops: ${result.code}`
     : `agent-ops: ${result.code}: ${result.remedy}`;
   const value = event === "PreToolUse"
-    ? result.action === "block"
-      ? { decision: "deny", reason }
+    ? result.code === "COMPLETION_GATE_PERMIT_CONFIRMATION"
+      ? { decision: "force_ask", reason }
+      : result.action === "block"
+        ? { decision: "deny", reason }
       : { decision: "allow" as const }
     : event === "SessionStart"
       ? { injectSteps: [{ ephemeralMessage: reason }] }
       : event === "Stop"
-        ? { decision: "allow", reason }
+        ? result.action === "block" && result.code.startsWith("COMPLETION_GATE_")
+          ? { decision: "continue", reason }
+          : { decision: "allow", reason }
         : {};
   return { exitCode: 0, stdout: JSON.stringify(value), stderr: "" };
 }

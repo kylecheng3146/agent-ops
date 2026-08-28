@@ -677,7 +677,9 @@ function checkProjectLoop(
     ? check(
         "project-loop",
         "DEGRADED",
-        "agy loop uses only PreInvocation and PreToolUse(run_command); prompt, permission, compact, and subagent events are unavailable."
+        config.features.completionGate.enabled
+          ? "agy completion gate uses PreInvocation, PreToolUse(run_command), and Stop; native Stop continuation is host-bounded. Use `agent-ops agy-run -- <args>` for a process-exit gate in headless or CI runs."
+          : "agy loop uses only PreInvocation and PreToolUse(run_command); prompt, permission, compact, and subagent events are unavailable."
       )
     : check("project-loop", "PASS", "Project loop events are fully registered.");
 }

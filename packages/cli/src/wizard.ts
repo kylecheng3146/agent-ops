@@ -83,6 +83,16 @@ function affirmative(raw: string): boolean {
   return /^(y|yes)$/i.test(raw.trim());
 }
 
+function completionGateEligible(
+  scope: InstallScope,
+  harness: Harness,
+  profiles: readonly Profile[]
+): boolean {
+  return scope === "project" &&
+    harness.includes("agy") &&
+    profiles.includes("loop");
+}
+
 async function probeReviewTargets(
   targets: readonly ReviewTargetId[],
   setup: ReviewTargetSetup
@@ -291,6 +301,26 @@ export async function completeInitChoices(
               "Enable core, advisory, guardrails, and loop together."
             }
           );
+    const completionGate = args.completionGate ?? (
+      completionGateEligible(scope, harness, profiles)
+        ? await selectOption(
+            "Enable the agy completion gate?",
+            [
+              {
+                label: "yes",
+                value: true,
+                description: "Recommended. Blocks changed sessions until task evidence and review pass."
+              },
+              {
+                label: "no",
+                value: false,
+                description: "Keep advisory loop behavior."
+              }
+            ],
+            selectorIo
+          )
+        : false
+    );
     const enabled =
       args.reviewTargets !== undefined ||
       (await selectOption(
@@ -323,6 +353,7 @@ export async function completeInitChoices(
       scope,
       harness,
       profiles,
+      ...(completionGate ? { completionGate: true } : {}),
       ...(reviewTargets.length === 0 ? {} : { reviewTargets })
     };
   }
@@ -353,6 +384,16 @@ export async function completeInitChoices(
             )
           );
 
+    const completionGate = args.completionGate ?? (
+      completionGateEligible(scope, harness, profiles)
+        ? !/^(n|no)$/i.test(
+            (await session.question(
+              "Enable the recommended agy completion gate? [Y/n]: "
+            )).trim()
+          )
+        : false
+    );
+
     const defaultReviewTargets = REVIEW_TARGET_ORDER.filter((target) =>
       harness.includes(target)
     );
@@ -377,6 +418,7 @@ export async function completeInitChoices(
       scope,
       harness,
       profiles,
+      ...(completionGate ? { completionGate: true } : {}),
       ...(reviewTargets.length === 0 ? {} : { reviewTargets })
     };
   } finally {

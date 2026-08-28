@@ -171,12 +171,15 @@ export async function runTaskCommand(
           : { policyConfigHash: options.policyConfigHash }),
         ...(options.args.parentTaskId === undefined
           ? {}
-          : { parentTaskId: options.args.parentTaskId })
+          : { parentTaskId: options.args.parentTaskId }),
+        ...(sessionId === undefined ? {} : { sessionId })
       });
       return taskEnvelope(
         action,
         "TASK_CREATED",
-        `Created task ${record.task.id}.`,
+        sessionId === undefined
+          ? `Created task ${record.task.id}.`
+          : `Created and attached task ${record.task.id}.`,
         record
       );
     }

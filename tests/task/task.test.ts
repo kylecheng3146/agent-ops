@@ -55,6 +55,20 @@ function service(
   );
 }
 
+test("task creation can atomically attach its session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
+  try {
+    const tasks = service(root);
+    const created = await tasks.create({ ...input(), sessionId: "session-one" });
+    assert.equal(
+      (await tasks.status({ sessionId: "session-one" })).task.id,
+      created.task.id
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("creates, completes, archives, and exports structured task state", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-task-"));
   try {

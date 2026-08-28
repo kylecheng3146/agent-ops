@@ -159,3 +159,20 @@ test("a non-interactive init without the flag configures no targets", async () =
   );
   assert.equal(args.reviewTargets, undefined);
 });
+
+test("agy project-loop wizard recommends the completion gate", async () => {
+  const recorded: Recorded = { questions: [], probed: [] };
+  const args = await completeInitChoices(
+    parseArgs(["init"]),
+    scriptedIo(["project", "agy", "loop", "", ""], recorded)
+  );
+
+  assert.equal(args.completionGate, true);
+  assert.ok(
+    recorded.questions.some((question) => /completion gate/i.test(question))
+  );
+  assert.equal(
+    parseArgs(["init", "--completion-gate"]).completionGate,
+    true
+  );
+});

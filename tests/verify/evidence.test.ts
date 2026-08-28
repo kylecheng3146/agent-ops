@@ -22,10 +22,11 @@ import {
 
 const SECRET = `ghp_${"a".repeat(24)}`;
 const CONFIG: AgentOpsConfig = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   profiles: ["core"],
   verification: { commands: [] },
   features: {
+    completionGate: { enabled: false },
     stopVerification: { enabled: false }
   },
   pathMappings: [],
@@ -36,17 +37,23 @@ test("uses one order-independent config hash and binds feature changes", () => {
   const reordered: AgentOpsConfig = {
     securityExceptions: [],
     pathMappings: [],
-    features: { stopVerification: { enabled: false } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled: false }
+    },
     verification: { commands: [] },
     profiles: ["core"],
-    schemaVersion: 2
+    schemaVersion: 3
   };
   assert.equal(calculateConfigHash(CONFIG), calculateConfigHash(reordered));
   assert.notEqual(
     calculateConfigHash(CONFIG),
     calculateConfigHash({
       ...CONFIG,
-      features: { stopVerification: { enabled: true } }
+      features: {
+        completionGate: { enabled: false },
+        stopVerification: { enabled: true }
+      }
     })
   );
 });

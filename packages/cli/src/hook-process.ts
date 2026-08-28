@@ -23,6 +23,10 @@ import type {
   HookDispatchOptions,
   StopVerificationOptions
 } from "../../../runtime/src/hooks/events.js";
+import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
+import { TaskService } from "../../../runtime/src/task/service.js";
+import { FileTaskStore } from "../../../runtime/src/task/store.js";
+import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { runLifecycleAdvisory } from "../../../runtime/src/hooks/advisory.js";
 import {
   STOP_VERIFICATION_ENV,
@@ -66,6 +70,7 @@ export interface HookProcessDependencies {
   readonly advisory?: HookDispatchOptions["advisory"];
   readonly gitRunner?: GitRunner;
   readonly processRunner?: VerificationProcessRunner;
+  readonly completionGate?: HookDispatchOptions["completionGate"];
 }
 
 export interface HookProcessIo {
@@ -98,6 +103,20 @@ function parseInput(source: string): unknown {
   } catch {
     return null;
   }
+}
+
+function withInjectedSession(
+  harness: HarnessId,
+  input: unknown
+): unknown {
+  const sessionId = process.env.AGENT_OPS_SESSION_ID;
+  return harness === "agy" &&
+      sessionId !== undefined &&
+      typeof input === "object" &&
+      input !== null &&
+      !Array.isArray(input)
+    ? { ...(input as Record<string, unknown>), conversationId: sessionId }
+    : input;
 }
 
 function writeHookOutput(io: HookProcessIo, output: HookProcessOutput): void {
@@ -325,8 +344,8 @@ function shouldBuildStopVerification(
 }
 
 /**
- * Runs one hook invocation. Always resolves to exit code 0: a hook that
- * cannot answer must never block the harness it advises.
+ * Runs one hook invocation. Exit code stays zero because native JSON carries
+ * decisions; only an explicitly installed agy completion gate fails closed.
  */
 export async function runHookProcess(
   argv: readonly string[],
@@ -335,6 +354,10 @@ export async function runHookProcess(
   dependencies: HookProcessDependencies = {}
 ): Promise<number> {
   const [harness, event] = argv;
+  const completionGateInstalled =
+    harness === "agy" &&
+    event === "Stop" &&
+    argv.includes("--completion-gate");
   if (
     harness === undefined ||
     !HARNESSES.has(harness) ||
@@ -351,13 +374,34 @@ export async function runHookProcess(
     const harnessId = harness as HarnessId;
     const hookEvent = event as HookEvent;
     if (process.env.AGENT_OPS_DISABLE === "1") {
+      if (completionGateInstalled) {
+        writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+          action: "block",
+          status: "UNKNOWN",
+          code: "COMPLETION_GATE_DISABLE_REJECTED",
+          remedy: "Use a user-approved one-time permit instead of disabling agent-ops."
+        }));
+        return 0;
+      }
       writeHookOutput(io, failOpenOutput(harnessId, hookEvent));
       return 0;
     }
     const rawInput = await readStdin(io.stdin);
-    const parsedInput = parseInput(rawInput);
+    const parsedInput = withInjectedSession(
+      harnessId,
+      parseInput(rawInput)
+    );
     const configOutcome = await hookConfigOutcome(root, dependencies.loadConfig);
     if (configOutcome.kind === "invalid") {
+      if (completionGateInstalled) {
+        writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+          action: "block",
+          status: "UNKNOWN",
+          code: "COMPLETION_GATE_CONFIG_INVALID",
+          remedy: `Fix ${redactSecrets(configOutcome.path)} and run agent-ops doctor.`
+        }));
+        return 0;
+      }
       const output = await invalidConfigOutput({
         root,
         harness: harnessId,
@@ -395,6 +439,24 @@ export async function runHookProcess(
           processRunner
         })
       : undefined;
+    const completionGate =
+      harnessId === "agy" && config.features.completionGate.enabled
+        ? dependencies.completionGate ?? {
+            handle: async (normalized) =>
+              await new CompletionGateService({
+                root,
+                config,
+                gitRunner,
+                taskService: new TaskService(
+                  new FileTaskStore(
+                    join(root, ".agent-ops", "tasks", "state.json"),
+                    root
+                  )
+                ),
+                evidenceStore: new FileEvidenceStore(root, root)
+              }).handle(normalized)
+          }
+        : undefined;
     const output = await runHookCommand({
       harness: harness as HarnessId,
       event: hookEvent,
@@ -404,11 +466,19 @@ export async function runHookProcess(
       ...(dependencies.advisory === undefined
         ? {}
         : { advisory: dependencies.advisory }),
-      ...(stopVerification === undefined ? {} : { stopVerification })
+      ...(stopVerification === undefined ? {} : { stopVerification }),
+      ...(completionGate === undefined ? {} : { completionGate })
     });
     writeHookOutput(io, output);
   } catch {
-    // ponytail: fail-open by design; hook failures stay invisible to the harness.
+    if (completionGateInstalled) {
+      writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+        action: "block",
+        status: "UNKNOWN",
+        code: "COMPLETION_GATE_UNAVAILABLE",
+        remedy: "Run agent-ops doctor; use a user-approved one-time permit only after diagnosis."
+      }));
+    }
   }
   return 0;
 }

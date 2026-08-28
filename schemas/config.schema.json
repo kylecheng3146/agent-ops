@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "profiles": {
       "type": "array",
@@ -75,8 +75,18 @@
     "features": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stopVerification"],
+      "required": ["completionGate", "stopVerification"],
       "properties": {
+        "completionGate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
         "stopVerification": {
           "type": "object",
           "additionalProperties": false,

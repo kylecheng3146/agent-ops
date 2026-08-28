@@ -42,7 +42,7 @@ const LEGACY_MANAGED_BLOCK =
   `${START_MARKER}\n${LEGACY_MANAGED_BODY}\n${END_MARKER}\n`;
 const TEST_TOOLKIT_VERSION = "0.1.5";
 const CONFIG = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   profiles: ["core"],
   verification: {
     commands: [
@@ -57,6 +57,7 @@ const CONFIG = {
     ]
   },
   features: {
+    completionGate: { enabled: false },
     stopVerification: { enabled: false }
   },
   pathMappings: [{ path: "src", verifierIds: ["test"] }],
@@ -278,10 +279,11 @@ test("reports managed artifacts as update-required after profile changes", async
   const root = await createFreshInstallation();
   try {
     const configSource = `${JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       profiles: ["advisory"],
       verification: { commands: [] },
       features: {
+        completionGate: { enabled: false },
         stopVerification: { enabled: false }
       },
       pathMappings: [],
@@ -349,7 +351,7 @@ test("reports desired capability drift as UPDATE_REQUIRED", async () => {
       })
     );
     const configSource = `${JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       profiles: ["guardrails"],
       verification: {
         commands: [
@@ -364,6 +366,7 @@ test("reports desired capability drift as UPDATE_REQUIRED", async () => {
         ]
       },
       features: {
+        completionGate: { enabled: false },
         stopVerification: { enabled: true }
       },
       pathMappings: [],
@@ -433,6 +436,34 @@ test("does not mask a missing managed artifact as staleness", async () => {
 
     assert.equal(checkStatus(report, "artifacts"), "FAIL");
     assert.equal(checkStatus(report, "artifact-staleness"), "UNKNOWN");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("diagnoses missing or tampered agy Gemini instructions", async () => {
+  const root = await createFreshInstallation({ harness: ["agy"] });
+  try {
+    const rulesPath = join(root, ".agent-ops", "GEMINI.md");
+    const rules = await readFile(rulesPath, "utf8");
+    await writeFile(rulesPath, "tampered\n");
+    let report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+    assert.equal(checkStatus(report, "artifacts"), "FAIL");
+
+    await writeFile(rulesPath, rules);
+    await rm(join(root, "GEMINI.md"));
+    report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+    assert.equal(checkStatus(report, "markers"), "FAIL");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -911,10 +942,11 @@ test("treats an empty profile list as no lifecycle capability", async () => {
       })
     );
     const configSource = `${JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       profiles: [],
       verification: { commands: [] },
       features: {
+        completionGate: { enabled: false },
         stopVerification: { enabled: false }
       },
       pathMappings: [],
