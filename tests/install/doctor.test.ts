@@ -503,6 +503,40 @@ test("fails markers when managed block content changes", async () => {
   }
 });
 
+test("passes markers when the managed block file uses CRLF line endings", async () => {
+  const root = await createInstallation();
+  try {
+    const crlfSource = (
+      await readFile(join(root, "AGENTS.md"), "utf8")
+    ).replace(/\n/g, "\r\n");
+    await writeFile(join(root, "AGENTS.md"), crlfSource);
+    const manifest: InstallManifest = JSON.parse(
+      await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
+    );
+    await writeFile(
+      join(root, ".agent-ops", "manifest.json"),
+      formatInstallManifest({
+        ...manifest,
+        markers: manifest.markers.map((marker) =>
+          marker.path === "AGENTS.md"
+            ? { ...marker, hash: sha256(crlfSource) }
+            : marker
+        )
+      })
+    );
+
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      probes: passingProbes()
+    });
+
+    assert.equal(checkStatus(report, "markers"), "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("recognizes an exact legacy routing block as managed but needing migration", async () => {
   const root = await createInstallation(LEGACY_MANAGED_BLOCK);
   try {

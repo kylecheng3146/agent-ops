@@ -5,6 +5,7 @@ import type {
 import {
   applyManagedBlock,
   managedBlockMarkers,
+  normalizeToLF,
   type ManagedBlockMarkerStyle
 } from "../fs/managed-block.js";
 import { AgentOpsError } from "../fs/paths.js";
@@ -323,9 +324,8 @@ export function assertExpectedManagedBlock(
       `Managed block boundaries changed after installation: ${marker.path}`
     );
   }
-  const currentBlock = source.slice(
-    startIndex,
-    endIndex + marker.endMarker.length
+  const currentBlock = normalizeToLF(
+    source.slice(startIndex, endIndex + marker.endMarker.length)
   );
   const candidates: readonly ["desired" | "legacy", string][] = [
     ["desired", expected.content],
@@ -334,12 +334,14 @@ export function assertExpectedManagedBlock(
     )
   ];
   for (const [kind, content] of candidates) {
-    const expectedBlock = applyManagedBlock("", {
-      id: expected.id,
-      version: 1,
-      content,
-      markerStyle: expected.markerStyle
-    }).replace(/\n$/u, "");
+    const expectedBlock = normalizeToLF(
+      applyManagedBlock("", {
+        id: expected.id,
+        version: 1,
+        content,
+        markerStyle: expected.markerStyle
+      }).replace(/\n$/u, "")
+    );
     if (currentBlock === expectedBlock) {
       return kind;
     }

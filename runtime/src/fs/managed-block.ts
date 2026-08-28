@@ -18,6 +18,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+export function normalizeToLF(source: string): string {
+  return source.replace(/\r\n/g, "\n");
+}
+
+/** Newline sequence to use for newly rendered content, inferred from the file. */
+function detectNewline(source: string): "\r\n" | "\n" {
+  return source.includes("\r\n") ? "\r\n" : "\n";
+}
+
 function assertBlockId(id: string): void {
   if (!/^[a-z][a-z0-9-]{0,127}$/.test(id)) {
     throw new AgentOpsError("INVALID_BLOCK_ID", `Invalid block ID: ${id}`);
@@ -117,7 +126,7 @@ function locateMarkers(
   return { start, end, startIndex, endIndex };
 }
 
-function renderBlock(options: ManagedBlockOptions): string {
+function renderBlock(options: ManagedBlockOptions, nl: "\r\n" | "\n"): string {
   if (/(?:<!--|#)\s*agent-ops:/.test(options.content)) {
     throw new AgentOpsError(
       "AMBIGUOUS_MANAGED_CONTENT",
@@ -129,15 +138,19 @@ function renderBlock(options: ManagedBlockOptions): string {
     options.version,
     options.markerStyle
   );
-  const content = options.content.replace(/\r\n/g, "\n").replace(/\n+$/g, "");
-  return `${start}\n${content}\n${end}`;
+  const content = normalizeToLF(options.content)
+    .replace(/\n+$/g, "")
+    .split("\n")
+    .join(nl);
+  return `${start}${nl}${content}${nl}${end}`;
 }
 
 export function applyManagedBlock(
   source: string,
   options: ManagedBlockOptions
 ): string {
-  const block = renderBlock(options);
+  const nl = detectNewline(source);
+  const block = renderBlock(options, nl);
   const located = locateMarkers(
     source,
     options.id,
@@ -146,14 +159,16 @@ export function applyManagedBlock(
   );
   if (located === null) {
     if (source.length === 0) {
-      return `${block}\n`;
+      return `${block}${nl}`;
     }
-    return `${source.replace(/\n*$/, "\n\n")}${block}\n`;
+    return `${source.replace(/(?:\r\n|\n)*$/, `${nl}${nl}`)}${block}${nl}`;
   }
   return `${source.slice(0, located.startIndex)}${block}${source.slice(
     located.endIndex + located.end.length
   )}`;
 }
+
+const NEWLINE_STYLES = ["\r\n", "\n"] as const;
 
 export function removeManagedBlock(
   source: string,
@@ -166,12 +181,15 @@ export function removeManagedBlock(
   }
   let before = source.slice(0, located.startIndex);
   let after = source.slice(located.endIndex + located.end.length);
-  if (before.length === 0 && after === "\n") {
+  if (before.length === 0 && NEWLINE_STYLES.some((nl) => after === nl)) {
     return "";
   }
-  if (before.endsWith("\n\n") && after.startsWith("\n")) {
-    before = before.slice(0, -1);
-    after = after.slice(1);
+  const collapseNl = NEWLINE_STYLES.find(
+    (nl) => before.endsWith(`${nl}${nl}`) && after.startsWith(nl)
+  );
+  if (collapseNl !== undefined) {
+    before = before.slice(0, -collapseNl.length);
+    after = after.slice(collapseNl.length);
   }
   return `${before}${after}`;
 }
