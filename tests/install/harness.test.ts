@@ -5,6 +5,7 @@ import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import {
   COMMON_AGENTS_BLOCK,
   COMMON_CLAUDE_BLOCK,
+  COMMON_GEMINI_BLOCK,
   commonHarnessAdapters,
   HARNESS_IDS,
   harnessDescriptor,
@@ -122,6 +123,25 @@ test("deduplicates the shared project AGENTS contribution for codex and opencode
     planned.blocks.map(({ id, path }) => ({ id, path })),
     [{ id: "agents-routing", path: "AGENTS.md" }]
   );
+});
+
+test("uses native project GEMINI routing for agy", async () => {
+  const planned = await planHarnessContributions(
+    ["agy"],
+    CONTEXT,
+    commonHarnessAdapters()
+  );
+
+  assert.deepEqual(
+    planned.artifacts.map(({ id, path }) => ({ id, path })),
+    [{ id: "gemini-rules", path: ".agent-ops/GEMINI.md" }]
+  );
+  assert.deepEqual(planned.blocks, [{
+    id: "agy-routing",
+    path: "GEMINI.md",
+    version: 1,
+    content: COMMON_GEMINI_BLOCK
+  }]);
 });
 
 test("fails with a stable error when a requested adapter is missing", async () => {
@@ -296,7 +316,11 @@ test("every harness exposes control and runtime adapter contracts", () => {
       );
       assert.equal(failure.exitCode, 0, id);
       if (registration.runtimeFailure === "fail-closed") {
-        assert.match(failure.stdout, /deny/, id);
+        assert.match(
+          failure.stdout,
+          registration.capability === "completion-gate" ? /continue/ : /deny/,
+          id
+        );
       } else {
         assert.doesNotMatch(failure.stdout, /deny/, id);
       }
@@ -327,6 +351,10 @@ test("support declarations match the current real hook fidelity", () => {
         runtimeFailure: "fail-open"
       },
       "command-policy": {
+        support: "supported",
+        runtimeFailure: "fail-closed"
+      },
+      "completion-gate": {
         support: "supported",
         runtimeFailure: "fail-closed"
       },

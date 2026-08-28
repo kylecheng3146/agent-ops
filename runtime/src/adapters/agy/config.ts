@@ -23,11 +23,13 @@ function record(value: unknown): Record<string, unknown> | null {
 function handler(
   runtimePath: string,
   event: "SessionStart" | "PreToolUse" | "Stop",
-  platform: NodeJS.Platform
+  platform: NodeJS.Platform,
+  completionGate = false
 ): Handler {
+  const gateFlag = completionGate ? " --completion-gate" : "";
   const command = platform === "win32"
-    ? `cmd /c node ${JSON.stringify(runtimePath).replaceAll("\\\\", "\\")} agy ${event} ${MARKER}`
-    : `node ${JSON.stringify(runtimePath)} agy ${event} ${MARKER}`;
+    ? `cmd /c node ${JSON.stringify(runtimePath).replaceAll("\\\\", "\\")} agy ${event}${gateFlag} ${MARKER}`
+    : `node ${JSON.stringify(runtimePath)} agy ${event}${gateFlag} ${MARKER}`;
   return {
     type: "command",
     command,
@@ -48,7 +50,9 @@ function managedHandler(value: unknown, event: "SessionStart" | "PreToolUse" | "
     typeof candidate.command === "string" &&
     (candidate.command.startsWith("node \"") ||
       candidate.command.startsWith("cmd /c node \"")) &&
-    candidate.command.endsWith(` agy ${event} ${MARKER}`);
+    (candidate.command.endsWith(` agy ${event} ${MARKER}`) ||
+      (event === "Stop" &&
+        candidate.command.endsWith(` agy Stop --completion-gate ${MARKER}`)));
 }
 
 function managedEvent(value: unknown, event: "PreInvocation" | "PreToolUse" | "Stop"): boolean {
@@ -85,8 +89,16 @@ export function buildAgyHookSettings(
   if (capabilities.includes("command-policy") || capabilities.includes("project-loop")) {
     hooks.PreToolUse = [{ matcher: "run_command", hooks: [handler(runtimePath, "PreToolUse", platform)] }];
   }
-  if (capabilities.includes("optional-stop-verify")) {
-    hooks.Stop = [handler(runtimePath, "Stop", platform)];
+  if (
+    capabilities.includes("optional-stop-verify") ||
+    capabilities.includes("completion-gate")
+  ) {
+    hooks.Stop = [handler(
+      runtimePath,
+      "Stop",
+      platform,
+      capabilities.includes("completion-gate")
+    )];
   }
   return { hooks };
 }
@@ -111,11 +123,17 @@ export function isAgyHookRegistered(
   if (Object.keys(expected).length === 0) return true;
   const named = record(record(value)?.["agent-ops"]);
   if (named === null || !isAgyManagedHook(value)) return false;
-  return Object.keys(expected)
+  const eventsMatch = Object.keys(expected)
     .every((event) => managedEvent(
       named[event],
       event as "PreInvocation" | "PreToolUse" | "Stop"
     ));
+  if (!eventsMatch || !capabilities.includes("completion-gate")) {
+    return eventsMatch;
+  }
+  const stop = Array.isArray(named.Stop) ? record(named.Stop[0]) : null;
+  return typeof stop?.command === "string" &&
+    stop.command.endsWith(` agy Stop --completion-gate ${MARKER}`);
 }
 
 export function mergeAgyHooks(existing: unknown, managed: AgyHookSettings): Record<string, unknown> {

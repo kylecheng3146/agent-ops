@@ -44,9 +44,7 @@ function expectedMarker(
   id: HarnessId,
   markerId: string
 ): ExpectedManagedMarker {
-  const descriptor = harnessDescriptor(
-    id === "agy" && manifest.scope === "project" ? "codex" : id
-  );
+  const descriptor = manifestDescriptor(manifest, id);
   const markers = managedBlockMarkers(markerId, 1, "html");
   return {
     id: markerId,
@@ -62,6 +60,18 @@ function expectedMarker(
     content: descriptor.control.routing.desired,
     legacyContent: descriptor.control.routing.legacy
   };
+}
+
+function manifestDescriptor(
+  manifest: InstallManifest,
+  id: HarnessId
+) {
+  const legacyProjectAgy =
+    id === "agy" &&
+    manifest.scope === "project" &&
+    !manifest.artifacts.some(({ path }) => path === ".agent-ops/GEMINI.md") &&
+    !manifest.markers.some(({ id: markerId }) => markerId === "agy-routing");
+  return harnessDescriptor(legacyProjectAgy ? "codex" : id);
 }
 
 function expectedLoopMarker(
@@ -181,9 +191,7 @@ export function assertSupportedManifestOwnership(
     throw manifestOwnershipError();
   }
   for (const id of harnesses) {
-    const descriptor = harnessDescriptor(
-      id === "agy" && manifest.scope === "project" ? "codex" : id
-    );
+    const descriptor = manifestDescriptor(manifest, id);
     const artifactPath = `.agent-ops/${descriptor.control.instructionFile}`;
     const artifactKey = pathKey(artifactPath);
     const artifactEntry = expectedArtifactPaths.get(artifactKey);

@@ -171,12 +171,13 @@ test("requires verification commands when Stop verification is enabled", async (
 
 test("prioritizes shell acknowledgement for the mandated minimal input", () => {
   const result = validateConfig({
-    schemaVersion: 2,
+    schemaVersion: 3,
     verification: {
       commands: [{ id: "test", command: "npm test", shell: true }]
     },
     profiles: [],
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: false }
     },
     pathMappings: [],
@@ -646,7 +647,7 @@ test("bounds execution-related numeric values to safe integers", async () => {
 test("JSON Schema documents expose the same top-level versioned fields", async () => {
   // The manifest versions on its own track, so it declares its own const.
   const cases = [
-    ["config.schema.json", "valid-config.json", 2],
+      ["config.schema.json", "valid-config.json", 3],
     ["task.schema.json", "valid-task.json", 1],
     ["evidence.schema.json", "valid-evidence.json", 2],
     ["manifest.schema.json", "valid-manifest.json", 2]

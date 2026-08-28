@@ -42,11 +42,25 @@ const MIGRATIONS = new Map<number, Migration>([
       const { schemaVersion: _schemaVersion, ...rest } = input;
       return {
         ...rest,
-        schemaVersion: CONFIG_SCHEMA_VERSION,
+        schemaVersion: 2,
         features: {
           stopVerification: {
             enabled: false
           }
+        }
+      };
+    }
+  ],
+  [
+    2,
+    (input) => {
+      const { schemaVersion: _schemaVersion, features, ...rest } = input;
+      return {
+        ...rest,
+        schemaVersion: CONFIG_SCHEMA_VERSION,
+        features: {
+          ...(isRecord(features) ? features : {}),
+          completionGate: { enabled: false }
         }
       };
     }

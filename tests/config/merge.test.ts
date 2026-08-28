@@ -38,10 +38,11 @@ function exception(scope: string): SecurityException {
 
 function config(overrides: Partial<AgentOpsConfig> = {}): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [] },
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: false }
     },
     pathMappings: [],

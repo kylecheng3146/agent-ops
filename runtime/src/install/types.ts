@@ -9,6 +9,7 @@ export type Capability =
   | "local-log"
   | "command-policy"
   | "project-loop"
+  | "completion-gate"
   | "optional-stop-verify";
 
 export type CapabilitySupport =
@@ -44,6 +45,7 @@ export interface CapabilityRegistrationSpec {
   readonly capability:
     | "lifecycle-summary"
     | "command-policy"
+    | "completion-gate"
     | "optional-stop-verify";
   readonly normalizedEvent: "session-start" | "command" | "stop";
   readonly nativeEvent: "SessionStart" | "PreToolUse" | "Stop";

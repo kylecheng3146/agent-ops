@@ -42,14 +42,17 @@ test("recognizes every top-level command", () => {
     "uninstall",
     "task",
     "verify",
-    "review"
+    "review",
+    "allow-stop"
   ]);
 
   for (const command of COMMAND_NAMES) {
     const argv =
       command === "trust" || command === "task"
         ? [command, "status"]
-        : [command];
+        : command === "allow-stop"
+          ? [command, "--session", "session-one"]
+          : [command];
     assert.equal(parseArgs(argv).command, command);
   }
 });
@@ -96,6 +99,19 @@ test("parses structured task lifecycle arguments", () => {
       "criterion-one=evidence/one.json",
       "criterion-two=evidence/two.json"
     ]
+  );
+  assert.equal(
+    parseArgs([
+      "task",
+      "create",
+      "--title",
+      "Attached task",
+      "--criterion",
+      "{\"id\":\"criterion-one\",\"description\":\"One\",\"verifierIds\":[\"unit\"]}",
+      "--session",
+      "session-one"
+    ]).sessionId,
+    "session-one"
   );
 });
 
@@ -148,7 +164,6 @@ test("rejects ignored or conflicting verify options", () => {
 
 test("rejects task options that an action would ignore", () => {
   for (const argv of [
-    ["task", "create", "--session", "session-one"],
     ["task", "status", "--evidence", "criterion=reference"],
     ["task", "archive", "--title", "ignored"],
     ["task", "export", "--dry-run"]

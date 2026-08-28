@@ -92,6 +92,7 @@ script，也不得改變一般 permission request。
 | --- | --- | --- | --- | --- |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
+| completion-gate | supported | unsupported | unsupported | unsupported |
 | optional-stop-verify | degraded | unsupported | supported | degraded |
 
 Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安裝的 config
@@ -101,11 +102,13 @@ denial 或 unavailable-runtime error。Codex 維持 `unknown` 且絕不輸出 de
 Fixture test 只斷言這些 wire 與 plugin shape；它們不證明 host 會實際遵守 denial。
 每個 `SessionStart` 與 `Stop` failure path 都維持 fail-open。
 
-agy adapter 在 project scope 與 Codex、OpenCode 共用 `AGENTS.md` routing；user
+agy adapter 在 project scope 使用原生 `GEMINI.md` routing 到
+`.agent-ops/GEMINI.md`；user
 scope 管理 `.agent-ops/GEMINI.md` 與 shared `.gemini/GEMINI.md` rule surface。
 其 native hook 使用 camelCase input，command-policy block 回傳
-`decision: "deny"`，且不會強迫 Stop 繼續。在 Windows 透過 `cmd /c` 呼叫產生的
-command。
+`decision: "deny"`。只有明確啟用 completion gate 時，未具完備證據的 final
+changed conversation 才回傳 `decision: "continue"`；唯讀 conversation 正常
+結束。在 Windows 透過 `cmd /c` 呼叫產生的 command。
 
 Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 disabled。
 每個 Stop 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠

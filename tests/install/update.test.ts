@@ -133,7 +133,8 @@ test("migrates a manifest-owned version 0 config during update", async () => {
 
     assert.deepEqual(plan.migrationSteps, [
       { fromVersion: 0, toVersion: 1 },
-      { fromVersion: 1, toVersion: 2 }
+      { fromVersion: 1, toVersion: 2 },
+      { fromVersion: 2, toVersion: 3 }
     ]);
     const configOperation = plan.installation.operations.find(
       ({ path }) => path === ".agent-ops/config.json"
@@ -142,25 +143,26 @@ test("migrates a manifest-owned version 0 config during update", async () => {
     if (configOperation?.kind !== "write") {
       assert.fail("update plan must write the migrated config");
     }
-    const expectedVersionTwo = {
-      schemaVersion: 2,
+    const expectedVersionThree = {
+      schemaVersion: 3,
       profiles: ["core"],
       verification: { commands },
       features: {
-        stopVerification: { enabled: false }
+        stopVerification: { enabled: false },
+        completionGate: { enabled: false }
       },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
     };
     assert.deepEqual(
       JSON.parse(configOperation.content) as unknown,
-      expectedVersionTwo
+      expectedVersionThree
     );
 
     await applyUpdatePlan(root, plan);
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")) as unknown,
-      expectedVersionTwo
+      expectedVersionThree
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -457,7 +459,8 @@ test("explicit target update is offline and preserves verifier config", async ()
     assert.equal(registryCalls, 0);
     assert.equal(plan.targetVersion, "0.2.0");
     assert.deepEqual(plan.migrationSteps, [
-      { fromVersion: 1, toVersion: 2 }
+      { fromVersion: 1, toVersion: 2 },
+      { fromVersion: 2, toVersion: 3 }
     ]);
     const rulesOperation = plan.installation.operations.find(
       ({ path }) => path === ".agent-ops/AGENTS.md"
@@ -470,9 +473,10 @@ test("explicit target update is offline and preserves verifier config", async ()
     await applyUpdatePlan(root, plan);
     assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {
       ...configured,
-      schemaVersion: 2,
+      schemaVersion: 3,
       features: {
-        stopVerification: { enabled: false }
+        stopVerification: { enabled: false },
+        completionGate: { enabled: false }
       }
     });
     assert.match(

@@ -107,7 +107,7 @@ function hookConfig(
   stopVerification = false
 ): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles,
     verification: {
       commands: stopVerification
@@ -124,6 +124,7 @@ function hookConfig(
         : []
     },
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: stopVerification }
     },
     pathMappings: [],
@@ -283,10 +284,11 @@ test("repository trust separates ungranted from stale bindings", () => {
 
 test("smoke availability follows configured verification commands", () => {
   const config: AgentOpsConfig = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [] },
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: false }
     },
     pathMappings: [],

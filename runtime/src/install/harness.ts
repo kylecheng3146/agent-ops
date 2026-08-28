@@ -345,7 +345,7 @@ const DESCRIPTORS: Readonly<Record<HarnessId, HarnessDescriptor>> = {
         isAgyHookRegistered(parseJsonSource(source), capabilities),
       plan: async (context) => {
         if (context.scope === "project") {
-          return await planCommonHarnessContribution("codex", context);
+          return await planCommonHarnessContribution("agy", context);
         }
         const descriptor = DESCRIPTORS.agy;
         return {
@@ -569,6 +569,7 @@ export function resolveHarnessSelection(value: string): Harness | null {
 
 export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.control.routing.desired;
 export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.control.routing.desired;
+export const COMMON_GEMINI_BLOCK = DESCRIPTORS.agy.control.routing.desired;
 
 export function managedRules(
   descriptor: HarnessDescriptor,
@@ -631,6 +632,23 @@ export function managedRules(
     lines.push(
       "Command policy guards high-confidence unsafe actions. Explicitly enabled",
       "Stop verification is report-only and never marks a task complete by itself.",
+      ""
+    );
+  }
+  if (context.capabilities.includes("completion-gate")) {
+    lines.push(
+      "The agy completion gate applies only when this conversation creates a",
+      "Git-visible net change after its first PreInvocation baseline. Read-only",
+      "questions and analysis stop normally. A changed conversation must be",
+      "attached to one task with two to five acceptance criteria; current PASS",
+      "verification evidence, a PASS review attestation, and completed task state",
+      "are all required before Stop. Error, max-step, and non-idle stops are not",
+      "blocked. The gate inspects evidence but never runs tests or review itself.",
+      "A user may approve `agent-ops allow-stop --session <conversationId>` for",
+      "one Stop bound to the current source fingerprint; the PreToolUse hook must",
+      "return `force_ask`, so the agent cannot self-authorize this escape hatch.",
+      "For headless or CI enforcement, launch agy through",
+      "`agent-ops agy-run -- <agy arguments>`.",
       ""
     );
   }

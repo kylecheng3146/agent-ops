@@ -20,7 +20,8 @@ export const COMMAND_NAMES = [
   "uninstall",
   "task",
   "verify",
-  "review"
+  "review",
+  "allow-stop"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -51,6 +52,8 @@ export interface ParsedArgs {
   profiles: Profile[];
   /** Review target CLIs, in declared order. Absent means disabled. */
   reviewTargets?: ReviewTargetId[];
+  /** Explicitly enable the agy project-loop completion gate. */
+  completionGate?: boolean;
   /** Authorizes doctor's expensive review-target authentication probe. */
   checkAuth?: boolean;
   taskId?: string;
@@ -155,6 +158,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const criteria: string[] = [];
   const evidence: string[] = [];
   let checkAuth = false;
+  let completionGate: boolean | undefined;
   let dryRun = false;
   let json = false;
   let yes = false;
@@ -287,6 +291,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         checkAuth = true;
         break;
+      case "--completion-gate":
+        if (completionGate !== undefined) {
+          duplicate(token);
+        }
+        completionGate = true;
+        break;
       case "--dry-run":
         if (dryRun) {
           duplicate(token);
@@ -399,6 +409,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       criteria.length > 0 ||
       evidence.length > 0 ||
       reviewTargets.length > 0 ||
+      completionGate !== undefined ||
       sessionId !== undefined ||
       base !== undefined ||
       checkAuth ||
@@ -441,6 +452,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     command !== "task" &&
     command !== "verify" &&
     command !== "review" &&
+    command !== "allow-stop" &&
     (hasTaskTargetOptions || hasTaskMutationOptions)
   ) {
     throw new CliArgumentError(
@@ -488,6 +500,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "--review-target may be used only with init."
     );
   }
+  if (completionGate !== undefined && command !== "init") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--completion-gate may be used only with init."
+    );
+  }
   if (command === "task") {
     if (
       harness !== undefined ||
@@ -503,8 +521,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     const taskOptionInvalid =
       (action === "create" &&
         (taskId !== undefined ||
-          evidence.length > 0 ||
-          sessionId !== undefined)) ||
+          evidence.length > 0)) ||
       (action === "status" &&
         (title !== undefined ||
           criteria.length > 0 ||
@@ -575,6 +592,24 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command === "review" && harness !== undefined && harness.length !== 1) {
     invalidValue("--harness", harness.join(","));
   }
+  if (
+    command === "allow-stop" &&
+    (sessionId === undefined ||
+      scope !== undefined ||
+      harness !== undefined ||
+      taskId !== undefined ||
+      profiles.length > 0 ||
+      title !== undefined ||
+      criteria.length > 0 ||
+      evidence.length > 0 ||
+      dryRun ||
+      yes)
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "allow-stop requires only --session (and optional --json)."
+    );
+  }
 
   return {
     command,
@@ -588,6 +623,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(targetVersion === undefined ? {} : { targetVersion }),
     ...(title === undefined ? {} : { title }),
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
+    ...(completionGate === undefined ? {} : { completionGate }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(evidence.length === 0 ? {} : { evidence }),
     ...(sessionId === undefined ? {} : { sessionId }),

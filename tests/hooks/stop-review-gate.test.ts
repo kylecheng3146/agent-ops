@@ -78,10 +78,13 @@ function command(): VerificationCommand {
 
 function config(reviewRoles: AgentOpsConfig["reviewRoles"]): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [command()] },
-    features: { stopVerification: { enabled: true } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled: true }
+    },
     pathMappings: [{ path: "src", verifierIds: ["unit"] }],
     securityExceptions: [],
     ...(reviewRoles === undefined ? {} : { reviewRoles })

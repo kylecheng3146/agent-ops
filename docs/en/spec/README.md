@@ -4,12 +4,12 @@ This is the normative English specification for bounded, evidence-driven work.
 
 The harness adapter rules cover agy, Codex, Claude Code, and opencode. The
 opencode integration is a generated local plugin; it does not manage
-`opencode.json`. agy shares project `AGENTS.md` routing, uses native hooks, and
+`opencode.json`. agy uses project `GEMINI.md` routing, uses native hooks, and
 is explicitly degraded where its lifecycle surface is smaller than the full
 loop.
 
-Configuration is versioned independently from the manifest. Config v1 migrates
-to config v2 with Stop verification disabled; changing the capability requires
+Configuration is versioned independently from the manifest. Older configs migrate
+to config v3 with Stop verification and the agy completion gate disabled; changing a capability requires
 a confirmed project `agent-ops update`, which also refreshes trust when
 verifiers exist. Stop verification is
 explicit, trusted, report-only, and never completes a task. Dry-run plans keep

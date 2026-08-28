@@ -59,6 +59,12 @@ export async function dispatchHookEvent(
   event: NormalizedHookEvent,
   options: HookDispatchOptions
 ): Promise<HookResult> {
+  if (options.completionGate !== undefined) {
+    const result = await options.completionGate.handle(event);
+    if (result !== null) {
+      return result;
+    }
+  }
   if (event.event === "unsupported") {
     return continueWith("UNKNOWN", "HOOK_EVENT_UNSUPPORTED");
   }

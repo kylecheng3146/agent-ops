@@ -12,10 +12,13 @@ import {
 
 function baseConfig(): Record<string, unknown> {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [] },
-    features: { stopVerification: { enabled: false } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled: false }
+    },
     pathMappings: [],
     securityExceptions: []
   };
@@ -39,11 +42,11 @@ test("a config without reviewRoles validates and yields no targets", () => {
     return;
   }
   assert.equal(result.value.reviewRoles, undefined);
-  assert.equal(result.value.schemaVersion, 2);
+  assert.equal(result.value.schemaVersion, 3);
   assert.deepEqual(reviewTargets(result.value, "independent-review"), []);
 });
 
-test("a config with reviewRoles round-trips validation at schemaVersion 2", () => {
+test("a config with reviewRoles round-trips validation at schemaVersion 3", () => {
   const result = validateConfig({
     ...baseConfig(),
     reviewRoles: [
@@ -60,7 +63,7 @@ test("a config with reviewRoles round-trips validation at schemaVersion 2", () =
   if (!result.ok) {
     return;
   }
-  assert.equal(result.value.schemaVersion, 2);
+  assert.equal(result.value.schemaVersion, 3);
   assert.deepEqual(
     reviewTargets(result.value, "independent-review"),
     ["codex", "agy"]
@@ -153,10 +156,13 @@ test("host detection accepts an explicit current CLI and otherwise recognizes Cl
 
 test("a loaded config exposes reviewRoles through the config type", () => {
   const config: AgentOpsConfig = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["core"],
     verification: { commands: [] },
-    features: { stopVerification: { enabled: false } },
+    features: {
+      completionGate: { enabled: false },
+      stopVerification: { enabled: false }
+    },
     pathMappings: [],
     securityExceptions: [],
     reviewRoles: [

@@ -89,6 +89,8 @@ export interface CreateInstallPlanOptions {
   readonly hookTargets?: readonly HookTargetSelection[];
   /** Review target CLIs to record in the managed config, in chain order. */
   readonly reviewTargets?: readonly ReviewTargetId[];
+  /** Explicit opt-in for the agy project-loop completion gate. */
+  readonly completionGateEnabled?: boolean;
   /**
    * Update may reconcile an existing managed installation when the selected
    * harness set or capability-implied hooks changes. Init keeps the existing
@@ -202,7 +204,8 @@ function buildConfig(
     readonly reviewRoles?: readonly ReviewRoleConfig[];
   },
   reviewTargets: readonly ReviewTargetId[] = [],
-  detectedCommands: readonly VerificationCommand[] = []
+  detectedCommands: readonly VerificationCommand[] = [],
+  completionGateEnabled = false
 ): AgentOpsConfig {
   // Absent reviewRoles means external review is disabled; an empty selection
   // must therefore omit the field rather than write an empty array.
@@ -221,6 +224,9 @@ function buildConfig(
     features: existing?.features ?? {
       stopVerification: {
         enabled: false
+      },
+      completionGate: {
+        enabled: completionGateEnabled
       }
     },
     pathMappings: existing?.pathMappings ?? [],
@@ -237,7 +243,8 @@ async function planConfig(
     readonly value: AgentOpsConfig;
     readonly sourceHash: string;
   },
-  reviewTargets: readonly ReviewTargetId[] = []
+  reviewTargets: readonly ReviewTargetId[] = [],
+  completionGateEnabled = false
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -314,7 +321,8 @@ async function planConfig(
     profiles,
     existingConfig,
     reviewTargets,
-    detectedCommands
+    detectedCommands,
+    completionGateEnabled
   );
   const content = `${JSON.stringify(config, null, 2)}\n`;
   return {
@@ -712,6 +720,26 @@ export async function createInstallPlan(
     options.harness,
     resolved.capabilities
   );
+  const completionGateEnabled =
+    options.existingConfig?.value.features.completionGate.enabled ??
+    options.completionGateEnabled === true;
+  if (
+    completionGateEnabled &&
+    (options.scope !== "project" ||
+      !options.harness.includes("agy") ||
+      !resolved.capabilities.includes("project-loop"))
+  ) {
+    throw new AgentOpsError(
+      "COMPLETION_GATE_UNSUPPORTED",
+      "The completion gate requires project scope with the agy harness and loop profile."
+    );
+  }
+  if (
+    completionGateEnabled &&
+    !resolved.capabilities.includes("completion-gate")
+  ) {
+    resolved.capabilities.push("completion-gate");
+  }
   await assertCodexLoopConfiguration(
     options.root,
     options.harness,
@@ -852,7 +880,8 @@ export async function createInstallPlan(
     resolved.profiles,
     existing?.manifest ?? null,
     options.existingConfig,
-    options.reviewTargets ?? []
+    options.reviewTargets ?? [],
+    completionGateEnabled
   );
   operations.push(config.operation);
   artifacts.push(config.record);

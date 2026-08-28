@@ -64,10 +64,11 @@ test("loop implies core and contributes the project loop capability", () => {
 
 test("resolves optional Stop verification only from the explicit feature", () => {
   const base: AgentOpsConfig = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles: ["guardrails"],
     verification: { commands: [] },
     features: {
+      completionGate: { enabled: false },
       stopVerification: { enabled: false }
     },
     pathMappings: [],
@@ -95,7 +96,10 @@ test("resolves optional Stop verification only from the explicit feature", () =>
           }
         ]
       },
-      features: { stopVerification: { enabled: true } }
+      features: {
+        completionGate: { enabled: false },
+        stopVerification: { enabled: true }
+      }
     }).capabilities,
     [
       "rules",

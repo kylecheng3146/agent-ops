@@ -17,16 +17,34 @@ export function normalizeAgyHookInput(input: unknown): NormalizedHookEvent {
   const projectRoot = typeof workspacePaths[0] === "string"
     ? workspacePaths[0]
     : undefined;
+  const sessionId = typeof value.conversationId === "string"
+    ? value.conversationId
+    : undefined;
   const toolCall = record(value.toolCall);
   const args = record(toolCall?.args);
   if (toolCall?.name === "run_command" && typeof args?.CommandLine === "string") {
-    return normalizeShellHookEvent(args.CommandLine, projectRoot);
+    return {
+      ...normalizeShellHookEvent(args.CommandLine, projectRoot),
+      ...(sessionId === undefined ? {} : { sessionId })
+    };
   }
   if (typeof value.terminationReason === "string") {
-    return normalizeHookEvent({ event: "stop", projectRoot });
+    return {
+      event: "stop",
+      projectRoot: projectRoot ?? process.cwd(),
+      ...(sessionId === undefined ? {} : { sessionId }),
+      terminationReason: value.terminationReason,
+      ...(typeof value.fullyIdle === "boolean"
+        ? { fullyIdle: value.fullyIdle }
+        : {})
+    };
   }
   if (typeof value.invocationNum === "number") {
-    return normalizeHookEvent({ event: "session-start", projectRoot });
+    return {
+      event: "session-start",
+      projectRoot: projectRoot ?? process.cwd(),
+      ...(sessionId === undefined ? {} : { sessionId })
+    };
   }
   return normalizeHookEvent({ event: "unsupported", projectRoot });
 }

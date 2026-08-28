@@ -201,6 +201,39 @@ test("rejects a loop profile outside project scope or without a loop harness", a
   }
 });
 
+test("enables the completion gate only for agy project-loop installs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-completion-gate-"));
+  try {
+    const plan = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["agy"],
+      profiles: ["loop"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      completionGateEnabled: true
+    });
+    assert.equal(plan.config.features.completionGate.enabled, true);
+
+    await assert.rejects(
+      createInstallPlan({
+        root,
+        scope: "project",
+        harness: ["codex"],
+        profiles: ["loop"],
+        adapters: commonHarnessAdapters(),
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+        completionGateEnabled: true
+      }),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "COMPLETION_GATE_UNSUPPORTED"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("plans native loop launchers and first-install local state", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-loop-install-"));
   try {
@@ -470,7 +503,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
     await applyInstallPlan(root, first);
     const configPath = join(root, ".agent-ops", "config.json");
     const configured = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       profiles: ["core"],
       verification: {
         commands: [
@@ -485,6 +518,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
         ]
       },
       features: {
+        completionGate: { enabled: false },
         stopVerification: { enabled: false }
       },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],

@@ -19,6 +19,14 @@ export const AGY_CAPABILITY_REGISTRATIONS = [
     runtimeFailure: "fail-closed"
   },
   {
+    capability: "completion-gate",
+    normalizedEvent: "stop",
+    nativeEvent: "Stop",
+    surfaceId: "agy-hooks",
+    support: "supported",
+    runtimeFailure: "fail-closed"
+  },
+  {
     capability: "optional-stop-verify",
     normalizedEvent: "stop",
     nativeEvent: "Stop",

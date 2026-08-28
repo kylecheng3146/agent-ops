@@ -191,7 +191,10 @@ export async function runInitCommand(
       : { hookTargets: options.hookTargets ?? args.hookTargets }),
     ...(args.reviewTargets === undefined
       ? {}
-      : { reviewTargets: args.reviewTargets })
+      : { reviewTargets: args.reviewTargets }),
+    ...(args.completionGate === undefined
+      ? {}
+      : { completionGateEnabled: args.completionGate })
   });
   const trust = await trustChange(options, plan);
   const warnings = plan.harness.includes("agy") && options.agyWarning !== undefined

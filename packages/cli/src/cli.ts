@@ -44,6 +44,8 @@ Commands:
              Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review
+  allow-stop Grant one fingerprint-bound agy Stop permit (requires --session)
+  agy-run    Run headless agy with a process-exit completion recheck
 
 Options:
   --scope <project|user>
@@ -52,6 +54,7 @@ Options:
   --profile <core|advisory|guardrails|loop>  Repeatable
   --review-target <codex|agy|claude>  Repeatable init option; external review
                                       targets in fallback-chain order
+  --completion-gate                  Init only: enable the agy project-loop gate
   --check-auth                        Doctor only: probe each review target's
                                       authentication with one real call
   --task <id>

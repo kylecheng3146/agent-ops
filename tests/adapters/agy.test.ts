@@ -108,3 +108,31 @@ test("agy Stop verification is report-only", () => {
     { decision: "allow", reason: "agent-ops: VERIFY_FAILED" }
   );
 });
+
+test("agy uses native force_ask and Stop continuation for the completion gate", () => {
+  const completionHooks = mergeAgyHooks({}, buildAgyHookSettings(
+    ["project-loop", "completion-gate"],
+    "/opt/hook-entry.js"
+  ));
+  assert.equal(isAgyHookRegistered(completionHooks, ["project-loop", "completion-gate"]), true);
+  assert.equal(isAgyHookRegistered(
+    mergeAgyHooks({}, buildAgyHookSettings(["project-loop", "optional-stop-verify"], "/opt/hook-entry.js")),
+    ["project-loop", "completion-gate"]
+  ), false);
+  assert.deepEqual(JSON.parse(agyHookOutput("PreToolUse", {
+    action: "block",
+    status: "UNKNOWN",
+    code: "COMPLETION_GATE_PERMIT_CONFIRMATION"
+  }).stdout), {
+    decision: "force_ask",
+    reason: "agent-ops: COMPLETION_GATE_PERMIT_CONFIRMATION"
+  });
+  assert.deepEqual(JSON.parse(agyHookOutput("Stop", {
+    action: "block",
+    status: "FAIL",
+    code: "COMPLETION_GATE_TASK_REQUIRED"
+  }).stdout), {
+    decision: "continue",
+    reason: "agent-ops: COMPLETION_GATE_TASK_REQUIRED"
+  });
+});

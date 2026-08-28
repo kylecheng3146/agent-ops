@@ -6,9 +6,11 @@
 `codex,opencode` 這類逗號分隔的子集。`both` 仍是 legacy Codex 加 Claude
 selection 的 input alias。
 
-Project agy、Codex 與 opencode installation 共用 managed supplemental
-`AGENTS.md` routing block 與 `.agent-ops/AGENTS.md` rules artifact。該 block
-只載入 managed baseline，並保留 project-specific instructions 的權威性。
+Project agy 使用 managed supplemental `GEMINI.md` routing block 與
+`.agent-ops/GEMINI.md` baseline；這符合 agy CLI 官方文件所述，啟動時會讀取
+workspace root 的 `GEMINI.md` 或 `AGENTS.md`。Codex 與 opencode 共用
+`AGENTS.md` route 與 `.agent-ops/AGENTS.md` artifact。這些 block 只載入
+managed baseline，並保留 project-specific instructions 的權威性。
 Claude 使用對應的 `CLAUDE.md` route 與 `.agent-ops/CLAUDE.md` artifact。Opencode 另外取得
 agent-ops 擁有的 `.opencode/plugins/agent-ops.js`；不會修改 `opencode.json`。
 Plugin 使用安裝時的 absolute runtime path 產生，因此請透過
@@ -131,6 +133,20 @@ agy 會安裝原生 `PreInvocation` 與 `PreToolUse(run_command)` 子集，docto
 位於 `.gemini/config/hooks.json`；user scope 會修改共享 Gemini rule surface
 `.gemini/GEMINI.md`。機器可讀的 `/hooks` 診斷要求 agy 1.1.12 以上。
 
+`agy` 搭配 `loop` 時，互動式 installer 會建議啟用
+`features.completionGate.enabled`；非互動安裝必須明確傳入
+`--completion-gate`。閘門使用官方定義的 `conversationId`、
+`terminationReason` 與 `fullyIdle` Stop 欄位，只有在本次 conversation 產生
+Git-visible net change 且缺少當前 task、驗證或 review 證據時，才回傳官方定義的
+`decision: "continue"`。純問答、分析、唯讀診斷、錯誤、max-step 與 non-idle Stop
+都正常結束；本版不改變 Codex、Claude Code 或 OpenCode 的 Stop 行為。Headless
+請使用 `agent-ops agy-run -- <agy arguments>`；使用者可核准一次
+`agent-ops allow-stop --session <conversationId>`，該命令由官方定義的
+`force_ask` 強制詢問。
+
+官方依據：[agy CLI workspace rule file](https://www.antigravity.google/docs/cli/best-practices/)
+與 [Antigravity hook contract](https://www.antigravity.google/docs/hooks/)。
+
 完整 Codex/Claude loop 會執行 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、
 `PermissionRequest`、`PostToolUse`、`PreCompact`、`PostCompact`、
 `SubagentStart` 與 `SubagentStop`，但永遠不加入 `Stop`。它只攔截
@@ -164,8 +180,8 @@ hook 文件](https://code.claude.com/docs/en/hooks)。
 OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface
 上 throw 文件化的 command-policy denial 或 unavailable-runtime error。Codex 明確
 不執行強制措施（`unknown`）。這些是 agent-ops 的 output 與 plugin contract，不
-證明 host 會實際遵守 denial。所有 adapter 的 `SessionStart` 與 `Stop` failure path
-都維持 fail-open。
+證明 host 會實際遵守 denial。所有 `SessionStart` 與一般 Stop verification failure
+path 都維持 fail-open；只有明確啟用的 agy completion gate 會在 final Stop fail-closed。
 
 Claude 的無效 config fallback 有四項防護：(1) 缺少 project configuration 時保持
 fail-open，因此只有無效的 `.agent-ops/config.json` 能進入 fallback；(2) manifest
@@ -176,7 +192,7 @@ hook-process environment 讀取，不能由 agent-ops configuration、manifest �
 managed file 設定。
 
 `guardrails` 只安裝 command policy，不會啟用 Stop verification。Stop 是獨立的
-config v2 feature，必須明確啟用且至少提供一個已確認的 command：
+config v3 feature，必須明確啟用且至少提供一個已確認的 command：
 
 ```json
 {

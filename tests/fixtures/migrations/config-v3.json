@@ -10,29 +10,25 @@
         "cwd": ".",
         "required": true,
         "evidence": {
-          "kind": "exit-code"
-        }
-      },
-      {
-        "id": "test",
-        "command": "npm",
-        "args": ["run", "lint"],
-        "cwd": ".",
-        "required": true,
-        "evidence": {
-          "kind": "exit-code"
+          "kind": "test-count",
+          "minimum": 1
         }
       }
     ]
   },
   "features": {
-    "completionGate": {
+    "stopVerification": {
       "enabled": false
     },
-    "stopVerification": {
+    "completionGate": {
       "enabled": false
     }
   },
-  "pathMappings": [],
+  "pathMappings": [
+    {
+      "path": "src",
+      "verifierIds": ["test"]
+    }
+  ],
   "securityExceptions": []
 }

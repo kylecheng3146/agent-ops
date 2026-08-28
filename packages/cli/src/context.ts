@@ -22,11 +22,14 @@ import {
 } from "../../../runtime/src/security/trust.js";
 
 export const DEFAULT_CONFIG: AgentOpsConfig = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   profiles: [],
   verification: { commands: [] },
   features: {
     stopVerification: {
+      enabled: false
+    },
+    completionGate: {
       enabled: false
     }
   },

@@ -10,10 +10,11 @@ import {
 
 function config(
   profiles: AgentOpsConfig["profiles"],
-  stopEnabled = false
+  stopEnabled = false,
+  completionGate = false
 ): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles,
     verification: {
       commands: stopEnabled
@@ -30,6 +31,7 @@ function config(
         : []
     },
     features: {
+      completionGate: { enabled: completionGate },
       stopVerification: { enabled: stopEnabled }
     },
     pathMappings: [],
@@ -127,6 +129,7 @@ test("every supported registration is reachable through the real hook command", 
       }
       const lifecycle = registration.normalizedEvent === "session-start";
       const stopping = registration.normalizedEvent === "stop";
+      const completionGate = registration.capability === "completion-gate";
       let advisoryCalls = 0;
       const stdin = lifecycle
         ? harness === "agy"
@@ -137,7 +140,14 @@ test("every supported registration is reachable through the real hook command", 
             ? JSON.stringify({ hook_event_name: "SessionStart", cwd: "/repo" })
             : JSON.stringify({ event: "SessionStart", projectRoot: "/repo" })
         : stopping
-          ? JSON.stringify({ hook_event_name: "Stop", cwd: "/repo" })
+          ? harness === "agy"
+            ? JSON.stringify({
+                terminationReason: "model_stop",
+                fullyIdle: true,
+                conversationId: "conversation-one",
+                workspacePaths: ["/repo"]
+              })
+            : JSON.stringify({ hook_event_name: "Stop", cwd: "/repo" })
         : harness === "agy"
           ? JSON.stringify({
               workspacePaths: ["/repo"],
@@ -165,7 +175,8 @@ test("every supported registration is reachable through the real hook command", 
         stdin,
         config: config(
           lifecycle ? ["advisory"] : ["core", "guardrails"],
-          stopping
+          stopping && !completionGate,
+          completionGate
         ),
         trusted: true,
         ...(lifecycle
@@ -192,6 +203,17 @@ test("every supported registration is reachable through the real hook command", 
               }
             }
           : {})
+        ,...(completionGate
+          ? {
+              completionGate: {
+                handle: async () => ({
+                  action: "block" as const,
+                  status: "FAIL" as const,
+                  code: "COMPLETION_GATE_TASK_REQUIRED"
+                })
+              }
+            }
+          : {})
       });
       assert.doesNotMatch(
         output.stdout,
@@ -206,11 +228,9 @@ test("every supported registration is reachable through the real hook command", 
           `${harness}:${registration.capability}`
         );
       } else if (stopping) {
-        assert.match(
-          output.stdout,
-          /STOP_VERIFICATION_FINISHED/,
-          `${harness}:${registration.capability}`
-        );
+        assert.match(output.stdout, completionGate
+          ? /COMPLETION_GATE_TASK_REQUIRED/
+          : /STOP_VERIFICATION_FINISHED/, `${harness}:${registration.capability}`);
       } else {
         assert.match(output.stdout, /deny/, `${harness}:${registration.capability}`);
       }

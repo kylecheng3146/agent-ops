@@ -77,13 +77,17 @@ function command(): VerificationCommand {
 
 function config(
   profiles: AgentOpsConfig["profiles"],
-  stopEnabled = false
+  stopEnabled = false,
+  completionGate = false
 ): AgentOpsConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     profiles,
     verification: { commands: stopEnabled ? [command()] : [] },
-    features: { stopVerification: { enabled: stopEnabled } },
+    features: {
+      completionGate: { enabled: completionGate },
+      stopVerification: { enabled: stopEnabled }
+    },
     pathMappings: [],
     securityExceptions: []
   };
@@ -669,6 +673,74 @@ test("real Claude Stop hook executes report-only verification", async () => {
     AGENT_OPS_STOP_VERIFY_ACTIVE: "1"
   });
   assert.match(streams.stdout.join(""), /STOP_VERIFICATION_FINISHED/);
+});
+
+test("agy completion Stop uses the native continuation decision", async () => {
+  const streams = io(JSON.stringify({
+    terminationReason: "model_stop",
+    fullyIdle: true,
+    conversationId: "conversation-one",
+    workspacePaths: ["/workspace"]
+  }));
+  await runHookProcess(
+    ["agy", "Stop", "--completion-gate"],
+    streams.io,
+    "0.2.0",
+    {
+      root: "/workspace",
+      loadConfig: async () => config(["core", "loop"], false, true),
+      trust: async () => "TRUSTED",
+      gitRunner: new FixtureGitRunner(),
+      processRunner: new FixtureProcessRunner(),
+      completionGate: {
+        handle: async () => ({
+          action: "block",
+          status: "FAIL",
+          code: "COMPLETION_GATE_TASK_REQUIRED"
+        })
+      }
+    }
+  );
+  assert.deepEqual(JSON.parse(streams.stdout.join("")), {
+    decision: "continue",
+    reason: "agent-ops: COMPLETION_GATE_TASK_REQUIRED"
+  });
+});
+
+test("an installed completion gate fails closed when config is invalid", async () => {
+  const streams = io(JSON.stringify({
+    terminationReason: "model_stop",
+    fullyIdle: true,
+    conversationId: "conversation-one",
+    workspacePaths: ["/workspace"]
+  }));
+  await runHookProcess(
+    ["agy", "Stop", "--completion-gate"],
+    streams.io,
+    "0.2.0",
+    {
+      root: "/workspace",
+      loadConfig: async () => {
+        throw new Error("invalid");
+      }
+    }
+  );
+  assert.match(streams.stdout.join(""), /"decision":"continue"/u);
+  assert.match(streams.stdout.join(""), /COMPLETION_GATE_CONFIG_INVALID/u);
+});
+
+test("an installed completion gate cannot be disabled through the fail-open escape", async () => {
+  const streams = io("");
+  await withHookEnvironment("/workspace", true, async () => {
+    await runHookProcess(
+      ["agy", "Stop", "--completion-gate"],
+      streams.io,
+      "0.2.0",
+      { root: "/workspace" }
+    );
+  });
+  assert.match(streams.stdout.join(""), /"decision":"continue"/u);
+  assert.match(streams.stdout.join(""), /COMPLETION_GATE_DISABLE_REJECTED/u);
 });
 
 test("native Claude recursion metadata prevents Stop execution", async () => {

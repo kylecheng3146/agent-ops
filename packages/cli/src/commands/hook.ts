@@ -28,6 +28,7 @@ export interface HookCommandOptions {
   readonly trusted: boolean;
   readonly advisory?: HookDispatchOptions["advisory"];
   readonly stopVerification?: StopVerificationOptions;
+  readonly completionGate?: HookDispatchOptions["completionGate"];
 }
 
 export interface HookCommandOutput {
@@ -86,10 +87,21 @@ export async function runHookCommand(
       capabilities,
       trusted: options.trusted,
       advisory: options.advisory ?? runLifecycleAdvisory,
-      ...(stopVerification === undefined ? {} : { stopVerification })
+      ...(stopVerification === undefined ? {} : { stopVerification }),
+      ...(options.completionGate === undefined
+        ? {}
+        : { completionGate: options.completionGate })
     });
     return descriptor.runtime.formatOutput(options.event, result);
   } catch {
+    if (options.harness === "agy" && options.completionGate !== undefined) {
+      return harnessDescriptor("agy").runtime.formatOutput(options.event, {
+        action: "block",
+        status: "UNKNOWN",
+        code: "COMPLETION_GATE_UNAVAILABLE",
+        remedy: "Run agent-ops doctor; a user-approved one-time permit may be used after diagnosing the failure."
+      });
+    }
     return { exitCode: 0, stdout: "", stderr: "" };
   }
 }

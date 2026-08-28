@@ -108,6 +108,7 @@ The current registration matrix is intentionally asymmetric:
 | --- | --- | --- | --- | --- |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
+| completion-gate | supported | unsupported | unsupported | unsupported |
 | optional-stop-verify | degraded | unsupported | supported | degraded |
 
 For runtime-failure handling, only `command-policy` is fail-closed. Claude
@@ -118,11 +119,14 @@ surface. Codex remains `unknown` and never emits a denial. Fixture tests assert
 these wire and plugin shapes only; they do not prove that a host honors a
 denial. Every `SessionStart` and `Stop` failure path remains fail-open.
 
-The agy adapter uses project `AGENTS.md` routing alongside Codex and OpenCode;
+The agy adapter uses native project `GEMINI.md` routing to
+`.agent-ops/GEMINI.md`;
 at user scope it manages `.agent-ops/GEMINI.md` and a managed block in the
 shared `.gemini/GEMINI.md` rule surface. Its native hooks use camelCase input,
-return `decision: "deny"` for command-policy blocks, and never force a Stop
-continuation. On Windows the generated command is invoked through `cmd /c`.
+return `decision: "deny"` for command-policy blocks, and, only when the
+completion gate is explicitly enabled, return `decision: "continue"` for an
+unproven final changed conversation. Read-only conversations stop normally.
+On Windows the generated command is invoked through `cmd /c`.
 
 Stop verification is explicit, trusted, report-only, and disabled by default.
 Every Stop result continues the native harness and may carry only bounded

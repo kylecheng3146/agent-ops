@@ -18,13 +18,16 @@ import { validateEvidence } from "../../runtime/src/schema/validate.js";
 import { findReviewAttestation } from "../../runtime/src/review/attestation.js";
 
 const REVIEW_CONFIG: AgentOpsConfig = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   profiles: ["core"],
   verification: { commands: [
     { id: "unit", command: "node", args: ["--test"], cwd: ".", required: true, evidence: { kind: "exit-code" } },
     { id: "optional", command: "node", args: ["--check"], cwd: ".", required: false, evidence: { kind: "exit-code" } }
   ] },
-  features: { stopVerification: { enabled: false } },
+  features: {
+    completionGate: { enabled: false },
+    stopVerification: { enabled: false }
+  },
   pathMappings: [],
   securityExceptions: []
 };

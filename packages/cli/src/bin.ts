@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -62,11 +63,14 @@ import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
+import { runAllowStopCommand } from "./commands/allow-stop.js";
+import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import {
   formatUpdatePlan,
   runUpdateCommand
 } from "./commands/update.js";
 import { errorEnvelope } from "./output.js";
+import { runAgyHeadless } from "./agy-headless.js";
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
@@ -195,7 +199,42 @@ function runAgy(
   });
 }
 
-if (argv[0] === "hook") {
+if (argv[0] === "agy-run") {
+  try {
+    const root = process.cwd();
+    const config = (await loadEffectiveConfig(root, "project")).config;
+    if (!config.features.completionGate.enabled) {
+      throw new Error("agy-run requires features.completionGate.enabled.");
+    }
+    const taskService = new TaskService(
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+    );
+    const gate = new CompletionGateService({
+      root,
+      config,
+      gitRunner: gitRunner(root),
+      taskService,
+      evidenceStore: new FileEvidenceStore(root, root)
+    });
+    const agyArgs = argv[1] === "--" ? argv.slice(2) : argv.slice(1);
+    process.exitCode = await runAgyHeadless({
+      root,
+      sessionId: `agy-headless-${randomUUID()}`,
+      args: agyArgs,
+      gate,
+      run: async (args, env) => await new Promise<number>((resolve) => {
+        const child = spawn("agy", [...args], { cwd: root, env, stdio: "inherit" });
+        child.once("error", () => resolve(1));
+        child.once("exit", (code) => resolve(code ?? 1));
+      })
+    });
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "agy-run failed."}\n`
+    );
+    process.exitCode = 2;
+  }
+} else if (argv[0] === "hook") {
   process.exitCode = await runHookProcess(
     argv.slice(1),
     {
@@ -228,7 +267,8 @@ process.exitCode = await runCli(
           "uninstall",
           "task",
           "verify",
-          "review"
+          "review",
+          "allow-stop"
         ].map((command) => [command, async (args: Parameters<NonNullable<import("./commands/index.js").CommandHandler>>[0]) => {
           const root = args.scope === "user"
             ? process.env.AGENT_OPS_HOME ?? homedir()
@@ -428,6 +468,19 @@ process.exitCode = await runCli(
               root
             )
           );
+          if (args.command === "allow-stop") {
+            const config = (await loadEffectiveConfig(root, "project")).config;
+            return await runAllowStopCommand({
+              args,
+              gate: new CompletionGateService({
+                root,
+                config,
+                gitRunner: gitRunner(root),
+                taskService,
+                evidenceStore: new FileEvidenceStore(root, root)
+              })
+            });
+          }
           if (args.command === "task") {
             const sessionId = process.env.AGENT_OPS_SESSION_ID;
             const policyConfigHash = args.action === "create"
