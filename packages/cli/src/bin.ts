@@ -184,6 +184,17 @@ async function plannedTrustBinding(
 
 const argv = process.argv.slice(2);
 
+function runAgy(
+  args: readonly string[],
+  options: { readonly cwd?: string; readonly timeout?: number } = {}
+): string {
+  return execFileSync("agy", [...args], {
+    ...options,
+    encoding: "utf8",
+    ...(process.platform === "win32" ? { shell: true } : {})
+  });
+}
+
 if (argv[0] === "hook") {
   process.exitCode = await runHookProcess(
     argv.slice(1),
@@ -237,11 +248,7 @@ process.exitCode = await runCli(
               hookRuntimePath: HOOK_RUNTIME_PATH,
               agyWarning: () => {
                 try {
-                  const output = execFileSync(
-                    "agy",
-                    ["--version"],
-                    { encoding: "utf8", timeout: 5_000 }
-                  );
+                  const output = runAgy(["--version"], { timeout: 5_000 });
                   return agyVersionSupported(output)
                     ? undefined
                     : "agy is installed, but version 1.1.12 or newer is required; run `agent-ops doctor` after updating.";
@@ -274,17 +281,13 @@ process.exitCode = await runCli(
                       agyRuntime: () => {
                         try {
                           return agyRuntimeStatus(
-                            execFileSync("agy", ["--version"], { encoding: "utf8" }),
-                            execFileSync(
-                              "agy",
-                              [
-                                "-p", "/hooks", "--output-format", "json",
-                                ...(doctorManifest.scope === "project"
-                                  ? ["--new-project"]
-                                  : [])
-                              ],
-                              { cwd: root, encoding: "utf8" }
-                            ),
+                            runAgy(["--version"]),
+                            runAgy([
+                              "-p", "/hooks", "--output-format", "json",
+                              ...(doctorManifest.scope === "project"
+                                ? ["--new-project"]
+                                : [])
+                            ], { cwd: root }),
                             doctorManifest.hooks?.find(
                               ({ harness }) => harness === "agy"
                             )?.events ?? []
