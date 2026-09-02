@@ -32,6 +32,11 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 - Positive: `review --harness claude` 解析成一個 target。
 - Negative: `讓一次 review invocation 隱式跑過所有已安裝 harness。`
 
+明確指定的 target MUST 已存在於 configured independent-review role。它只會將
+configured chain 縮窄為單一 target，並保留 model、effort 與 timeout policy。
+未提供 `--harness` 時，完整 configured chain 仍套用 host-aware ordering；每個
+結果都以 `plannedTargets` 保存這個實際順序。
+
 ## REVIEW-READONLY-001
 
 review target MUST 以其自身的唯讀機制啟動；沒有唯讀機制的 target MUST 被跳過，而非在無沙箱狀態下執行。
@@ -46,6 +51,11 @@ review target MUST 以其自身的唯讀機制啟動；沒有唯讀機制的 tar
 disposable repository clone 中執行。review chain 優先選擇不同於 hosting CLI 的
 target；沒有其他可用 target 時，才允許同 CLI 的 fresh review，但輸出 MUST 明確
 標示 `DEGRADED: isolated self-review`。不得 resume 開發 session 作為獨立審查。
+
+Capability 與模型啟動進度即使在 JSON 模式也寫到 stderr；reviewer 原始輸出仍
+維持 bounded capture，不直接串流。SIGINT 或 SIGTERM 會中止 active process
+tree，不 fallback、不寫 attestation；timeout 保留獨立 NOT_RUN reason，不得被
+扁平化為 `missing-cli`。
 
 ## REVIEW-CHAIN-001
 

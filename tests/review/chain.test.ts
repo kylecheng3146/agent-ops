@@ -6,7 +6,8 @@ import type { ReviewTargetId } from "../../runtime/src/contracts.js";
 import {
   createReviewExecutor,
   DEFAULT_REVIEW_TIMEOUT_MS,
-  isolatedReviewEnvironment
+  isolatedReviewEnvironment,
+  ReviewInterruptedError
 } from "../../runtime/src/review/execute.js";
 import { buildTargetInvocation } from "../../runtime/src/review/invocation.js";
 import type { ReviewExecutionRequest } from "../../runtime/src/review/runner.js";
@@ -79,8 +80,14 @@ function fakeRunner(script: readonly Scripted[]): {
         : isHelp
         ? request.command === "agy" ? { stderr: help } : { stdout: help }
         : script[index++] ?? {};
+      let finish: ((completion: {
+        exitCode: number | null;
+        signal: string | null;
+      }) => void) | undefined;
       const completion = step.hang === true
-        ? new Promise<never>(() => {})
+        ? new Promise<{ exitCode: number | null; signal: string | null }>(
+            (resolve) => { finish = resolve; }
+          )
         : Promise.resolve({
             exitCode: step.exitCode ?? 0,
             signal: null,
@@ -93,7 +100,9 @@ function fakeRunner(script: readonly Scripted[]): {
         stdout: bytes(step.stdout ?? ""),
         stderr: bytes(step.stderr ?? ""),
         completion,
-        terminateTree: async () => {}
+        terminateTree: async () => {
+          finish?.({ exitCode: null, signal: "SIGTERM" });
+        }
       };
     }
   };
@@ -209,8 +218,8 @@ test("configured read-only targets run in order until one returns a verdict", as
     },
     { target: "agy", status: "FAIL" }
   ]);
-  assert.equal(progress.length, 1);
-  assert.match(progress[0] ?? "", /codex/);
+  assert.ok(progress.some((line) => /codex: checking reviewer capability/.test(line)));
+  assert.ok(progress.some((line) => /agy: review started \(timeout: 120s\)/.test(line)));
 });
 
 test("a FAIL verdict is terminal and never re-rolled on another target", async () => {
@@ -336,13 +345,13 @@ test("a non-auth rejection surfaces the target's own complaint, redacted", async
       { stdout: passing("codex") }
     ]
   );
-  const line = progress.find((value) => value.startsWith("claude:")) ?? "";
+  const line = progress.find((value) => /claude: capability-unavailable/.test(value)) ?? "";
   assert.match(line, /capability-unavailable/);
   assert.match(line, /-p took "--output-format" as its prompt/);
   assert.doesNotMatch(line, /abcdef123456/);
 
-  // Progress is suppressed under --json, so the complaint has to survive on the
-  // attempt itself or a machine consumer is left with the bare guess.
+  // Stderr progress is transient, so the complaint has to survive on the
+  // attempt itself for machine consumers.
   const attempt = result.attempts?.find((item) => item.target === "claude");
   assert.equal(attempt?.reason, "capability-unavailable");
   assert.match(attempt?.diagnostic ?? "", /-p took "--output-format" as its prompt/);
@@ -390,7 +399,7 @@ test("an unavailable challenger is recorded, not merely reported", async () => {
 
   assert.equal(result.status, "PASS");
   // A PASS with no adversarial field must stay distinguishable from a PASS that
-  // had no challenger available at all, and progress is absent under --json.
+  // had no challenger available at all.
   assert.equal(result.status === "PASS" ? result.adversarial : "unset", undefined);
   const challenger = result.attempts?.find((item) => item.target === "codex");
   assert.equal(challenger?.status, "NOT_RUN");
@@ -468,7 +477,7 @@ test("a sandbox permission failure is not reported as missing authentication", a
   );
 
   assert.equal(result.status, "PASS");
-  assert.match(progress[0] ?? "", /capability-unavailable/);
+  assert.ok(progress.some((line) => /capability-unavailable/.test(line)));
   const rejected = result.attempts?.find((attempt) => attempt.target === "codex");
   assert.equal(rejected?.reason, "capability-unavailable");
   assert.match(rejected?.diagnostic ?? "", /Operation not permitted/);
@@ -592,7 +601,8 @@ test("the detected host is tried last and warned about when it is alone", async 
     attempts.map((attempt) => attempt.command),
     ["codex", "claude"]
   );
-  assert.equal(progress.length, 2);
+  assert.ok(progress.some((line) => /codex: missing-cli/.test(line)));
+  assert.ok(progress.some((line) => /claude: review started/.test(line)));
 
   const alone = fakeRunner([{ stdout: passing("claude") }]);
   const warnings: string[] = [];
@@ -606,8 +616,45 @@ test("the detected host is tried last and warned about when it is alone", async 
   const result = await selfReview(request());
   assert.equal(result.status, "PASS");
   assert.deepEqual(alone.attempts.map((attempt) => attempt.command), ["claude"]);
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0] ?? "", /isolated self-review/);
+  assert.ok(warnings.some((line) => /isolated self-review/.test(line)));
+  assert.ok(warnings.some((line) => /claude: review started/.test(line)));
+});
+
+test("an exhausted timeout chain reports timeout rather than missing-cli", async () => {
+  const { result } = await run(["claude"], [{ hang: true }], { timeoutMs: 5 });
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "timeout");
+  assert.equal(result.attempts?.[0]?.reason, "timeout");
+});
+
+test("cancellation stops the chain instead of falling back", async () => {
+  const controller = new AbortController();
+  const { runner, attempts } = fakeRunner([{ hang: true }, { stdout: passing("codex") }]);
+  const progress: string[] = [];
+  let reviewStarted: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    reviewStarted = resolve;
+  });
+  const execute = createReviewExecutor({
+    targets: ["claude", "codex"],
+    cwd: process.cwd(),
+    runner,
+    env: {},
+    signal: controller.signal,
+    onProgress: (line) => {
+      progress.push(line);
+      if (/claude: review started/.test(line)) {
+        reviewStarted();
+      }
+    }
+  });
+  const pending = execute(request());
+  await started;
+  controller.abort("SIGINT");
+
+  await assert.rejects(pending, ReviewInterruptedError);
+  assert.deepEqual(attempts.map((attempt) => attempt.command), ["claude"]);
+  assert.ok(progress.some((line) => /claude: review interrupted by SIGINT/.test(line)));
 });
 
 test("an ineligible target is skipped before agy runs sandboxed", async () => {

@@ -539,7 +539,7 @@ test("review requires exactly one harness", () => {
     parseArgs(["review", "--harness", "claude"]).harness,
     ["claude"]
   );
-  for (const value of ["all", "both", "codex,claude"]) {
+  for (const value of ["all", "both", "codex,claude", "opencode"]) {
     assert.throws(
       () => parseArgs(["review", "--harness", value]),
       (error: unknown) =>
@@ -548,4 +548,14 @@ test("review requires exactly one harness", () => {
       value
     );
   }
+});
+
+test("review points init-only --review-target users to --harness", () => {
+  assert.throws(
+    () => parseArgs(["review", "--review-target", "claude"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_OPTION_NOT_ALLOWED" &&
+      /use --harness <target>/.test(error.message)
+  );
 });

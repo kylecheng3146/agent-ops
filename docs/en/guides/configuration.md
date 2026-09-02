@@ -55,6 +55,12 @@ A bare review uses the built-in `change-quality` criterion; `--task` uses the
 task criteria and requires fresh PASS evidence for required checks. The full
 report is printed, and PASS persists only a source-fingerprint attestation.
 
+`--review-target` belongs to `init` and configures that persistent chain.
+For one run, `review --harness <target>` narrows the chain to exactly one
+already-configured target; it never enables a target absent from project
+policy. The configured model, effort, and timeout still apply. Review JSON
+includes `plannedTargets` in the actual host-adjusted order.
+
 Every attempt starts from a fresh session and disposable repository clone with
 native read-only mode.
 Claude uses complete safe-mode isolation. Codex and Agy preserve their existing
@@ -87,6 +93,12 @@ missing executable, spawn failure, timeout (900s per target by default), login
 failure, oversized output, or unparseable output. Every attempt and reason is
 preserved in human and JSON output. A `PASS` or `FAIL` verdict is **terminal**,
 so the chain cannot shop for a passing review.
+
+Capability checks and model starts are reported on stderr, including under
+`--json`; stdout remains one final JSON envelope and raw reviewer output is
+never streamed. SIGINT or SIGTERM terminates the active reviewer process tree,
+does not advance the fallback chain, and never writes an attestation. An
+exhausted timeout chain reports `timeout`, not `missing-cli`.
 
 If Claude Code is the host (`CLAUDECODE` is set), `claude` is moved to the end
 of the chain. It still runs when it is the only configured target, with a

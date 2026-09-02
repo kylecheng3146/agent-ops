@@ -497,7 +497,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (reviewTargets.length > 0 && command !== "init") {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "--review-target may be used only with init."
+      command === "review"
+        ? "--review-target configures init; for one review run, use --harness <target>."
+        : "--review-target may be used only with init."
     );
   }
   if (completionGate !== undefined && command !== "init") {
@@ -589,7 +591,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review criteria and evidence require --task."
     );
   }
-  if (command === "review" && harness !== undefined && harness.length !== 1) {
+  if (
+    command === "review" &&
+    harness !== undefined &&
+    (harness.length !== 1 || !REVIEW_TARGETS.has(harness[0] ?? ""))
+  ) {
     invalidValue("--harness", harness.join(","));
   }
   if (

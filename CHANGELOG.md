@@ -4,6 +4,15 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.22]
+
+- Fixed independent review observability and lifecycle handling. Explicit
+  `--harness` selection now runs one configured reviewer, JSON output keeps
+  stdout machine-readable while progress goes to stderr, and interruptions
+  terminate the reviewer process tree without writing a false attestation.
+- Added planned reviewer ordering, explicit target validation, timeout versus
+  capability diagnostics, and English/Traditional Chinese review guidance.
+
 ## [0.1.21]
 
 - Added agy hard completion gating with mandatory review evidence and a
