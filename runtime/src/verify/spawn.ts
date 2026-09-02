@@ -10,6 +10,7 @@ import type { VerificationCommand } from "../contracts.js";
 export type VerificationStatus = "PASS" | "FAIL" | "UNKNOWN";
 
 export type ProcessFailureClass =
+  | "aborted"
   | "missing-executable"
   | "none"
   | "nonzero-exit"
@@ -66,6 +67,7 @@ export interface RunVerificationCommandOptions {
   readonly now?: () => number;
   readonly outputLimitBytes?: number;
   readonly terminationGraceMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface SpawnResult {
@@ -95,6 +97,10 @@ interface CompletionOutcome {
 
 interface TimeoutOutcome {
   readonly kind: "timeout";
+}
+
+interface AbortOutcome {
+  readonly kind: "abort";
 }
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -427,6 +433,13 @@ export async function runVerificationCommand(
 ): Promise<SpawnResult> {
   const now = options.now ?? Date.now;
   const startedAt = now();
+  if (options.signal?.aborted === true) {
+    return emptyResult(
+      command.id,
+      "aborted",
+      elapsedMilliseconds(startedAt, now())
+    );
+  }
   if (!hasAcknowledgedShell(command)) {
     return emptyResult(
       command.id,
@@ -476,22 +489,38 @@ export async function runVerificationCommand(
   const timeout = new Promise<TimeoutOutcome>((resolve) => {
     timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
   });
-  const outcome = await Promise.race<CompletionOutcome | TimeoutOutcome>([
+  let removeAbortListener = (): void => {};
+  const aborted = new Promise<AbortOutcome>((resolve) => {
+    const signal = options.signal;
+    if (signal === undefined) {
+      return;
+    }
+    const onAbort = (): void => resolve({ kind: "abort" });
+    signal.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+  });
+  const outcome = await Promise.race<
+    CompletionOutcome | TimeoutOutcome | AbortOutcome
+  >([
     running.completion.then((completion) => ({
       kind: "completion",
       completion
     })),
-    timeout
+    timeout,
+    aborted
   ]);
+  removeAbortListener();
   if (timer !== undefined) {
     clearTimeout(timer);
   }
 
   let completion: ProcessCompletion;
   let timedOut = false;
+  let wasAborted = false;
   let terminationFailed = false;
-  if (outcome.kind === "timeout") {
-    timedOut = true;
+  if (outcome.kind === "timeout" || outcome.kind === "abort") {
+    timedOut = outcome.kind === "timeout";
+    wasAborted = outcome.kind === "abort";
     try {
       await running.terminateTree(terminationGrace);
     } catch {
@@ -508,7 +537,12 @@ export async function runVerificationCommand(
     settleCapturedOutput(stdout, terminationGrace),
     settleCapturedOutput(stderr, terminationGrace)
   ]);
-  const classified = timedOut
+  const classified = wasAborted
+    ? {
+        status: terminationFailed ? "UNKNOWN" : "FAIL",
+        failureClass: "aborted"
+      } as const
+    : timedOut
     ? {
         status: terminationFailed ? "UNKNOWN" : "FAIL",
         failureClass: terminationFailed

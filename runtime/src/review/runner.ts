@@ -51,6 +51,7 @@ export interface ReviewVerificationSummary {
 
 export interface ReviewInvocation {
   readonly harness: ReviewTargetId;
+  readonly plannedTargets?: readonly ReviewTargetId[];
   readonly model: string;
   readonly effort: string;
   readonly packet: ReviewPacket;
@@ -90,7 +91,8 @@ export type ReviewUnavailableReason =
   | "verification-not-passed"
   | "missing-verification-evidence"
   | "unreadable-verification-evidence"
-  | "stale-verification";
+  | "stale-verification"
+  | "timeout";
 
 export interface ReviewExecutionRequest {
   readonly invocation: ReviewInvocation;
@@ -124,6 +126,7 @@ export interface ReviewRunResult {
   readonly model: string;
   readonly effort: string;
   readonly prompt: string;
+  readonly plannedTargets?: readonly ReviewTargetId[];
   readonly reason?: ReviewUnavailableReason | "authorization-required";
   readonly results?: readonly ReviewCriterionResult[];
   readonly report?: ReviewReport;
@@ -320,6 +323,7 @@ export async function runIndependentReview(
 ): Promise<ReviewRunResult> {
   const base = {
     harness: options.invocation.harness,
+    plannedTargets: options.invocation.plannedTargets ?? [options.invocation.harness],
     model: options.invocation.model,
     effort: options.invocation.effort,
     prompt: buildReviewPrompt(options.invocation),

@@ -116,6 +116,17 @@ test("review attempts survive JSON and human rendering", async () => {
   assert.match(renderReviewResult(result), /agy: PASS/);
 });
 
+test("review results preserve and render the planned target order", async () => {
+  const result = await runIndependentReview({
+    invocation: { ...invocation, plannedTargets: ["agy", "claude", "codex"] },
+    authorized: false,
+    execute: async () => ({ status: "NOT_RUN", reason: "missing-cli" })
+  });
+
+  assert.deepEqual(result.plannedTargets, ["agy", "claude", "codex"]);
+  assert.match(renderReviewResult(result), /Planned reviewers: agy → claude → codex/);
+});
+
 test("review output records a fresh session and labels same-target as degraded", async () => {
   const result = await runIndependentReview({
     invocation,

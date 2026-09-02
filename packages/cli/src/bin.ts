@@ -17,7 +17,8 @@ import type {
   Harness,
   HarnessId,
   InstallManifest,
-  InstallScope
+  InstallScope,
+  ReviewTargetId
 } from "../../../runtime/src/contracts.js";
 import {
   agyRuntimeStatus,
@@ -58,9 +59,16 @@ import {
 } from "./commands/uninstall.js";
 import { runTaskCommand } from "./commands/task.js";
 import { runReviewCommand } from "./commands/review.js";
-import { createReviewExecutor } from "../../../runtime/src/review/execute.js";
+import {
+  createReviewExecutor,
+  ReviewInterruptedError
+} from "../../../runtime/src/review/execute.js";
 import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
-import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
+import {
+  detectHostTarget,
+  orderChain,
+  resolveReviewRole
+} from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
 import { runAllowStopCommand } from "./commands/allow-stop.js";
@@ -506,47 +514,79 @@ process.exitCode = await runCli(
               "independent-review",
               reviewConfig.reviewRoles ?? []
             );
-            return await runReviewCommand({
-              args,
-              authorized: args.yes,
-              tasks: taskService,
-              ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
-              ...(reviewSessionId === undefined
-                ? {}
-                : { sessionId: reviewSessionId }),
-              ...(reviewConfig.reviewRoles === undefined
-                ? {}
-                : { roles: reviewConfig.reviewRoles }),
-              root,
-              gitRunner: gitRunner(root),
-              policyConfigHash: calculateConfigHash(reviewConfig),
-              currentPolicyConfigHash: async () => calculateConfigHash((
-                await loadEffectiveConfig(
-                  root,
-                  args.scope === "user" ? "user" : "project"
-                )
-              ).config),
-              config: reviewConfig,
-              evidenceStore: new FileEvidenceStore(root, root),
-              execute: createReviewExecutor({
-                targets: reviewRole?.targets ?? [],
-                cwd: root,
-                ...(reviewRole?.model === undefined
+            const selectedReviewTarget = args.harness?.[0] as
+              | ReviewTargetId
+              | undefined;
+            const plannedReviewTargets = orderChain(
+              selectedReviewTarget === undefined
+                ? reviewRole?.targets ?? []
+                : [selectedReviewTarget],
+              detectHostTarget(process.env)
+            );
+            const controller = new AbortController();
+            let interruptedBy: "SIGINT" | "SIGTERM" | undefined;
+            const interrupt = (signal: "SIGINT" | "SIGTERM"): void => {
+              interruptedBy ??= signal;
+              controller.abort(signal);
+            };
+            const onSigint = (): void => interrupt("SIGINT");
+            const onSigterm = (): void => interrupt("SIGTERM");
+            process.once("SIGINT", onSigint);
+            process.once("SIGTERM", onSigterm);
+            try {
+              return await runReviewCommand({
+                args,
+                authorized: args.yes,
+                tasks: taskService,
+                ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
+                ...(reviewSessionId === undefined
                   ? {}
-                  : { model: reviewRole.model }),
-                ...(reviewRole?.effort === undefined
+                  : { sessionId: reviewSessionId }),
+                ...(reviewConfig.reviewRoles === undefined
                   ? {}
-                  : { effort: reviewRole.effort }),
-                ...(reviewRole?.timeoutMs === undefined
-                  ? {}
-                  : { timeoutMs: reviewRole.timeoutMs }),
-                onProgress: (line) => {
-                  if (!args.json) {
+                  : { roles: reviewConfig.reviewRoles }),
+                targets: plannedReviewTargets,
+                root,
+                gitRunner: gitRunner(root),
+                policyConfigHash: calculateConfigHash(reviewConfig),
+                currentPolicyConfigHash: async () => calculateConfigHash((
+                  await loadEffectiveConfig(
+                    root,
+                    args.scope === "user" ? "user" : "project"
+                  )
+                ).config),
+                config: reviewConfig,
+                evidenceStore: new FileEvidenceStore(root, root),
+                execute: createReviewExecutor({
+                  targets: plannedReviewTargets,
+                  cwd: root,
+                  ...(reviewRole?.model === undefined
+                    ? {}
+                    : { model: reviewRole.model }),
+                  ...(reviewRole?.effort === undefined
+                    ? {}
+                    : { effort: reviewRole.effort }),
+                  ...(reviewRole?.timeoutMs === undefined
+                    ? {}
+                    : { timeoutMs: reviewRole.timeoutMs }),
+                  signal: controller.signal,
+                  onProgress: (line) => {
                     process.stderr.write(`${line}\n`);
                   }
-                }
-              })
-            });
+                })
+              });
+            } catch (error) {
+              if (
+                error instanceof ReviewInterruptedError &&
+                interruptedBy !== undefined
+              ) {
+                process.exit(interruptedBy === "SIGINT" ? 130 : 143);
+              }
+              throw error;
+            } finally {
+              process.removeListener("SIGINT", onSigint);
+              process.removeListener("SIGTERM", onSigterm);
+            }
           }
           if (args.command === "config") {
             return explainConfigCommand(await loadEffectiveConfig(
