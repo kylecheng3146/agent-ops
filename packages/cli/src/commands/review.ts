@@ -50,6 +50,7 @@ export interface ReviewCommandOptions {
   readonly effort?: string;
   readonly role?: ReviewRole;
   readonly roles?: readonly ReviewRoleConfig[];
+  readonly targets?: readonly ReviewTargetId[];
   readonly tasks?: TaskService;
   readonly sessionId?: string;
   readonly taskId?: string;
@@ -342,6 +343,9 @@ function sourceChangedResult(result: ReviewRunResult): ReviewRunResult {
     model: result.model,
     effort: result.effort,
     prompt: result.prompt,
+    ...(result.plannedTargets === undefined
+      ? {}
+      : { plannedTargets: result.plannedTargets }),
     ...(result.scope === undefined ? {} : { scope: result.scope }),
     ...(result.independence === undefined
       ? {}
@@ -364,7 +368,27 @@ export async function runReviewCommand(
     options.roles ?? []
   );
   const selectedHarness = harness(options.args.harness);
-  const target = role?.targets[0] ?? selectedHarness ?? "codex";
+  const configuredTargets = role?.targets ?? [];
+  if (
+    selectedHarness !== undefined &&
+    !configuredTargets.includes(selectedHarness)
+  ) {
+    throw new AgentOpsError(
+      "REVIEW_TARGET_NOT_CONFIGURED",
+      `${selectedHarness} is not enabled for independent-review. Configure it with init --review-target ${selectedHarness}.`
+    );
+  }
+  const plannedTargets = selectedHarness === undefined
+    ? options.targets ?? configuredTargets
+    : [selectedHarness];
+  const target = plannedTargets[0] ?? selectedHarness ?? "codex";
+  const resultBase = {
+    harness: target,
+    plannedTargets,
+    model: role?.model ?? options.model ?? "configured",
+    effort: role?.effort ?? options.effort ?? "configured",
+    prompt: ""
+  } as const;
   const context = await taskContext(options);
   const evidenceRequirements: ReviewEvidenceRequirement[] = (
     options.args.evidence ?? []
@@ -389,24 +413,18 @@ export async function runReviewCommand(
       const reason = scopeReason(error);
       if (reason !== undefined) {
         return notRunEnvelope({
+          ...resultBase,
           status: "NOT_RUN",
-          reason,
-          harness: target,
-          model: role?.model ?? options.model ?? "configured",
-          effort: role?.effort ?? options.effort ?? "configured",
-          prompt: ""
+          reason
         });
       }
       throw error;
     }
     if (scope.changedFiles.some(isReviewerPolicyPath)) {
       return notRunEnvelope({
+        ...resultBase,
         status: "NOT_RUN",
         reason: "reviewer-policy-changed",
-        harness: target,
-        model: role?.model ?? options.model ?? "configured",
-        effort: role?.effort ?? options.effort ?? "configured",
-        prompt: "",
         scope
       });
     }
@@ -418,16 +436,16 @@ export async function runReviewCommand(
     if (context !== undefined && options.policyConfigHash !== undefined) {
       if (context.policyConfigHash === null) {
         return notRunEnvelope({
+          ...resultBase,
           status: "NOT_RUN", reason: "reviewer-policy-baseline-missing",
-          harness: target, model: role?.model ?? options.model ?? "configured",
-          effort: role?.effort ?? options.effort ?? "configured", prompt: "", scope
+          scope
         });
       }
       if (context.policyConfigHash !== options.policyConfigHash) {
         return notRunEnvelope({
+          ...resultBase,
           status: "NOT_RUN", reason: "reviewer-policy-changed",
-          harness: target, model: role?.model ?? options.model ?? "configured",
-          effort: role?.effort ?? options.effort ?? "configured", prompt: "", scope
+          scope
         });
       }
     }
@@ -439,9 +457,9 @@ export async function runReviewCommand(
       );
       if (!preflight.ok) {
         return notRunEnvelope({
+          ...resultBase,
           status: "NOT_RUN", reason: preflight.reason,
-          harness: target, model: role?.model ?? options.model ?? "configured",
-          effort: role?.effort ?? options.effort ?? "configured", prompt: "", scope
+          scope
         });
       }
       verification = preflight.summary;
@@ -467,12 +485,9 @@ export async function runReviewCommand(
           : undefined;
       if (reason !== undefined) {
         return notRunEnvelope({
+          ...resultBase,
           status: "NOT_RUN",
-          reason,
-          harness: target,
-          model: role?.model ?? options.model ?? "configured",
-          effort: role?.effort ?? options.effort ?? "configured",
-          prompt: ""
+          reason
         });
       }
     }
@@ -481,6 +496,7 @@ export async function runReviewCommand(
   const result = await runIndependentReview({
     invocation: {
       harness: target,
+      plannedTargets,
       model: role?.model ?? options.model ?? "configured",
       effort: role?.effort ?? options.effort ?? "configured",
       packet,

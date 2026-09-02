@@ -46,6 +46,17 @@ export interface ReviewExecutorOptions {
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
+  readonly signal?: AbortSignal;
+}
+
+export class ReviewInterruptedError extends Error {
+  readonly signal?: string;
+
+  constructor(signal?: string) {
+    super("Independent review was interrupted.");
+    this.name = "ReviewInterruptedError";
+    this.signal = signal;
+  }
 }
 
 // USER is load-bearing, not cosmetic: a credential store keyed by account name
@@ -123,8 +134,7 @@ const REQUIRED_HELP_FLAGS: Readonly<
  */
 const ADVANCING: ReadonlySet<ProcessFailureClass> = new Set([
   "missing-executable",
-  "spawn-failed",
-  "timeout"
+  "spawn-failed"
 ]);
 
 const DIAGNOSTIC_MAX_CHARS = 200;
@@ -160,6 +170,23 @@ function rejectedCallReason(output: string): ReviewUnavailableReason {
     return "login-required";
   }
   return "capability-unavailable";
+}
+
+function throwIfInterrupted(
+  target: ReviewTargetId,
+  options: ReviewExecutorOptions,
+  failureClass?: ProcessFailureClass
+): void {
+  if (failureClass !== "aborted" && options.signal?.aborted !== true) {
+    return;
+  }
+  const signal = typeof options.signal?.reason === "string"
+    ? options.signal.reason
+    : undefined;
+  options.onProgress?.(
+    `${target}: review interrupted${signal === undefined ? "" : ` by ${signal}`}`
+  );
+  throw new ReviewInterruptedError(signal);
 }
 
 type TargetAttemptOutcome =
@@ -206,9 +233,11 @@ async function snapshotRepository(
     },
     {
       cwd: dirname(destination),
-      ...(options.runner === undefined ? {} : { runner: options.runner })
+      ...(options.runner === undefined ? {} : { runner: options.runner }),
+      ...(options.signal === undefined ? {} : { signal: options.signal })
     }
   );
+  throwIfInterrupted(request.target, options, cloned.failureClass);
   if (cloned.status !== "PASS") {
     return firstComplaint(cloned.stderr, cloned.stdout) ??
       `git clone failed (${cloned.failureClass})`;
@@ -281,6 +310,8 @@ async function attemptTarget(
       attemptDirectory,
       options.env ?? process.env
     );
+    throwIfInterrupted(target, options);
+    options.onProgress?.(`${target}: checking reviewer capability`);
     const capability = await runVerificationCommand(
       {
         id: `review-capability-${request.label}`,
@@ -295,9 +326,11 @@ async function attemptTarget(
         cwd: attemptDirectory,
         ...(options.runner === undefined ? {} : { runner: options.runner }),
         env: environment,
-        replaceEnv: true
+        replaceEnv: true,
+        ...(options.signal === undefined ? {} : { signal: options.signal })
       }
     );
+    throwIfInterrupted(target, options, capability.failureClass);
     const help = `${capability.stdout}\n${capability.stderr}`;
     const missingFlags = (REQUIRED_HELP_FLAGS[target] ?? []).filter(
       (flag) => !help.includes(flag)
@@ -350,6 +383,10 @@ async function attemptTarget(
     if (invocation === undefined) {
       return skip("capability-unavailable", "review invocation disappeared", "skipping");
     }
+    throwIfInterrupted(target, options);
+    options.onProgress?.(
+      `${target}: review started (timeout: ${Math.ceil((options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS) / 1_000)}s)`
+    );
     const spawned = await runVerificationCommand(
       {
         id: `review-${request.label}`,
@@ -368,9 +405,14 @@ async function attemptTarget(
           : { outputLimitBytes: options.outputLimitBytes }),
         stdin: invocation.stdin,
         env: environment,
-        replaceEnv: true
+        replaceEnv: true,
+        ...(options.signal === undefined ? {} : { signal: options.signal })
       }
     );
+    throwIfInterrupted(target, options, spawned.failureClass);
+    if (spawned.failureClass === "timeout") {
+      return skip("timeout", "the reviewer exceeded its timeout");
+    }
     if (ADVANCING.has(spawned.failureClass)) {
       return {
         ...skip("missing-cli", `the process did not complete: ${spawned.failureClass}`),
@@ -392,6 +434,12 @@ async function attemptTarget(
         rejectedCallReason(output),
         firstComplaint(spawned.stderr, spawned.stdout) ??
           `the call was rejected with exit ${spawned.exitCode ?? "unknown"} and no output`
+      );
+    }
+    if (spawned.failureClass === "signal-exit") {
+      return skip(
+        "capability-unavailable",
+        `the reviewer exited after ${spawned.signal ?? "an unknown signal"}`
       );
     }
     const payload = extractReviewObject(target, spawned.stdout);
@@ -491,8 +539,8 @@ export function createReviewExecutor(
           options
         );
         if (outcome.kind === "skip") {
-          // Recorded, not just reported: progress is suppressed under --json,
-          // and without this a PASS with no `adversarial` field cannot be told
+          // Recorded, not just reported: stderr progress is transient, and
+          // without this a PASS with no `adversarial` field cannot be told
           // apart from a PASS that had no second target to challenge it.
           attempts.push({
             target,

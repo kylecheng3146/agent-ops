@@ -49,6 +49,11 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 `--task` 使用 task criteria，並要求必要驗證的最新 PASS evidence。完整 report
 會顯示給人看，PASS 後只持久化 source-fingerprint attestation。
 
+`--review-target` 只屬於 `init`，用來設定持久 fallback chain。單次執行可用
+`review --harness <target>`，將 chain 縮窄為一個已在 project policy 啟用的
+target；它不會臨時啟用未設定的 reviewer。既有 model、effort 與 timeout 仍會
+沿用，review JSON 的 `plannedTargets` 會列出經 host 調整後的實際順序。
+
 每次嘗試都從全新 session、一次性 repository clone 與原生唯讀模式啟動。Claude 使用完整 safe-mode
 隔離；Codex 與 Agy 為了支援既有 OAuth 登入而保留登入環境，因此 context
 隔離較弱。Agy 會取得一次性 clone，即使 sandboxed plan mode 寫入 cwd，也無法
@@ -76,6 +81,11 @@ agent-ops 刻意不傳會繞過權限邊界的 `--dangerously-skip-permissions`�
 （每個目標預設 900 秒）、登入失敗、輸出過大或無法解析。文字與 JSON 輸出
 都會保留每次 attempt 及原因。`PASS` 或 `FAIL` 判定是**終局**，因此不會產生
 自動化的 review shopping。
+
+Capability check 與模型啟動進度都寫到 stderr，包括 `--json` 模式；stdout
+仍只有最終 JSON envelope，且不會串流 reviewer 原始輸出。SIGINT 或 SIGTERM
+會終止目前 reviewer 的完整 process tree、不進入 fallback，也不寫入
+attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli`。
 
 若 host 是 Claude Code（`CLAUDECODE` 已設定），`claude` 會被移到鏈尾。
 當它是唯一設定的目標時仍會執行，並附上 `reviewer == host` 警告。

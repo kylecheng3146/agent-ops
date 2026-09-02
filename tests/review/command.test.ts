@@ -33,6 +33,51 @@ test("generic review resolves configured role metadata", async () => {
   assert.match(envelope.data?.result.prompt ?? "", /change-quality/);
 });
 
+test("an explicit configured harness narrows the planned review chain", async () => {
+  let planned: readonly string[] | undefined;
+  const envelope = await runReviewCommand({
+    args: parseArgs(["review", "--harness", "claude", "--yes"]),
+    authorized: true,
+    roles: [{
+      role: "independent-review",
+      targets: ["codex", "claude"],
+      model: "review-model",
+      effort: "high",
+      timeoutMs: 42_000
+    }],
+    targets: ["claude"],
+    execute: async (request) => {
+      planned = request.invocation.plannedTargets;
+      return { status: "NOT_RUN", reason: "missing-cli" };
+    }
+  });
+
+  assert.deepEqual(planned, ["claude"]);
+  assert.equal(envelope.data?.result.harness, "claude");
+  assert.deepEqual(envelope.data?.result.plannedTargets, ["claude"]);
+  assert.match(envelope.data?.text ?? "", /Planned reviewers: claude/);
+});
+
+test("an explicit unconfigured harness is rejected before review", async () => {
+  let called = false;
+  await assert.rejects(
+    runReviewCommand({
+      args: parseArgs(["review", "--harness", "claude", "--yes"]),
+      authorized: true,
+      roles: [{ role: "independent-review", targets: ["codex"] }],
+      execute: async () => {
+        called = true;
+        return { status: "NOT_RUN", reason: "missing-cli" };
+      }
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "REVIEW_TARGET_NOT_CONFIGURED"
+  );
+  assert.equal(called, false);
+});
+
 test("task-only review options require an explicit task", () => {
   assert.throws(
     () => parseArgs(["review", "--criterion", "change-quality"]),

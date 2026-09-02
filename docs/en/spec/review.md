@@ -31,6 +31,12 @@ when an installation supports multiple harnesses.
 - Positive: `review --harness claude` resolves one target.
 - Negative: `Run one review invocation against every installed harness implicitly.`
 
+The explicit target MUST already exist in the configured independent-review
+role. It narrows the configured chain to one target while preserving model,
+effort, and timeout policy. Without `--harness`, host-aware ordering applies to
+the complete configured chain. Every result carries that order as
+`plannedTargets`.
+
 ## REVIEW-READONLY-001
 
 A review target MUST be launched with its own read-only mechanism, and a target
@@ -47,6 +53,11 @@ Every attempted review MUST run in a fresh session (`sessionIsolation:
 different CLI from the hosting CLI; when no other usable target exists,
 same-target fresh review is allowed but MUST render as `DEGRADED: isolated
 self-review`. A resumed development session is never an independent review.
+
+Capability and model-start progress goes to stderr even when stdout is JSON.
+Raw reviewer output remains bounded and unstreamed. SIGINT or SIGTERM aborts
+the active process tree without fallback or attestation; timeout remains a
+distinct NOT_RUN reason rather than being flattened to `missing-cli`.
 
 ## REVIEW-CHAIN-001
 

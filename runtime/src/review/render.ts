@@ -11,9 +11,11 @@ function lineList(values: readonly string[]): readonly string[] {
 }
 
 export function renderReviewResult(result: ReviewRunResult): string {
+  const plannedTargets = result.plannedTargets ?? [result.harness];
   const lines = [
     `Independent review: ${result.status}`,
-    `Reviewer: ${result.harness}; model: ${safe(result.model)}; effort: ${safe(result.effort)}.`
+    `Reviewer: ${result.harness}; model: ${safe(result.model)}; effort: ${safe(result.effort)}.`,
+    `Planned reviewers: ${plannedTargets.length === 0 ? "none" : plannedTargets.join(" → ")}.`
   ];
   if (result.scope !== undefined) {
     lines.push(

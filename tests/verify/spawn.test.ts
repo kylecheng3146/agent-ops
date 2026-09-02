@@ -265,6 +265,35 @@ test("times out by terminating the complete process tree with bounded grace", as
   assert.equal(result.signal, "SIGKILL");
 });
 
+test("an abort terminates the process tree without reporting a timeout", async () => {
+  const controller = new AbortController();
+  let finish: (completion: ProcessCompletion) => void = () => {};
+  const completion = new Promise<ProcessCompletion>((resolve) => {
+    finish = resolve;
+  });
+  let terminated = 0;
+  const pending = runVerificationCommand(command(), {
+    cwd: "/workspace",
+    signal: controller.signal,
+    runner: runnerWith(() => ({
+      pid: 456,
+      stdout: chunks(),
+      stderr: chunks(),
+      completion,
+      terminateTree: async () => {
+        terminated += 1;
+        finish({ exitCode: null, signal: "SIGTERM" });
+      }
+    }))
+  });
+  controller.abort("SIGINT");
+
+  const result = await pending;
+  assert.equal(result.failureClass, "aborted");
+  assert.equal(result.timedOut, false);
+  assert.equal(terminated, 1);
+});
+
 test("does not wait forever when termination and output draining both fail", async () => {
   async function* stalledOutput(): AsyncIterable<Uint8Array> {
     await new Promise<void>(() => undefined);
