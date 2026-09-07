@@ -743,6 +743,37 @@ test("an installed completion gate cannot be disabled through the fail-open esca
   assert.match(streams.stdout.join(""), /COMPLETION_GATE_DISABLE_REJECTED/u);
 });
 
+test("installed completion gates reject disabled config and malformed Stop input", async () => {
+  for (const enabled of [false, true]) {
+    for (const input of ["", "{bad", "{}", "null", JSON.stringify({ invocationNum: 1, conversationId: "one", workspacePaths: ["/workspace"] })]) {
+      const streams = io(input);
+      await runHookProcess(["agy", "Stop", "--completion-gate"], streams.io, "0.2.0", {
+        root: "/workspace",
+        loadConfig: async () => config(["core", "loop"], false, enabled),
+        trust: async () => "TRUSTED",
+        completionGate: { handle: async () => { throw new Error("invalid input reached the gate"); } }
+      });
+      const output = JSON.parse(streams.stdout.join(""));
+      assert.equal(output.decision, "continue");
+      assert.match(output.reason, enabled ? /COMPLETION_GATE_UNAVAILABLE/u : /COMPLETION_GATE_CONFIG_DISABLED/u);
+    }
+  }
+});
+
+test("malformed non-Stop input remains advisory with the completion gate enabled", async () => {
+  for (const event of ["SessionStart", "PreToolUse"]) {
+    for (const input of ["{bad", "null"]) {
+      const streams = io(input);
+      await runHookProcess(["agy", event], streams.io, "0.2.0", {
+        root: "/workspace",
+        loadConfig: async () => config(["core", "loop"], false, true),
+        trust: async () => "TRUSTED"
+      });
+      assert.equal(streams.stdout.join(""), "");
+    }
+  }
+});
+
 test("native Claude recursion metadata prevents Stop execution", async () => {
   const streams = io(JSON.stringify({
     hook_event_name: "Stop",

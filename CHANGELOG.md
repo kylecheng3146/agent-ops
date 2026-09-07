@@ -4,6 +4,33 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-09-07
+
+- Breaking: Project init/update now ignores task/review runtime output on every harness and
+  profile. Indexed runtime files and staged runtime removals fail closed with
+  recovery instructions instead of allowing self-invalidating fingerprints.
+  Untrack runtime files and commit staged removals before verifying/reviewing.
+- Completion performs expensive validation outside the task lock, then compares
+  the task snapshot and rechecks descendants under the lock before writing.
+  Concurrent task changes are preserved and require retrying completion.
+
+- Breaking: `task complete` now requires a Git change scope, current required-verifier
+  evidence, a whole-task review attestation, and completed descendants on every host.
+  Legacy tasks without a config baseline or valid evidence must be recreated and
+  verified/reviewed. Runtime callers must supply `TaskServiceOptions.completion`.
+- Added `task complete --base` and enabled `verify --base` for committed ranges.
+  Use the same base for verify, review and completion; the agy Stop gate still uses
+  worktree-scoped evidence.
+- Required verifiers declared by task criteria now run even when path mappings
+  select a narrower set. Completion preserves recorded evidence, rejects invalid
+  references and cannot replace a newer failure with an older PASS.
+- Parent completion checks all descendants under the task-state lock. Archiving
+  unfinished children does not satisfy completion, and completed parents cannot
+  accept new subtasks.
+- Trust grants are scoped by canonical worktree path, so trusting a second clone
+  of the same remote no longer revokes the first clone's independent grant.
+- Ignore generated `.agents/hooks.json` registration state in this repository.
+
 ## [0.1.22]
 
 - Fixed independent review observability and lifecycle handling. Explicit

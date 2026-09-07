@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 
 import {
   TASK_SCHEMA_VERSION,
+  type AgentOpsConfig,
   type AcceptanceCriterion,
   type AgentTask
 } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
-import { validateTask } from "../schema/validate.js";
+import { validateEvidence, validateTask } from "../schema/validate.js";
 import { renderTaskMarkdown } from "./render.js";
+import { checkTaskCompletionEvidence, findIncompleteSubtask } from "./completion.js";
+import { calculateConfigHash, FileEvidenceStore } from "../verify/evidence.js";
+import type { GitRunner } from "../verify/change-surface.js";
+import { resolveReviewScope } from "../review/scope.js";
+import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {
   advanceFailureFingerprint,
   type FailureFingerprint,
@@ -16,7 +22,8 @@ import {
 import type {
   MutableTaskState,
   StoredTaskRecord,
-  TaskStore
+  TaskStore,
+  TaskState
 } from "./store.js";
 
 export interface CreateTaskInput {
@@ -24,7 +31,7 @@ export interface CreateTaskInput {
   readonly criteria: readonly AcceptanceCriterion[];
   /** CLI task creation captures this; callers without it remain compatible. */
   readonly policyConfigHash?: string;
-  /** Records this task as a subtask of an existing, non-archived task. */
+  /** Records this task as a subtask of an existing active task. */
   readonly parentTaskId?: string;
   /** Optionally creates and attaches the task in one state mutation. */
   readonly sessionId?: string;
@@ -33,6 +40,13 @@ export interface CreateTaskInput {
 export interface TaskServiceOptions {
   readonly generateId?: () => string;
   readonly now?: () => string;
+  /** Required for completion; read-only task operations do not need a repository. */
+  readonly completion?: {
+    readonly root: string;
+    readonly gitRunner: GitRunner;
+    readonly loadConfig: () => Promise<AgentOpsConfig>;
+    readonly base?: string;
+  };
 }
 
 export interface TaskStatusQuery {
@@ -59,7 +73,7 @@ function taskError(code: string, message: string): AgentOpsError {
 }
 
 function findTask(
-  state: MutableTaskState,
+  state: TaskState,
   taskId: string
 ): StoredTaskRecord {
   const record = state.tasks.find(
@@ -152,11 +166,13 @@ export class TaskService {
   readonly #store: TaskStore;
   readonly #generateId: () => string;
   readonly #now: () => string;
+  readonly #completion: TaskServiceOptions["completion"];
 
   constructor(store: TaskStore, options: TaskServiceOptions = {}) {
     this.#store = store;
     this.#generateId = options.generateId ?? defaultTaskId;
     this.#now = options.now ?? (() => new Date().toISOString());
+    this.#completion = options.completion;
   }
 
   async create(input: CreateTaskInput): Promise<StoredTaskRecord> {
@@ -212,10 +228,10 @@ export class TaskService {
             `Parent task not found: ${input.parentTaskId}`
           );
         }
-        if (parent.status === "archived") {
+        if (parent.status !== "active") {
           throw taskError(
             "TASK_PARENT_NOT_ACTIVE",
-            "An archived task cannot take new subtasks."
+            "Only an active task can take new subtasks."
           );
         }
       }
@@ -352,18 +368,76 @@ export class TaskService {
     evidenceInput: CriterionEvidenceInput
   ): Promise<StoredTaskRecord> {
     const now = assertTimestamp(this.#now());
-    return await this.#store.mutate((state) => {
-      const current = findTask(state, taskId);
-      if (current.status === "archived") {
-        throw taskError(
-          "TASK_NOT_ACTIVE",
-          "An archived task cannot be completed."
-        );
-      }
-      const evidence = normalizeEvidence(
-        current.task,
-        evidenceInput
+    const snapshot = await this.#store.read();
+    const current = findTask(snapshot, taskId);
+    if (current.status === "archived") {
+      throw taskError(
+        "TASK_NOT_ACTIVE",
+        "An archived task cannot be completed."
       );
+    }
+    const submitted = normalizeEvidence(
+      current.task,
+      evidenceInput
+    );
+    // A caller cannot hide a recorded failure by submitting only older PASS references.
+    const evidence = normalizeEvidence(current.task, Object.fromEntries(
+      Object.entries(submitted).map(([criterionId, references]) => [criterionId,
+        [...new Set([...(current.evidence[criterionId] ?? []), ...references])]])
+    ));
+    const unfinished = findIncompleteSubtask(snapshot.tasks, taskId);
+    if (unfinished !== undefined) {
+      throw taskError("TASK_SUBTASK_INCOMPLETE", `Complete subtask ${unfinished.task.id} before its parent; archiving unfinished work does not satisfy completion.`);
+    }
+    const completion = this.#completion;
+    if (completion === undefined) {
+      throw taskError("TASK_COMPLETION_UNAVAILABLE", "Task completion requires repository config, source, verification evidence and review validation.");
+    }
+    const evidenceStore = new FileEvidenceStore(completion.root, completion.root);
+    for (const [criterionId, references] of Object.entries(evidence)) {
+      for (const reference of references) {
+        if (reference.startsWith("review:") && current.evidence[criterionId]?.includes(reference)) continue;
+        const validation = validateEvidence(await evidenceStore.load(reference));
+        if (!validation.ok || validation.value.taskId !== taskId || validation.value.criterionId !== criterionId) {
+          throw taskError("TASK_EVIDENCE_INVALID", `Criterion ${criterionId} requires resolvable evidence belonging to this task and criterion.`);
+        }
+      }
+    }
+    const fingerprint = async (): Promise<string> => {
+      try {
+        const scope = await resolveReviewScope({ root: completion.root, runner: completion.gitRunner,
+          ...(completion.base === undefined ? {} : { base: completion.base }) });
+        return await calculateSourceFingerprint(completion.root, scope, completion.gitRunner);
+      } catch (error) {
+        if (error instanceof AgentOpsError && error.code === "REVIEW_NO_CHANGE_SURFACE") {
+          throw taskError("TASK_COMPLETION_SCOPE_REQUIRED", completion.base === undefined
+            ? "No changed worktree scope. For committed work, run verify, review and task complete with the same --base <git-ref>."
+            : "The requested base range has no changed paths; choose a base that precedes the committed work.");
+        }
+        throw error;
+      }
+    };
+    const config = await completion.loadConfig();
+    const sourceFingerprint = await fingerprint();
+    const problem = await checkTaskCompletionEvidence({ ...current, evidence }, {
+      root: completion.root, config, sourceFingerprint,
+      evidenceStore
+    });
+    if (problem !== null) {
+      throw taskError(`TASK_COMPLETION_${problem.code}`, problem.remedy);
+    }
+    if (sourceFingerprint !== await fingerprint() ||
+      calculateConfigHash(config) !== calculateConfigHash(await completion.loadConfig())) {
+      throw taskError("TASK_COMPLETION_SOURCE_CHANGED", "Source or config changed during completion; verify and review again.");
+    }
+    return await this.#store.mutate((state) => {
+      if (JSON.stringify(findTask(state, taskId)) !== JSON.stringify(current)) {
+        throw taskError("TASK_COMPLETION_STATE_CHANGED", "Task changed during completion; retry against its current evidence and status.");
+      }
+      const unfinished = findIncompleteSubtask(state.tasks, taskId);
+      if (unfinished !== undefined) {
+        throw taskError("TASK_SUBTASK_INCOMPLETE", `Complete subtask ${unfinished.task.id} before its parent; archiving unfinished work does not satisfy completion.`);
+      }
       if (current.status === "complete") {
         if (JSON.stringify(current.evidence) !== JSON.stringify(evidence)) {
           throw taskError(

@@ -1,3 +1,4 @@
+import { AgentOpsError } from "../fs/paths.js";
 import { evaluateGuardrail } from "../guardrails/evaluate.js";
 import type { GuardrailDecision } from "../guardrails/types.js";
 import type {
@@ -60,9 +61,14 @@ export async function dispatchHookEvent(
   options: HookDispatchOptions
 ): Promise<HookResult> {
   if (options.completionGate !== undefined) {
-    const result = await options.completionGate.handle(event);
-    if (result !== null) {
-      return result;
+    try {
+      const result = await options.completionGate.handle(event);
+      if (result !== null) return result;
+    } catch (error) {
+      if (error instanceof AgentOpsError && error.code === "CHANGE_SURFACE_TRACKED_RUNTIME") {
+        return { action: "block", status: "FAIL", code: "COMPLETION_GATE_TRACKED_RUNTIME", remedy: error.message };
+      }
+      throw error;
     }
   }
   if (event.event === "unsupported") {

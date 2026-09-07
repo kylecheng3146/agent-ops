@@ -178,6 +178,15 @@ test("rejects task options that an action would ignore", () => {
   }
 });
 
+test("--base supports verify, review and task complete only", () => {
+  for (const command of [["verify"], ["review"], ["task", "complete", "--task", "task-one"]]) {
+    assert.equal(parseArgs([...command, "--base", "HEAD^"]).base, "HEAD^");
+  }
+  for (const action of ["create", "status", "attach", "archive", "export"]) {
+    assert.throws(() => parseArgs(["task", action, "--base", "HEAD^"]), { code: "CLI_OPTION_NOT_ALLOWED" });
+  }
+});
+
 test("--parent belongs to task create and task status only", () => {
   assert.equal(
     parseArgs(["task", "create", "--title", "x", "--parent", "task-one"])

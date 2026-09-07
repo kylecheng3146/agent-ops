@@ -53,8 +53,8 @@ export function normalizeHookInput(
 }
 
 /**
- * Hooks are advisory infrastructure: every failure path stays fail-open with
- * exit code 0 so a broken toolkit can never wedge the harness.
+ * Advisory failures stay fail-open; an enabled completion Stop fails closed
+ * through the host's native decision protocol (still exit code 0).
  */
 export async function runHookCommand(
   options: HookCommandOptions
@@ -64,16 +64,12 @@ export async function runHookCommand(
       options.config.profiles.length === 0
         ? { capabilities: [] as const }
         : resolveCapabilities(options.config);
-    let input: unknown;
-    try {
-      input = JSON.parse(options.stdin) as unknown;
-    } catch {
-      return { exitCode: 0, stdout: "", stderr: "" };
-    }
+    const input: unknown = JSON.parse(options.stdin);
     const descriptor = harnessDescriptor(options.harness);
     const normalized = normalizeHookInput(options.harness, input);
-    if (normalized === null) {
-      return { exitCode: 0, stdout: "", stderr: "" };
+    if (normalized === null ||
+      (options.completionGate !== undefined && options.event === "Stop" && normalized.event !== "stop")) {
+      throw new Error("Invalid hook input.");
     }
     const stopRegistration = descriptor.control.registrations.find(
       ({ capability }) => capability === "optional-stop-verify"
@@ -94,7 +90,7 @@ export async function runHookCommand(
     });
     return descriptor.runtime.formatOutput(options.event, result);
   } catch {
-    if (options.harness === "agy" && options.completionGate !== undefined) {
+    if (options.harness === "agy" && options.event === "Stop" && options.completionGate !== undefined) {
       return harnessDescriptor("agy").runtime.formatOutput(options.event, {
         action: "block",
         status: "UNKNOWN",

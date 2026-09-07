@@ -472,10 +472,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "--target-version may be used only with update."
     );
   }
-  if (base !== undefined && command !== "verify" && command !== "review") {
+  if (base !== undefined && command !== "verify" && command !== "review" &&
+    !(command === "task" && action === "complete")) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "--base may be used only with verify or review."
+      "--base may be used only with verify, review or task complete."
     );
   }
   if (
@@ -564,12 +565,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       evidence.length > 0 ||
       dryRun ||
       yes ||
-      base !== undefined ||
       (taskId !== undefined && sessionId !== undefined))
   ) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "Verify accepts only scope, task or session, and json options."
+      "Verify accepts only scope, task or session, base, and json options."
     );
   }
   if (

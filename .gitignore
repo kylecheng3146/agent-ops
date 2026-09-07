@@ -30,3 +30,4 @@ CLAUDE.md
 .claude/loop-state.md
 .claude/loop-telemetry.jsonl
 # agent-ops:end loop-state
+.agents/hooks.json

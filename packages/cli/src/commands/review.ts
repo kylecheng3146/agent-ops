@@ -16,7 +16,7 @@ import {
   type ReviewVerificationSummary
 } from "../../../../runtime/src/review/runner.js";
 import { renderReviewResult } from "../../../../runtime/src/review/render.js";
-import { saveReviewAttestation } from "../../../../runtime/src/review/attestation.js";
+import { invalidateReviewAttestation, saveReviewAttestation } from "../../../../runtime/src/review/attestation.js";
 import {
   resolveReviewRole,
   type ReviewRole,
@@ -89,6 +89,7 @@ interface TaskContext {
   readonly evidence: Readonly<Record<string, readonly string[]>>;
   readonly failureFingerprint: { readonly value: string } | null;
   readonly criteria: readonly ReviewCriterion[];
+  readonly allCriteriaReviewed: boolean;
 }
 
 const GENERIC_REQUEST = "Review the current Git change surface.";
@@ -158,7 +159,8 @@ async function taskContext(
     policyConfigHash: record.policyConfigHash,
     evidence: record.evidence,
     failureFingerprint: record.failureFingerprint,
-    criteria
+    criteria,
+    allCriteriaReviewed: criteria.length === record.task.criteria.length
   };
 }
 
@@ -433,6 +435,9 @@ export async function runReviewCommand(
       scope,
       options.gitRunner
     );
+    if (options.authorized) {
+      await invalidateReviewAttestation(options.root, sourceFingerprint);
+    }
     if (context !== undefined && options.policyConfigHash !== undefined) {
       if (context.policyConfigHash === null) {
         return notRunEnvelope({
@@ -587,7 +592,8 @@ export async function runReviewCommand(
   if (
     options.root !== undefined &&
     result.status === "PASS" &&
-    sourceFingerprint !== undefined
+    sourceFingerprint !== undefined &&
+    (context === undefined || context.allCriteriaReviewed)
   ) {
     await saveReviewAttestation(options.root, {
       schemaVersion: 1,

@@ -178,6 +178,32 @@ test("normalizes remote identity and invalidates every bound field", async () =>
   }
 });
 
+test("granting and revoking sibling worktree trust preserves the other binding", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-worktrees-"));
+  try {
+    const store = new FileTrustStore(join(root, "trust.json"), root);
+    const bindings: TrustBinding[] = [];
+    for (const name of ["first", "second"]) {
+      const repositoryPath = join(root, name);
+      await mkdir(repositoryPath);
+      const binding = await calculateTrustBinding({ repositoryPath,
+        remoteUrl: "https://example.com/shared/repo.git", configHash: CONFIG_HASH, runtimeHash: RUNTIME_HASH });
+      bindings.push(binding);
+      await store.grant(binding, "2026-07-23T00:00:00Z");
+    }
+    const [first, second] = bindings as [TrustBinding, TrustBinding];
+    assert.equal((await store.status(first)).status, "TRUSTED");
+    const updated = { ...second, configHash: "c".repeat(64) };
+    await store.grant(updated, "2026-07-23T00:00:01Z");
+    assert.equal((await store.status(second)).status, "STALE");
+    assert.equal((await store.status(updated)).status, "TRUSTED");
+    await store.revoke(updated);
+    assert.equal((await store.status(first)).status, "TRUSTED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("revoke is exact, idempotent, and local state is owner-only", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-trust-"));
   try {

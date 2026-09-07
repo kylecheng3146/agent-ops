@@ -69,6 +69,7 @@ test("applies one shared AGENTS route and an opencode plugin", async () => {
       manifest.artifacts.map(({ id, path }) => ({ id, path })),
       [
         { id: "config", path: ".agent-ops/config.json" },
+        { id: "runtime-ignore", path: ".agent-ops/.gitignore" },
         { id: "agents-rules", path: ".agent-ops/AGENTS.md" },
         { id: "opencode-plugin", path: ".opencode/plugins/agent-ops.js" }
       ]

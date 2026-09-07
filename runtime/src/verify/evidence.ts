@@ -95,6 +95,9 @@ export function isPassingVerificationEvidence(
     evidence.status !== "PASS" ||
     evidence.exitCode !== 0 ||
     evidence.failureClass !== "none" ||
+    evidence.cwd !== command.cwd ||
+    JSON.stringify(evidence.argv) !==
+      JSON.stringify([command.command, ...command.args].map(redactSecrets)) ||
     command.evidence.kind === "file"
   ) {
     return false;
@@ -167,7 +170,11 @@ export class FileEvidenceStore {
       return null;
     }
     try {
-      return JSON.parse(source) as unknown;
+      const validation = validateEvidence(JSON.parse(source) as unknown);
+      if (!validation.ok) return null;
+      const evidence = validation.value;
+      const expected = `.agent-ops/tasks/evidence/${evidence.taskId}/${evidence.commandId}-${sha256(source).slice(0, 16)}.json`;
+      return reference === expected ? evidence : null;
     } catch {
       throw new AgentOpsError("EVIDENCE_INVALID", "Stored evidence is not valid JSON.");
     }

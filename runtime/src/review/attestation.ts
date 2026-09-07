@@ -104,8 +104,23 @@ export async function findReviewAttestation(
     return null;
   }
   try {
-    return parseAttestation(JSON.parse(source) as unknown);
+    const attestation = parseAttestation(JSON.parse(source) as unknown);
+    return attestation?.sourceFingerprint === sourceFingerprint ? attestation : null;
   } catch {
     return null;
+  }
+}
+
+/** A new authorized attempt supersedes any earlier PASS for this source. */
+export async function invalidateReviewAttestation(
+  root: string,
+  sourceFingerprint: string
+): Promise<void> {
+  if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
+    throw new AgentOpsError("REVIEW_ATTESTATION_INVALID", "Invalid source fingerprint.");
+  }
+  const path = attestationPath(root, sourceFingerprint);
+  if (await readPrivateFile(path, root) !== null) {
+    await writePrivateFile(path, "null\n", root);
   }
 }

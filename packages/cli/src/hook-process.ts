@@ -415,6 +415,15 @@ export async function runHookProcess(
       return 0;
     }
     const config = configOutcome.config;
+    if (completionGateInstalled && !config.features.completionGate.enabled) {
+      writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+        action: "block",
+        status: "UNKNOWN",
+        code: "COMPLETION_GATE_CONFIG_DISABLED",
+        remedy: "Restore completionGate.enabled or explicitly uninstall the completion gate."
+      }));
+      return 0;
+    }
     const trustStatus =
       dependencies.trust === undefined
         ? await repositoryTrust(root, config, cliVersion)

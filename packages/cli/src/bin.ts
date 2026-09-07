@@ -474,7 +474,15 @@ process.exitCode = await runCli(
             new FileTaskStore(
               join(root, ".agent-ops", "tasks", "state.json"),
               root
-            )
+            ),
+            { completion: {
+              root,
+              gitRunner: gitRunner(root),
+              ...(args.base === undefined ? {} : { base: args.base }),
+              loadConfig: async () => (await loadEffectiveConfig(
+                root, args.scope === "user" ? "user" : "project"
+              )).config
+            } }
           );
           if (args.command === "allow-stop") {
             const config = (await loadEffectiveConfig(root, "project")).config;

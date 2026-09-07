@@ -254,10 +254,18 @@ export class VerificationService {
       ? await collectChangeSurface(this.#options.gitRunner)
       : { staged: [], unstaged: [], untracked: [], paths: reviewScope.changedFiles };
     const surface = worktreeSurface;
-    const selection = selectVerificationScope(
+    const mappedSelection = selectVerificationScope(
       surface.paths,
       this.#options.config
     );
+    const taskVerifierIds = new Set(validation.value.criteria.flatMap((criterion) => criterion.verifierIds));
+    const selection: ScopeSelection = {
+      ...mappedSelection,
+      verifierIds: [...new Set([...mappedSelection.verifierIds,
+        ...this.#options.config.verification.commands
+          .filter(({ id, required }) => required && taskVerifierIds.has(id))
+          .map(({ id }) => id)])]
+    };
     const results: VerificationCommandReport[] = [];
     for (const commandId of selection.verifierIds) {
       results.push(
