@@ -267,9 +267,11 @@ test("a completed task is printed but never written to", async () => {
   const { root, tasks } = await withTask(true);
   try {
     const record = await tasks.status({ sessionId: SESSION });
-    const completed = await tasks.complete(record.task.id, {
-      tests: ["npm test"],
-      scope: ["git diff"]
+    // Seed a legacy completed record: this test checks read-only review behavior.
+    const completed = { ...record, status: "complete" as const, completedAt: record.createdAt,
+      evidence: { tests: ["npm test"], scope: ["git diff"] } };
+    await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).mutate((state) => {
+      state.tasks = state.tasks.map((current) => current.task.id === completed.task.id ? completed : current);
     });
     const envelope = await runReviewCommand({
       args: parseArgs(["review", "--yes"]),
@@ -416,11 +418,39 @@ test("review requires current PASS evidence before it spawns", async () => {
     });
     assert.equal(passed.status, "ok", passed.data?.result.reason ?? "missing reason");
     assert.equal(calls, 1);
+    assert.equal((await findReviewAttestation(root, fingerprint))?.taskId, record.task.id);
     assert.deepEqual(passed.data?.result.verification?.commands, [
       { criterionId: "unit", commandId: "unit", required: true, status: "PASS", evidenceReference: reference },
       { criterionId: "scope", commandId: "unit", required: true, status: "PASS", evidenceReference: scopeReference },
       { criterionId: "scope", commandId: "optional", required: false, status: "FAIL", evidenceReference: optionalReference }
     ]);
+
+    const partial = await runReviewCommand({
+      args: parseArgs(["review", "--yes", "--task", record.task.id, "--criterion", "unit"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async (request) => ({ status: "PASS", results: [],
+        report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"]) })
+    });
+    assert.equal(partial.status, "ok");
+    assert.equal(await findReviewAttestation(root, fingerprint), null);
+    const full = await runReviewCommand({
+      args: parseArgs(["review", "--yes", "--task", record.task.id, "--criterion", "unit", "--criterion", "scope"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async (request) => ({ status: "PASS", results: [],
+        report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"]) })
+    });
+    assert.equal(full.status, "ok");
+    assert.equal((await findReviewAttestation(root, fingerprint))?.taskId, record.task.id);
+    const failed = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      execute: async () => ({ status: "NOT_RUN", reason: "timeout" })
+    });
+    assert.equal(failed.status, "error");
+    assert.equal(await findReviewAttestation(root, fingerprint), null);
 
     const unsafeSupportingPath = await runReviewCommand({
       args: parseArgs(["review", "--yes"]), authorized: true, tasks,

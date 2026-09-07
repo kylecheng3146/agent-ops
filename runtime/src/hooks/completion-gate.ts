@@ -1,18 +1,16 @@
 import { join } from "node:path";
 
-import type { AgentOpsConfig, VerificationCommand } from "../contracts.js";
-import { calculateConfigHash } from "../config/hash.js";
+import type { AgentOpsConfig } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
-import { findReviewAttestation } from "../review/attestation.js";
-import { validateEvidence, validateTaskAgainstConfig } from "../schema/validate.js";
 import {
   readPrivateFile,
   withPrivateFileLock,
   writePrivateFile
 } from "../security/permissions.js";
 import type { TaskService } from "../task/service.js";
-import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify/evidence.js";
+import { checkTaskCompletionEvidence, findIncompleteSubtask } from "../task/completion.js";
+import type { FileEvidenceStore } from "../verify/evidence.js";
 import { collectChangeSurface, type GitRunner } from "../verify/change-surface.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
@@ -164,41 +162,10 @@ export class CompletionGateService {
     });
   }
 
-  #isPermitCommand(event: NormalizedHookEvent, sessionId: string): boolean {
-    if (event.event !== "command") return false;
-    const tokens = [event.command, ...event.args];
-    const commandIndex = tokens.indexOf("allow-stop");
-    return commandIndex >= 0 &&
-      tokens[commandIndex + 1] === "--session" &&
-      (tokens[commandIndex + 2] === sessionId ||
-        tokens[commandIndex + 2] === "$AGENT_OPS_SESSION_ID");
-  }
-
-  async #hasCurrentEvidence(
-    taskId: string,
-    criterionId: string,
-    command: VerificationCommand,
-    references: readonly string[],
-    configHash: string,
-    sourceFingerprint: string
-  ): Promise<boolean> {
-    for (const reference of references) {
-      if (reference.startsWith("review:")) continue;
-      const validation = validateEvidence(await this.#options.evidenceStore.load(reference));
-      if (!validation.ok) continue;
-      const evidence = validation.value;
-      if (
-        evidence.taskId === taskId &&
-        evidence.criterionId === criterionId &&
-        evidence.commandId === command.id &&
-        evidence.configHash === configHash &&
-        evidence.sourceFingerprint === sourceFingerprint &&
-        isPassingVerificationEvidence(command, evidence)
-      ) {
-        return true;
-      }
-    }
-    return false;
+  #isPermitCommand(event: NormalizedHookEvent): boolean {
+    const commands = event.event === "command" ? [event] :
+      event.event === "command-batch" ? event.commands : [];
+    return commands.some(({ command, args }) => [command, ...args].includes("allow-stop"));
   }
 
   async #validateTask(sessionId: string, sourceFingerprint: string): Promise<HookResult | null> {
@@ -213,40 +180,21 @@ export class CompletionGateService {
     if (stored.status !== "complete") {
       return gateResult("block", "FAIL", "COMPLETION_GATE_TASK_INCOMPLETE", "Complete the attached task after verification and review.");
     }
-    const taskValidation = validateTaskAgainstConfig(stored.task, this.#options.config);
-    const configHash = calculateConfigHash(this.#options.config);
-    if (!taskValidation.ok || stored.policyConfigHash !== configHash) {
-      return gateResult("block", "FAIL", "COMPLETION_GATE_TASK_STALE", "Recreate or re-verify the task against the current config.");
+    const unfinished = findIncompleteSubtask(await this.#options.taskService.list(), stored.task.id);
+    if (unfinished !== undefined) {
+      return gateResult("block", "FAIL", "COMPLETION_GATE_SUBTASK_INCOMPLETE", `Complete subtask ${unfinished.task.id} before its parent.`);
     }
-    for (const criterion of stored.task.criteria) {
-      for (const commandId of criterion.verifierIds) {
-        const command = this.#options.config.verification.commands.find(({ id }) => id === commandId);
-        if (command === undefined) {
-          return gateResult("block", "UNKNOWN", "COMPLETION_GATE_EVIDENCE_UNAVAILABLE", "Configured task evidence cannot be resolved.");
-        }
-        if (
-          command.required &&
-          !(await this.#hasCurrentEvidence(
-            stored.task.id,
-            criterion.id,
-            command,
-            stored.evidence[criterion.id] ?? [],
-            configHash,
-            sourceFingerprint
-          ))
-        ) {
-          return gateResult("block", "FAIL", "COMPLETION_GATE_EVIDENCE_REQUIRED", "Run agent-ops verify and complete the task with current PASS evidence.");
-        }
-      }
-    }
-    const attestation = await findReviewAttestation(this.#options.root, sourceFingerprint);
-    if (attestation === null || attestation.taskId !== stored.task.id) {
-      return gateResult("block", "FAIL", "COMPLETION_GATE_REVIEW_REQUIRED", "Run agent-ops review --yes for the attached task and current source.");
+    const problem = await checkTaskCompletionEvidence(stored, { ...this.#options, sourceFingerprint });
+    if (problem !== null) {
+      return gateResult("block", problem.status, `COMPLETION_GATE_${problem.code}`, problem.remedy);
     }
     return null;
   }
 
   async handle(event: NormalizedHookEvent): Promise<HookResult | null> {
+    if (this.#isPermitCommand(event)) {
+      return gateResult("block", "UNKNOWN", "COMPLETION_GATE_PERMIT_CONFIRMATION", "Allow this command only to grant one Stop for the current source fingerprint.");
+    }
     const sessionId = event.sessionId;
     if (sessionId === undefined) {
       return event.event === "stop"
@@ -256,10 +204,11 @@ export class CompletionGateService {
     if (event.event === "session-start") {
       return await this.initialize(sessionId);
     }
-    if (this.#isPermitCommand(event, sessionId)) {
-      return gateResult("block", "UNKNOWN", "COMPLETION_GATE_PERMIT_CONFIRMATION", "Allow this command only to grant one Stop for the current source fingerprint.");
-    }
     if (event.event !== "stop") return null;
+    if (event.terminationReason === undefined ||
+      (event.terminationReason === "model_stop" && event.fullyIdle === undefined)) {
+      return gateResult("block", "UNKNOWN", "COMPLETION_GATE_STOP_INPUT_INVALID", "Restore the Stop termination reason and fullyIdle metadata before stopping.");
+    }
     if (event.terminationReason !== "model_stop" || event.fullyIdle !== true) {
       return gateResult("continue", "PASS", "COMPLETION_GATE_NON_FINAL_STOP");
     }

@@ -159,6 +159,13 @@ export function assertSupportedManifestOwnership(
     pathKey(".agent-ops/config.json")
   ]);
   const optionalArtifactPaths = new Set<string>();
+  // Optional for manifests installed before runtime output was ignored.
+  if (manifest.scope === "project") {
+    expectedArtifactPaths.set(".agent-ops/.gitignore", {
+      path: ".agent-ops/.gitignore", ids: new Set(["runtime-ignore"])
+    });
+    optionalArtifactPaths.add(".agent-ops/.gitignore");
+  }
   const expectedMarkers = new Map<string, ExpectedManagedMarker>();
   const expectedMarkerPaths = new Set<string>();
   const loopHarnesses = selectedLoopHarnesses(harnesses);

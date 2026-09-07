@@ -812,6 +812,7 @@ export async function createInstallPlan(
   });
   const contribution = {
     artifacts: [
+      ...(options.scope === "project" ? [{ id: "runtime-ignore", path: ".agent-ops/.gitignore", content: "/tasks/\n/reviews/\n" }] : []),
       ...baseContribution.artifacts,
       ...loopContribution.artifacts
     ],

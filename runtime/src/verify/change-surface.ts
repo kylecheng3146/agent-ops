@@ -118,6 +118,9 @@ async function collectPaths(
 export async function collectChangeSurface(
   runner: GitRunner
 ): Promise<ChangeSurface> {
+  const trackedRuntime = await collectPaths(runner, [
+    "ls-files", "--cached", "-z", "--", ".agent-ops/tasks/", ".agent-ops/reviews/"
+  ]);
   const staged = await collectPaths(runner, [
     "diff",
     "--cached",
@@ -127,6 +130,10 @@ export async function collectChangeSurface(
     "--no-textconv",
     "-z"
   ]);
+  if (trackedRuntime.length > 0 || staged.some((path) => path.startsWith(".agent-ops/tasks/") || path.startsWith(".agent-ops/reviews/"))) {
+    throw new AgentOpsError("CHANGE_SURFACE_TRACKED_RUNTIME",
+      "Runtime output is staged or tracked under .agent-ops/tasks/ or .agent-ops/reviews/. Move any source files out of these runtime directories, add ignore rules (agent-ops update), then remove runtime files from the Git index with git rm -r --cached --ignore-unmatch -- .agent-ops/tasks/ .agent-ops/reviews/; keep local files, commit any staged runtime removals, then rerun verify/review.");
+  }
   const unstaged = await collectPaths(runner, [
     "diff",
     "--name-only",
@@ -135,12 +142,16 @@ export async function collectChangeSurface(
     "--no-textconv",
     "-z"
   ]);
-  const untracked = await collectPaths(runner, [
+  const untracked = (await collectPaths(runner, [
     "ls-files",
     "--others",
     "--exclude-standard",
     "-z"
-  ]);
+  ])).filter(
+    // Indexed runtime was rejected above; only generated, untracked output is excluded.
+    (path) => !path.startsWith(".agent-ops/tasks/") &&
+      !path.startsWith(".agent-ops/reviews/")
+  );
 
   return {
     staged,

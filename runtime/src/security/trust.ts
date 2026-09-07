@@ -334,8 +334,7 @@ export class FileTrustStore implements TrustStore {
         const store = await this.#read();
         const records = store.records.filter(
           (record) =>
-            record.binding.canonicalPath !== binding.canonicalPath &&
-            record.binding.remoteIdentity !== binding.remoteIdentity
+            record.binding.canonicalPath !== binding.canonicalPath
         );
         records.push({ binding: structuredClone(binding), grantedAt });
         await this.#write({ schemaVersion: 1, records });

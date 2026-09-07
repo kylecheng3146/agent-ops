@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   findReviewAttestation,
+  invalidateReviewAttestation,
   saveReviewAttestation,
   REVIEW_ATTESTATION_DIRECTORY
 } from "../../runtime/src/review/attestation.js";
@@ -53,6 +54,11 @@ test("reports no attestation for a different source state", async () => {
   await saveReviewAttestation(directory, attestation());
   assert.equal(await findReviewAttestation(directory, "c".repeat(64)), null);
   assert.equal(await findReviewAttestation(directory, "not-a-hash"), null);
+  await writeFile(join(directory, REVIEW_ATTESTATION_DIRECTORY, `${"c".repeat(64)}.json`),
+    JSON.stringify(attestation()), { mode: 0o600 });
+  assert.equal(await findReviewAttestation(directory, "c".repeat(64)), null);
+  await invalidateReviewAttestation(directory, FINGERPRINT);
+  assert.equal(await findReviewAttestation(directory, FINGERPRINT), null);
 });
 
 test("rejects an invalid attestation and reads a corrupt one as absent", async () => {

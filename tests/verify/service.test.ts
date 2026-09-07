@@ -15,7 +15,8 @@ import type {
   GitRunResult,
   GitRunner
 } from "../../runtime/src/verify/change-surface.js";
-import { FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
+import { calculateConfigHash, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
+import { saveReviewAttestation } from "../../runtime/src/review/attestation.js";
 import {
   VerificationService
 } from "../../runtime/src/verify/service.js";
@@ -144,6 +145,7 @@ async function taskService(root: string): Promise<{
   );
   const task = await service.create({
     title: "Verify the change",
+    policyConfigHash: calculateConfigHash(config()),
     criteria: [
       {
         id: "criterion-unit",
@@ -166,7 +168,7 @@ function clock(): () => string {
     `2026-07-23T12:00:${String(second++).padStart(2, "0")}.000Z`;
 }
 
-test("runs only a known mapped scope and persists criterion evidence", async () => {
+test("mapped verification also runs task-required commands so completion remains reachable", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-verify-"));
   try {
     const task = await taskService(root);
@@ -174,7 +176,8 @@ test("runs only a known mapped scope and persists criterion evidence", async () 
       "unit-tool": {
         completion: { exitCode: 0, signal: null },
         stdout: "# tests 2\n# pass 2\n"
-      }
+      },
+      "lint-tool": { completion: { exitCode: 0, signal: null } }
     });
     const service = new VerificationService({
       root,
@@ -195,14 +198,22 @@ test("runs only a known mapped scope and persists criterion evidence", async () 
     assert.equal(report.selection.reason, "mapped");
     assert.deepEqual(
       report.results.map(({ commandId }) => commandId),
-      ["unit"]
+      ["unit", "lint"]
     );
     assert.equal(report.results[0]?.testCount, 2);
     assert.equal(report.results[0]?.evidenceReferences.length, 1);
     assert.deepEqual(
       runner.calls.map(({ command, shell }) => ({ command, shell })),
-      [{ command: "unit-tool", shell: false }]
+      [{ command: "unit-tool", shell: false }, { command: "lint-tool", shell: false }]
     );
+    const stored = await task.service.status({ taskId: task.taskId });
+    assert.equal(stored.evidence["criterion-lint"]?.length, 1);
+    await saveReviewAttestation(root, { schemaVersion: 1, taskId: task.taskId, harness: "claude",
+      status: "PASS", sourceFingerprint: report.sourceFingerprint, createdAt: "2026-07-23T12:00:05Z" });
+    const completing = new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root), {
+      completion: { root, gitRunner: new SurfaceRunner("src/example.ts"), loadConfig: async () => config() }
+    });
+    assert.equal((await completing.complete(task.taskId, stored.evidence)).status, "complete");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

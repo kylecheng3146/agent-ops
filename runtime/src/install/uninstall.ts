@@ -73,6 +73,7 @@ function artifactOwners(
   artifact: { readonly id: string; readonly path: string }
 ): readonly HarnessId[] {
   if (artifact.id === "config") return [];
+  if (artifact.id === "runtime-ignore") return manifest.harness;
   if (artifact.id === "opencode-plugin") return ["opencode"];
   if (
     artifact.id === "claude-loop-launcher" ||

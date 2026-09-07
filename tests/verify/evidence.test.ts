@@ -3,7 +3,8 @@ import {
   lstat,
   mkdtemp,
   readFile,
-  rm
+  rm,
+  writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,8 @@ import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import {
   buildVerificationEvidence,
   calculateConfigHash,
-  FileEvidenceStore
+  FileEvidenceStore,
+  isPassingVerificationEvidence
 } from "../../runtime/src/verify/evidence.js";
 
 const SECRET = `ghp_${"a".repeat(24)}`;
@@ -91,6 +93,9 @@ test("builds validated evidence without retaining secret-bearing argv", () => {
   });
 
   assert.equal(evidence.argv[0], "node");
+  assert.equal(isPassingVerificationEvidence(command(), evidence), true);
+  assert.equal(isPassingVerificationEvidence(command(), { ...evidence, argv: ["true"] }), false);
+  assert.equal(isPassingVerificationEvidence(command(), { ...evidence, cwd: "elsewhere" }), false);
   assert.doesNotMatch(JSON.stringify(evidence), new RegExp(SECRET));
   assert.match(evidence.argv[2] ?? "", /\[REDACTED_/);
   assert.match(evidence.toolVersions.helper ?? "", /\[REDACTED_/);
@@ -142,6 +147,9 @@ test("persists validated evidence in an owner-only deterministic path", async ()
         0o700
       );
     }
+    assert.deepEqual(await store.load(first), evidence);
+    await writeFile(absolute, JSON.stringify({ ...evidence, testCount: 99 }), { mode: 0o600 });
+    assert.equal(await store.load(first), null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -74,6 +74,7 @@ test("collects staged, unstaged, and untracked paths without a shell", async () 
   const surface = await collectChangeSurface(runner);
 
   assert.deepEqual(runner.calls, [
+    ["ls-files", "--cached", "-z", "--", ".agent-ops/tasks/", ".agent-ops/reviews/"],
     STAGED_ARGS,
     UNSTAGED_ARGS,
     ["ls-files", "--others", "--exclude-standard", "-z"]
@@ -94,6 +95,17 @@ test("collects staged, unstaged, and untracked paths without a shell", async () 
     "src/元件.ts",
     "src/z.ts"
   ].sort());
+});
+
+test("excludes untracked runtime output while retaining policy and similarly named paths", async () => {
+  const runner = new FakeGitRunner([
+    [["ls-files", "--others", "--exclude-standard", "-z"], {
+      exitCode: 0,
+      stdout: nul(".agent-ops/tasks/evidence/new.json", ".agent-ops/reviews/new.json", ".agent-ops/config.json", ".agent-ops/tasks-helper.ts")
+    }]
+  ]);
+  assert.deepEqual((await collectChangeSurface(runner)).paths,
+    [".agent-ops/config.json", ".agent-ops/tasks-helper.ts"]);
 });
 
 test("rejects malformed or unsafe NUL-delimited Git output", async (t) => {
@@ -181,4 +193,12 @@ test("fails closed when a Git command exits non-zero", async () => {
       error instanceof AgentOpsError &&
       error.code === "CHANGE_SURFACE_GIT_FAILED"
   );
+});
+
+test("rejects clean tracked as well as newly staged runtime before fingerprinting", async () => {
+  for (const path of [".agent-ops/tasks/state.json", ".agent-ops/reviews/pass.json", ".agent-ops/tasks/helper.ts"]) {
+    const runner = new FakeGitRunner([[["ls-files", "--cached", "-z", "--", ".agent-ops/tasks/", ".agent-ops/reviews/"],
+      { exitCode: 0, stdout: nul(path) }]]);
+    await assert.rejects(collectChangeSurface(runner), { code: "CHANGE_SURFACE_TRACKED_RUNTIME" });
+  }
 });

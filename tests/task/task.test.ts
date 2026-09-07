@@ -20,10 +20,13 @@ import {
   type CreateTaskInput
 } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
+import { calculateConfigHash } from "../../runtime/src/config/hash.js";
+import { COMPLETION_CONFIG, completionContext, passingCompletionEvidence } from "./completion-fixture.js";
 
 function input(title = "Ship the task state"): CreateTaskInput {
   return {
     title,
+    policyConfigHash: calculateConfigHash(COMPLETION_CONFIG),
     criteria: [
       {
         id: "criterion-create",
@@ -50,7 +53,8 @@ function service(
     ),
     {
       generateId,
-      now: () => "2026-07-23T12:00:00.000Z"
+      now: () => "2026-07-23T12:00:00.000Z",
+      completion: completionContext(root)
     }
   );
 }
@@ -105,14 +109,12 @@ test("creates, completes, archives, and exports structured task state", async ()
         error.code === "TASK_EVIDENCE_INCOMPLETE"
     );
 
-    const completed = await tasks.complete(created.task.id, {
-      "criterion-create": ["evidence/create.json"],
-      "criterion-complete": ["evidence/complete.json"]
-    });
+    const references = await passingCompletionEvidence(root, created);
+    const completed = await tasks.complete(created.task.id, references);
     assert.equal(completed.status, "complete");
     assert.equal(
       completed.evidence["criterion-create"]?.[0],
-      "evidence/create.json"
+      references["criterion-create"]?.[0]
     );
 
     const statePath = join(
@@ -125,7 +127,7 @@ test("creates, completes, archives, and exports structured task state", async ()
     const markdown = await tasks.export(created.task.id);
     assert.match(markdown, /^# Ship the task state$/m);
     assert.match(markdown, /Status: complete/);
-    assert.match(markdown, /evidence\/complete\.json/);
+    assert.ok(markdown.includes(references["criterion-complete"]![0]!));
     if (process.platform !== "win32") {
       assert.equal(
         (await lstat(statePath, { bigint: true })).ino,
@@ -323,10 +325,7 @@ test("subtasks record their parent and stay independently completable", async ()
 
     // Completing a subtask leaves the parent exactly as it was: the split is
     // tracking only, never a completion side effect.
-    await tasks.complete(child.task.id, {
-      "criterion-create": ["evidence/create.json"],
-      "criterion-complete": ["evidence/complete.json"]
-    });
+    await tasks.complete(child.task.id, await passingCompletionEvidence(root, child));
     const parentAfter = await tasks.status({ taskId: parent.task.id });
     assert.equal(parentAfter.status, "active");
     assert.deepEqual(parentAfter.evidence, {});

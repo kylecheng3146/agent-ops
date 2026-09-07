@@ -134,6 +134,7 @@ test("plans a complete project install without writing", async () => {
       manifest.artifacts.map(({ path }) => path),
       [
         ".agent-ops/config.json",
+        ".agent-ops/.gitignore",
         ".agent-ops/AGENTS.md",
         ".agent-ops/CLAUDE.md"
       ]
