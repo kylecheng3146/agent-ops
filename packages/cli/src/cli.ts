@@ -49,7 +49,7 @@ Commands:
              Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review
-  allow-stop Grant one fingerprint-bound agy Stop permit (requires --session)
+  allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
 
 Options:
@@ -59,7 +59,7 @@ Options:
   --profile <core|advisory|guardrails|loop>  Repeatable
   --review-target <codex|agy|claude>  Repeatable init option; external review
                                       targets in fallback-chain order
-  --completion-gate                  Init only: enable the agy project-loop gate
+  --completion-gate                  Init only: enable the project-loop completion gate
   --check-auth                        Doctor only: probe each review target's
                                       authentication with one real call
   --task <id>
@@ -95,7 +95,7 @@ Options:
   --hook-target <harness=surface-id>   Repeatable
   --profile <core|advisory|guardrails|loop>  Repeatable
   --review-target <codex|agy|claude>   Repeatable, in fallback-chain order
-  --completion-gate                    Enable the agy project-loop gate
+  --completion-gate                    Enable the project-loop completion gate
   --dry-run                            Print the plan without writing
   --json
   --yes
@@ -197,8 +197,9 @@ Options:
 `,
   "allow-stop": `Usage: agent-ops allow-stop --session <id> [options]
 
-Grant one fingerprint-bound agy Stop permit. Requires user approval: the
-PreToolUse hook must return force_ask, so an agent cannot self-authorize it.
+Grant one fingerprint-bound Stop permit for the completion gate, on agy or
+Claude Code. Requires user approval: the PreToolUse hook asks the user, so an
+agent cannot self-authorize it.
 
 Options:
   --session <id>   Required
