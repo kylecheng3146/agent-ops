@@ -198,7 +198,7 @@ export class CompletionGateService {
     const sessionId = event.sessionId;
     if (sessionId === undefined) {
       return event.event === "stop"
-        ? gateResult("block", "UNKNOWN", "COMPLETION_GATE_SESSION_REQUIRED", "Agy did not provide conversationId; run doctor and use a one-time permit only after restoring hook input.")
+        ? gateResult("block", "UNKNOWN", "COMPLETION_GATE_SESSION_REQUIRED", "The host did not provide a session identifier; run doctor and use a one-time permit only after restoring hook input.")
         : null;
     }
     if (event.event === "session-start") {

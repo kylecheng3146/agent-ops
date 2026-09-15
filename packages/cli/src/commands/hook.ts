@@ -90,8 +90,14 @@ export async function runHookCommand(
     });
     return descriptor.runtime.formatOutput(options.event, result);
   } catch {
-    if (options.harness === "agy" && options.event === "Stop" && options.completionGate !== undefined) {
-      return harnessDescriptor("agy").runtime.formatOutput(options.event, {
+    // Fail closed on every host that enforces the gate: an exception here is
+    // exactly the case where a silent empty output would wave the stop through.
+    if (
+      (options.harness === "agy" || options.harness === "claude") &&
+      options.event === "Stop" &&
+      options.completionGate !== undefined
+    ) {
+      return harnessDescriptor(options.harness).runtime.formatOutput(options.event, {
         action: "block",
         status: "UNKNOWN",
         code: "COMPLETION_GATE_UNAVAILABLE",

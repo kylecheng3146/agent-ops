@@ -248,15 +248,47 @@ test("normalizes only fields used by Claude hook policy", () => {
       scope: "/repo"
     }
   );
+  // The gate keys its baseline on the session and reads Claude's recursion
+  // marker as "not yet idle", which is the case it lets through.
   assert.deepEqual(
     normalizeClaudeHookInput({
       hook_event_name: "Stop",
       cwd: "/repo",
+      session_id: "session-7",
       stop_hook_active: true
     }),
     {
       event: "stop",
-      projectRoot: "/repo"
+      projectRoot: "/repo",
+      sessionId: "session-7",
+      terminationReason: "model_stop",
+      fullyIdle: false
+    }
+  );
+  assert.deepEqual(
+    normalizeClaudeHookInput({
+      hook_event_name: "Stop",
+      cwd: "/repo",
+      session_id: "session-7"
+    }),
+    {
+      event: "stop",
+      projectRoot: "/repo",
+      sessionId: "session-7",
+      terminationReason: "model_stop",
+      fullyIdle: true
+    }
+  );
+  assert.deepEqual(
+    normalizeClaudeHookInput({
+      hook_event_name: "SessionStart",
+      cwd: "/repo",
+      session_id: "session-7"
+    }),
+    {
+      event: "session-start",
+      projectRoot: "/repo",
+      sessionId: "session-7"
     }
   );
   assert.equal(

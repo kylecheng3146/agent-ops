@@ -17,6 +17,11 @@ All notable changes to this unreleased project are documented here.
   gated Claude Stop hook that refuses a stop with Claude's own blocking
   decision, and the one-time `allow-stop` permit is surfaced as a
   `permissionDecision: ask` so an agent still cannot authorize its own stop.
+  Claude's Stop payload is mapped onto the gate's contract: `session_id` keys
+  the per-session baseline, a Stop is the equivalent of agy's `model_stop`, and
+  Claude's recursion marker is the not-yet-idle case the gate lets through. A
+  dispatch exception on a gated Claude Stop fails closed rather than returning
+  empty output.
   codex and opencode remain advisory: measured here, codex never fires its Stop
   hook under `codex exec` and rejects `permissionDecision: ask`, and opencode's
   plugin can only deny a tool call, never a stop.

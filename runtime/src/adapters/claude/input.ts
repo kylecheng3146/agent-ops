@@ -21,17 +21,31 @@ export function normalizeClaudeHookInput(
     return normalizeHookEvent(input);
   }
   const projectRoot = input.cwd;
+  // The completion gate keys its per-session baseline on this. Without it every
+  // Stop is refused for the wrong reason and no SessionStart ever records a
+  // baseline to refuse against.
+  const sessionId = typeof input.session_id === "string"
+    ? input.session_id
+    : undefined;
   if (input.hook_event_name === "SessionStart") {
-    return normalizeHookEvent({
-      event: "session-start",
-      projectRoot
-    });
+    return {
+      ...normalizeHookEvent({ event: "session-start", projectRoot }),
+      ...(sessionId === undefined ? {} : { sessionId })
+    };
   }
   if (input.hook_event_name === "Stop") {
-    return normalizeHookEvent({
+    // Claude publishes no termination reason: its Stop hook fires when the
+    // assistant has finished, which is agy's `model_stop`. The one distinction
+    // it does publish is recursion — a Stop the hook itself caused — and that
+    // is exactly the not-yet-idle case the gate lets through.
+    const stop = normalizeHookEvent({ event: "stop", projectRoot });
+    return {
       event: "stop",
-      projectRoot
-    });
+      projectRoot: stop.projectRoot,
+      ...(sessionId === undefined ? {} : { sessionId }),
+      terminationReason: "model_stop",
+      fullyIdle: input.stop_hook_active !== true
+    };
   }
   if (
     input.hook_event_name === "PreToolUse" &&
