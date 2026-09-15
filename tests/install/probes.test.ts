@@ -314,3 +314,65 @@ test("smoke availability follows configured verification commands", () => {
     "PASS"
   );
 });
+
+test("the agy runtime probe recognizes a gated Stop hook", () => {
+  const gated = (stopCommand: string): string => JSON.stringify({
+    command: { data: { hooks: [{
+      name: "agent-ops",
+      enabled: true,
+      actions: [
+        { event: "PreInvocation", command: "node hook.js agy SessionStart --managed-by=agent-ops" },
+        { event: "Stop", command: stopCommand }
+      ]
+    }] } }
+  });
+  const events = ["SessionStart", "Stop"] as const;
+
+  // What `agent-ops init --completion-gate` actually installs. Matching the
+  // whole tail as one string reported every gated installation as unmanaged,
+  // and `agent-ops update` could not fix it: update writes this very command.
+  assert.equal(
+    (agyRuntimeStatus(
+      "agy 1.2.3",
+      gated("node hook.js agy Stop --completion-gate --managed-by=agent-ops"),
+      events
+    ) as { status: string }).status,
+    "PASS"
+  );
+  assert.equal(
+    (agyRuntimeStatus(
+      "agy 1.2.3",
+      gated("node hook.js agy Stop --managed-by=agent-ops"),
+      events
+    ) as { status: string }).status,
+    "PASS"
+  );
+});
+
+test("the agy runtime probe still rejects a foreign or mismatched Stop hook", () => {
+  const withStop = (stopCommand: string): string => JSON.stringify({
+    command: { data: { hooks: [{
+      name: "agent-ops",
+      enabled: true,
+      actions: [{ event: "Stop", command: stopCommand }]
+    }] } }
+  });
+  const events = ["Stop"] as const;
+
+  for (const command of [
+    // Someone else's handler, however similar it looks.
+    "node hook.js agy Stop --completion-gate",
+    // The managed marker on the wrong event.
+    "node hook.js agy PreToolUse --managed-by=agent-ops",
+    // A name that merely contains the event.
+    "node hook.js agy StopEverything --managed-by=agent-ops"
+  ]) {
+    assert.equal(
+      (agyRuntimeStatus("agy 1.2.3", withStop(command), events) as {
+        status: string;
+      }).status,
+      "FAIL",
+      command
+    );
+  }
+});

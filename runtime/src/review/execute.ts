@@ -460,6 +460,15 @@ async function attemptTarget(
               "Run every repository-relative inspection in that directory.",
               "For terminal commands, use only git status, git diff, git log, or git show; " +
                 "read specific files with file-reading tools instead of ls, find, cat, or rg.",
+              // agy's only read-only mode is plan mode, and plan mode's default
+              // job is to author an implementation plan and then ask the caller
+              // whether to proceed. Under `--print` that question ends the one
+              // turn it gets, so the review comes back empty after minutes of
+              // work. Saying what the turn is for is what keeps it answering.
+              "You are answering a review question, not planning work. Do not write " +
+                "an implementation plan. Do not create or edit any file. Do not ask " +
+                "the user anything. Reply with the JSON object the schema requires " +
+                "and nothing else.",
               request.prompt
             ].join("\n")
           }

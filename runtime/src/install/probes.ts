@@ -16,6 +16,24 @@ export function agyVersionSupported(versionOutput: string): boolean {
   );
 }
 
+/**
+ * Whether a loaded hook command is the managed handler for this event. The
+ * event and the ownership marker are both required, but flags may sit between
+ * them: the Stop handler carries `--completion-gate` when the project loop is
+ * enabled, and matching the whole tail as one string reported every gated
+ * installation as unmanaged — a failure `agent-ops update` could never fix,
+ * because update installs exactly the command being rejected.
+ */
+function isManagedHookCommand(command: string, event: string): boolean {
+  const marker = " --managed-by=agent-ops";
+  if (!command.endsWith(marker)) {
+    return false;
+  }
+  const flags = command.slice(0, -marker.length);
+  return flags.endsWith(` agy ${event}`) ||
+    flags.includes(` agy ${event} --`);
+}
+
 export function agyRuntimeStatus(
   versionOutput: string,
   hooksOutput: string,
@@ -51,9 +69,7 @@ export function agyRuntimeStatus(
           typeof action === "object" && action !== null && !Array.isArray(action) &&
           (action as { event?: unknown }).event === nativeEvent &&
           typeof (action as { command?: unknown }).command === "string" &&
-          (action as { command: string }).command.endsWith(
-            ` agy ${expected} --managed-by=agent-ops`
-          )
+          isManagedHookCommand((action as { command: string }).command, expected)
         );
       }));
     });

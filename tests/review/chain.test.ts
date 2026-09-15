@@ -937,3 +937,15 @@ test("a bind-blocked host runs the loopback-dependent target last", async () => 
   assert.equal(attempts[0]?.command, "claude");
   assert.ok(progress.some((line) => line.includes("cannot open a loopback listener")));
 });
+
+test("agy is told to answer the review rather than plan the work", async () => {
+  const { attempts } = await run(["agy"], [{ stdout: passing("agy") }]);
+  const prompt = attempts[0]?.args[attempts[0].args.indexOf("-p") + 1] ?? "";
+
+  // Plan mode's default job is to author an implementation plan and ask
+  // whether to proceed, which under --print ends the only turn agy gets and
+  // returns an empty review after minutes of work.
+  assert.match(prompt, /Do not write an implementation plan/u);
+  assert.match(prompt, /Do not create or edit any file/u);
+  assert.match(prompt, /Do not ask the user anything/u);
+});

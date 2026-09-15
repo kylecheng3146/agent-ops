@@ -10,6 +10,15 @@ All notable changes to this unreleased project are documented here.
   log file both count as a heartbeat, so a slow reviewer is never cut off. The
   remediation names the host sandbox rather than authentication: escalating
   permission and retrying does not revive a stalled reviewer.
+- `doctor` no longer reports an installation whose Stop hook carries
+  `--completion-gate` as unmanaged. The probe matched the whole command tail as
+  one string, so enabling the project loop produced an `UPDATE_REQUIRED` that
+  `agent-ops update` could never clear — update installs exactly the command
+  being rejected.
+- agy is told to answer the review instead of planning the work. Its only
+  read-only mode is plan mode, whose default job is to write an implementation
+  plan and ask whether to proceed; under `--print` that question ends the one
+  turn it gets, and the review came back empty after minutes of work.
 - An installation that ends with no verification command now says so. `init`
   warns at the moment of install — naming the discovery decision that stopped
   detection — and `doctor` reports a `verification-commands` check, because a
