@@ -197,7 +197,20 @@ export async function runInitCommand(
       : { completionGateEnabled: args.completionGate })
   });
   const trust = await trustChange(options, plan);
-  const warnings = plan.harness.includes("agy") && options.agyWarning !== undefined
+  // An installation with no verifier looks finished and is not: every task
+  // completion needs current PASS evidence from a required verifier, so the
+  // loop can never close. Detection stays conservative on purpose — it will
+  // not guess a test command — which makes saying so out loud the whole fix.
+  const verificationWarnings = plan.config.verification.commands.length === 0
+    ? [
+        "No verification command is configured, so no task can be completed. " +
+        "Add verification.commands to .agent-ops/config.json." +
+        (plan.verificationBlockers.length === 0
+          ? ""
+          : ` Detection stopped because — ${plan.verificationBlockers.join("; ")}`)
+      ]
+    : [];
+  const warnings = [...verificationWarnings, ...(plan.harness.includes("agy") && options.agyWarning !== undefined
     ? (() => {
         try {
           const warning = options.agyWarning();
@@ -206,7 +219,7 @@ export async function runInitCommand(
           return ["agy could not be probed; run `agent-ops doctor` to verify it."];
         }
       })()
-    : [];
+    : [])];
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {
       applied: false,

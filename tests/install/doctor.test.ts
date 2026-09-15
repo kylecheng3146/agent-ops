@@ -77,14 +77,19 @@ const CHECK_IDS: readonly DoctorCheckId[] = [
   "lifecycle-summary",
   "repository-trust",
   "smoke-availability",
-  "review-targets"
+  "review-targets",
+  "host-sandbox",
+  "verification-commands"
 ];
 
 function passingProbes(): DoctorProbes {
   return {
     hookRegistration: () => true,
     repositoryTrust: async () => true,
-    smokeAvailability: () => true
+    smokeAvailability: () => true,
+    // Pinned: the real probe opens a socket, so an unpinned suite reports
+    // different checks inside a sandbox than outside one.
+    hostRestriction: async () => "none"
   };
 }
 
@@ -243,7 +248,10 @@ test("reports stable passing checks without changing the installation", async ()
         }) =>
           check.status
       ),
-      CHECK_IDS.map(() => "PASS")
+      // A fresh temp installation has no detectable stack, so it also has no
+      // verifier — and doctor now says so instead of reporting a loop that
+      // cannot complete a task as entirely healthy.
+      CHECK_IDS.map((id) => id === "verification-commands" ? "DEGRADED" : "PASS")
     );
     assert.deepEqual(await snapshotDirectory(root), before);
   } finally {
@@ -984,6 +992,67 @@ test("treats an empty profile list as no lifecycle capability", async () => {
       "UPDATE_REQUIRED"
     );
     assert.equal(checkStatus(report, "lifecycle-summary"), "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("doctor names the host sandbox instead of only an authentication verdict", async () => {
+  const root = await createFreshInstallation();
+  try {
+    const blocked = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: { ...passingProbes(), hostRestriction: async () => "network-blocked" }
+    });
+    const check = blocked.checks.find(({ id }) => id === "host-sandbox");
+    assert.ok(check);
+    assert.equal(check.status, "DEGRADED");
+    // The misdiagnosis this prevents: a sandboxed CLI reports "not logged in"
+    // on an install that is logged in.
+    assert.match(check.message, /no network access/u);
+    assert.match(check.message, /authentication verdict below is unreliable/u);
+    // Degraded without a code stays a finding, not an action: nothing here is
+    // fixed by running another agent-ops command.
+    assert.equal(check.code, undefined);
+
+    const bind = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: { ...passingProbes(), hostRestriction: async () => "bind-blocked" }
+    });
+    const bindCheck = bind.checks.find(({ id }) => id === "host-sandbox");
+    assert.ok(bindCheck);
+    assert.equal(bindCheck.status, "DEGRADED");
+    assert.match(bindCheck.message, /loopback listener/u);
+    assert.match(bindCheck.message, /agy/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("doctor names an installation that has no way to verify anything", async () => {
+  const root = await createFreshInstallation();
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: passingProbes()
+    });
+    const empty = report.checks.find(({ id }) => id === "verification-commands");
+    assert.ok(empty);
+    // A fresh temp install detects no stack, so it configures no verifier —
+    // and every task completion needs current PASS evidence from a required
+    // one. Reporting this install as healthy is what hid the dead loop.
+    assert.equal(empty.status, "DEGRADED");
+    assert.match(empty.message, /no task can be completed/u);
+    assert.match(empty.remediation ?? "", /\.agent-ops\/config\.json/u);
+    // Codeless: the remedy is a configuration edit, not an agent-ops command,
+    // so this must not force a non-zero exit.
+    assert.equal(empty.code, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

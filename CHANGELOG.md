@@ -4,6 +4,36 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- Independent review abandons a reviewer that produces no output for 90 seconds
+  and reports `stalled`, instead of waiting out the full 15-minute timeout on
+  each target. Progress bytes on either stream and growth of the target's own
+  log file both count as a heartbeat, so a slow reviewer is never cut off. The
+  remediation names the host sandbox rather than authentication: escalating
+  permission and retrying does not revive a stalled reviewer.
+- An installation that ends with no verification command now says so. `init`
+  warns at the moment of install — naming the discovery decision that stopped
+  detection — and `doctor` reports a `verification-commands` check, because a
+  loop with no required verifier can never complete a task and previously
+  reported itself entirely healthy.
+- A task carrying a recorded verification failure makes review report
+  `verification-not-passed` instead of `stale-verification`. The old label sent
+  the caller to re-run the verifier that had just failed.
+- Review asks what the surrounding host withholds before it spends the target
+  chain. A host that declares no network (`CODEX_SANDBOX_NETWORK_DISABLED=1`)
+  ends the review immediately as `host-sandboxed` without invoking a single CLI;
+  a host that merely refuses a loopback listener runs the targets that need one
+  last instead of first. `doctor` reports the same restriction as its own
+  `host-sandbox` check, so a sandboxed CLI's "not logged in" is no longer read
+  as a credential problem.
+- `task complete` with no `--evidence` now uses the references the task already
+  carries, instead of refusing until the caller copies them back out of the task
+  store. Supplied references are still unioned with the recorded ones, so naming
+  less evidence can never drop any; a task with no recorded evidence is still
+  refused.
+- `agent-ops <command> --help` now prints that command's own usage, including
+  the `--criterion` JSON shape, instead of failing as a conflicting action.
+  `--version` still cannot be combined with a command.
+
 ## [0.1.24] - 2026-09-07
 
 - Breaking: Project init/update now ignores task/review runtime output on every harness and

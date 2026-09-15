@@ -16,6 +16,7 @@ import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fing
 import { buildVerificationEvidence, calculateConfigHash, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../runtime/src/schema/validate.js";
 import { findReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { createFailureFingerprint } from "../../runtime/src/verify/fingerprint.js";
 
 const REVIEW_CONFIG: AgentOpsConfig = {
   schemaVersion: 3,
@@ -549,6 +550,54 @@ test("review requires current PASS evidence before it spawns", async () => {
     });
     assert.equal(stale.data?.result.reason, "stale-verification");
     assert.equal(calls, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a recorded verification failure is reported as a failure, not as stale evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "reviewed.ts"), "export {}\n");
+    const tasks = service(root);
+    const record = await tasks.create({
+      title: "Review failed source",
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      criteria: [
+        { id: "unit", description: "Unit tests pass.", verifierIds: ["unit"] },
+        { id: "scope", description: "Review scope is exact.", verifierIds: ["unit"] }
+      ]
+    });
+    await tasks.attach(SESSION, record.task.id);
+    await tasks.recordFailure(record.task.id, createFailureFingerprint({
+      commandId: "unit",
+      failureClass: "nonzero-exit",
+      exitCategory: "nonzero",
+      diagnostics: "1 test failed"
+    }));
+
+    let calls = 0;
+    const result = await runReviewCommand({
+      args: parseArgs(["review", "--yes"]),
+      authorized: true,
+      tasks,
+      sessionId: SESSION,
+      root,
+      gitRunner: reviewGitRunner(),
+      config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      evidenceStore: new FileEvidenceStore(root, root),
+      execute: async () => {
+        calls += 1;
+        return { status: "NOT_RUN" as const, reason: "missing-cli" as const };
+      }
+    });
+
+    // "stale" sends the caller to re-run the verifier that just failed, which
+    // fails again: the tests failed, and that is what the reason must say.
+    assert.equal(result.data?.result.reason, "verification-not-passed");
+    assert.equal(calls, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

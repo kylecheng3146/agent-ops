@@ -110,11 +110,18 @@ test("doctor command reports PASS only when every probe passes", async () => {
         smokeAvailability: () => true
       }
     });
-    assert.equal(passing.code, "DOCTOR_OK");
+    // DEGRADED, not OK: this fixture installs into an empty directory, so it
+    // has no verifier and no task could ever complete in it. The envelope
+    // stays "ok" because the remedy is a configuration edit, not a command.
+    assert.equal(passing.code, "DOCTOR_DEGRADED");
     assert.equal(passing.status, "ok");
+    assert.match(
+      passing.data?.text ?? "",
+      /DEGRADED verification-commands: No verification command is configured/
+    );
     assert.ok(
       passing.data?.report.checks.every(
-        ({ status }) => status === "PASS"
+        ({ id, status }) => status === "PASS" || id === "verification-commands"
       )
     );
   } finally {

@@ -239,12 +239,17 @@ async function preflightReview(
   context: TaskContext,
   sourceFingerprint: string
 ): Promise<ReviewPreflight> {
+  // A recorded failure is not stale evidence, and saying so sends the caller
+  // to re-run the verifier that just failed. The tests failed; that is the
+  // report.
+  if (context.failureFingerprint !== null) {
+    return { ok: false, reason: "verification-not-passed" };
+  }
   if (
     options.config === undefined ||
     options.evidenceStore === undefined ||
     options.root === undefined ||
-    options.gitRunner === undefined ||
-    context.failureFingerprint !== null
+    options.gitRunner === undefined
   ) {
     return { ok: false, reason: "stale-verification" };
   }
