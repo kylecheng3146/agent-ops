@@ -134,7 +134,14 @@ test("init warns about an unavailable agy without blocking the plan", async () =
       adapters: commonHarnessAdapters(),
       agyWarning: () => "agy is not installed"
     });
-    assert.deepEqual(result.data?.warnings, ["agy is not installed"]);
+    // A temp fixture has no detectable stack, so init also says the loop was
+    // installed without a verifier — the silence this warning replaced.
+    assert.deepEqual(result.data?.warnings, [
+      "No verification command is configured, so no task can be completed. " +
+      "Add verification.commands to .agent-ops/config.json. Detection stopped " +
+      "because — No supported technology stack was detected.",
+      "agy is not installed"
+    ]);
     assert.match(result.data?.text ?? "", /Warnings:[\s\S]*agy is not installed/u);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -158,7 +165,14 @@ test("init shows agy warnings before interactive confirmation", async () => {
       }
     });
     assert.equal(result.code, "INIT_CANCELLED");
-    assert.deepEqual(shown, ["agy is not installed"]);
+    // The verifier warning reaches the confirmation prompt too: the decision
+    // to install is the moment it still costs nothing to fix.
+    assert.deepEqual(shown, [
+      "No verification command is configured, so no task can be completed. " +
+      "Add verification.commands to .agent-ops/config.json. Detection stopped " +
+      "because — No supported technology stack was detected.",
+      "agy is not installed"
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -846,3 +846,124 @@ test("degraded OpenCode idle mapping still reports Stop evidence", async () => {
   assert.equal(processRunner.calls.length, 1);
   assert.match(streams.stdout.join(""), /STOP_VERIFICATION_FINISHED/);
 });
+
+test("the completion gate runs on claude and refuses the stop in Claude's dialect", async () => {
+  const streams = io(JSON.stringify({
+    hook_event_name: "Stop",
+    cwd: "/workspace",
+    stop_hook_active: false
+  }));
+  let sawGate = false;
+
+  await runHookProcess(
+    ["claude", "Stop", "--managed-by=agent-ops", "--completion-gate"],
+    streams.io,
+    "0.2.0",
+    {
+      root: "/workspace",
+      loadConfig: async () => config(["core", "loop"], false, true),
+      trust: async () => "TRUSTED",
+      gitRunner: new FixtureGitRunner(),
+      processRunner: new FixtureProcessRunner(),
+      completionGate: {
+        handle: async () => {
+          sawGate = true;
+          return {
+            action: "block",
+            status: "FAIL",
+            code: "COMPLETION_GATE_TASK_REQUIRED"
+          };
+        }
+      }
+    }
+  );
+
+  assert.equal(sawGate, true);
+  assert.deepEqual(JSON.parse(streams.stdout.join("")), {
+    decision: "block",
+    reason: "agent-ops: COMPLETION_GATE_TASK_REQUIRED"
+  });
+});
+
+test("no other harness installs or runs a completion gate", async () => {
+  // codex never fires Stop under `codex exec` and rejects
+  // permissionDecision:ask, so its permit could not be user-approved;
+  // opencode's plugin can only deny a tool call, never a stop.
+  for (const harness of ["codex", "opencode"] as const) {
+    const streams = io(JSON.stringify({
+      hook_event_name: "Stop",
+      cwd: "/workspace"
+    }));
+    let sawGate = false;
+    await runHookProcess(
+      [harness, "Stop", "--managed-by=agent-ops", "--completion-gate"],
+      streams.io,
+      "0.2.0",
+      {
+        root: "/workspace",
+        loadConfig: async () => config(["core", "loop"], false, true),
+        trust: async () => "TRUSTED",
+        gitRunner: new FixtureGitRunner(),
+        processRunner: new FixtureProcessRunner(),
+        completionGate: {
+          handle: async () => {
+            sawGate = true;
+            return {
+              action: "block",
+              status: "FAIL",
+              code: "COMPLETION_GATE_TASK_REQUIRED"
+            };
+          }
+        }
+      }
+    );
+    assert.equal(sawGate, false, harness);
+    assert.ok(
+      !streams.stdout.join("").includes("COMPLETION_GATE_TASK_REQUIRED"),
+      harness
+    );
+  }
+});
+
+test("the completion gate answers PreToolUse too, so a permit needs the user", async () => {
+  const streams = io(JSON.stringify({
+    hook_event_name: "PreToolUse",
+    cwd: "/workspace",
+    tool_name: "Bash",
+    tool_input: { command: "agent-ops allow-stop --session s1" }
+  }));
+  let sawGate = false;
+
+  // The Stop handler carries the gate flag, but the gate also has to reach
+  // PreToolUse: that is where a self-issued allow-stop becomes a question for
+  // the user instead of a decision the agent makes for itself.
+  await runHookProcess(
+    ["claude", "PreToolUse", "--managed-by=agent-ops"],
+    streams.io,
+    "0.2.0",
+    {
+      root: "/workspace",
+      loadConfig: async () => config(["core", "loop"], false, true),
+      trust: async () => "TRUSTED",
+      gitRunner: new FixtureGitRunner(),
+      processRunner: new FixtureProcessRunner(),
+      completionGate: {
+        handle: async () => {
+          sawGate = true;
+          return {
+            action: "block",
+            status: "UNKNOWN",
+            code: "COMPLETION_GATE_PERMIT_CONFIRMATION",
+            remedy: "A one-time Stop permit needs your approval."
+          };
+        }
+      }
+    }
+  );
+
+  assert.equal(sawGate, true);
+  const specific = (JSON.parse(streams.stdout.join("")) as {
+    hookSpecificOutput: Record<string, unknown>;
+  }).hookSpecificOutput;
+  assert.equal(specific.permissionDecision, "ask");
+});

@@ -59,9 +59,16 @@ export function claudeSettingsTarget(
       };
 }
 
+/**
+ * The gate flag trails the ownership marker rather than preceding it, unlike
+ * agy's flat command string. The marker's position is what identifies a
+ * managed handler here, and moving it would make every existing installation
+ * read as foreign.
+ */
 function commandHook(
   event: ClaudeSupportedEvent,
-  runtimePath: string
+  runtimePath: string,
+  completionGate = false
 ): ClaudeCommandHook {
   return {
     type: "command",
@@ -70,7 +77,8 @@ function commandHook(
       runtimePath,
       "claude",
       event,
-      CLAUDE_HOOK_MARKER
+      CLAUDE_HOOK_MARKER,
+      ...(completionGate ? ["--completion-gate"] : [])
     ],
     timeout: 30
   };
@@ -78,11 +86,12 @@ function commandHook(
 
 function matcherGroup(
   event: ClaudeSupportedEvent,
-  runtimePath: string
+  runtimePath: string,
+  completionGate = false
 ): ClaudeMatcherGroup {
   return {
     ...(event === "PreToolUse" ? { matcher: "Bash" } : {}),
-    hooks: [commandHook(event, runtimePath)]
+    hooks: [commandHook(event, runtimePath, completionGate)]
   };
 }
 
@@ -140,6 +149,21 @@ export function buildClaudeHookSettings(
     for (const event of CLAUDE_LOOP_EVENTS) {
       hooks[event] = [loopMatcherGroup(event, platform)];
     }
+    // The loop launcher runs a different process, and the completion gate does
+    // not live there. Its PreToolUse role is narrow but load-bearing: it is
+    // what turns a self-issued `allow-stop` into a question for the user, so
+    // the gate needs a handler of its own beside the loop's.
+    if (capabilities.includes("completion-gate")) {
+      // SessionStart for the same reason: the gate records its per-session
+      // baseline there, and a gate that never sees a session start refuses
+      // every stop as uninitialized.
+      for (const event of ["SessionStart", "PreToolUse"] as const) {
+        hooks[event] = [
+          ...(hooks[event] ?? []),
+          matcherGroup(event, runtimePath)
+        ];
+      }
+    }
   } else {
     if (capabilities.includes("lifecycle-summary")) {
       hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
@@ -148,7 +172,11 @@ export function buildClaudeHookSettings(
       hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }
-  if (capabilities.includes("optional-stop-verify")) {
+  // The gate supersedes report-only Stop verification: one managed Stop
+  // handler, and the gated one already reports everything the other would.
+  if (capabilities.includes("completion-gate")) {
+    hooks.Stop = [matcherGroup("Stop", runtimePath, true)];
+  } else if (capabilities.includes("optional-stop-verify")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
   return { hooks };
@@ -156,6 +184,31 @@ export function buildClaudeHookSettings(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The argument vector `commandHook` produces, and nothing else. The ownership
+ * marker alone is not proof: it is a plain string anyone may write, and a
+ * handler mistaken for ours is a handler `update` rewrites and `uninstall`
+ * deletes.
+ */
+function isManagedNodeArgs(args: unknown): boolean {
+  if (!Array.isArray(args) || args.length < 4 || args.length > 5) {
+    return false;
+  }
+  const [runtimePath, harness, event, marker, gate] = args as readonly unknown[];
+  // The event is checked for shape, not membership: a handler an older
+  // agent-ops wrote for an event this version no longer knows is still ours to
+  // remove, and rejecting it would orphan it in the user's settings forever.
+  return (
+    typeof runtimePath === "string" &&
+    runtimePath.length > 0 &&
+    harness === "claude" &&
+    typeof event === "string" &&
+    event.length > 0 &&
+    marker === CLAUDE_HOOK_MARKER &&
+    (gate === undefined || gate === "--completion-gate")
+  );
 }
 
 /**
@@ -169,11 +222,12 @@ export function isClaudeManagedHandler(handler: unknown): boolean {
   }
   return (
     (handler.command === "node" &&
-      Array.isArray(handler.args) &&
-      handler.args[3] === CLAUDE_HOOK_MARKER) ||
+      isManagedNodeArgs(handler.args)) ||
     (handler.command === "bash" &&
       Array.isArray(handler.args) &&
+      handler.args.length === 3 &&
       handler.args[0] === CLAUDE_LOOP_LAUNCHER &&
+      CLAUDE_LOOP_EVENTS.includes(handler.args[1] as ClaudeSupportedEvent) &&
       handler.args[2] === CLAUDE_HOOK_MARKER) ||
     (handler.shell === "powershell" &&
       handler.args === undefined &&

@@ -46,6 +46,10 @@ export type CliAction = ConfigAction | TaskAction | TrustAction;
 export interface ParsedArgs {
   command: CliCommand;
   action?: CliAction;
+  /** `help` only: the command `<command> --help` asked about. */
+  helpTopic?: TopLevelCommand;
+  /** `help` only: the sub-action, when one was given. */
+  helpAction?: CliAction;
   scope?: InstallScope;
   harness?: Harness;
   hookTargets?: HookTargetSelection[];
@@ -390,10 +394,31 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "--help and --version cannot be combined."
     );
   }
-  if ((helpSeen || versionSeen) && command !== undefined) {
+  // `<command> --help` asks about that command, so it answers instead of
+  // failing: an agent that cannot read a command's own option shapes guesses
+  // at them one rejected call at a time. Other options are ignored rather than
+  // rejected, so `task create --criterion <wrong> --help` still explains the
+  // shape it got wrong.
+  if (
+    helpSeen &&
+    command !== undefined &&
+    command !== "help" &&
+    command !== "version"
+  ) {
+    return {
+      command: "help",
+      helpTopic: command,
+      ...(action === undefined ? {} : { helpAction: action }),
+      profiles: [],
+      dryRun: false,
+      json,
+      yes: false
+    };
+  }
+  if (versionSeen && command !== undefined) {
     throw new CliArgumentError(
       "CLI_CONFLICTING_ACTION",
-      "Global help or version cannot be combined with a command."
+      "Global version cannot be combined with a command."
     );
   }
   if (helpSeen || versionSeen) {

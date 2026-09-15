@@ -248,15 +248,47 @@ test("normalizes only fields used by Claude hook policy", () => {
       scope: "/repo"
     }
   );
+  // The gate keys its baseline on the session and reads Claude's recursion
+  // marker as "not yet idle", which is the case it lets through.
   assert.deepEqual(
     normalizeClaudeHookInput({
       hook_event_name: "Stop",
       cwd: "/repo",
+      session_id: "session-7",
       stop_hook_active: true
     }),
     {
       event: "stop",
-      projectRoot: "/repo"
+      projectRoot: "/repo",
+      sessionId: "session-7",
+      terminationReason: "model_stop",
+      fullyIdle: false
+    }
+  );
+  assert.deepEqual(
+    normalizeClaudeHookInput({
+      hook_event_name: "Stop",
+      cwd: "/repo",
+      session_id: "session-7"
+    }),
+    {
+      event: "stop",
+      projectRoot: "/repo",
+      sessionId: "session-7",
+      terminationReason: "model_stop",
+      fullyIdle: true
+    }
+  );
+  assert.deepEqual(
+    normalizeClaudeHookInput({
+      hook_event_name: "SessionStart",
+      cwd: "/repo",
+      session_id: "session-7"
+    }),
+    {
+      event: "session-start",
+      projectRoot: "/repo",
+      sessionId: "session-7"
     }
   );
   assert.equal(
@@ -379,6 +411,13 @@ test("surfaces non-interactive trust limitations", () => {
         surfaceId: "claude-settings",
         support: "supported",
         runtimeFailure: "fail-open"
+      },
+      {
+        capability: "completion-gate",
+        nativeEvent: "Stop",
+        surfaceId: "claude-settings",
+        support: "supported",
+        runtimeFailure: "fail-closed"
       }
     ]
   );
@@ -408,4 +447,167 @@ test("blocks the Stop event when verification reports FAIL", () => {
   assert.match(parsed.reason, /independent-review/u);
   assert.match(parsed.reason, /agent-ops review/u);
   assert.equal(parsed.reason.includes("unit"), false);
+});
+
+test("the completion gate installs a gated Claude Stop hook", () => {
+  const gated = buildClaudeHookSettings(
+    ["lifecycle-summary", "completion-gate"],
+    "/opt/agent-ops/hook-entry.js"
+  );
+  const handler = gated.hooks.Stop?.[0]?.hooks[0];
+
+  assert.deepEqual(handler, {
+    type: "command",
+    command: "node",
+    args: [
+      "/opt/agent-ops/hook-entry.js",
+      "claude",
+      "Stop",
+      "--managed-by=agent-ops",
+      "--completion-gate"
+    ],
+    timeout: 30
+  });
+  // The flag trails the marker: the marker's position is what identifies a
+  // managed handler, so moving it would orphan every existing installation.
+  assert.equal(isClaudeManagedHandler(handler), true);
+
+  // One managed Stop handler, not two: the gate already reports everything
+  // report-only Stop verification would.
+  const both = buildClaudeHookSettings(
+    ["completion-gate", "optional-stop-verify"],
+    "/opt/agent-ops/hook-entry.js"
+  );
+  assert.equal(both.hooks.Stop?.length, 1);
+  assert.ok(
+    (both.hooks.Stop?.[0]?.hooks[0].args ?? []).includes("--completion-gate")
+  );
+
+  // Without the capability nothing changes for an existing installation.
+  const ungated = buildClaudeHookSettings(
+    ["optional-stop-verify"],
+    "/opt/agent-ops/hook-entry.js"
+  );
+  assert.ok(
+    !(ungated.hooks.Stop?.[0]?.hooks[0].args ?? []).includes("--completion-gate")
+  );
+});
+
+test("a gate refusal blocks the Claude stop and its permit is only ever asked", () => {
+  const blocked = claudeHookOutput("Stop", {
+    action: "block",
+    status: "FAIL",
+    code: "COMPLETION_GATE_TASK_INCOMPLETE",
+    remedy: "Complete the attached task before stopping."
+  });
+  const decision = JSON.parse(blocked.stdout) as Record<string, unknown>;
+  assert.equal(decision.decision, "block");
+  assert.match(String(decision.reason), /COMPLETION_GATE_TASK_INCOMPLETE/u);
+  assert.match(String(decision.reason), /Complete the attached task/u);
+
+  const permit = claudeHookOutput("PreToolUse", {
+    action: "block",
+    status: "UNKNOWN",
+    code: "COMPLETION_GATE_PERMIT_CONFIRMATION",
+    remedy: "A one-time Stop permit needs your approval."
+  });
+  const specific = (JSON.parse(permit.stdout) as {
+    hookSpecificOutput: Record<string, unknown>;
+  }).hookSpecificOutput;
+  // Asked, never denied and never allowed: an agent that could answer this
+  // for itself would hold the key to its own gate.
+  assert.equal(specific.permissionDecision, "ask");
+  assert.match(
+    String(specific.permissionDecisionReason),
+    /COMPLETION_GATE_PERMIT_CONFIRMATION/u
+  );
+});
+
+test("the managed-handler matcher rejects node handlers that are not ours", () => {
+  const node = (args: readonly string[]): unknown => ({
+    type: "command",
+    command: "node",
+    args: [...args],
+    timeout: 30
+  });
+
+  // The marker is a plain string anyone may write. A handler mistaken for ours
+  // is one `update` rewrites and `uninstall` deletes.
+  for (const args of [
+    // Someone else's harness, our marker.
+    ["/other/tool.js", "codex", "Stop", "--managed-by=agent-ops"],
+    // The marker in the wrong position.
+    ["/opt/hook.js", "claude", "--managed-by=agent-ops", "Stop"],
+    // Too few and too many arguments.
+    ["/opt/hook.js", "claude", "--managed-by=agent-ops"],
+    ["/opt/hook.js", "claude", "Stop", "--managed-by=agent-ops", "--completion-gate", "--extra"],
+    // A trailing flag we never write.
+    ["/opt/hook.js", "claude", "Stop", "--managed-by=agent-ops", "--dangerous"],
+    // No runtime path at all.
+    ["", "claude", "Stop", "--managed-by=agent-ops"]
+  ]) {
+    assert.equal(isClaudeManagedHandler(node(args)), false, args.join(" "));
+  }
+
+  // A handler an older agent-ops wrote for an event this version no longer
+  // knows is still ours to remove; rejecting it would orphan it forever.
+  assert.equal(
+    isClaudeManagedHandler(node(["/old/hook.js", "claude", "legacy", "--managed-by=agent-ops"])),
+    true
+  );
+});
+
+test("a gated loop install reaches the gate on SessionStart and PreToolUse", () => {
+  // Platform pinned: the loop launcher is bash on POSIX and PowerShell on
+  // Windows, and this test is about the gate's own handler sitting beside it.
+  const gated = buildClaudeHookSettings(
+    ["project-loop", "completion-gate"],
+    "/opt/agent-ops/hook-entry.js",
+    "linux"
+  );
+  const groups = gated.hooks.PreToolUse ?? [];
+
+  // The loop launcher runs a different process, and the gate does not live
+  // there: without its own handler, `allow-stop` would never reach the user.
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0]?.hooks[0]?.command, "bash");
+  assert.deepEqual(groups[1]?.hooks[0]?.args, [
+    "/opt/agent-ops/hook-entry.js",
+    "claude",
+    "PreToolUse",
+    "--managed-by=agent-ops"
+  ]);
+  assert.equal(groups[1]?.matcher, "Bash");
+
+  // SessionStart for the same reason: the gate records its baseline there, and
+  // without one every stop is refused as uninitialized.
+  const startGroups = gated.hooks.SessionStart ?? [];
+  assert.equal(startGroups.length, 2);
+  assert.equal(startGroups[0]?.hooks[0]?.command, "bash");
+  assert.deepEqual(startGroups[1]?.hooks[0]?.args, [
+    "/opt/agent-ops/hook-entry.js",
+    "claude",
+    "SessionStart",
+    "--managed-by=agent-ops"
+  ]);
+
+  // An ungated loop install is untouched.
+  const ungated = buildClaudeHookSettings(
+    ["project-loop"],
+    "/opt/agent-ops/hook-entry.js",
+    "linux"
+  );
+  assert.equal((ungated.hooks.PreToolUse ?? []).length, 1);
+  assert.equal((ungated.hooks.SessionStart ?? []).length, 1);
+
+  // The same on Windows, where the loop launcher is a PowerShell command.
+  const windows = buildClaudeHookSettings(
+    ["project-loop", "completion-gate"],
+    "/opt/agent-ops/hook-entry.js",
+    "win32"
+  );
+  const windowsGroups = windows.hooks.PreToolUse ?? [];
+  assert.equal(windowsGroups.length, 2);
+  assert.equal(windowsGroups[0]?.hooks[0]?.shell, "powershell");
+  assert.equal(windowsGroups[1]?.hooks[0]?.command, "node");
 });

@@ -1,5 +1,5 @@
 import type { ReviewTargetId } from "../contracts.js";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -17,6 +17,10 @@ import {
   type ReviewReport
 } from "./report.js";
 import { detectHostTarget, orderChain } from "./roles.js";
+import {
+  BIND_DEPENDENT_TARGETS,
+  detectHostRestriction
+} from "./host-sandbox.js";
 import {
   buildAdversarialPrompt,
   buildReviewPrompt,
@@ -36,6 +40,16 @@ import {
  */
 export const DEFAULT_REVIEW_TIMEOUT_MS = 900_000;
 
+/**
+ * How long a reviewer may produce nothing at all before it is treated as
+ * wedged rather than slow. A reviewer the host sandbox has blocked never
+ * writes another byte, and waiting out the full review timeout spends 15
+ * minutes per target — 45 for a three-target chain — to learn that. Progress
+ * output and a growing log file both count, so a reviewer that is merely
+ * thinking hard is never cut off.
+ */
+export const DEFAULT_STALL_IDLE_MS = 90_000;
+
 export interface ReviewExecutorOptions {
   readonly targets: readonly ReviewTargetId[];
   readonly cwd: string;
@@ -43,6 +57,10 @@ export interface ReviewExecutorOptions {
   readonly effort?: string;
   readonly timeoutMs?: number;
   readonly outputLimitBytes?: number;
+  /** Silence that marks a reviewer as wedged. Tests shrink it. */
+  readonly stallIdleMs?: number;
+  /** Loopback-bind probe used to detect a restricted host. Tests replace it. */
+  readonly probeBind?: () => Promise<boolean>;
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
@@ -172,6 +190,66 @@ function rejectedCallReason(output: string): ReviewUnavailableReason {
   return "capability-unavailable";
 }
 
+interface StallWatch {
+  /** Passed to the child: aborts on a stall or on the caller's own signal. */
+  readonly signal: AbortSignal;
+  readonly stalled: () => boolean;
+  readonly beat: () => void;
+  readonly stop: () => void;
+}
+
+/**
+ * Watches one reviewer for silence. Two things count as a sign of life: a byte
+ * on either stream, reported through `beat`, and growth of the target's own log
+ * file, polled here because a target that buffers stdout until it answers has
+ * no other observable heartbeat.
+ */
+function watchForStall(
+  logFile: string | undefined,
+  parent: AbortSignal | undefined,
+  idleMs: number
+): StallWatch {
+  const controller = new AbortController();
+  const pollMs = Math.max(20, Math.min(5_000, Math.floor(idleMs / 3)));
+  let lastBeat = Date.now();
+  let logSize = -1;
+  let stalled = false;
+  const beat = (): void => {
+    lastBeat = Date.now();
+  };
+  const check = async (): Promise<void> => {
+    if (logFile !== undefined) {
+      try {
+        const info = await stat(logFile);
+        if (info.size > logSize) {
+          logSize = info.size;
+          beat();
+        }
+      } catch {
+        // The target has not created its log yet, which is not a heartbeat.
+      }
+    }
+    if (!stalled && Date.now() - lastBeat >= idleMs) {
+      stalled = true;
+      controller.abort("stalled");
+    }
+  };
+  const timer = setInterval(() => {
+    void check();
+  }, pollMs);
+  timer.unref();
+  return {
+    signal: parent === undefined
+      ? controller.signal
+      : AbortSignal.any([parent, controller.signal]),
+    stalled: () => stalled,
+    beat,
+    stop: () => {
+      clearInterval(timer);
+    }
+  };
+}
+
 function throwIfInterrupted(
   target: ReviewTargetId,
   options: ReviewExecutorOptions,
@@ -286,13 +364,14 @@ async function attemptTarget(
   });
   const attemptDirectory = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
   try {
+    const agyLog = target === "agy"
+      ? join(attemptDirectory, "agy.log")
+      : undefined;
     const invocationRequest = {
       target,
       prompt: request.prompt,
       repositoryRoot: request.repositoryRoot,
-      ...(target === "agy"
-        ? { logFile: join(attemptDirectory, "agy.log") }
-        : {}),
+      ...(agyLog === undefined ? {} : { logFile: agyLog }),
       ...(options.model === undefined ? {} : { model: options.model }),
       ...(options.effort === undefined ? {} : { effort: options.effort })
     } as const;
@@ -355,6 +434,14 @@ async function attemptTarget(
         "skipping"
       );
     }
+    // agy takes its log file unconditionally; claude's equivalent is passed
+    // only when this install advertises it, so an older CLI keeps reviewing
+    // and merely loses the file heartbeat.
+    const heartbeatLog = target === "agy"
+      ? agyLog
+      : target === "claude" && help.includes("--debug-file")
+        ? join(attemptDirectory, "claude-debug.log")
+        : undefined;
     const snapshotRoot = join(attemptDirectory, "repository");
     const snapshotError = await snapshotRepository(
       request,
@@ -373,10 +460,20 @@ async function attemptTarget(
               "Run every repository-relative inspection in that directory.",
               "For terminal commands, use only git status, git diff, git log, or git show; " +
                 "read specific files with file-reading tools instead of ls, find, cat, or rg.",
+              // agy's only read-only mode is plan mode, and plan mode's default
+              // job is to author an implementation plan and then ask the caller
+              // whether to proceed. Under `--print` that question ends the one
+              // turn it gets, so the review comes back empty after minutes of
+              // work. Saying what the turn is for is what keeps it answering.
+              "You are answering a review question, not planning work. Do not write " +
+                "an implementation plan. Do not create or edit any file. Do not ask " +
+                "the user anything. Reply with the JSON object the schema requires " +
+                "and nothing else.",
               request.prompt
             ].join("\n")
           }
         : {}),
+      ...(heartbeatLog === undefined ? {} : { logFile: heartbeatLog }),
       repositoryRoot: snapshotRoot
     });
     executionDirectory = snapshotRoot;
@@ -387,28 +484,51 @@ async function attemptTarget(
     options.onProgress?.(
       `${target}: review started (timeout: ${Math.ceil((options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS) / 1_000)}s)`
     );
-    const spawned = await runVerificationCommand(
-      {
-        id: `review-${request.label}`,
-        command: invocation.command,
-        args: [...invocation.args],
-        cwd: executionDirectory,
-        required: true,
-        evidence: { kind: "exit-code" },
-        timeoutMs: options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS
-      },
-      {
-        cwd: executionDirectory,
-        ...(options.runner === undefined ? {} : { runner: options.runner }),
-        ...(options.outputLimitBytes === undefined
-          ? {}
-          : { outputLimitBytes: options.outputLimitBytes }),
-        stdin: invocation.stdin,
-        env: environment,
-        replaceEnv: true,
-        ...(options.signal === undefined ? {} : { signal: options.signal })
-      }
+    const stallIdleMs = options.stallIdleMs ?? DEFAULT_STALL_IDLE_MS;
+    const stallWatch = watchForStall(
+      heartbeatLog,
+      options.signal,
+      stallIdleMs
     );
+    let spawned;
+    try {
+      spawned = await runVerificationCommand(
+        {
+          id: `review-${request.label}`,
+          command: invocation.command,
+          args: [...invocation.args],
+          cwd: executionDirectory,
+          required: true,
+          evidence: { kind: "exit-code" },
+          timeoutMs: options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS
+        },
+        {
+          cwd: executionDirectory,
+          ...(options.runner === undefined ? {} : { runner: options.runner }),
+          ...(options.outputLimitBytes === undefined
+            ? {}
+            : { outputLimitBytes: options.outputLimitBytes }),
+          stdin: invocation.stdin,
+          env: environment,
+          replaceEnv: true,
+          signal: stallWatch.signal,
+          onActivity: stallWatch.beat
+        }
+      );
+    } finally {
+      stallWatch.stop();
+    }
+    // Ahead of `throwIfInterrupted`, which reads the same `aborted` failure
+    // class as a user interrupt. A stall is this executor's own abort, and
+    // ends one target rather than the whole review.
+    if (stallWatch.stalled() && options.signal?.aborted !== true) {
+      return skip(
+        "stalled",
+        `no output for ${Math.max(1, Math.round(stallIdleMs / 1_000))}s; the reviewer is ` +
+          "probably blocked by the host sandbox, and retrying with more " +
+          "permission will not help"
+      );
+    }
     throwIfInterrupted(target, options, spawned.failureClass);
     if (spawned.failureClass === "timeout") {
       return skip("timeout", "the reviewer exceeded its timeout");
@@ -492,9 +612,45 @@ export function createReviewExecutor(
 ): (request: ReviewExecutionRequest) => Promise<ReviewExecutionResult> {
   const report = options.onProgress ?? (() => {});
   const host = detectHostTarget(options.env ?? process.env);
-  const chain = orderChain(options.targets, host);
+  const ordered = orderChain(options.targets, host);
 
   return async (request) => {
+    // Asked before anything is spent. A reviewer inherits this process's
+    // sandbox, so a restriction found here is a restriction every target in
+    // the chain would hit — one at a time, minutes apart.
+    const restriction = await detectHostRestriction({
+      env: options.env ?? process.env,
+      ...(options.probeBind === undefined ? {} : { probeBind: options.probeBind })
+    });
+    if (restriction === "network-blocked") {
+      report(
+        "host: the sandbox around this process blocks network access, so no " +
+        "reviewer can answer → not running the chain"
+      );
+      return {
+        status: "NOT_RUN",
+        reason: "host-sandboxed",
+        ...(host === undefined ? {} : { harness: host }),
+        attempts: []
+      };
+    }
+    // Only agy needs a loopback listener, so a bind-blocked host is not a dead
+    // end — it is a reason to spend the other targets first rather than
+    // discovering the same failure at the head of the chain every time.
+    const chain = restriction === "bind-blocked"
+      ? [
+          ...ordered.filter(
+            (target) => !BIND_DEPENDENT_TARGETS.includes(target)
+          ),
+          ...ordered.filter((target) => BIND_DEPENDENT_TARGETS.includes(target))
+        ]
+      : ordered;
+    if (restriction === "bind-blocked" && chain.join() !== ordered.join()) {
+      report(
+        "host: this process cannot open a loopback listener, so targets that " +
+        `need one run last (chain: ${chain.join(" → ")})`
+      );
+    }
     const expectedCriterionIds = request.invocation.packet.criteria.map(
       (criterion) => criterion.id
     );

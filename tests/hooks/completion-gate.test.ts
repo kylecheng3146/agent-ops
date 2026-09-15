@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 
 import { runHookCommand } from "../../packages/cli/src/commands/hook.js";
+import { normalizeClaudeHookInput } from "../../runtime/src/adapters/claude/input.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { calculateConfigHash } from "../../runtime/src/config/hash.js";
 import {
@@ -315,4 +316,47 @@ test("tracked runtime blocks native agy Stop with actionable recovery instead of
     assert.match(output.stdout, /git rm -r --cached/u);
     assert.equal(JSON.parse(output.stdout).decision, "continue");
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a real gate reaches its session state from Claude's own Stop payload", async () => {
+  const root = await repository();
+  try {
+    const { gate } = setup(root);
+    const claudeStop = normalizeClaudeHookInput({
+      hook_event_name: "Stop",
+      cwd: root,
+      session_id: SESSION
+    });
+    const claudeStart = normalizeClaudeHookInput({
+      hook_event_name: "SessionStart",
+      cwd: root,
+      session_id: SESSION
+    });
+
+    // Not COMPLETION_GATE_SESSION_REQUIRED and not STOP_INPUT_INVALID: those
+    // are what a payload missing the session or the termination metadata gets,
+    // and Claude publishes neither field under those names.
+    const started = await gate.handle(claudeStart);
+    assert.equal(started?.code, "COMPLETION_GATE_READY");
+    const stopped = await gate.handle(claudeStop);
+    assert.ok(stopped);
+    assert.ok(
+      stopped.code !== "COMPLETION_GATE_SESSION_REQUIRED" &&
+      stopped.code !== "COMPLETION_GATE_STOP_INPUT_INVALID" &&
+      stopped.code !== "COMPLETION_GATE_NOT_INITIALIZED",
+      stopped.code
+    );
+
+    // Claude's recursion marker is the not-yet-idle case, which passes through.
+    const recursive = await gate.handle(normalizeClaudeHookInput({
+      hook_event_name: "Stop",
+      cwd: root,
+      session_id: SESSION,
+      stop_hook_active: true
+    }));
+    assert.equal(recursive?.code, "COMPLETION_GATE_NON_FINAL_STOP");
+    assert.equal(recursive?.action, "continue");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

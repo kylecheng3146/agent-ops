@@ -237,3 +237,53 @@ for (const mutation of ["archive", "failure", "evidence"] as const) {
     }
   });
 }
+
+test("completion defaults to the evidence the task already carries", async () => {
+  const { root, tasks } = await fixture();
+  try {
+    const task = await tasks.create(input());
+    const references = await passingCompletionEvidence(root, task);
+    // What `agent-ops verify` does: the references live on the task before
+    // anyone asks to complete it.
+    await tasks.recordEvidence(task.task.id, references);
+
+    // No --evidence at all. Re-typing what verify already recorded is the
+    // friction this removes; the record must still be the verified one.
+    const completed = await tasks.complete(task.task.id, {});
+    assert.equal(completed.status, "complete");
+    assert.deepEqual(completed.evidence, references);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("completion with no recorded and no supplied evidence still refuses", async () => {
+  const { root, tasks } = await fixture();
+  try {
+    const task = await tasks.create(input());
+    await assert.rejects(tasks.complete(task.task.id, {}), {
+      code: "TASK_EVIDENCE_INCOMPLETE"
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("supplied evidence is unioned with the recorded references, never replaced", async () => {
+  const { root, tasks } = await fixture();
+  try {
+    const task = await tasks.create(input());
+    const references = await passingCompletionEvidence(root, task);
+    await tasks.recordEvidence(task.task.id, references);
+
+    // Naming only one criterion's reference must not drop the other's, and a
+    // caller cannot shrink a criterion's recorded set by naming less of it.
+    const completed = await tasks.complete(task.task.id, {
+      behavior: references.behavior!,
+      regression: references.regression!.slice(0, 1)
+    });
+    assert.deepEqual(completed.evidence, references);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

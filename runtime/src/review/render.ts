@@ -65,6 +65,26 @@ export function renderReviewResult(result: ReviewRunResult): string {
     ) {
       lines.push("Run: agent-ops doctor --check-auth to verify target authentication.");
     }
+    if (result.reason === "host-sandboxed") {
+      lines.push(
+        "No target ran: the sandbox around this process blocks the network a " +
+        "reviewer needs. Run agent-ops review outside the sandbox, or grant " +
+        "this command escalated execution and run it again."
+      );
+    }
+    // Deliberately not the authentication line: a stalled reviewer started and
+    // then went silent, so re-running it with more permission only spends the
+    // same wait again.
+    if (
+      result.reason === "stalled" ||
+      result.attempts?.some((attempt) => attempt.reason === "stalled")
+    ) {
+      lines.push(
+        "A stalled reviewer is usually blocked by the host sandbox. Escalating " +
+        "permission and retrying does not help; run agent-ops review outside " +
+        "the sandbox instead."
+      );
+    }
     return `${lines.join("\n")}\n`;
   }
   const report = result.report;

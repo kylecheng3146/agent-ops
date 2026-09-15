@@ -318,7 +318,11 @@ test("every harness exposes control and runtime adapter contracts", () => {
       if (registration.runtimeFailure === "fail-closed") {
         assert.match(
           failure.stdout,
-          registration.capability === "completion-gate" ? /continue/ : /deny/,
+          // Each host refuses a stop in its own dialect: agy answers
+          // `continue` to keep the turn alive, Claude answers `block`.
+          registration.capability === "completion-gate"
+            ? /continue|block/
+            : /deny/,
           id
         );
       } else {
@@ -389,6 +393,13 @@ test("support declarations match the current real hook fidelity", () => {
       "optional-stop-verify": {
         support: "supported",
         runtimeFailure: "fail-open"
+      },
+      // The second host whose Stop hook can refuse a stop. codex never fires
+      // Stop under `codex exec` and rejects permissionDecision:ask, so its
+      // permit could not be user-approved; opencode can only deny a tool call.
+      "completion-gate": {
+        support: "supported",
+        runtimeFailure: "fail-closed"
       }
     },
     opencode: {

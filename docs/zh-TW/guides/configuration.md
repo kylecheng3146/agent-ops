@@ -143,16 +143,19 @@ agy 會安裝原生 `PreInvocation` 與 `PreToolUse(run_command)` 子集，docto
 位於 `.gemini/config/hooks.json`；user scope 會修改共享 Gemini rule surface
 `.gemini/GEMINI.md`。機器可讀的 `/hooks` 診斷要求 agy 1.1.12 以上。
 
-`agy` 搭配 `loop` 時，互動式 installer 會建議啟用
+`agy` 或 `claude` 搭配 `loop` 時，互動式 installer 會建議啟用
 `features.completionGate.enabled`；非互動安裝必須明確傳入
-`--completion-gate`。閘門使用官方定義的 `conversationId`、
+`--completion-gate`。這兩者是 Stop hook 能真正拒絕收工的 host：codex 在
+`codex exec` 下不會觸發 Stop hook，且拒絕 `permissionDecision: ask`，其 permit
+無法交由使用者核准；OpenCode plugin 只能拒絕單一 tool call。閘門使用官方定義的 `conversationId`、
 `terminationReason` 與 `fullyIdle` Stop 欄位，只有在本次 conversation 產生
 Git-visible net change 且缺少當前 task、驗證或 review 證據時，才回傳官方定義的
 `decision: "continue"`。純問答、分析、唯讀診斷、錯誤、max-step 與 non-idle Stop
-都正常結束；本版不改變 Codex、Claude Code 或 OpenCode 的 Stop 行為。Headless
+都正常結束。Claude Code 以自身的 Stop contract 執行同一道閘門，拒絕時回傳
+`decision: "block"`；本版不改變 Codex 或 OpenCode 的 Stop 行為。Headless
 請使用 `agent-ops agy-run -- <agy arguments>`；使用者可核准一次
-`agent-ops allow-stop --session <conversationId>`，該命令由官方定義的
-`force_ask` 強制詢問。
+`agent-ops allow-stop --session <conversationId>`，該命令在 agy 由官方定義的
+`force_ask` 強制詢問，在 Claude Code 則由 `permissionDecision: ask` 強制詢問。
 
 官方依據：[agy CLI workspace rule file](https://www.antigravity.google/docs/cli/best-practices/)
 與 [Antigravity hook contract](https://www.antigravity.google/docs/hooks/)。
@@ -191,7 +194,8 @@ OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface
 上 throw 文件化的 command-policy denial 或 unavailable-runtime error。Codex 明確
 不執行強制措施（`unknown`）。這些是 agent-ops 的 output 與 plugin contract，不
 證明 host 會實際遵守 denial。所有 `SessionStart` 與一般 Stop verification failure
-path 都維持 fail-open；只有明確啟用的 agy completion gate 會在 final Stop fail-closed。
+path 都維持 fail-open；只有明確啟用的 completion gate 會在 final Stop
+fail-closed，適用於 agy 與 Claude Code。
 
 Claude 的無效 config fallback 有四項防護：(1) 缺少 project configuration 時保持
 fail-open，因此只有無效的 `.agent-ops/config.json` 能進入 fallback；(2) manifest

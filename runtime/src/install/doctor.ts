@@ -17,6 +17,11 @@ import {
 import { validateConfig } from "../schema/validate.js";
 import type { ReviewTargetProbeResult } from "../review/probe.js";
 import {
+  BIND_DEPENDENT_TARGETS,
+  detectHostRestriction,
+  type HostRestriction
+} from "../review/host-sandbox.js";
+import {
   assertExpectedManagedBlock,
   assertSupportedManifestOwnership
 } from "./ownership.js";
@@ -55,6 +60,8 @@ export type DoctorCheckId =
   | "agy-runtime"
   | "repository-trust"
   | "review-targets"
+  | "host-sandbox"
+  | "verification-commands"
   | "smoke-availability";
 
 export interface DoctorCheck {
@@ -85,6 +92,11 @@ export type DoctorReviewTargetProbe = (
 ) => Promise<ReviewTargetProbeResult> | ReviewTargetProbeResult;
 
 export interface DoctorProbes {
+  /**
+   * How the surrounding host's restriction is detected. Replaced in tests so a
+   * suite run inside a sandbox reports the same checks as one run outside it.
+   */
+  readonly hostRestriction?: () => Promise<HostRestriction>;
   readonly agyRuntime?: DoctorProbe;
   readonly hookRegistration?: DoctorProbe;
   readonly repositoryTrust?: DoctorProbe;
@@ -787,6 +799,92 @@ async function checkRegistrationDrift(
   }
 }
 
+/**
+ * Whether anything can ever be verified here. Completion requires current PASS
+ * evidence from a required verifier, so an empty list is not a light
+ * configuration — it is a loop that cannot close, and an installation reaches
+ * that state quietly whenever stack detection declines to guess.
+ */
+function checkVerificationCommands(
+  config: AgentOpsConfig | undefined
+): DoctorCheck {
+  if (config === undefined) {
+    return check(
+      "verification-commands",
+      "UNKNOWN",
+      "Configuration could not be read, so verifiers are unknown."
+    );
+  }
+  if (config.verification.commands.length === 0) {
+    return check(
+      "verification-commands",
+      "DEGRADED",
+      "No verification command is configured, so no task can be completed.",
+      // Codeless on purpose: the fix is an edit to the configuration file, not
+      // an agent-ops command, and a code here would force a non-zero exit on
+      // every installation whose stack detection declined to guess.
+      undefined,
+      `Add verification.commands to ${CONFIG_PATH}, then run doctor again.`
+    );
+  }
+  const required = config.verification.commands.filter(
+    ({ required: isRequired }) => isRequired
+  );
+  if (required.length === 0) {
+    return check(
+      "verification-commands",
+      "DEGRADED",
+      "Every configured verification command is optional, so no criterion can " +
+        "be satisfied by one.",
+      undefined,
+      `Mark at least one command in ${CONFIG_PATH} as required.`
+    );
+  }
+  return check(
+    "verification-commands",
+    "PASS",
+    `Required verifiers: ${required.map(({ id }) => id).join(", ")}.`
+  );
+}
+
+/**
+ * What the surrounding host withholds from a reviewer. Reported separately
+ * from `review-targets` on purpose: a sandbox that blocks the network makes an
+ * authenticated CLI answer "not logged in", and reading that verdict as a
+ * credential problem is the misdiagnosis this check exists to prevent.
+ */
+async function checkHostSandbox(
+  detect: (() => Promise<HostRestriction>) | undefined
+): Promise<DoctorCheck> {
+  const restriction = await (detect ?? detectHostRestriction)();
+  if (restriction === "network-blocked") {
+    return check(
+      "host-sandbox",
+      "DEGRADED",
+      "This process runs in a sandbox with no network access, so no review " +
+        "target can answer. Any authentication verdict below is unreliable.",
+      undefined,
+      "Run agent-ops outside the sandbox, or grant it escalated execution."
+    );
+  }
+  if (restriction === "bind-blocked") {
+    return check(
+      "host-sandbox",
+      "DEGRADED",
+      `This process cannot open a loopback listener, so review targets that ` +
+        `need one (${BIND_DEPENDENT_TARGETS.join(", ")}) run last and may be ` +
+        "unable to answer.",
+      undefined,
+      "Run agent-ops outside the sandbox, or grant it escalated execution."
+    );
+  }
+  return check(
+    "host-sandbox",
+    "PASS",
+    "No host sandbox restriction affects review targets."
+  );
+}
+
 async function checkReviewTargets(
   config: AgentOpsConfig | undefined,
   probe: DoctorReviewTargetProbe | undefined,
@@ -926,7 +1024,9 @@ export async function doctorInstallation(
       config.config,
       options.probes?.reviewTarget,
       options.checkReviewTargetAuth === true
-    )
+    ),
+    await checkHostSandbox(options.probes?.hostRestriction),
+    checkVerificationCommands(config.config)
   ];
   return {
     checks,

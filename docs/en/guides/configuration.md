@@ -161,17 +161,21 @@ user hooks live in `.gemini/config/hooks.json`. User-scope rules modify the
 shared Gemini rule surface at `.gemini/GEMINI.md`. agy 1.1.12 or newer is
 required for machine-readable `/hooks` diagnostics.
 
-For `agy` plus `loop`, the interactive installer recommends
+For `agy` or `claude` plus `loop`, the interactive installer recommends
 `features.completionGate.enabled`; non-interactive installs require the explicit
-`--completion-gate` flag. The gate uses the documented `conversationId`,
+`--completion-gate` flag. These are the two hosts whose Stop hook can refuse a
+stop: codex never fires its Stop hook under `codex exec` and rejects
+`permissionDecision: ask`, so its permit could not be user-approved, and
+OpenCode's plugin can only deny a tool call. The gate uses the documented `conversationId`,
 `terminationReason`, and `fullyIdle` Stop fields and returns the documented
 `decision: "continue"` only for a final changed conversation that lacks current
 task, verification, or review proof. Pure Q&A, analysis, read-only diagnostics,
-error stops, max-step stops, and non-idle stops continue normally. It does not
-change Codex, Claude Code, or OpenCode Stop behavior. For headless execution use
-`agent-ops agy-run -- <agy arguments>`; a user-approved one-time escape is
-`agent-ops allow-stop --session <conversationId>` and is guarded by agy's
-documented `force_ask` decision.
+error stops, max-step stops, and non-idle stops continue normally. Claude Code
+enforces the same gate through its own Stop contract, answering a refusal with
+`decision: "block"`. It does not change Codex or OpenCode Stop behavior. For
+headless execution use `agent-ops agy-run -- <agy arguments>`; a user-approved
+one-time escape is `agent-ops allow-stop --session <conversationId>`, guarded by
+agy's documented `force_ask` decision and by Claude's `permissionDecision: ask`.
 
 Official references: [agy CLI workspace rule files](https://www.antigravity.google/docs/cli/best-practices/)
 and [Antigravity hook contracts](https://www.antigravity.google/docs/hooks/).
@@ -213,8 +217,8 @@ classified invalid installed configuration. The managed OpenCode
 unavailable-runtime error for its supported Bash surface. Codex is explicitly
 non-enforcing (`unknown`). These are agent-ops output and plugin contracts, not
 proof that a host honors a denial. `SessionStart` and ordinary Stop verification
-failure paths stay fail-open. Only the explicitly enabled agy completion gate
-fails closed at final Stop.
+failure paths stay fail-open. Only the explicitly enabled completion gate fails
+closed at final Stop, on agy and Claude Code.
 
 Claude's invalid-config fallback has four safeguards: (1) an absent project
 configuration stays fail-open, so only an invalid `.agent-ops/config.json` can

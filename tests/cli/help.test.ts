@@ -279,3 +279,58 @@ test("complete non-interactive args reach the injected command service", async (
     profiles: ["core"]
   });
 });
+
+test("a command's own --help answers instead of failing", async () => {
+  const { io, stdout, stderr } = createIo();
+  let calls = 0;
+  const services = createServices(async () => {
+    calls += 1;
+    throw new Error("must not execute");
+  });
+
+  assert.equal(await runCli(["task", "create", "--help"], io, services), 0);
+  assert.equal(calls, 0);
+  assert.equal(stderr.length, 0);
+  const text = stdout.join("");
+  assert.match(text, /Usage: agent-ops task/u);
+  // The shape an agent otherwise learns one rejected call at a time.
+  assert.match(
+    text,
+    /\{"id":"kebab-id","description":"what must hold","verifierIds":\["node-test"\]\}/u
+  );
+  assert.match(text, /at least one verifierIds entry/u);
+});
+
+test("command help ignores the options it is being asked about", async () => {
+  const { io, stdout } = createIo();
+
+  assert.equal(
+    await runCli(
+      ["task", "create", "--criterion", "{bad json}", "--help"],
+      io,
+      createServices()
+    ),
+    0
+  );
+  assert.match(stdout.join(""), /Usage: agent-ops task/u);
+});
+
+test("each command answers its own help topic", async () => {
+  for (const [command, pattern] of [
+    ["review", /Usage: agent-ops review/u],
+    ["verify", /Usage: agent-ops verify/u],
+    ["doctor", /--check-auth/u],
+    ["allow-stop", /--session <id>   Required/u]
+  ] as const) {
+    const { io, stdout } = createIo();
+    assert.equal(await runCli([command, "--help"], io, createServices()), 0);
+    assert.match(stdout.join(""), pattern);
+  }
+});
+
+test("version still refuses to share a line with a command", async () => {
+  const { io, stderr } = createIo();
+
+  assert.equal(await runCli(["task", "--version"], io, createServices()), 2);
+  assert.match(stderr.join(""), /version cannot be combined with a command/u);
+});

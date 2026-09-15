@@ -109,6 +109,8 @@ export interface InstallPlan {
   readonly profiles: readonly Profile[];
   /** Verifier commands proposed by stack detection to fill an empty verification config; empty when none applied. */
   readonly detectedVerification: readonly VerificationCommand[];
+  /** Why stack detection proposed nothing it could apply, in its own words. */
+  readonly verificationBlockers: readonly string[];
   readonly capabilities: readonly Capability[];
   readonly config: AgentOpsConfig;
   readonly manifest: InstallManifest;
@@ -184,14 +186,26 @@ function verificationCommandFromProposal(
  */
 async function detectVerificationCommands(
   root: string
-): Promise<VerificationCommand[]> {
+): Promise<{
+  readonly commands: VerificationCommand[];
+  readonly blockers: string[];
+}> {
   const discovery = await discoverProject(root);
   if (discovery.kind !== "project") {
-    return [];
+    return { commands: [], blockers: [discovery.message] };
   }
-  return discovery.proposals
+  const commands = discovery.proposals
     .filter((proposal) => proposal.confidence === "high")
     .map(verificationCommandFromProposal);
+  // What detection could not settle on its own. Kept even when commands were
+  // found, because an installation that ends with no verifier has to be able
+  // to say why: silence there leaves a loop that can never complete a task.
+  return {
+    commands,
+    blockers: discovery.decisions.map(
+      (decision) => `${decision.adapter}: ${decision.message}`
+    )
+  };
 }
 
 function buildConfig(
@@ -250,6 +264,7 @@ async function planConfig(
   record: ManagedPathRecord;
   config: AgentOpsConfig;
   detectedVerification: readonly VerificationCommand[];
+  verificationBlockers: readonly string[];
 }> {
   const current = await readCurrentFile(root, CONFIG_PATH);
   const owned = findOwnedArtifact(existingManifest, CONFIG_PATH);
@@ -312,16 +327,16 @@ async function planConfig(
     existingConfig = result.value;
   }
 
-  const detectedCommands =
+  const detected =
     existingConfig === undefined ||
     existingConfig.verification.commands.length === 0
       ? await detectVerificationCommands(root)
-      : [];
+      : { commands: [], blockers: [] };
   const config = buildConfig(
     profiles,
     existingConfig,
     reviewTargets,
-    detectedCommands,
+    detected.commands,
     completionGateEnabled
   );
   const content = `${JSON.stringify(config, null, 2)}\n`;
@@ -339,7 +354,8 @@ async function planConfig(
       owner: "agent-ops"
     },
     config,
-    detectedVerification: detectedCommands
+    detectedVerification: detected.commands,
+    verificationBlockers: detected.blockers
   };
 }
 
@@ -723,15 +739,20 @@ export async function createInstallPlan(
   const completionGateEnabled =
     options.existingConfig?.value.features.completionGate.enabled ??
     options.completionGateEnabled === true;
+  // agy and Claude Code are the hosts whose Stop hook can refuse a stop.
+  // codex never fires Stop under `codex exec` and rejects
+  // `permissionDecision:ask`, so its permit could not be user-approved;
+  // opencode's plugin can only deny a tool call.
+  const gateHosts = ["agy", "claude"] as const;
   if (
     completionGateEnabled &&
     (options.scope !== "project" ||
-      !options.harness.includes("agy") ||
+      !gateHosts.some((host) => options.harness.includes(host)) ||
       !resolved.capabilities.includes("project-loop"))
   ) {
     throw new AgentOpsError(
       "COMPLETION_GATE_UNSUPPORTED",
-      "The completion gate requires project scope with the agy harness and loop profile."
+      "The completion gate requires project scope with the agy or claude harness and loop profile."
     );
   }
   if (
@@ -1035,6 +1056,7 @@ export async function createInstallPlan(
     config: config.config,
     manifest,
     operations,
-    detectedVerification: config.detectedVerification
+    detectedVerification: config.detectedVerification,
+    verificationBlockers: config.verificationBlockers
   };
 }

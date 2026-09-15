@@ -637,16 +637,17 @@ export function managedRules(
   }
   if (context.capabilities.includes("completion-gate")) {
     lines.push(
-      "The agy completion gate applies only when this conversation creates a",
-      "Git-visible net change after its first PreInvocation baseline. Read-only",
+      "The completion gate runs on agy and Claude Code. It applies only when",
+      "this conversation creates a Git-visible net change after its first",
+      "session baseline. Read-only",
       "questions and analysis stop normally. A changed conversation must be",
       "attached to one task with two to five acceptance criteria; current PASS",
       "verification evidence, a PASS review attestation, and completed task state",
       "are all required before Stop. Error, max-step, and non-idle stops are not",
       "blocked. The gate inspects evidence but never runs tests or review itself.",
       "A user may approve `agent-ops allow-stop --session <conversationId>` for",
-      "one Stop bound to the current source fingerprint; the PreToolUse hook must",
-      "return `force_ask`, so the agent cannot self-authorize this escape hatch.",
+      "one Stop bound to the current source fingerprint; the PreToolUse hook",
+      "asks the user, so the agent cannot self-authorize this escape hatch.",
       "For headless or CI enforcement, launch agy through",
       "`agent-ops agy-run -- <agy arguments>`.",
       ""
