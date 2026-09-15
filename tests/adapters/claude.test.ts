@@ -526,9 +526,12 @@ test("the managed-handler matcher rejects node handlers that are not ours", () =
 });
 
 test("a gated loop install keeps a PreToolUse handler that reaches the gate", () => {
+  // Platform pinned: the loop launcher is bash on POSIX and PowerShell on
+  // Windows, and this test is about the gate's own handler sitting beside it.
   const gated = buildClaudeHookSettings(
     ["project-loop", "completion-gate"],
-    "/opt/agent-ops/hook-entry.js"
+    "/opt/agent-ops/hook-entry.js",
+    "linux"
   );
   const groups = gated.hooks.PreToolUse ?? [];
 
@@ -547,7 +550,19 @@ test("a gated loop install keeps a PreToolUse handler that reaches the gate", ()
   // An ungated loop install is untouched.
   const ungated = buildClaudeHookSettings(
     ["project-loop"],
-    "/opt/agent-ops/hook-entry.js"
+    "/opt/agent-ops/hook-entry.js",
+    "linux"
   );
   assert.equal((ungated.hooks.PreToolUse ?? []).length, 1);
+
+  // The same on Windows, where the loop launcher is a PowerShell command.
+  const windows = buildClaudeHookSettings(
+    ["project-loop", "completion-gate"],
+    "/opt/agent-ops/hook-entry.js",
+    "win32"
+  );
+  const windowsGroups = windows.hooks.PreToolUse ?? [];
+  assert.equal(windowsGroups.length, 2);
+  assert.equal(windowsGroups[0]?.hooks[0]?.shell, "powershell");
+  assert.equal(windowsGroups[1]?.hooks[0]?.command, "node");
 });
