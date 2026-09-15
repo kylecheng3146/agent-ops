@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-15
+
 - Independent review abandons a reviewer that produces no output for 90 seconds
   and reports `stalled`, instead of waiting out the full 15-minute timeout on
   each target. Progress bytes on either stream and growth of the target's own
