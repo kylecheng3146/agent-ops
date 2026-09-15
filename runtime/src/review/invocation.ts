@@ -95,6 +95,27 @@ export const READ_ONLY_ARGS: Readonly<
   codex: ["-s", "read-only"]
 };
 
+/**
+ * Where a target writes its running log, when it has one. This is the only
+ * heartbeat available for a target whose stdout stays silent until the answer
+ * arrives: the file grows while the reviewer works, and stops growing when it
+ * is wedged. claude's flag is passed opportunistically by the caller, so an
+ * install that predates `--debug-file` still reviews — it only loses the
+ * heartbeat.
+ */
+function logArgs(
+  target: ReviewTargetId,
+  logFile: string | undefined
+): readonly string[] {
+  if (logFile === undefined) {
+    return [];
+  }
+  if (target === "agy") {
+    return ["--log-file", logFile];
+  }
+  return target === "claude" ? ["--debug-file", logFile] : [];
+}
+
 /** Per-target customization suppression. */
 function isolationArgs(target: ReviewTargetId): readonly string[] {
   return target === "claude"
@@ -173,9 +194,7 @@ export function buildTargetInvocation(
       ...(request.repositoryRoot === undefined
         ? []
         : ["--add-dir", request.repositoryRoot]),
-      ...(request.target !== "agy" || request.logFile === undefined
-        ? []
-        : ["--log-file", request.logFile]),
+      ...logArgs(request.target, request.logFile),
       ...isolationArgs(request.target),
       ...shared
     ],

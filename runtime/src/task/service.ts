@@ -376,9 +376,14 @@ export class TaskService {
         "An archived task cannot be completed."
       );
     }
+    // Supplying nothing means "the evidence this task already carries".
+    // Re-typing it changes no outcome — the union below adds the recorded
+    // references to whatever was submitted, so evidence can never be dropped
+    // by naming less of it — and forcing a caller to copy references back out
+    // of the task store buys nothing but the chance to mistype them.
     const submitted = normalizeEvidence(
       current.task,
-      evidenceInput
+      Object.keys(evidenceInput).length === 0 ? current.evidence : evidenceInput
     );
     // A caller cannot hide a recorded failure by submitting only older PASS references.
     const evidence = normalizeEvidence(current.task, Object.fromEntries(

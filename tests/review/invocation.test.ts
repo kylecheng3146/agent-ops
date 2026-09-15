@@ -161,3 +161,24 @@ test("the schema handed to a reviewer drops its meta-schema declaration", () => 
     "changedFilesInspected", "supportingFilesInspected"
   ]);
 });
+
+test("claude takes its log file as a debug file, codex takes none", () => {
+  const claude = buildTargetInvocation({
+    target: "claude",
+    prompt: PROMPT,
+    logFile: "/tmp/claude-debug.log"
+  })?.args ?? [];
+  assert.deepEqual(
+    claude.slice(claude.indexOf("--debug-file"), claude.indexOf("--debug-file") + 2),
+    ["--debug-file", "/tmp/claude-debug.log"]
+  );
+  // codex already streams progress to stderr, so it needs no log file and
+  // has no flag for one.
+  const codex = buildTargetInvocation({
+    target: "codex",
+    prompt: PROMPT,
+    logFile: "/tmp/codex.log"
+  })?.args ?? [];
+  assert.ok(!codex.includes("--debug-file"));
+  assert.ok(!codex.includes("--log-file"));
+});

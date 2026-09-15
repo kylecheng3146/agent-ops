@@ -88,6 +88,8 @@ export type ReviewUnavailableReason =
   | "incomplete-scope"
   | "source-changed-during-review"
   | "capability-unavailable"
+  | "host-sandboxed"
+  | "stalled"
   | "verification-not-passed"
   | "missing-verification-evidence"
   | "unreadable-verification-evidence"

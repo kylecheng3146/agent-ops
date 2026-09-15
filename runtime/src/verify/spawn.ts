@@ -68,6 +68,12 @@ export interface RunVerificationCommandOptions {
   readonly outputLimitBytes?: number;
   readonly terminationGraceMs?: number;
   readonly signal?: AbortSignal;
+  /**
+   * Called once per captured chunk, on either stream. A caller that must tell
+   * a working child from a wedged one has no other window into the run: output
+   * is buffered here and only returned after the process is gone.
+   */
+  readonly onActivity?: () => void;
 }
 
 export interface SpawnResult {
@@ -166,7 +172,8 @@ async function* readableBytes(
  */
 async function captureOutput(
   stream: AsyncIterable<Uint8Array>,
-  limit: number
+  limit: number,
+  onActivity?: () => void
 ): Promise<CapturedOutput> {
   const chunks: Buffer[] = [];
   let storedBytes = 0;
@@ -193,6 +200,7 @@ async function captureOutput(
   try {
     for await (const value of stream) {
       retain(Buffer.from(value));
+      onActivity?.();
     }
   } catch {
     return {
@@ -483,8 +491,8 @@ export async function runVerificationCommand(
     );
   }
 
-  const stdout = captureOutput(running.stdout, outputLimit);
-  const stderr = captureOutput(running.stderr, outputLimit);
+  const stdout = captureOutput(running.stdout, outputLimit, options.onActivity);
+  const stderr = captureOutput(running.stderr, outputLimit, options.onActivity);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<TimeoutOutcome>((resolve) => {
     timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);

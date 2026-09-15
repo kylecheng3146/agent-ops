@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { appendFileSync } from "node:fs";
 import { basename } from "node:path";
 import test from "node:test";
 
@@ -6,6 +7,7 @@ import type { ReviewTargetId } from "../../runtime/src/contracts.js";
 import {
   createReviewExecutor,
   DEFAULT_REVIEW_TIMEOUT_MS,
+  DEFAULT_STALL_IDLE_MS,
   isolatedReviewEnvironment,
   ReviewInterruptedError
 } from "../../runtime/src/review/execute.js";
@@ -24,6 +26,14 @@ interface Scripted {
   readonly errorCode?: string;
   /** Never settles, so the executor's timeout fires. */
   readonly hang?: true;
+  /**
+   * Emit this many signs of life, one every `beatMs`, then complete normally.
+   * `beatVia` picks which channel: the target's own log file, named by its
+   * `--log-file`/`--debug-file` argument, or a stderr chunk.
+   */
+  readonly beats?: number;
+  readonly beatMs?: number;
+  readonly beatVia?: "log" | "stderr";
 }
 
 interface Attempt {
@@ -37,6 +47,32 @@ test("full reviews default to a fifteen-minute target timeout", () => {
   // A real working-tree review outruns five minutes on both codex and claude.
   assert.equal(DEFAULT_REVIEW_TIMEOUT_MS, 900_000);
 });
+
+/** Where the target was told to write its own log, when it was told at all. */
+function logFileArgument(args: readonly string[]): string | undefined {
+  for (const flag of ["--log-file", "--debug-file"]) {
+    const index = args.indexOf(flag);
+    if (index >= 0) {
+      return args[index + 1];
+    }
+  }
+  return undefined;
+}
+
+/** Stderr that arrives in chunks over time, the way progress output does. */
+function heartbeatBytes(
+  count: number,
+  everyMs: number
+): AsyncIterable<Uint8Array> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, everyMs));
+        yield Buffer.from(`beat ${index}\n`);
+      }
+    }
+  };
+}
 
 function bytes(value: string): AsyncIterable<Uint8Array> {
   return {
@@ -95,11 +131,37 @@ function fakeRunner(script: readonly Scripted[]): {
               ? {}
               : { errorCode: step.errorCode })
           });
+      const beats = step.beats ?? 0;
+      const beatMs = step.beatMs ?? 10;
+      const logPath = logFileArgument(request.args);
+      const beating = beats === 0
+        ? completion
+        : new Promise<{ exitCode: number | null; signal: string | null }>(
+            (resolve) => {
+              let sent = 0;
+              const timer = setInterval(() => {
+                sent += 1;
+                if (step.beatVia === "log" && logPath !== undefined) {
+                  appendFileSync(logPath, `beat ${sent}\n`);
+                }
+                if (sent >= beats) {
+                  clearInterval(timer);
+                  resolve({ exitCode: step.exitCode ?? 0, signal: null });
+                }
+              }, beatMs);
+              finish = (value) => {
+                clearInterval(timer);
+                resolve(value);
+              };
+            }
+          );
       return {
         pid: 4242,
         stdout: bytes(step.stdout ?? ""),
-        stderr: bytes(step.stderr ?? ""),
-        completion,
+        stderr: beats > 0 && step.beatVia === "stderr"
+          ? heartbeatBytes(beats, beatMs)
+          : bytes(step.stderr ?? ""),
+        completion: beating,
         terminateTree: async () => {
           finish?.({ exitCode: null, signal: "SIGTERM" });
         }
@@ -176,7 +238,10 @@ function request(): ReviewExecutionRequest {
 async function run(
   targets: readonly ReviewTargetId[],
   script: readonly Scripted[],
-  options: { readonly timeoutMs?: number } = {}
+  options: {
+    readonly timeoutMs?: number;
+    readonly stallIdleMs?: number;
+  } = {}
 ): Promise<{
   readonly result: Awaited<ReturnType<ReturnType<typeof createReviewExecutor>>>;
   readonly attempts: Attempt[];
@@ -190,6 +255,9 @@ async function run(
     runner,
     env: {},
     timeoutMs: options.timeoutMs ?? 120_000,
+    ...(options.stallIdleMs === undefined
+      ? {}
+      : { stallIdleMs: options.stallIdleMs }),
     onProgress: (line) => progress.push(line)
   });
   return { result: await execute(request()), attempts, progress };
@@ -752,4 +820,120 @@ test("no targets configured reports missing-cli without spawning", async () => {
     "missing-cli"
   );
   assert.equal(attempts.length, 0);
+});
+
+test("the stall window is ninety seconds by default", () => {
+  // Short enough that a sandbox-blocked chain reports in minutes, long enough
+  // that a reviewer thinking between progress lines is never cut off.
+  assert.equal(DEFAULT_STALL_IDLE_MS, 90_000);
+});
+
+test("a silent reviewer is abandoned as stalled, and the chain continues", async () => {
+  const { result, attempts, progress } = await run(
+    ["agy", "claude"],
+    [
+      { hang: true },
+      { stdout: passing("claude") }
+    ],
+    // The full timeout stays far out of reach: only the stall window may fire.
+    { stallIdleMs: 60, timeoutMs: 120_000 }
+  );
+
+  assert.deepEqual(
+    attempts.map((attempt) => attempt.command),
+    ["agy", "claude"]
+  );
+  assert.equal(result.status, "PASS");
+  assert.deepEqual(result.attempts, [
+    {
+      target: "agy",
+      status: "NOT_RUN",
+      reason: "stalled",
+      diagnostic:
+        "no output for 1s; the reviewer is probably blocked by the host " +
+        "sandbox, and retrying with more permission will not help"
+    },
+    { target: "claude", status: "PASS" }
+  ]);
+  assert.ok(progress.some((line) => line.startsWith("agy: stalled →")));
+});
+
+test("log-file growth is a heartbeat that holds off the stall abort", async () => {
+  const { result } = await run(
+    ["agy"],
+    [{ beats: 8, beatMs: 15, beatVia: "log", stdout: passing("agy") }],
+    { stallIdleMs: 60, timeoutMs: 120_000 }
+  );
+
+  // Eight beats spans well past the 60ms window; without the file heartbeat
+  // this target is killed before it answers.
+  assert.equal(result.status, "PASS");
+  assert.deepEqual(result.attempts, [{ target: "agy", status: "PASS" }]);
+});
+
+test("streamed stderr is a heartbeat that holds off the stall abort", async () => {
+  const { result } = await run(
+    ["codex"],
+    [{ beats: 8, beatMs: 15, beatVia: "stderr", stdout: passing("codex") }],
+    { stallIdleMs: 60, timeoutMs: 120_000 }
+  );
+
+  assert.equal(result.status, "PASS");
+  assert.deepEqual(result.attempts, [{ target: "codex", status: "PASS" }]);
+});
+
+test("claude keeps its heartbeat flag out of the call when help omits it", async () => {
+  // The fake help output advertises --log-file but not --debug-file, so this
+  // install must still review — it only loses the file heartbeat.
+  const { result, attempts } = await run(
+    ["claude"],
+    [{ stdout: passing("claude") }]
+  );
+
+  assert.equal(result.status, "PASS");
+  assert.ok(!(attempts[0]?.args ?? []).includes("--debug-file"));
+});
+
+test("a network-blocked host ends the review before any target is spent", async () => {
+  const { runner, attempts } = fakeRunner([{ stdout: passing("codex") }]);
+  const progress: string[] = [];
+  const execute = createReviewExecutor({
+    targets: ["codex", "agy", "claude"],
+    cwd: process.cwd(),
+    runner,
+    env: { CODEX_SANDBOX_NETWORK_DISABLED: "1" },
+    onProgress: (line) => progress.push(line)
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "host-sandboxed");
+  // Not one CLI was invoked: the chain costs 45 minutes to learn what the
+  // environment already says.
+  assert.deepEqual(attempts, []);
+  assert.deepEqual(result.attempts, []);
+  assert.ok(progress.some((line) => line.includes("blocks network access")));
+});
+
+test("a bind-blocked host runs the loopback-dependent target last", async () => {
+  const { runner, attempts } = fakeRunner([{ stdout: passing("claude") }]);
+  const progress: string[] = [];
+  const execute = createReviewExecutor({
+    // agy first by configuration; the restriction must reorder it, not drop it.
+    targets: ["agy", "claude"],
+    cwd: process.cwd(),
+    runner,
+    env: {},
+    probeBind: async () => false,
+    onProgress: (line) => progress.push(line)
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "PASS");
+  // claude answers first even though agy was configured first; agy still runs,
+  // but only as the adversarial re-check behind the verdict it did not give.
+  assert.equal(attempts[0]?.command, "claude");
+  assert.ok(progress.some((line) => line.includes("cannot open a loopback listener")));
 });
