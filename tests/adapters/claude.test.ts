@@ -557,7 +557,7 @@ test("the managed-handler matcher rejects node handlers that are not ours", () =
   );
 });
 
-test("a gated loop install keeps a PreToolUse handler that reaches the gate", () => {
+test("a gated loop install reaches the gate on SessionStart and PreToolUse", () => {
   // Platform pinned: the loop launcher is bash on POSIX and PowerShell on
   // Windows, and this test is about the gate's own handler sitting beside it.
   const gated = buildClaudeHookSettings(
@@ -579,6 +579,18 @@ test("a gated loop install keeps a PreToolUse handler that reaches the gate", ()
   ]);
   assert.equal(groups[1]?.matcher, "Bash");
 
+  // SessionStart for the same reason: the gate records its baseline there, and
+  // without one every stop is refused as uninitialized.
+  const startGroups = gated.hooks.SessionStart ?? [];
+  assert.equal(startGroups.length, 2);
+  assert.equal(startGroups[0]?.hooks[0]?.command, "bash");
+  assert.deepEqual(startGroups[1]?.hooks[0]?.args, [
+    "/opt/agent-ops/hook-entry.js",
+    "claude",
+    "SessionStart",
+    "--managed-by=agent-ops"
+  ]);
+
   // An ungated loop install is untouched.
   const ungated = buildClaudeHookSettings(
     ["project-loop"],
@@ -586,6 +598,7 @@ test("a gated loop install keeps a PreToolUse handler that reaches the gate", ()
     "linux"
   );
   assert.equal((ungated.hooks.PreToolUse ?? []).length, 1);
+  assert.equal((ungated.hooks.SessionStart ?? []).length, 1);
 
   // The same on Windows, where the loop launcher is a PowerShell command.
   const windows = buildClaudeHookSettings(

@@ -21,7 +21,10 @@ All notable changes to this unreleased project are documented here.
   the per-session baseline, a Stop is the equivalent of agy's `model_stop`, and
   Claude's recursion marker is the not-yet-idle case the gate lets through. A
   dispatch exception on a gated Claude Stop fails closed rather than returning
-  empty output.
+  empty output. Under the loop profile the gate also registers its own
+  SessionStart and PreToolUse handlers beside the loop launcher's, which runs a
+  different process: without them the gate never records a baseline and never
+  sees the `allow-stop` it must put to the user.
   codex and opencode remain advisory: measured here, codex never fires its Stop
   hook under `codex exec` and rejects `permissionDecision: ask`, and opencode's
   plugin can only deny a tool call, never a stop.

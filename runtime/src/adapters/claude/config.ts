@@ -154,10 +154,15 @@ export function buildClaudeHookSettings(
     // what turns a self-issued `allow-stop` into a question for the user, so
     // the gate needs a handler of its own beside the loop's.
     if (capabilities.includes("completion-gate")) {
-      hooks.PreToolUse = [
-        ...(hooks.PreToolUse ?? []),
-        matcherGroup("PreToolUse", runtimePath)
-      ];
+      // SessionStart for the same reason: the gate records its per-session
+      // baseline there, and a gate that never sees a session start refuses
+      // every stop as uninitialized.
+      for (const event of ["SessionStart", "PreToolUse"] as const) {
+        hooks[event] = [
+          ...(hooks[event] ?? []),
+          matcherGroup(event, runtimePath)
+        ];
+      }
     }
   } else {
     if (capabilities.includes("lifecycle-summary")) {
