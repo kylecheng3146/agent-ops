@@ -739,15 +739,20 @@ export async function createInstallPlan(
   const completionGateEnabled =
     options.existingConfig?.value.features.completionGate.enabled ??
     options.completionGateEnabled === true;
+  // agy and Claude Code are the hosts whose Stop hook can refuse a stop.
+  // codex never fires Stop under `codex exec` and rejects
+  // `permissionDecision:ask`, so its permit could not be user-approved;
+  // opencode's plugin can only deny a tool call.
+  const gateHosts = ["agy", "claude"] as const;
   if (
     completionGateEnabled &&
     (options.scope !== "project" ||
-      !options.harness.includes("agy") ||
+      !gateHosts.some((host) => options.harness.includes(host)) ||
       !resolved.capabilities.includes("project-loop"))
   ) {
     throw new AgentOpsError(
       "COMPLETION_GATE_UNSUPPORTED",
-      "The completion gate requires project scope with the agy harness and loop profile."
+      "The completion gate requires project scope with the agy or claude harness and loop profile."
     );
   }
   if (

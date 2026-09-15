@@ -50,5 +50,13 @@ export const CLAUDE_CAPABILITY_REGISTRATIONS = [
     surfaceId: "claude-settings",
     support: "supported",
     runtimeFailure: "fail-open"
+  },
+  {
+    capability: "completion-gate",
+    normalizedEvent: "stop",
+    nativeEvent: "Stop",
+    surfaceId: "claude-settings",
+    support: "supported",
+    runtimeFailure: "fail-closed"
   }
 ] as const satisfies readonly CapabilityRegistrationSpec[];

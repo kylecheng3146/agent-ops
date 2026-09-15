@@ -10,6 +10,14 @@ All notable changes to this unreleased project are documented here.
   log file both count as a heartbeat, so a slow reviewer is never cut off. The
   remediation names the host sandbox rather than authentication: escalating
   permission and retrying does not revive a stalled reviewer.
+- The completion gate now enforces on Claude Code as well as agy. Enabling
+  `features.completionGate.enabled` and running `agent-ops update` installs a
+  gated Claude Stop hook that refuses a stop with Claude's own blocking
+  decision, and the one-time `allow-stop` permit is surfaced as a
+  `permissionDecision: ask` so an agent still cannot authorize its own stop.
+  codex and opencode remain advisory: measured here, codex never fires its Stop
+  hook under `codex exec` and rejects `permissionDecision: ask`, and opencode's
+  plugin can only deny a tool call, never a stop.
 - `doctor` no longer reports an installation whose Stop hook carries
   `--completion-gate` as unmanaged. The probe matched the whole command tail as
   one string, so enabling the project loop produced an `UPDATE_REQUIRED` that

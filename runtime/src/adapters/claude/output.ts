@@ -21,6 +21,34 @@ export function claudeHookOutput(
 ): ClaudeHookProcessOutput {
   const denialReason =
     result.remedy === undefined ? result.code : `${result.code}: ${result.remedy}`;
+  // The completion gate carries no verification evidence of its own — it reads
+  // evidence rather than producing it — so it never reaches the branch below
+  // and needs its own refusal.
+  if (
+    event === "Stop" &&
+    result.action === "block" &&
+    result.code.startsWith("COMPLETION_GATE_")
+  ) {
+    return json({
+      decision: "block",
+      reason: `agent-ops: ${denialReason}`
+    });
+  }
+  if (
+    event === "PreToolUse" &&
+    result.code === "COMPLETION_GATE_PERMIT_CONFIRMATION"
+  ) {
+    // Asked, never allowed: a one-time Stop permit is the user's to grant, and
+    // an agent that could answer this for itself would hold the key to its own
+    // gate.
+    return json({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason: denialReason
+      }
+    });
+  }
   if (event === "Stop" && result.evidence !== undefined) {
     if (result.status === "FAIL") {
       const failed = result.evidence.commandResults

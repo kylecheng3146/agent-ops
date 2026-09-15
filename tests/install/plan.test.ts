@@ -202,7 +202,7 @@ test("rejects a loop profile outside project scope or without a loop harness", a
   }
 });
 
-test("enables the completion gate only for agy project-loop installs", async () => {
+test("enables the completion gate only for hosts whose Stop can refuse", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-completion-gate-"));
   try {
     const plan = await createInstallPlan({
@@ -215,6 +215,20 @@ test("enables the completion gate only for agy project-loop installs", async () 
       completionGateEnabled: true
     });
     assert.equal(plan.config.features.completionGate.enabled, true);
+
+    // Claude Code is the second host that can refuse a stop, so a project with
+    // no agy installed can still arm the gate.
+    const claudeOnly = await createInstallPlan({
+      root,
+      scope: "project",
+      harness: ["claude"],
+      profiles: ["loop"],
+      adapters: commonHarnessAdapters(),
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      completionGateEnabled: true
+    });
+    assert.equal(claudeOnly.config.features.completionGate.enabled, true);
+    assert.ok(claudeOnly.capabilities.includes("completion-gate"));
 
     await assert.rejects(
       createInstallPlan({

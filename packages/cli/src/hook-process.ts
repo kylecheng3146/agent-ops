@@ -354,8 +354,12 @@ export async function runHookProcess(
   dependencies: HookProcessDependencies = {}
 ): Promise<number> {
   const [harness, event] = argv;
+  // Both hosts whose Stop hook can actually refuse a stop. codex never fires
+  // Stop under `codex exec` and rejects `permissionDecision:ask`, so its
+  // escape hatch could not be user-approved; opencode can only deny a tool
+  // call, never a stop.
   const completionGateInstalled =
-    harness === "agy" &&
+    (harness === "agy" || harness === "claude") &&
     event === "Stop" &&
     argv.includes("--completion-gate");
   if (
@@ -375,7 +379,7 @@ export async function runHookProcess(
     const hookEvent = event as HookEvent;
     if (process.env.AGENT_OPS_DISABLE === "1") {
       if (completionGateInstalled) {
-        writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+        writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {
           action: "block",
           status: "UNKNOWN",
           code: "COMPLETION_GATE_DISABLE_REJECTED",
@@ -394,7 +398,7 @@ export async function runHookProcess(
     const configOutcome = await hookConfigOutcome(root, dependencies.loadConfig);
     if (configOutcome.kind === "invalid") {
       if (completionGateInstalled) {
-        writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+        writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {
           action: "block",
           status: "UNKNOWN",
           code: "COMPLETION_GATE_CONFIG_INVALID",
@@ -416,7 +420,7 @@ export async function runHookProcess(
     }
     const config = configOutcome.config;
     if (completionGateInstalled && !config.features.completionGate.enabled) {
-      writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+      writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {
         action: "block",
         status: "UNKNOWN",
         code: "COMPLETION_GATE_CONFIG_DISABLED",
@@ -448,8 +452,13 @@ export async function runHookProcess(
           processRunner
         })
       : undefined;
+    // Not `completionGateInstalled`: that is the Stop handler's own marker,
+    // and the gate also answers PreToolUse — where it turns a self-issued
+    // `allow-stop` into a question for the user. Narrowing this to Stop takes
+    // the escape hatch's approval step away.
     const completionGate =
-      harnessId === "agy" && config.features.completionGate.enabled
+      (harnessId === "agy" || harnessId === "claude") &&
+      config.features.completionGate.enabled
         ? dependencies.completionGate ?? {
             handle: async (normalized) =>
               await new CompletionGateService({
@@ -481,7 +490,7 @@ export async function runHookProcess(
     writeHookOutput(io, output);
   } catch {
     if (completionGateInstalled) {
-      writeHookOutput(io, harnessDescriptor("agy").runtime.formatOutput("Stop", {
+      writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {
         action: "block",
         status: "UNKNOWN",
         code: "COMPLETION_GATE_UNAVAILABLE",
