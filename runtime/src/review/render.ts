@@ -6,6 +6,17 @@ function safe(value: string): string {
   return safeTaskText(redactSecrets(value));
 }
 
+/**
+ * NOT_RUN reasons that mean the task's verification evidence, not the reviewer,
+ * stopped the run: every one of them is cleared by producing fresh evidence.
+ */
+const VERIFICATION_EVIDENCE_REASONS: ReadonlySet<string> = new Set([
+  "stale-verification",
+  "missing-verification-evidence",
+  "unreadable-verification-evidence",
+  "verification-not-passed"
+]);
+
 function lineList(values: readonly string[]): readonly string[] {
   return values.length === 0 ? ["- none"] : values.map((value) => `- ${safe(value)}`);
 }
@@ -64,6 +75,30 @@ export function renderReviewResult(result: ReviewRunResult): string {
       result.attempts?.some((attempt) => attempt.reason === "login-required")
     ) {
       lines.push("Run: agent-ops doctor --check-auth to verify target authentication.");
+    }
+    // Evidence is pinned to the source it was produced from, so any edit to a
+    // changed file after the verifier ran — a doc rewritten by a later step
+    // counts — voids it. Without the next command the caller reads
+    // "stale-verification" as a review failure and retries review instead.
+    if (result.reason === "stale-verification") {
+      lines.push(
+        "The source changed after this evidence was recorded, so it no longer " +
+        "describes the worktree under review."
+      );
+    }
+    const verifyCommand =
+      `agent-ops verify --task ${result.taskId ?? "<task-id>"}`;
+    if (result.reason === "verification-not-passed") {
+      // No review invitation: the verifier failed, and review is refused until
+      // a passing run replaces that evidence. Naming review here is what sent
+      // the caller back to the command that had just refused them.
+      lines.push(
+        "The recorded verification did not pass. Fix what failed, then run: " +
+        `${verifyCommand}. Re-running review cannot turn a failing verifier ` +
+        "into a PASS."
+      );
+    } else if (VERIFICATION_EVIDENCE_REASONS.has(result.reason ?? "")) {
+      lines.push(`Run: ${verifyCommand}, then run this review again.`);
     }
     if (result.reason === "host-sandboxed") {
       lines.push(

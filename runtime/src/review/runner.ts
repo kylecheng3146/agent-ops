@@ -125,6 +125,8 @@ export type ReviewExecutionResult =
 export interface ReviewRunResult {
   readonly status: "PASS" | "FAIL" | "NOT_RUN";
   readonly harness: ReviewInvocation["harness"];
+  /** Present when the run had task context: names the task to re-verify. */
+  readonly taskId?: string;
   readonly model: string;
   readonly effort: string;
   readonly prompt: string;

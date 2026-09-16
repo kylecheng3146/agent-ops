@@ -538,6 +538,17 @@ test("review requires current PASS evidence before it spawns", async () => {
     });
     assert.equal(contradictory.data?.result.reason, "verification-not-passed");
     assert.equal(calls, 2);
+    // A failing verifier is not fixed by reviewing again, so the text must send
+    // the caller back to the verifier — named with the task it belongs to.
+    assert.match(
+      contradictory.data?.text ?? "",
+      /Re-running review cannot turn a failing verifier into a PASS/
+    );
+    assert.match(
+      contradictory.data?.text ?? "",
+      new RegExp(`Fix what failed, then run: agent-ops verify --task ${record.task.id}\\.`)
+    );
+    assert.doesNotMatch(contradictory.data?.text ?? "", /run this review again/);
 
     const stale = await runReviewCommand({
       args: parseArgs(["review", "--yes"]), authorized: true, tasks,
@@ -550,6 +561,15 @@ test("review requires current PASS evidence before it spawns", async () => {
     });
     assert.equal(stale.data?.result.reason, "stale-verification");
     assert.equal(calls, 2);
+    assert.equal(stale.data?.result.taskId, record.task.id);
+    assert.match(
+      stale.data?.text ?? "",
+      /The source changed after this evidence was recorded/
+    );
+    assert.match(
+      stale.data?.text ?? "",
+      new RegExp(`Run: agent-ops verify --task ${record.task.id}, then run this review again\.`)
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
