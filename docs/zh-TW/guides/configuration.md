@@ -44,15 +44,17 @@ Claude 與 Codex lifecycle support 為 `supported`，OpenCode 從 app initializa
 }
 ```
 
-`targets` 是**有序的後備鏈**。每次 review 都鎖定 staged／unstaged／untracked
-變更（或乾淨的 `--base <ref>...HEAD`）。裸跑使用內建 `change-quality` 準則；
-`--task` 使用 task criteria，並要求必要驗證的最新 PASS evidence。完整 report
-會顯示給人看，PASS 後只持久化 source-fingerprint attestation。
+`targets` 是完整指令 `agent-ops review --task <id> --yes` 的有序選擇。
+每一條 task criterion 與原始 description 都會針對 staged／unstaged／untracked
+變更（或乾淨的 `--base <ref>...HEAD`）審查；必要驗證的最新 PASS evidence
+必須在 reviewer 啟動前存在。裸跑或 partial review 不算完整 task review，也
+不能滿足 completion。
 
-`--review-target` 只屬於 `init`，用來設定持久 fallback chain。單次執行可用
-`review --harness <target>`，將 chain 縮窄為一個已在 project policy 啟用的
-target；它不會臨時啟用未設定的 reviewer。既有 model、effort 與 timeout 仍會
-沿用，review JSON 的 `plannedTargets` 會列出經 host 調整後的實際順序。
+`--review-target` 只屬於 `init`，用來設定持久 reviewer selection。`review` 不接受
+target、criterion 或 evidence override。每次恰好規劃兩個全新 session：設定三個
+target 時必須提供 `AGENT_OPS_HOST=agy|claude|codex`，排除該 host 並優先選 agy；
+設定兩個時依設定順序執行；設定一個時同一 CLI 執行兩次。review JSON 的
+`plannedTargets` 會列出實際順序。
 
 每次嘗試都從全新 session、一次性 repository clone 與原生唯讀模式啟動。Claude 使用完整 safe-mode
 隔離；Codex 與 Agy 為了支援既有 OAuth 登入而保留登入環境，因此 context
@@ -65,9 +67,11 @@ target；它不會臨時啟用未設定的 reviewer。既有 model、effort 與 
 | `agy` | `agy --print <prompt>` | `--sandbox --mode plan` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
-review chain 優先選擇不同於 hosting CLI 的 target。沒有其他可用 target 時，才允許
-全新的同 CLI session，但輸出會標示 `DEGRADED: isolated self-review`；不得 resume
-開發 session。
+第一個 session 是必要 reviewer。只有第一個 PASS 才會啟動第二個 adversarial
+session，並將第一份完整 redacted report 以不可信資料傳入。第一個 FAIL 或
+NOT_RUN 立即停止；第二個 FAIL 是終局 FAIL，第二個無法取得 verdict 則為
+NOT_RUN。同 target pair 仍因 session 與 clone 全新而具獨立性；不得 resume 開發
+session。
 
 `opencode` **不是** review 目標，即使它是支援的 harness。它的 `--agent plan`
 會被判定為 subagent 而遭拒，並靜默退回可寫入的 agent，因此無法滿足唯讀前置
@@ -77,24 +81,22 @@ Agy 的 prompt 會直接作為 `--print` 的值；裸用 `-p` 會誤吞下一個
 agent-ops 刻意不傳會繞過權限邊界的 `--dangerously-skip-permissions`，也不傳會
 使 plan mode 失效的 `--disable-slash-commands`。
 
-只要沒有取得有效 verdict 就換下一家，包括執行檔不存在、spawn 失敗、逾時
-（每個目標預設 900 秒）、登入失敗、輸出過大或無法解析。文字與 JSON 輸出
-都會保留每次 attempt 及原因。`PASS` 或 `FAIL` 判定是**終局**，因此不會產生
-自動化的 review shopping。
+Host 缺少 network 或 loopback 權限時，會在啟動任何 reviewer 前回傳
+`REVIEW_NOT_RUN`。可信任的外部 host runner 可以用兩項權限重跑同一個完整
+指令一次；在原 sandbox 內重試不算升權，也不能產生 PASS。文字與 JSON 輸出
+都會保留每次 attempt、preflight 與 diagnostic。
 
 Capability check 與模型啟動進度都寫到 stderr，包括 `--json` 模式；stdout
 仍只有最終 JSON envelope，且不會串流 reviewer 原始輸出。SIGINT 或 SIGTERM
 會終止目前 reviewer 的完整 process tree、不進入 fallback，也不寫入
 attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli`。
 
-若 host 是 Claude Code（`CLAUDECODE` 已設定），`claude` 會被移到鏈尾。
-當它是唯一設定的目標時仍會執行，並附上 `reviewer == host` 警告。
-
-criterion 描述來自當前 session 綁定的 task，所以 review 需要已附加、且建立時的
-policy 設定仍相同的 task；`--criterion` 用來篩選 id。請先執行
-`agent-ops verify`：必要 evidence 若失敗、過期或來源不符，review 會在 model 呼叫前停止。
-僅 compact PASS evidence 會以 `review:<target>:` 附加；完整人類可讀 report 是暫存的。
-已完成的 task 絕不改寫。
+task ID 必須明確指定，且永遠使用該 task 的原始 criteria；不能用 session fallback
+或 criterion filter 取代需求。review 會在 adversarial session 前、以及寫入證據前
+重新確認 source fingerprint。完整 PASS 後，兩份完整 redacted report 會私密保存於
+`.agent-ops/reviews/`；attestation 只保存 metadata 與 report digest。任何 evidence
+寫入失敗都維持 `REVIEW_NOT_RUN`。Compact PASS evidence 仍以
+`review:<target>:` 附加，已完成的 task 絕不改寫。
 
 每次執行 review 仍需 `--yes`：init 的勾選決定「允許哪些目標」，
 `--yes` 決定「現在是否要花錢」。

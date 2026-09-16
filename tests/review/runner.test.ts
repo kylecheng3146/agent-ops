@@ -127,7 +127,7 @@ test("review results preserve and render the planned target order", async () => 
   assert.match(renderReviewResult(result), /Planned reviewers: agy → claude → codex/);
 });
 
-test("review output records a fresh session and labels same-target as degraded", async () => {
+test("review output records a fresh same-target session as independent", async () => {
   const result = await runIndependentReview({
     invocation,
     authorized: true,
@@ -141,7 +141,7 @@ test("review output records a fresh session and labels same-target as degraded",
   });
   assert.equal(result.sessionIsolation, "fresh");
   const rendered = renderReviewResult(result);
-  assert.match(rendered, /Independence: DEGRADED \(same-target isolated self-review\)/u);
+  assert.match(rendered, /Independence: same-target fresh session \(independent session\)/u);
   assert.match(rendered, /Session isolation: fresh/u);
 });
 

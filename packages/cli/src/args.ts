@@ -60,6 +60,8 @@ export interface ParsedArgs {
   completionGate?: boolean;
   /** Authorizes doctor's expensive review-target authentication probe. */
   checkAuth?: boolean;
+  /** Restricts doctor's authentication probe to these review targets. */
+  checkAuthTargets?: ReviewTargetId[];
   taskId?: string;
   /** Parent task: assigns one on create, filters by one on status. */
   parentTaskId?: string;
@@ -162,6 +164,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const criteria: string[] = [];
   const evidence: string[] = [];
   let checkAuth = false;
+  const checkAuthTargets: ReviewTargetId[] = [];
   let completionGate: boolean | undefined;
   let dryRun = false;
   let json = false;
@@ -295,6 +298,18 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         checkAuth = true;
         break;
+      case "--check-auth-target": {
+        const value = readOptionValue(argv, index, token);
+        if (!REVIEW_TARGETS.has(value)) {
+          invalidValue(token, value);
+        }
+        if (checkAuthTargets.includes(value as ReviewTargetId)) {
+          duplicate(`${token} ${value}`);
+        }
+        checkAuthTargets.push(value as ReviewTargetId);
+        index += 1;
+        break;
+      }
       case "--completion-gate":
         if (completionGate !== undefined) {
           duplicate(token);
@@ -438,6 +453,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       sessionId !== undefined ||
       base !== undefined ||
       checkAuth ||
+      checkAuthTargets.length > 0 ||
       dryRun ||
       yes
     ) {
@@ -520,11 +536,23 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "--check-auth may be used only with doctor."
     );
   }
+  if (checkAuthTargets.length > 0 && command !== "doctor") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--check-auth-target may be used only with doctor."
+    );
+  }
+  if (checkAuthTargets.length > 0 && !checkAuth) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--check-auth-target requires --check-auth."
+    );
+  }
   if (reviewTargets.length > 0 && command !== "init") {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       command === "review"
-        ? "--review-target configures init; for one review run, use --harness <target>."
+        ? "--review-target configures init; review uses the configured reviewer pair."
         : "--review-target may be used only with init."
     );
   }
@@ -599,29 +627,36 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   if (
     command === "review" &&
-    (title !== undefined || sessionId !== undefined)
+    (title !== undefined || sessionId !== undefined || dryRun)
   ) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "Review accepts harness, criteria, evidence, scope, dry-run, json, and yes options."
+      "Review accepts task, base, json, and yes options."
     );
   }
-  if (
-    command === "review" &&
-    taskId === undefined &&
-    (criteria.length > 0 || evidence.length > 0)
-  ) {
+  if (command === "review" && taskId === undefined) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "Review criteria and evidence require --task."
+      "Review requires --task for the complete task-bound review."
     );
   }
-  if (
-    command === "review" &&
-    harness !== undefined &&
-    (harness.length !== 1 || !REVIEW_TARGETS.has(harness[0] ?? ""))
-  ) {
-    invalidValue("--harness", harness.join(","));
+  if (command === "review" && !yes) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Review requires --yes to authorize both reviewer sessions."
+    );
+  }
+  if (command === "review" && harness !== undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Complete review uses the configured reviewer pair; omit --harness."
+    );
+  }
+  if (command === "review" && (criteria.length > 0 || evidence.length > 0)) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Complete review covers every task criterion; omit --criterion and --evidence."
+    );
   }
   if (
     command === "allow-stop" &&
@@ -660,6 +695,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(base === undefined ? {} : { base }),
     ...(checkAuth ? { checkAuth } : {}),
+    ...(checkAuthTargets.length === 0 ? {} : { checkAuthTargets }),
     dryRun,
     json,
     yes

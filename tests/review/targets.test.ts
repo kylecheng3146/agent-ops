@@ -5,7 +5,7 @@ import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { validateConfig } from "../../runtime/src/schema/validate.js";
 import {
   detectHostTarget,
-  orderChain,
+  planReviewTargets,
   resolveReviewRole,
   reviewTargets
 } from "../../runtime/src/review/roles.js";
@@ -126,26 +126,34 @@ test("reviewRoles entries reject malformed shapes", () => {
   );
 });
 
-test("orderChain moves a detected host to the end without dropping it", () => {
-  assert.deepEqual(orderChain(["claude", "codex"], "claude"), [
-    "codex",
-    "claude"
-  ]);
-  assert.deepEqual(orderChain(["claude"], "claude"), ["claude"]);
-  assert.deepEqual(orderChain(["codex", "agy", "claude"], "codex"), [
-    "agy",
+test("review plans exactly two reviewers from the configured selection", () => {
+  assert.deepEqual(planReviewTargets(["claude", "codex"], "claude").targets, [
     "claude",
     "codex"
   ]);
-  assert.deepEqual(orderChain(["codex", "agy"], undefined), ["codex", "agy"]);
-  assert.deepEqual(orderChain(["codex", "agy"], "claude"), ["codex", "agy"]);
+  assert.deepEqual(planReviewTargets(["claude"], "claude").targets, [
+    "claude",
+    "claude"
+  ]);
+  assert.deepEqual(planReviewTargets(["codex", "agy", "claude"], "codex").targets, [
+    "agy",
+    "claude"
+  ]);
+  assert.deepEqual(
+    planReviewTargets(["codex", "agy", "claude"], undefined),
+    { targets: [], reason: "host-identity-required" }
+  );
+  assert.deepEqual(planReviewTargets(["codex", "agy"], undefined).targets, [
+    "codex",
+    "agy"
+  ]);
 });
 
-test("host detection accepts an explicit current CLI and otherwise recognizes Claude", () => {
+test("host detection accepts only an explicit current CLI", () => {
   assert.equal(detectHostTarget({ AGENT_OPS_HOST: "agy" }), "agy");
   assert.equal(detectHostTarget({ AGENT_OPS_HOST: "codex" }), "codex");
   assert.equal(detectHostTarget({ AGENT_OPS_HOST: "unknown" }), undefined);
-  assert.equal(detectHostTarget({ CLAUDECODE: "1" }), "claude");
+  assert.equal(detectHostTarget({ CLAUDECODE: "1" }), undefined);
   assert.equal(detectHostTarget({}), undefined);
   assert.equal(
     detectHostTarget({ AI_AGENT: "claude-code_2-1-228_agent" }),

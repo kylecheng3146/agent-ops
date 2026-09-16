@@ -11,13 +11,21 @@ import {
 } from "../../../../runtime/src/review/packet.js";
 import {
   runIndependentReview,
+  type ReviewAttempt,
   type ReviewRunResult,
   type ReviewVerificationCommandSummary,
   type ReviewVerificationSummary
 } from "../../../../runtime/src/review/runner.js";
 import { renderReviewResult } from "../../../../runtime/src/review/render.js";
-import { invalidateReviewAttestation, saveReviewAttestation } from "../../../../runtime/src/review/attestation.js";
 import {
+  invalidateReviewAttestation,
+  reviewReportDigest,
+  saveReviewAttestation,
+  saveReviewReportArtifact
+} from "../../../../runtime/src/review/attestation.js";
+import {
+  detectHostTarget,
+  planReviewTargets,
   resolveReviewRole,
   type ReviewRole,
   type ReviewRoleConfig
@@ -60,6 +68,7 @@ export interface ReviewCommandOptions {
   readonly currentPolicyConfigHash?: () => Promise<string>;
   readonly config?: AgentOpsConfig;
   readonly evidenceStore?: FileEvidenceStore;
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface ReviewCommandData {
@@ -353,6 +362,12 @@ function sourceChangedResult(result: ReviewRunResult): ReviewRunResult {
     ...(result.plannedTargets === undefined
       ? {}
       : { plannedTargets: result.plannedTargets }),
+    ...(result.sourceFingerprint === undefined
+      ? {}
+      : { sourceFingerprint: result.sourceFingerprint }),
+    ...(result.hostTarget === undefined
+      ? {}
+      : { hostTarget: result.hostTarget }),
     ...(result.scope === undefined ? {} : { scope: result.scope }),
     ...(result.independence === undefined
       ? {}
@@ -361,10 +376,109 @@ function sourceChangedResult(result: ReviewRunResult): ReviewRunResult {
       ? {}
       : { sessionIsolation: result.sessionIsolation }),
     ...(result.attempts === undefined ? {} : { attempts: result.attempts }),
+    ...(result.report === undefined ? {} : { report: result.report }),
+    ...(result.adversarial === undefined
+      ? {}
+      : { adversarial: result.adversarial }),
     ...(result.verification === undefined
       ? {}
       : { verification: result.verification })
   };
+}
+
+function hasCompleteReviewEvidence(
+  result: ReviewRunResult
+): result is ReviewRunResult & {
+  readonly status: "PASS";
+  readonly report: NonNullable<ReviewRunResult["report"]>;
+  readonly adversarial: NonNullable<ReviewRunResult["adversarial"]>;
+  readonly attempts: readonly [ReviewAttempt, ReviewAttempt];
+  readonly plannedTargets: readonly [ReviewTargetId, ReviewTargetId];
+} {
+  const attempts = result.attempts;
+  const plannedTargets = result.plannedTargets;
+  return result.status === "PASS" &&
+    result.report !== undefined &&
+    result.adversarial !== undefined &&
+    result.adversarial.refuted === false &&
+    result.sessionIsolation === "fresh" &&
+    plannedTargets !== undefined &&
+    plannedTargets.length === 2 &&
+    result.harness === plannedTargets[0] &&
+    result.adversarial.target === plannedTargets[1] &&
+    attempts !== undefined &&
+    attempts.length === 2 &&
+    attempts.every((attempt, index) =>
+      attempt.target === plannedTargets[index] &&
+      attempt.status === "PASS" &&
+      attempt.sessionId !== undefined
+    );
+}
+
+async function persistReviewEvidence(
+  options: ReviewCommandOptions,
+  result: ReviewRunResult,
+  sourceFingerprint: string | undefined,
+  context: TaskContext | undefined
+): Promise<ReviewRunResult> {
+  if (options.root === undefined || sourceFingerprint === undefined) {
+    return result;
+  }
+  const complete = hasCompleteReviewEvidence(result);
+  const artifactResult = result.status === "PASS" && !complete
+    ? {
+        ...result,
+        status: "NOT_RUN" as const,
+        reason: "adversarial-review-missing" as const
+      }
+    : result;
+  let reportArtifact: string;
+  try {
+    reportArtifact = await saveReviewReportArtifact(
+      options.root,
+      artifactResult,
+      sourceFingerprint,
+      context?.taskId
+    );
+  } catch {
+    return {
+      ...result,
+      status: "NOT_RUN",
+      reason: "evidence-write-failed"
+    };
+  }
+  if (!complete) {
+    return artifactResult;
+  }
+  if (result.status !== "PASS" || context?.allCriteriaReviewed === false) {
+    return result;
+  }
+  try {
+    const attempts = result.attempts;
+    const plannedTargets = result.plannedTargets;
+    await saveReviewAttestation(options.root, {
+      schemaVersion: 2,
+      ...(context === undefined ? {} : { taskId: context.taskId }),
+      harness: result.harness,
+      status: "PASS",
+      sourceFingerprint,
+      reviewTargets: [plannedTargets[0], plannedTargets[1]],
+      reviewSessionIds: [attempts[0].sessionId!, attempts[1].sessionId!],
+      sessionIsolation: "fresh",
+      primaryReportDigest: reviewReportDigest(result.report),
+      adversarialReportDigest: reviewReportDigest(result.adversarial.report),
+      reportArtifact,
+      ...(result.hostTarget === undefined ? {} : { hostTarget: result.hostTarget }),
+      createdAt: new Date().toISOString()
+    });
+  } catch {
+    return {
+      ...result,
+      status: "NOT_RUN",
+      reason: "evidence-write-failed"
+    };
+  }
+  return result;
 }
 
 export async function runReviewCommand(
@@ -385,17 +499,33 @@ export async function runReviewCommand(
       `${selectedHarness} is not enabled for independent-review. Configure it with init --review-target ${selectedHarness}.`
     );
   }
-  const plannedTargets = selectedHarness === undefined
+  const configuredSelection = selectedHarness === undefined
     ? options.targets ?? configuredTargets
     : [selectedHarness];
+  const targetPlan = planReviewTargets(
+    configuredSelection,
+    detectHostTarget(options.env ?? process.env)
+  );
+  const hostTarget = detectHostTarget(options.env ?? process.env);
+  const plannedTargets = targetPlan.reason === undefined
+    ? targetPlan.targets
+    : configuredSelection;
   const target = plannedTargets[0] ?? selectedHarness ?? "codex";
   const resultBase = {
     harness: target,
     plannedTargets,
     model: role?.model ?? options.model ?? "configured",
     effort: role?.effort ?? options.effort ?? "configured",
-    prompt: ""
+    prompt: "",
+    ...(hostTarget === undefined ? {} : { hostTarget })
   } as const;
+  if (targetPlan.reason !== undefined) {
+    return notRunEnvelope({
+      ...resultBase,
+      status: "NOT_RUN",
+      reason: targetPlan.reason
+    });
+  }
   const context = await taskContext(options);
   const evidenceRequirements: ReviewEvidenceRequirement[] = (
     options.args.evidence ?? []
@@ -508,6 +638,8 @@ export async function runReviewCommand(
     invocation: {
       harness: target,
       plannedTargets,
+      ...(sourceFingerprint === undefined ? {} : { sourceFingerprint }),
+      ...(hostTarget === undefined ? {} : { hostTarget }),
       model: role?.model ?? options.model ?? "configured",
       effort: role?.effort ?? options.effort ?? "configured",
       packet,
@@ -567,64 +699,68 @@ export async function runReviewCommand(
         (options.policyConfigHash !== undefined && currentHash !== options.policyConfigHash) ||
         postflightFingerprint !== sourceFingerprint
       ) {
-        return notRunEnvelope(sourceChangedResult(result));
+        const changed = await persistReviewEvidence(
+          options,
+          sourceChangedResult(result),
+          sourceFingerprint,
+          context
+        );
+        return notRunEnvelope(changed);
       }
     } catch {
-      return notRunEnvelope(sourceChangedResult(result));
+      const changed = await persistReviewEvidence(
+        options,
+        sourceChangedResult(result),
+        sourceFingerprint,
+        context
+      );
+      return notRunEnvelope(changed);
     }
   }
+  const persisted = await persistReviewEvidence(
+    options,
+    result,
+    sourceFingerprint,
+    context
+  );
+  if (persisted.status === "NOT_RUN") {
+    return notRunEnvelope(persisted);
+  }
+  const finalResult = persisted;
   // Evidence is only appended while the task is active: a completed record
   // must stay exactly as it was verified.
   if (
     context !== undefined &&
     options.tasks !== undefined &&
-    result.status === "PASS" &&
+    finalResult.status === "PASS" &&
     context.active &&
-    result.results !== undefined
+    finalResult.results !== undefined
   ) {
     await options.tasks.recordEvidence(
       context.taskId,
       Object.fromEntries(
-        result.results.map((item) => [
+        finalResult.results.map((item) => [
           item.criterionId,
-          item.evidence.map((reference) => `review:${result.harness}:${reference}`)
+          item.evidence.map((reference) => `review:${finalResult.harness}:${reference}`)
         ])
       )
     );
   }
-  // The attestation is what a Stop gate reads. It is keyed by the verified
-  // source fingerprint, so it stops satisfying the gate the moment the tree
-  // changes again.
-  if (
-    options.root !== undefined &&
-    result.status === "PASS" &&
-    sourceFingerprint !== undefined &&
-    (context === undefined || context.allCriteriaReviewed)
-  ) {
-    await saveReviewAttestation(options.root, {
-      schemaVersion: 1,
-      ...(context === undefined ? {} : { taskId: context.taskId }),
-      harness: result.harness,
-      status: "PASS",
-      sourceFingerprint,
-      createdAt: new Date().toISOString()
-    });
-  }
   const message =
-    result.status === "PASS"
+    finalResult.status === "PASS"
       ? "Independent review passed."
-      : result.status === "FAIL"
+      : finalResult.status === "FAIL"
         ? "Independent review failed."
         : "Independent review was not run.";
   const data = {
     message,
-    result,
-    text: renderReviewResult(result)
+    result: finalResult,
+    text: renderReviewResult(finalResult)
   };
-  if (result.status === "PASS") {
+  if (finalResult.status === "PASS") {
     return okEnvelope("REVIEW_RESULT", data);
   }
-  const code = result.status === "FAIL" ? "REVIEW_FAILED" : "REVIEW_NOT_RUN";
+  const code = finalResult.status === "FAIL" ? "REVIEW_FAILED" : "REVIEW_NOT_RUN";
   return {
     code,
     status: "error",

@@ -17,7 +17,6 @@ import {
 import { validateConfig } from "../schema/validate.js";
 import type { ReviewTargetProbeResult } from "../review/probe.js";
 import {
-  BIND_DEPENDENT_TARGETS,
   detectHostRestriction,
   type HostRestriction
 } from "../review/host-sandbox.js";
@@ -117,6 +116,8 @@ export interface DoctorInstallationOptions {
    * not `--yes`, which stays inert for doctor.
    */
   readonly checkReviewTargetAuth?: boolean;
+  /** Optional subset used by review's pair preflight. */
+  readonly checkAuthTargets?: readonly ReviewTargetId[];
 }
 
 export interface DoctorReport {
@@ -871,9 +872,8 @@ async function checkHostSandbox(
     return check(
       "host-sandbox",
       "DEGRADED",
-      `This process cannot open a loopback listener, so review targets that ` +
-        `need one (${BIND_DEPENDENT_TARGETS.join(", ")}) run last and may be ` +
-        "unable to answer.",
+      "This process cannot open a loopback listener, so review fails closed " +
+        "with host-required before any reviewer starts.",
       undefined,
       "Run agent-ops outside the sandbox, or grant it escalated execution."
     );
@@ -888,11 +888,27 @@ async function checkHostSandbox(
 async function checkReviewTargets(
   config: AgentOpsConfig | undefined,
   probe: DoctorReviewTargetProbe | undefined,
-  checkAuth: boolean
+  checkAuth: boolean,
+  selectedTargets: readonly ReviewTargetId[] = []
 ): Promise<DoctorCheck> {
-  const targets = config?.reviewRoles?.find(
+  const configuredTargets = config?.reviewRoles?.find(
     (role) => role.role === "independent-review"
   )?.targets ?? [];
+  const unconfigured = selectedTargets.filter(
+    (target) => !configuredTargets.includes(target)
+  );
+  if (unconfigured.length > 0) {
+    return check(
+      "review-targets",
+      "FAIL",
+      `Review target selection is not configured: ${unconfigured.join(", ")}.`,
+      undefined,
+      "Configure the target with agent-ops init --review-target, then retry."
+    );
+  }
+  const targets = selectedTargets.length > 0
+    ? selectedTargets
+    : configuredTargets;
   if (targets.length === 0) {
     return check(
       "review-targets",
@@ -944,6 +960,16 @@ async function checkReviewTargets(
         `${target} did not answer in time.`,
         undefined,
         "Re-run: agent-ops doctor --check-auth"
+      ));
+      continue;
+    }
+    if (result === "capability-unavailable") {
+      failures.push(check(
+        "review-targets",
+        "FAIL",
+        `${target} could not complete its read-only capability probe.`,
+        undefined,
+        "Run agent-ops review on a host with network and loopback permission, then retry."
       ));
       continue;
     }
@@ -1023,7 +1049,8 @@ export async function doctorInstallation(
     await checkReviewTargets(
       config.config,
       options.probes?.reviewTarget,
-      options.checkReviewTargetAuth === true
+      options.checkReviewTargetAuth === true,
+      options.checkAuthTargets
     ),
     await checkHostSandbox(options.probes?.hostRestriction),
     checkVerificationCommands(config.config)

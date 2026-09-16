@@ -8,21 +8,34 @@ import {
   findReviewAttestation,
   invalidateReviewAttestation,
   saveReviewAttestation,
+  saveReviewReportArtifact,
   REVIEW_ATTESTATION_DIRECTORY
 } from "../../runtime/src/review/attestation.js";
+import {
+  fixtureAttestation,
+  fixtureReviewResult
+} from "./attestation-fixture.js";
 
 const FINGERPRINT = "b".repeat(64);
 
 function attestation(overrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: 1,
-    taskId: "task-1234",
-    harness: "codex",
-    status: "PASS",
-    sourceFingerprint: FINGERPRINT,
-    createdAt: "2026-08-01T00:00:00.000Z",
+    ...fixtureAttestation(FINGERPRINT, "task-1234"),
     ...overrides
   } as Parameters<typeof saveReviewAttestation>[1];
+}
+
+async function saveValidAttestation(
+  directory: string,
+  value: Parameters<typeof saveReviewAttestation>[1]
+): Promise<void> {
+  await saveReviewReportArtifact(
+    directory,
+    fixtureReviewResult(value.sourceFingerprint),
+    value.sourceFingerprint,
+    value.taskId
+  );
+  await saveReviewAttestation(directory, value);
 }
 
 async function root(): Promise<string> {
@@ -31,18 +44,20 @@ async function root(): Promise<string> {
 
 test("stores a passing review keyed by its source fingerprint", async () => {
   const directory = await root();
-  const reference = await saveReviewAttestation(directory, attestation());
+  const value = attestation();
+  await saveValidAttestation(directory, value);
+  const reference = `${REVIEW_ATTESTATION_DIRECTORY}/${FINGERPRINT}.json`;
   assert.equal(reference, `${REVIEW_ATTESTATION_DIRECTORY}/${FINGERPRINT}.json`);
   assert.deepEqual(
     await findReviewAttestation(directory, FINGERPRINT),
-    attestation()
+    value
   );
 });
 
 test("stores a generic review without inventing a task id", async () => {
   const directory = await root();
-  const { taskId: _taskId, ...generic } = attestation();
-  await saveReviewAttestation(directory, generic);
+  const { taskId: _taskId, ...generic } = fixtureAttestation(FINGERPRINT);
+  await saveValidAttestation(directory, generic);
   assert.deepEqual(
     await findReviewAttestation(directory, FINGERPRINT),
     generic
@@ -51,7 +66,7 @@ test("stores a generic review without inventing a task id", async () => {
 
 test("reports no attestation for a different source state", async () => {
   const directory = await root();
-  await saveReviewAttestation(directory, attestation());
+  await saveValidAttestation(directory, attestation());
   assert.equal(await findReviewAttestation(directory, "c".repeat(64)), null);
   assert.equal(await findReviewAttestation(directory, "not-a-hash"), null);
   await writeFile(join(directory, REVIEW_ATTESTATION_DIRECTORY, `${"c".repeat(64)}.json`),

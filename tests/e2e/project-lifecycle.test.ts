@@ -124,7 +124,7 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
       ["doctor", "--json"],
       ["task", "status", "--json"],
       ["verify", "--task", "missing", "--json"],
-      ["review", "--json"]
+      ["review", "--task", "missing", "--yes", "--json"]
     ]) {
       const outcome = runBuiltCli(args, root).result;
       assert.notEqual(outcome.status, 2, `${args.join(" ")} was not routed`);

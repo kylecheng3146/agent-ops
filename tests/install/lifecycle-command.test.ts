@@ -107,7 +107,8 @@ test("doctor command reports PASS only when every probe passes", async () => {
       probes: {
         hookRegistration: () => true,
         repositoryTrust: () => true,
-        smokeAvailability: () => true
+        smokeAvailability: () => true,
+        hostRestriction: async () => "none"
       }
     });
     // DEGRADED, not OK: this fixture installs into an empty directory, so it

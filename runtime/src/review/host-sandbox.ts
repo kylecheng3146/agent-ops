@@ -1,7 +1,8 @@
 import { createServer } from "node:net";
 
 /**
- * What the host this process runs inside will not let a reviewer do.
+ * What the host this process runs inside reports or proves it may not let a
+ * reviewer do.
  *
  * A reviewer CLI is spawned as a child, so it inherits whatever sandbox the
  * host applied to agent-ops itself. That makes agent-ops a faithful probe: a
@@ -60,8 +61,9 @@ export async function detectHostRestriction(
   options: HostRestrictionOptions = {}
 ): Promise<HostRestriction> {
   const env = options.env ?? process.env;
-  // Declared and total: no reviewer can reach its own API, so probing the
-  // narrower loopback capability would only add latency to a settled answer.
+  // Keep the host declaration distinct from the narrower loopback probe. The
+  // executor treats this signal as advisory because a target may use a
+  // transport that differs from this process.
   if (env.CODEX_SANDBOX_NETWORK_DISABLED === "1") {
     return "network-blocked";
   }

@@ -1,6 +1,6 @@
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import type { StoredTaskRecord } from "../../runtime/src/task/store.js";
-import { saveReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
 import { collectChangeSurface, type GitRunner } from "../../runtime/src/verify/change-surface.js";
 import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fingerprint.js";
 import { buildVerificationEvidence, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
@@ -38,8 +38,6 @@ export async function passingCompletionEvidence(
       })));
     }
   }
-  await saveReviewAttestation(root, {
-    schemaVersion: 1, taskId: record.task.id, harness: "claude", status: "PASS", sourceFingerprint, createdAt: "2026-07-23T12:00:02Z"
-  });
+  await saveFixtureReviewAttestation(root, sourceFingerprint, record.task.id, ["claude", "agy"]);
   return references;
 }
