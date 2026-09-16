@@ -1027,7 +1027,7 @@ test("doctor names the host sandbox instead of only an authentication verdict", 
     assert.ok(bindCheck);
     assert.equal(bindCheck.status, "DEGRADED");
     assert.match(bindCheck.message, /loopback listener/u);
-    assert.match(bindCheck.message, /agy/u);
+    assert.match(bindCheck.message, /fails closed with host-required/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -16,7 +16,7 @@ import type {
   GitRunner
 } from "../../runtime/src/verify/change-surface.js";
 import { calculateConfigHash, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
-import { saveReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
 import {
   VerificationService
 } from "../../runtime/src/verify/service.js";
@@ -208,8 +208,7 @@ test("mapped verification also runs task-required commands so completion remains
     );
     const stored = await task.service.status({ taskId: task.taskId });
     assert.equal(stored.evidence["criterion-lint"]?.length, 1);
-    await saveReviewAttestation(root, { schemaVersion: 1, taskId: task.taskId, harness: "claude",
-      status: "PASS", sourceFingerprint: report.sourceFingerprint, createdAt: "2026-07-23T12:00:05Z" });
+    await saveFixtureReviewAttestation(root, report.sourceFingerprint, task.taskId, ["claude", "agy"]);
     const completing = new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root), {
       completion: { root, gitRunner: new SurfaceRunner("src/example.ts"), loadConfig: async () => config() }
     });

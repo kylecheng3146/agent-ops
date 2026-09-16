@@ -17,8 +17,7 @@ import type {
   Harness,
   HarnessId,
   InstallManifest,
-  InstallScope,
-  ReviewTargetId
+  InstallScope
 } from "../../../runtime/src/contracts.js";
 import {
   agyRuntimeStatus,
@@ -35,6 +34,7 @@ import { FileTrustStore } from "../../../runtime/src/security/trust.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
+import { calculateSourceFingerprint } from "../../../runtime/src/verify/source-fingerprint.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
 import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
 import { runCli } from "./cli.js";
@@ -64,11 +64,8 @@ import {
   ReviewInterruptedError
 } from "../../../runtime/src/review/execute.js";
 import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
-import {
-  detectHostTarget,
-  orderChain,
-  resolveReviewRole
-} from "../../../runtime/src/review/roles.js";
+import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
+import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
 import { runAllowStopCommand } from "./commands/allow-stop.js";
@@ -416,7 +413,10 @@ process.exitCode = await runCli(
               },
               ...(args.checkAuth === true
                 ? { checkReviewTargetAuth: true }
-                : {})
+                : {}),
+              ...(args.checkAuthTargets === undefined
+                ? {}
+                : { checkAuthTargets: args.checkAuthTargets })
             });
           }
           if (args.command === "uninstall") {
@@ -514,6 +514,7 @@ process.exitCode = await runCli(
           }
           if (args.command === "review") {
             const reviewSessionId = process.env.AGENT_OPS_SESSION_ID;
+            const reviewGit = gitRunner(root);
             const reviewConfig = (await loadEffectiveConfig(
               root,
               args.scope === "user" ? "user" : "project"
@@ -522,15 +523,7 @@ process.exitCode = await runCli(
               "independent-review",
               reviewConfig.reviewRoles ?? []
             );
-            const selectedReviewTarget = args.harness?.[0] as
-              | ReviewTargetId
-              | undefined;
-            const plannedReviewTargets = orderChain(
-              selectedReviewTarget === undefined
-                ? reviewRole?.targets ?? []
-                : [selectedReviewTarget],
-              detectHostTarget(process.env)
-            );
+            const configuredReviewTargets = reviewRole?.targets ?? [];
             const controller = new AbortController();
             let interruptedBy: "SIGINT" | "SIGTERM" | undefined;
             const interrupt = (signal: "SIGINT" | "SIGTERM"): void => {
@@ -553,9 +546,9 @@ process.exitCode = await runCli(
                 ...(reviewConfig.reviewRoles === undefined
                   ? {}
                   : { roles: reviewConfig.reviewRoles }),
-                targets: plannedReviewTargets,
+                targets: configuredReviewTargets,
                 root,
-                gitRunner: gitRunner(root),
+                gitRunner: reviewGit,
                 policyConfigHash: calculateConfigHash(reviewConfig),
                 currentPolicyConfigHash: async () => calculateConfigHash((
                   await loadEffectiveConfig(
@@ -566,7 +559,7 @@ process.exitCode = await runCli(
                 config: reviewConfig,
                 evidenceStore: new FileEvidenceStore(root, root),
                 execute: createReviewExecutor({
-                  targets: plannedReviewTargets,
+                  targets: configuredReviewTargets,
                   cwd: root,
                   ...(reviewRole?.model === undefined
                     ? {}
@@ -577,6 +570,20 @@ process.exitCode = await runCli(
                   ...(reviewRole?.timeoutMs === undefined
                     ? {}
                     : { timeoutMs: reviewRole.timeoutMs }),
+                  preflightTarget: async (target) =>
+                    await probeReviewTarget(target, { cwd: root, deep: true }),
+                  verifySourceFingerprint: async (expected) => {
+                    const currentScope = await resolveReviewScope({
+                      root,
+                      runner: reviewGit,
+                      ...(args.base === undefined ? {} : { base: args.base })
+                    });
+                    return await calculateSourceFingerprint(
+                      root,
+                      currentScope,
+                      reviewGit
+                    ) === expected;
+                  },
                   signal: controller.signal,
                   onProgress: (line) => {
                     process.stderr.write(`${line}\n`);

@@ -38,7 +38,7 @@ export function renderReviewResult(result: ReviewRunResult): string {
   if (result.independence !== undefined) {
     lines.push(
       result.independence === "same-target"
-        ? "Independence: DEGRADED (same-target isolated self-review)."
+        ? "Independence: same-target fresh session (independent session)."
         : `Independence: ${result.independence}.`
     );
   }
@@ -55,6 +55,16 @@ export function renderReviewResult(result: ReviewRunResult): string {
       );
     }
   }
+  if (result.preflight !== undefined) {
+    lines.push("Reviewer preflight:");
+    for (const target of result.preflight) {
+      lines.push(
+        `- ${target.target}: ${target.status}` +
+        `${target.reason === undefined ? "" : ` (${safe(target.reason)})`}` +
+        `${target.diagnostic === undefined ? "" : ` — ${safe(target.diagnostic)}`}`
+      );
+    }
+  }
   if (result.verification !== undefined) {
     lines.push("Machine verification:");
     for (const command of result.verification.commands) {
@@ -65,7 +75,7 @@ export function renderReviewResult(result: ReviewRunResult): string {
       );
     }
   }
-  if (result.report === undefined) {
+  if (result.status === "NOT_RUN" || result.report === undefined) {
     lines.push(`Reason: ${result.reason ?? "unknown"}.`);
     for (const error of result.validationErrors ?? []) {
       lines.push(`- ${safe(error.path)}: ${safe(error.code)} — ${safe(error.message)}`);
@@ -100,11 +110,22 @@ export function renderReviewResult(result: ReviewRunResult): string {
     } else if (VERIFICATION_EVIDENCE_REASONS.has(result.reason ?? "")) {
       lines.push(`Run: ${verifyCommand}, then run this review again.`);
     }
-    if (result.reason === "host-sandboxed") {
+    if (result.reason === "host-required") {
       lines.push(
-        "No target ran: the sandbox around this process blocks the network a " +
-        "reviewer needs. Run agent-ops review outside the sandbox, or grant " +
-        "this command escalated execution and run it again."
+        "No reviewer ran: the host runner must restart this exact review with " +
+        "network and loopback permission."
+      );
+    }
+    if (result.reason === "host-identity-required") {
+      lines.push(
+        "Three configured targets require AGENT_OPS_HOST=agy|claude|codex; " +
+        "the host identity was not guessed."
+      );
+    }
+    if (result.reason === "evidence-write-failed") {
+      lines.push(
+        "Reviewers may have completed, but the required evidence could not be " +
+        "written; the completion gate remains blocked."
       );
     }
     // Deliberately not the authentication line: a stalled reviewer started and

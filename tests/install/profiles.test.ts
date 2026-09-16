@@ -212,5 +212,5 @@ test("managed rules authorize the independent review invocation", () => {
     profiles: ["core"],
     capabilities: ["rules", "review"]
   });
-  assert.match(content, /agent-ops review --yes/);
+  assert.match(content, /agent-ops review --task <task-id> --yes/);
 });

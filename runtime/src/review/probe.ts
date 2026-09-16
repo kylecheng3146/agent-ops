@@ -17,7 +17,8 @@ export type ReviewTargetProbeResult =
   | "missing-executable"
   | "ok"
   | "timeout"
-  | "unauthenticated";
+  | "unauthenticated"
+  | "capability-unavailable";
 
 export interface ReviewTargetProbeOptions {
   readonly cwd: string;
@@ -91,6 +92,13 @@ export async function probeReviewTarget(
   }
   if (spawned.timedOut) {
     return "timeout";
+  }
+  if (
+    /(?:operation not permitted|permission denied|bind(?:ing)?[^\n]*(?:failed|denied))/iu.test(
+      `${spawned.stderr}\n${spawned.stdout}`
+    )
+  ) {
+    return "capability-unavailable";
   }
   if (!deep) {
     return spawned.status === "PASS" ? "ok" : "unauthenticated";

@@ -481,7 +481,7 @@ test("blocks the Stop event when verification reports FAIL", () => {
   };
   assert.equal(parsed.decision, "block");
   assert.match(parsed.reason, /independent-review/u);
-  assert.match(parsed.reason, /agent-ops review/u);
+  assert.match(parsed.reason, /agent-ops review --task <task-id> --yes/u);
   assert.equal(parsed.reason.includes("unit"), false);
 });
 

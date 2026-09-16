@@ -14,7 +14,7 @@ import {
   CompletionGateService,
   FileCompletionGateStore
 } from "../../runtime/src/hooks/completion-gate.js";
-import { saveReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
 import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
 import {
@@ -187,14 +187,7 @@ test("current task evidence and review allow Stop and checkpoint the source", as
       }));
       references[criterion.id] = [reference];
     }
-    await saveReviewAttestation(root, {
-      schemaVersion: 1,
-      taskId: task.task.id,
-      harness: "self-review",
-      status: "PASS",
-      sourceFingerprint,
-      createdAt: "2026-08-29T00:00:02Z"
-    });
+    await saveFixtureReviewAttestation(root, sourceFingerprint, task.task.id);
     await tasks.complete(task.task.id, references);
     assert.equal(await fingerprint(root, runner), sourceFingerprint);
     await tasks.recordFailure(task.task.id, createFailureFingerprint({
@@ -265,14 +258,7 @@ test("committed work completed against a base still satisfies the gate", async (
         config: CONFIG
       }))];
     }
-    await saveReviewAttestation(root, {
-      schemaVersion: 1,
-      taskId: task.task.id,
-      harness: "self-review",
-      status: "PASS",
-      sourceFingerprint: baseFingerprint,
-      createdAt: "2026-08-29T00:00:02Z"
-    });
+    await saveFixtureReviewAttestation(root, baseFingerprint, task.task.id);
     await tasks.complete(task.task.id, references);
 
     // The gate reads the task service that completed against the base.

@@ -54,14 +54,14 @@ Commands:
 
 Options:
   --scope <project|user>
-  --harness <all|both|agy|claude|codex|opencode|comma-separated>  Init/update/uninstall; review accepts one configured target
+  --harness <all|both|agy|claude|codex|opencode|comma-separated>  Init/update/uninstall; review uses configured targets
   --hook-target <harness=surface-id>  Repeatable advanced init/update option
   --profile <core|advisory|guardrails|loop>  Repeatable
-  --review-target <codex|agy|claude>  Repeatable init option; external review
-                                      targets in fallback-chain order
+  --review-target <codex|agy|claude>  Repeatable init option; review pair order
   --completion-gate                  Init only: enable the project-loop completion gate
-  --check-auth                        Doctor only: probe each review target's
+  --check-auth                        Doctor only: probe selected review targets'
                                       authentication with one real call
+  --check-auth-target <target>        Repeatable doctor filter with --check-auth
   --task <id>
   --parent <task-id>                  Task create: record a subtask of this
                                       task; task status: list its subtasks
@@ -182,18 +182,16 @@ Options:
   --base <git-ref>   Verify a clean committed range
   --json
 `,
-  review: `Usage: agent-ops review [options]
+  review: `Usage: agent-ops review --task <id> --yes [options]
 
-Run one independent read-only review against the configured target chain.
+Run the complete task-bound review: one necessary reviewer followed by one
+fresh adversarial reviewer from the configured pair.
 
 Options:
-  --task <id>
-  --session <id>
-  --criterion <id>     Repeatable: review only these task criteria
-  --harness <target>   One configured review target
-  --base <git-ref>
+  --task <id>          Required task whose original criteria are reviewed
+  --base <git-ref>     Review a clean committed range
   --json
-  --yes                Authorize the review call
+  --yes                Required authorization for both reviewer sessions
 `,
   "allow-stop": `Usage: agent-ops allow-stop --session <id> [options]
 
@@ -313,7 +311,11 @@ export async function runCli(
       io,
       result,
       args.json,
-      result.status === "ok" ? 0 : 1
+      result.status === "ok"
+        ? 0
+        : result.code === "REVIEW_NOT_RUN"
+          ? 2
+          : 1
     );
   } catch (error) {
     if (error instanceof CliArgumentError) {
