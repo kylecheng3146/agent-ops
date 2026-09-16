@@ -10,7 +10,7 @@ import type {
 } from "../../runtime/src/contracts.js";
 import { calculateConfigHash } from "../../runtime/src/config/hash.js";
 import { StopVerificationService } from "../../runtime/src/hooks/stop-service.js";
-import { saveReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
 import { resolveReviewScope } from "../../runtime/src/review/scope.js";
 import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fingerprint.js";
 import type {
@@ -136,14 +136,11 @@ test("fails a stop with passing commands but no independent review", async () =>
 test("passes once an attestation matches the reviewed source state", async () => {
   const { root, runner } = await workspace();
   const scope = await resolveReviewScope({ root, runner });
-  await saveReviewAttestation(root, {
-    schemaVersion: 1,
-    taskId: "task-1234",
-    harness: "codex",
-    status: "PASS",
-    sourceFingerprint: await calculateSourceFingerprint(root, scope, runner),
-    createdAt: "2026-08-01T00:00:00.000Z"
-  });
+  await saveFixtureReviewAttestation(
+    root,
+    await calculateSourceFingerprint(root, scope, runner),
+    "task-1234"
+  );
 
   const report = await service(root, runner, config(ROLES)).verify();
 
@@ -158,14 +155,11 @@ test("passes once an attestation matches the reviewed source state", async () =>
 test("fails again after the reviewed source state changes", async () => {
   const { root, runner } = await workspace();
   const scope = await resolveReviewScope({ root, runner });
-  await saveReviewAttestation(root, {
-    schemaVersion: 1,
-    taskId: "task-1234",
-    harness: "codex",
-    status: "PASS",
-    sourceFingerprint: await calculateSourceFingerprint(root, scope, runner),
-    createdAt: "2026-08-01T00:00:00.000Z"
-  });
+  await saveFixtureReviewAttestation(
+    root,
+    await calculateSourceFingerprint(root, scope, runner),
+    "task-1234"
+  );
   await writeFile(join(root, "changed.ts"), "export const value = 2;\n", {
     mode: 0o600
   });

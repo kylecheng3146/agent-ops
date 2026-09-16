@@ -1,4 +1,5 @@
 import type { ReviewTargetId } from "../contracts.js";
+import { randomUUID } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,21 +17,27 @@ import {
   validateReviewReport,
   type ReviewReport
 } from "./report.js";
-import { detectHostTarget, orderChain } from "./roles.js";
-import {
-  BIND_DEPENDENT_TARGETS,
-  detectHostRestriction
-} from "./host-sandbox.js";
+import { detectHostTarget, planReviewTargets } from "./roles.js";
+import { detectHostRestriction } from "./host-sandbox.js";
 import {
   buildAdversarialPrompt,
   buildReviewPrompt,
-  type ReviewAdversarialOutcome,
   type ReviewAttempt,
   type ReviewExecutionRequest,
   type ReviewExecutionResult,
   type ReviewIndependence,
+  type ReviewPreflightAttempt,
   type ReviewUnavailableReason
 } from "./runner.js";
+import { MAX_ADVERSARIAL_PROMPT_BYTES } from "./runner.js";
+
+export type ReviewTargetPreflightResult =
+  | "ok"
+  | "ineligible"
+  | "missing-executable"
+  | "timeout"
+  | "unauthenticated"
+  | "capability-unavailable";
 
 /**
  * Full repository reviews need far more headroom than the lightweight auth
@@ -61,6 +68,12 @@ export interface ReviewExecutorOptions {
   readonly stallIdleMs?: number;
   /** Loopback-bind probe used to detect a restricted host. Tests replace it. */
   readonly probeBind?: () => Promise<boolean>;
+  /** Auth/capability probe run for every planned target before any review. */
+  readonly preflightTarget?: (
+    target: ReviewTargetId
+  ) => Promise<ReviewTargetPreflightResult>;
+  /** Re-checks the source before the adversarial session starts. */
+  readonly verifySourceFingerprint?: (expected: string) => Promise<boolean>;
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
@@ -156,6 +169,23 @@ const ADVANCING: ReadonlySet<ProcessFailureClass> = new Set([
 ]);
 
 const DIAGNOSTIC_MAX_CHARS = 200;
+
+function preflightUnavailableReason(
+  result: Exclude<ReviewTargetPreflightResult, "ok">
+): ReviewUnavailableReason {
+  switch (result) {
+    case "missing-executable":
+      return "missing-cli";
+    case "timeout":
+      return "timeout";
+    case "unauthenticated":
+      return "login-required";
+    case "ineligible":
+      return "capability-unavailable";
+    case "capability-unavailable":
+      return "capability-unavailable";
+  }
+}
 
 /**
  * The target's first line of complaint, redacted and clipped. It travels on the
@@ -268,9 +298,10 @@ function throwIfInterrupted(
 }
 
 type TargetAttemptOutcome =
-  | { readonly kind: "verdict"; readonly report: ReviewReport }
+  | { readonly kind: "verdict"; readonly report: ReviewReport; readonly sessionId: string }
   | {
       readonly kind: "skip";
+      readonly sessionId: string;
       readonly reason: ReviewUnavailableReason;
       /** Recorded on the attempt when it is more specific than `reason`. */
       readonly attemptReason?: string;
@@ -352,12 +383,14 @@ async function attemptTarget(
   options: ReviewExecutorOptions
 ): Promise<TargetAttemptOutcome> {
   const { target } = request;
+  const sessionId = randomUUID();
   const skip = (
     reason: ReviewUnavailableReason,
     diagnostic: string,
-    verb = "trying next target"
+    verb = "stopping review"
   ): TargetAttemptOutcome => ({
     kind: "skip",
+    sessionId,
     reason,
     diagnostic,
     message: `${target}: ${reason} → ${verb} (${diagnostic})`
@@ -595,62 +628,74 @@ async function attemptTarget(
             "the answer carried no review report"
       );
     }
-    return { kind: "verdict", report: parsed.value };
+    return { kind: "verdict", report: parsed.value, sessionId };
   } finally {
     await rm(attemptDirectory, { recursive: true, force: true });
   }
 }
 
-/**
- * Builds the `execute` callback `runIndependentReview` expects: walk the
- * configured targets in order and return the first real verdict. A PASS is then
- * handed to a different target to refute, so a single agreeable reviewer cannot
- * wave a change through on its own.
- */
+/** Builds the `execute` callback with one necessary and one adversarial review. */
 export function createReviewExecutor(
   options: ReviewExecutorOptions
 ): (request: ReviewExecutionRequest) => Promise<ReviewExecutionResult> {
   const report = options.onProgress ?? (() => {});
   const host = detectHostTarget(options.env ?? process.env);
-  const ordered = orderChain(options.targets, host);
+  const plan = planReviewTargets(options.targets, host);
+  const plannedTargets = plan.targets;
 
   return async (request) => {
-    // Asked before anything is spent. A reviewer inherits this process's
-    // sandbox, so a restriction found here is a restriction every target in
-    // the chain would hit — one at a time, minutes apart.
+    if (plan.reason !== undefined) {
+      report("host: three review targets require explicit AGENT_OPS_HOST");
+      return {
+        status: "NOT_RUN",
+        reason: plan.reason,
+        attempts: []
+      };
+    }
     const restriction = await detectHostRestriction({
       env: options.env ?? process.env,
       ...(options.probeBind === undefined ? {} : { probeBind: options.probeBind })
     });
-    if (restriction === "network-blocked") {
+    if (restriction !== "none") {
       report(
-        "host: the sandbox around this process blocks network access, so no " +
-        "reviewer can answer → not running the chain"
+        `host: ${restriction}; external review host runner required`
       );
       return {
         status: "NOT_RUN",
-        reason: "host-sandboxed",
-        ...(host === undefined ? {} : { harness: host }),
+        reason: "host-required",
+        hostRestriction: restriction,
         attempts: []
       };
     }
-    // Only agy needs a loopback listener, so a bind-blocked host is not a dead
-    // end — it is a reason to spend the other targets first rather than
-    // discovering the same failure at the head of the chain every time.
-    const chain = restriction === "bind-blocked"
-      ? [
-          ...ordered.filter(
-            (target) => !BIND_DEPENDENT_TARGETS.includes(target)
-          ),
-          ...ordered.filter((target) => BIND_DEPENDENT_TARGETS.includes(target))
-        ]
-      : ordered;
-    if (restriction === "bind-blocked" && chain.join() !== ordered.join()) {
-      report(
-        "host: this process cannot open a loopback listener, so targets that " +
-        `need one run last (chain: ${chain.join(" → ")})`
-      );
+    if (plannedTargets.length === 0) {
+      return {
+        status: "NOT_RUN",
+        reason: "missing-cli",
+        attempts: []
+      };
     }
+
+    const preflight: ReviewPreflightAttempt[] = [];
+    if (options.preflightTarget !== undefined) {
+      for (const target of new Set(plannedTargets)) {
+        const result = await options.preflightTarget(target);
+        if (result === "ok") {
+          preflight.push({ target, status: "PASS" });
+          continue;
+        }
+        const reason = preflightUnavailableReason(result);
+        const diagnostic = `target preflight returned ${result}`;
+        preflight.push({ target, status: "NOT_RUN", reason, diagnostic });
+        report(`${target}: preflight ${reason} (${diagnostic})`);
+        return {
+          status: "NOT_RUN",
+          reason,
+          preflight,
+          attempts: []
+        };
+      }
+    }
+
     const expectedCriterionIds = request.invocation.packet.criteria.map(
       (criterion) => criterion.id
     );
@@ -663,117 +708,153 @@ export function createReviewExecutor(
         : { changedFiles: request.invocation.scope.changedFiles })
     } as const;
     const attempts: ReviewAttempt[] = [];
-    let lastReason: ReviewUnavailableReason = "missing-cli";
-
-    /**
-     * Ask a target other than the one that passed — and other than the host —
-     * to refute the verdict. Returns undefined when no such target produced a
-     * report, which leaves the primary PASS standing unchallenged. Targets the
-     * primary pass already walked past are excluded: a CLI that could not
-     * answer the review prompt will not answer this one either.
-     */
-    const refute = async (
-      primary: ReviewReport,
-      primaryTarget: ReviewTargetId
-    ): Promise<ReviewAdversarialOutcome | undefined> => {
-      const walked = new Set(attempts.map((attempt) => attempt.target));
-      const candidates = chain.filter(
-        (target) =>
-          target !== primaryTarget && target !== host && !walked.has(target)
-      );
-      for (const [index, target] of candidates.entries()) {
-        const outcome = await attemptTarget(
-          {
-            ...shared,
-            target,
-            label: `adversarial-${target}-${index}`,
-            prompt: buildAdversarialPrompt(
-              { ...request.invocation, harness: target },
-              primary
-            )
-          },
-          options
-        );
-        if (outcome.kind === "skip") {
-          // Recorded, not just reported: stderr progress is transient, and
-          // without this a PASS with no `adversarial` field cannot be told
-          // apart from a PASS that had no second target to challenge it.
-          attempts.push({
-            target,
-            status: "NOT_RUN",
-            reason: outcome.attemptReason ?? outcome.reason,
-            diagnostic: outcome.diagnostic
-          });
-          report(`${target}: adversarial re-check unavailable (${outcome.reason})`);
-          continue;
-        }
-        const refuted = reviewReportStatus(outcome.report) === "FAIL";
-        report(
-          `${target}: adversarial re-check ${refuted ? "refuted the PASS" : "upheld the PASS"}`
-        );
-        return { target, refuted, report: outcome.report };
-      }
-      if (candidates.length > 0) {
-        report("no independent target completed an adversarial re-check");
-      }
-      return undefined;
-    };
-
-    for (const [index, target] of chain.entries()) {
-      if (target === host) {
-        report(`${target}: no other usable CLI remained; running isolated self-review`);
-      }
-      const outcome = await attemptTarget(
-        {
-          ...shared,
-          target,
-          label: `${target}-${index}`,
-          prompt: buildReviewPrompt({ ...request.invocation, harness: target })
-        },
-        options
-      );
-      if (outcome.kind === "skip") {
-        lastReason = outcome.reason;
-        attempts.push({
-          target,
-          status: "NOT_RUN",
-          reason: outcome.attemptReason ?? outcome.reason,
-          diagnostic: outcome.diagnostic
-        });
-        report(outcome.message);
-        continue;
-      }
-      const reportValue = outcome.report;
-      const status = reviewReportStatus(reportValue);
-      attempts.push({ target, status });
-      const independence: ReviewIndependence = host === undefined
-        ? "unknown"
-        : host === target
-          ? "same-target"
-          : "different-target";
-      const verdict = {
-        results: reviewReportResults(reportValue),
-        report: reportValue,
-        harness: target,
-        attempts,
-        independence,
-        sessionIsolation: "fresh" as const
-      };
-      if (status === "FAIL") {
-        return { status, ...verdict };
-      }
-      const adversarial = await refute(reportValue, target);
+    const primaryTarget = plannedTargets[0]!;
+    const adversarialTarget = plannedTargets[1]!;
+    const primaryOutcome = await attemptTarget(
+      {
+        ...shared,
+        target: primaryTarget,
+        label: `${primaryTarget}-primary`,
+        prompt: buildReviewPrompt({ ...request.invocation, harness: primaryTarget })
+      },
+      options
+    );
+    if (primaryOutcome.kind === "skip") {
+      attempts.push({
+        target: primaryTarget,
+        status: "NOT_RUN",
+        sessionId: primaryOutcome.sessionId,
+        reason: primaryOutcome.attemptReason ?? primaryOutcome.reason,
+        diagnostic: primaryOutcome.diagnostic
+      });
+      report(primaryOutcome.message);
       return {
-        status: adversarial?.refuted === true ? "FAIL" : "PASS",
-        ...verdict,
-        ...(adversarial === undefined ? {} : { adversarial })
+        status: "NOT_RUN",
+        reason: primaryOutcome.reason,
+        preflight,
+        attempts
       };
     }
+
+    const primaryReport = primaryOutcome.report;
+    const primaryStatus = reviewReportStatus(primaryReport);
+    attempts.push({
+      target: primaryTarget,
+      status: primaryStatus,
+      sessionId: primaryOutcome.sessionId
+    });
+    const independence: ReviewIndependence = primaryTarget === adversarialTarget
+      ? "same-target"
+      : "different-target";
+    const verdict = {
+      results: reviewReportResults(primaryReport),
+      report: primaryReport,
+      harness: primaryTarget,
+      attempts,
+      preflight,
+      independence,
+      sessionIsolation: "fresh" as const
+    };
+    if (primaryStatus === "FAIL") {
+      return { status: "FAIL", ...verdict };
+    }
+
+    if (
+      request.invocation.sourceFingerprint !== undefined &&
+      options.verifySourceFingerprint !== undefined
+    ) {
+      let unchanged = false;
+      try {
+        unchanged = await options.verifySourceFingerprint(
+          request.invocation.sourceFingerprint
+        );
+      } catch {
+        unchanged = false;
+      }
+      if (!unchanged) {
+        report("source changed after the necessary reviewer PASS; stopping review");
+        return {
+          status: "NOT_RUN",
+          reason: "source-changed-during-review",
+          report: primaryReport,
+          preflight,
+          independence,
+          sessionIsolation: "fresh",
+          attempts
+        };
+      }
+    }
+
+    const adversarialPrompt = buildAdversarialPrompt(
+      { ...request.invocation, harness: adversarialTarget },
+      primaryReport
+    );
+    if (Buffer.byteLength(adversarialPrompt, "utf8") > MAX_ADVERSARIAL_PROMPT_BYTES) {
+      const diagnostic = `the redacted primary report exceeds ${MAX_ADVERSARIAL_PROMPT_BYTES} bytes`;
+      attempts.push({
+        target: adversarialTarget,
+        status: "NOT_RUN",
+        reason: "output-too-large",
+        diagnostic
+      });
+      report(`${adversarialTarget}: output-too-large → stopping review (${diagnostic})`);
+      return {
+        status: "NOT_RUN",
+        reason: "output-too-large",
+        report: primaryReport,
+        preflight,
+        independence,
+        sessionIsolation: "fresh",
+        attempts
+      };
+    }
+    const adversarialOutcome = await attemptTarget(
+      {
+        ...shared,
+        target: adversarialTarget,
+        label: `${adversarialTarget}-adversarial`,
+        prompt: adversarialPrompt
+      },
+      options
+    );
+    if (adversarialOutcome.kind === "skip") {
+      attempts.push({
+        target: adversarialTarget,
+        status: "NOT_RUN",
+        sessionId: adversarialOutcome.sessionId,
+        reason: adversarialOutcome.attemptReason ?? adversarialOutcome.reason,
+        diagnostic: adversarialOutcome.diagnostic
+      });
+      report(`${adversarialTarget}: adversarial re-check unavailable (${adversarialOutcome.reason})`);
+      return {
+        status: "NOT_RUN",
+        reason: adversarialOutcome.reason,
+        report: primaryReport,
+        preflight,
+        independence,
+        sessionIsolation: "fresh",
+        attempts
+      };
+    }
+    const adversarialReport = adversarialOutcome.report;
+    const refuted = reviewReportStatus(adversarialReport) === "FAIL";
+    attempts.push({
+      target: adversarialTarget,
+      status: refuted ? "FAIL" : "PASS",
+      sessionId: adversarialOutcome.sessionId
+    });
+    report(
+      `${adversarialTarget}: adversarial re-check ${refuted ? "refuted the PASS" : "upheld the PASS"}`
+    );
     return {
-      status: "NOT_RUN",
-      reason: lastReason,
-      ...(attempts.length === 0 ? {} : { harness: attempts.at(-1)?.target }),
-      attempts
+      status: refuted ? "FAIL" : "PASS",
+      ...verdict,
+      attempts,
+      adversarial: {
+        target: adversarialTarget,
+        refuted,
+        report: adversarialReport
+      }
     };
   };
 }

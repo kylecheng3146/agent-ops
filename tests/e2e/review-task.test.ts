@@ -11,7 +11,11 @@ import {
 import { join } from "node:path";
 import test from "node:test";
 
+import { probeLoopbackBind } from "../../runtime/src/review/host-sandbox.js";
 import { cleanupE2eRoot, runBuiltCli } from "./helpers.js";
+
+const HOST_CAN_RUN_REVIEW = process.env.CODEX_SANDBOX_NETWORK_DISABLED !== "1" &&
+  await probeLoopbackBind();
 
 test("review routes an explicit task through real Git preflight", () => {
   const { root, result: initialized } = runBuiltCli([
@@ -62,7 +66,7 @@ test("review routes an explicit task through real Git preflight", () => {
   }
 });
 
-test("review --harness narrows the configured chain in dry-run output", () => {
+test("review uses the configured pair and rejects target overrides", () => {
   const { root, result: initialized } = runBuiltCli([
     "init", "--scope", "project", "--harness", "codex",
     "--profile", "core", "--review-target", "codex",
@@ -77,32 +81,39 @@ test("review --harness narrows the configured chain in dry-run output", () => {
     execFileSync("git", ["commit", "-m", "baseline"], { cwd: root, stdio: "ignore" });
     writeFileSync(`${root}/reviewed.txt`, "review me\n");
 
+    const created = runBuiltCli([
+      "task", "create", "--json", "--title", "Review pair",
+      "--criterion", JSON.stringify({
+        id: "first",
+        description: "First criterion.",
+        verifierIds: ["unit"]
+      }),
+      "--criterion", JSON.stringify({
+        id: "second",
+        description: "Second criterion.",
+        verifierIds: ["unit"]
+      })
+    ], root).result;
+    const taskId = JSON.parse(created.stdout).data.record.task.id as string;
+
     const explicit = runBuiltCli([
-      "review", "--harness", "claude", "--dry-run", "--json"
+      "review", "--task", taskId, "--yes", "--json"
     ], root, root, { AGENT_OPS_HOST: "codex" }).result;
     const explicitResult = JSON.parse(explicit.stdout).data.result;
-    assert.equal(explicitResult.harness, "claude");
-    assert.deepEqual(explicitResult.plannedTargets, ["claude"]);
-
-    const fallback = runBuiltCli([
-      "review", "--dry-run", "--json"
-    ], root, root, { AGENT_OPS_HOST: "codex" }).result;
-    assert.deepEqual(
-      JSON.parse(fallback.stdout).data.result.plannedTargets,
-      ["claude", "codex"]
-    );
+    assert.deepEqual(explicitResult.plannedTargets, ["codex", "claude"]);
+    assert.equal(explicitResult.reason, "missing-verification-evidence");
 
     const rejected = runBuiltCli([
-      "review", "--harness", "agy", "--dry-run", "--json"
+      "review", "--task", taskId, "--yes", "--harness", "agy", "--json"
     ], root).result;
-    assert.equal(JSON.parse(rejected.stdout).code, "REVIEW_TARGET_NOT_CONFIGURED");
+    assert.equal(JSON.parse(rejected.stdout).code, "CLI_OPTION_NOT_ALLOWED");
   } finally {
     cleanupE2eRoot(root);
   }
 });
 
 test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
-  skip: process.platform === "win32"
+  skip: process.platform === "win32" || !HOST_CAN_RUN_REVIEW
 }, async () => {
   const { root, result: initialized } = runBuiltCli([
     "init", "--scope", "project", "--harness", "codex",
@@ -110,6 +121,34 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
   ]);
   try {
     assert.equal(initialized.status, 0);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    config.verification = {
+      commands: [{
+        id: "optional",
+        command: process.execPath,
+        args: ["--version"],
+        cwd: ".",
+        required: false,
+        evidence: { kind: "exit-code" }
+      }]
+    };
+    writeFileSync(configPath, JSON.stringify(config));
+    const created = runBuiltCli([
+      "task", "create", "--json", "--title", "Interrupt review",
+      "--criterion", JSON.stringify({
+        id: "first",
+        description: "First criterion.",
+        verifierIds: ["optional"]
+      }),
+      "--criterion", JSON.stringify({
+        id: "second",
+        description: "Second criterion.",
+        verifierIds: ["optional"]
+      })
+    ], root).result;
+    assert.equal(created.status, 0, created.stdout);
+    const taskId = JSON.parse(created.stdout).data.record.task.id as string;
     execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
@@ -141,7 +180,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       rmSync(reviewerPidPath, { force: true });
       const child = spawn(process.execPath, [
         join(process.cwd(), ".tmp/test-dist/packages/cli/src/bin.js"),
-        "review", "--harness", "codex", "--yes", "--json"
+        "review", "--task", taskId, "--yes", "--json"
       ], {
         cwd: root,
         env: {

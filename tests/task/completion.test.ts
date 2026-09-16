@@ -7,13 +7,14 @@ import test from "node:test";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { runTaskCommand } from "../../packages/cli/src/commands/task.js";
 import { calculateConfigHash } from "../../runtime/src/config/hash.js";
-import { findReviewAttestation, invalidateReviewAttestation, saveReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { findReviewAttestation, invalidateReviewAttestation, saveReviewAttestation, saveReviewReportArtifact } from "../../runtime/src/review/attestation.js";
 import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../runtime/src/schema/validate.js";
 import { createFailureFingerprint } from "../../runtime/src/verify/fingerprint.js";
 import { COMPLETION_CONFIG, completionContext, completionGit, passingCompletionEvidence } from "./completion-fixture.js";
+import { fixtureReviewResult } from "../review/attestation-fixture.js";
 
 function input(parentTaskId?: string) {
   return { title: "Complete verified work", policyConfigHash: calculateConfigHash(COMPLETION_CONFIG),
@@ -50,8 +51,20 @@ test("completion rejects fake references, absent or wrong-task review, and later
     assert.ok(attestation);
     await invalidateReviewAttestation(root, attestation.sourceFingerprint);
     await assert.rejects(tasks.complete(task.task.id, references), { code: "TASK_COMPLETION_REVIEW_REQUIRED" });
+    await saveReviewReportArtifact(
+      root,
+      fixtureReviewResult(attestation.sourceFingerprint, attestation.reviewTargets),
+      attestation.sourceFingerprint,
+      "another-task"
+    );
     await saveReviewAttestation(root, { ...attestation, taskId: "another-task" });
     await assert.rejects(tasks.complete(task.task.id, references), { code: "TASK_COMPLETION_REVIEW_REQUIRED" });
+    await saveReviewReportArtifact(
+      root,
+      fixtureReviewResult(attestation.sourceFingerprint, attestation.reviewTargets),
+      attestation.sourceFingerprint,
+      attestation.taskId
+    );
     await saveReviewAttestation(root, attestation);
 
     const failed = await evidenceStore.save({ ...evidence, status: "FAIL", exitCode: 1, failureClass: "nonzero-exit", finishedAt: "2026-07-23T12:00:03Z" });

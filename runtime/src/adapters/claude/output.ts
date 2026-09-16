@@ -59,7 +59,8 @@ export function claudeHookOutput(
         reason:
           `agent-ops: ${result.code} reported FAIL for ${failed.join(", ")}. ` +
           "Resolve every failing item — an unsatisfied independent-review " +
-          "gate is cleared by running `agent-ops review` to a PASS — then " +
+          "gate is cleared by running `agent-ops review --task <task-id> --yes` " +
+          "to a PASS — then " +
           "stop again.",
         evidence: result.evidence
       });

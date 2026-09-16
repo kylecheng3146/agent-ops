@@ -22,20 +22,19 @@ A review result MUST preserve PASS, FAIL, or NOT_RUN and MUST NOT convert NOT_RU
 
 ## REVIEW-HARNESS-001
 
-A review invocation MUST resolve to exactly one concrete review target, even
-when an installation supports multiple harnesses.
+A complete review MUST use the configured independent-review target selection;
+the review command MUST NOT accept a per-run harness override.
 
-- Trigger: Running `review` with a harness selection.
-- Action: Select one of `codex`, `agy`, or `claude`; keep multi-harness installation separate from review execution.
-- Evidence: Argument parsing rejects `all`, `both`, and comma-separated multi-harness values for review.
-- Positive: `review --harness claude` resolves one target.
-- Negative: `Run one review invocation against every installed harness implicitly.`
+- Trigger: Running `review`.
+- Action: Resolve the configured targets and plan exactly two fresh sessions.
+- Evidence: Argument parsing rejects `--harness`, while `init --review-target` remains the configuration entry point.
+- Positive: `review --task <id> --yes` reports its configured `plannedTargets`.
+- Negative: `review --task <id> --yes --harness claude` changes the reviewer set.
 
-The explicit target MUST already exist in the configured independent-review
-role. It narrows the configured chain to one target while preserving model,
-effort, and timeout policy. Without `--harness`, host-aware ordering applies to
-the complete configured chain. Every result carries that order as
-`plannedTargets`.
+With three configured targets, `AGENT_OPS_HOST` MUST identify the current host;
+that target is excluded and `agy` is primary when available. With two targets,
+both run in configured order even if one is the host. With one target, it runs
+twice in fresh sessions.
 
 ## REVIEW-READONLY-001
 
@@ -49,10 +48,9 @@ without one MUST be skipped rather than run unsandboxed.
 - Negative: `Trust the prompt to stop the reviewer from editing files.`
 
 Every attempted review MUST run in a fresh session (`sessionIsolation:
-"fresh"`) and in a disposable repository clone. The reviewer chain prefers a
-different CLI from the hosting CLI; when no other usable target exists,
-same-target fresh review is allowed but MUST render as `DEGRADED: isolated
-self-review`. A resumed development session is never an independent review.
+"fresh"`) and in a disposable repository clone. A same-target pair remains
+independent because the sessions and clones are fresh. A resumed development
+session is never an independent review.
 
 Capability and model-start progress goes to stderr even when stdout is JSON.
 Raw reviewer output remains bounded and unstreamed. SIGINT or SIGTERM aborts
@@ -61,22 +59,22 @@ distinct NOT_RUN reason rather than being flattened to `missing-cli`.
 
 ## REVIEW-CHAIN-001
 
-Configured targets form an ordered fallback chain that MUST advance only when
-no review happened, and MUST NOT advance past a verdict.
+The two planned sessions MUST be ordered as a necessary review followed by an
+adversarial re-check. The first session MUST stop the run on FAIL or NOT_RUN;
+there is no fallback after that result.
 
-- Trigger: A configured target is missing, fails to spawn, or times out.
-- Action: Try the next target after unparseable output; stop and report the first PASS or FAIL.
-- Evidence: The number of spawned attempts matches the failures that preceded the verdict.
-- Positive: `codex FAIL is final; no other target is asked for a second opinion.`
-- Negative: `Retry other targets after a FAIL until one reports PASS.`
+- Trigger: The first target is missing, unauthenticated, unavailable, or returns a malformed report.
+- Action: Return NOT_RUN with the first attempt and do not start the second session.
+- Evidence: `attempts` contains the first diagnostic and has no second attempt.
+- Positive: `primary NOT_RUN` is final NOT_RUN.
+- Negative: `Run the second target after the necessary review did not run.`
 
 ## REVIEW-ADVERSARIAL-001
 
-A PASS MUST be offered to a different eligible target for refutation, and a
+A PASS MUST be offered to the second planned target for refutation, and a
 successful refutation MUST make the run FAIL.
 
-- Trigger: The primary target returns PASS and another eligible target has not
-  already been walked past. The host target never serves as the challenger.
+- Trigger: The primary target returns PASS.
 - Action: Send that target the prior report as untrusted data and ask it to
   refute the verdict; report FAIL when it does, and record the challenge as
   `adversarial` either way.
@@ -84,8 +82,37 @@ successful refutation MUST make the run FAIL.
   a challenger that produced no report appears on the attempt list instead.
 - Positive: `codex passed, claude found a blocking defect, the run failed.`
 - Negative: `Manufacture a refutation so the challenge looks effective.`
-- Note: With one usable target the primary verdict stands unchallenged. A FAIL
-  is already terminal and is never re-checked.
+- Note: With one configured target the same target is invoked again in a fresh
+  session. A FAIL is already terminal and is never re-checked.
+
+## REVIEW-HOST-001
+
+A host that cannot provide network and loopback capability MUST fail closed
+before any reviewer invocation.
+
+- Trigger: The host declares disabled network or the loopback probe fails.
+- Action: Return `REVIEW_NOT_RUN / host-required` with the host restriction.
+- Evidence: `attempts` is empty and no target preflight or reviewer process ran.
+- Positive: A trusted outer host runner can retry the exact command once with both capabilities.
+- Negative: Treat a child login error as proof that an authenticated reviewer is unavailable.
+
+There is no repository-level permission bypass. An unavailable outer host runner
+MUST leave the result NOT_RUN rather than manufacture PASS.
+
+## REVIEW-EVIDENCE-001
+
+A complete PASS MUST include the primary report, the adversarial report, two PASS
+attempts with fresh session IDs, a stable source fingerprint, and a private
+bounded report artifact before its attestation is written. Artifact or
+attestation write failure MUST return NOT_RUN.
+
+- Trigger: A reviewer chain reaches a PASS verdict.
+- Action: Validate both reports, both fresh attempts, the source fingerprint,
+  and the private bounded artifact before writing the attestation.
+- Evidence: The attestation and artifact agree on task, host, targets, session
+  IDs, report digests, and source fingerprint.
+- Positive: A complete pair writes the artifact and matching PASS attestation.
+- Negative: A partial PASS or failed evidence write becomes NOT_RUN.
 
 ## REVIEW-CONTRACT-001
 

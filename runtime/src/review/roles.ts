@@ -7,13 +7,7 @@ import type {
 
 export type { ReviewRole, ReviewRoleConfig, ReviewTargetId };
 
-/**
- * Every target id, in chain order. codex first because its stdout is the bare
- * final message (nothing to unwrap), then agy's flat envelope. claude is last
- * because it is the only host we can detect, and `orderChain` would push it
- * back anyway. This is the list a configured selection is validated and
- * canonically ordered against, so a configuration that names agy keeps loading.
- */
+/** Stable option/configuration order used by init and config rendering. */
 export const REVIEW_TARGET_ORDER: readonly ReviewTargetId[] = [
   "codex",
   "agy",
@@ -55,23 +49,52 @@ export function detectHostTarget(
   if (explicit === "agy" || explicit === "claude" || explicit === "codex") {
     return explicit;
   }
-  return env.CLAUDECODE === undefined ? undefined : "claude";
+  return undefined;
 }
 
 /**
- * Move the hosting target to the end so an independent reviewer is preferred,
- * without ever dropping it — a single configured target still runs, self-review
- * warning and all.
+ * Select exactly two reviewer invocations. Three configured targets require an
+ * explicit host so the host can be excluded; two targets keep their configured
+ * order; one target is deliberately invoked twice in fresh sessions.
  */
+export interface ReviewTargetPlan {
+  readonly targets: readonly ReviewTargetId[];
+  readonly reason?: "host-identity-required";
+}
+
+export function planReviewTargets(
+  targets: readonly ReviewTargetId[],
+  host: ReviewTargetId | undefined
+): ReviewTargetPlan {
+  if (targets.length === 0) {
+    return { targets: [] };
+  }
+  if (targets.length === 1) {
+    return { targets: [targets[0]!, targets[0]!] };
+  }
+  if (targets.length === 2) {
+    return { targets: [...targets] };
+  }
+  if (host === undefined || !targets.includes(host)) {
+    return { targets: [], reason: "host-identity-required" };
+  }
+  const remaining = targets.filter((target) => target !== host);
+  const primary = remaining.includes("agy") ? "agy" : remaining[0];
+  if (primary === undefined) {
+    return { targets: [] };
+  }
+  return {
+    targets: [
+      primary,
+      ...remaining.filter((target) => target !== primary)
+    ]
+  };
+}
+
+/** @deprecated Use planReviewTargets().targets. */
 export function orderChain(
   targets: readonly ReviewTargetId[],
   host: ReviewTargetId | undefined
 ): readonly ReviewTargetId[] {
-  if (host === undefined) {
-    return [...targets];
-  }
-  return [
-    ...targets.filter((target) => target !== host),
-    ...targets.filter((target) => target === host)
-  ];
+  return planReviewTargets(targets, host).targets;
 }

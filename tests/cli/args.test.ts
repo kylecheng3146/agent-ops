@@ -52,6 +52,8 @@ test("recognizes every top-level command", () => {
         ? [command, "status"]
         : command === "allow-stop"
           ? [command, "--session", "session-one"]
+          : command === "review"
+            ? [command, "--task", "task-one", "--yes"]
           : [command];
     assert.equal(parseArgs(argv).command, command);
   }
@@ -179,7 +181,11 @@ test("rejects task options that an action would ignore", () => {
 });
 
 test("--base supports verify, review and task complete only", () => {
-  for (const command of [["verify"], ["review"], ["task", "complete", "--task", "task-one"]]) {
+  for (const command of [
+    ["verify"],
+    ["review", "--task", "task-one", "--yes"],
+    ["task", "complete", "--task", "task-one"]
+  ]) {
     assert.equal(parseArgs([...command, "--base", "HEAD^"]).base, "HEAD^");
   }
   for (const action of ["create", "status", "attach", "archive", "export"]) {
@@ -543,28 +549,33 @@ test("accepts harness lists, aliases, and rejects unusable selections", () => {
   }
 });
 
-test("review requires exactly one harness", () => {
+test("review requires a task and authorization", () => {
   assert.deepEqual(
-    parseArgs(["review", "--harness", "claude"]).harness,
-    ["claude"]
+    parseArgs(["review", "--task", "task-one", "--yes"]).taskId,
+    "task-one"
   );
-  for (const value of ["all", "both", "codex,claude", "opencode"]) {
-    assert.throws(
-      () => parseArgs(["review", "--harness", value]),
-      (error: unknown) =>
-        error instanceof CliArgumentError &&
-        error.code === "CLI_INVALID_VALUE",
-      value
-    );
-  }
+  assert.throws(() => parseArgs(["review", "--task", "task-one"]), CliArgumentError);
+  assert.throws(() => parseArgs(["review", "--yes"]), CliArgumentError);
+  assert.throws(
+    () => parseArgs(["review", "--task", "task-one", "--yes", "--harness", "claude"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_OPTION_NOT_ALLOWED"
+  );
+  assert.throws(
+    () => parseArgs(["review", "--task", "task-one", "--yes", "--dry-run"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_OPTION_NOT_ALLOWED"
+  );
 });
 
-test("review points init-only --review-target users to --harness", () => {
+test("review points init-only --review-target users to configured pair", () => {
   assert.throws(
     () => parseArgs(["review", "--review-target", "claude"]),
     (error: unknown) =>
       error instanceof CliArgumentError &&
       error.code === "CLI_OPTION_NOT_ALLOWED" &&
-      /use --harness <target>/.test(error.message)
+      /configured reviewer pair/.test(error.message)
   );
 });

@@ -83,8 +83,32 @@ test("default core CLI completion enforces evidence and review regardless of hos
       policyConfigHash: calculateConfigHash(config), evidenceStore: new FileEvidenceStore(root, root),
       gitRunner: { run: async (gitArgs) => ({ exitCode: 0,
         stdout: execFileSync("git", [...gitArgs], { cwd: root, encoding: "buffer" }) }) },
-      execute: async (request) => ({ status: "PASS", results: [],
-        report: reportFor(request.invocation.packet.criteria, "PASS", request.invocation.scope?.changedFiles) })
+      targets: ["codex"],
+      execute: async (request) => {
+        const targets = request.invocation.plannedTargets!;
+        const report = reportFor(
+          request.invocation.packet.criteria,
+          "PASS",
+          request.invocation.scope?.changedFiles
+        );
+        return {
+          status: "PASS" as const,
+          results: [],
+          report,
+          plannedTargets: targets,
+          sessionIsolation: "fresh" as const,
+          attempts: targets.map((target, index) => ({
+            target,
+            status: "PASS" as const,
+            sessionId: index === 0 ? "e2e-primary" : "e2e-adversarial"
+          })),
+          adversarial: {
+            target: targets[1]!,
+            refuted: false,
+            report
+          }
+        };
+      }
     });
     assert.equal(reviewed.status, "ok", JSON.stringify(reviewed));
     const completeCommitted = runBuiltCli(completionArgs, root).result;

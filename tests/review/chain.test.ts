@@ -253,7 +253,9 @@ async function run(
     targets,
     cwd: process.cwd(),
     runner,
-    env: {},
+    env: targets.length >= 3 ? { AGENT_OPS_HOST: "claude" } : {},
+    // These cases assert chain behavior, not the machine's loopback policy.
+    probeBind: async () => true,
     timeoutMs: options.timeoutMs ?? 120_000,
     ...(options.stallIdleMs === undefined
       ? {}
@@ -263,31 +265,25 @@ async function run(
   return { result: await execute(request()), attempts, progress };
 }
 
-test("configured read-only targets run in order until one returns a verdict", async () => {
+test("three configured targets choose the two non-host reviewers", async () => {
   const { result, attempts, progress } = await run(
     ["codex", "agy", "claude"],
     [
-      { errorCode: "ENOENT" },
-      { stdout: failing("agy") }
+      { stdout: passing("agy") },
+      { stdout: failing("codex") }
     ]
   );
   assert.deepEqual(
     attempts.map((attempt) => attempt.command),
-    ["codex", "agy"]
+    ["agy", "codex"]
   );
   assert.equal(result.status, "FAIL");
-  // Every NOT_RUN attempt explains itself; none carries only its reason code.
-  assert.deepEqual(result.attempts, [
-    {
-      target: "codex",
-      status: "NOT_RUN",
-      reason: "missing-executable",
-      diagnostic: "the process did not complete: missing-executable"
-    },
-    { target: "agy", status: "FAIL" }
+  assert.deepEqual(result.attempts?.map(({ target, status }) => ({ target, status })), [
+    { target: "agy", status: "PASS" },
+    { target: "codex", status: "FAIL" }
   ]);
-  assert.ok(progress.some((line) => /codex: checking reviewer capability/.test(line)));
-  assert.ok(progress.some((line) => /agy: review started \(timeout: 120s\)/.test(line)));
+  assert.ok(progress.some((line) => /agy: checking reviewer capability/.test(line)));
+  assert.ok(progress.some((line) => /codex: review started \(timeout: 120s\)/.test(line)));
 });
 
 test("a FAIL verdict is terminal and never re-rolled on another target", async () => {
@@ -307,14 +303,24 @@ test("a PASS verdict stops the primary chain", async () => {
   assert.equal(result.status, "PASS");
   // The second attempt is the adversarial re-check, not a chain continuation.
   assert.deepEqual(attempts.map((attempt) => attempt.command), ["claude", "codex"]);
-  assert.deepEqual(result.attempts, [{ target: "claude", status: "PASS" }]);
+  assert.deepEqual(result.attempts?.map(({ target, status }) => ({ target, status })), [
+    { target: "claude", status: "PASS" },
+    { target: "codex", status: "PASS" }
+  ]);
 });
 
-test("a single configured target passes without an adversarial re-check", async () => {
-  const { result, attempts } = await run(["claude"], [{ stdout: passing("claude") }]);
+test("a single configured target is invoked twice in fresh sessions", async () => {
+  const { result, attempts } = await run(
+    ["claude"],
+    [{ stdout: passing("claude") }, { stdout: passing("claude") }]
+  );
   assert.equal(result.status, "PASS");
-  assert.equal(attempts.length, 1);
-  assert.equal(result.status === "PASS" ? result.adversarial : "unset", undefined);
+  assert.equal(attempts.length, 2);
+  assert.equal(result.status === "PASS" ? result.adversarial?.target : undefined, "claude");
+  assert.deepEqual(result.attempts?.map(({ target, status }) => ({ target, status })), [
+    { target: "claude", status: "PASS" },
+    { target: "claude", status: "PASS" }
+  ]);
 });
 
 test("a second target re-checks a PASS and can uphold it", async () => {
@@ -352,17 +358,17 @@ test("a refuted PASS becomes FAIL and keeps both reports", async () => {
   assert.ok(progress.some((line) => /refuted the PASS/.test(line)));
 });
 
-test("a target that already failed the chain is not asked to refute", async () => {
+test("a target that cannot produce the necessary verdict stops the review", async () => {
   const { result, attempts } = await run(
     ["claude", "codex"],
     [{ errorCode: "ENOENT" }, { stdout: passing("codex") }]
   );
-  assert.equal(result.status, "PASS");
-  assert.deepEqual(attempts.map((attempt) => attempt.command), ["claude", "codex"]);
-  assert.equal(result.status === "PASS" ? result.adversarial : "unset", undefined);
+  assert.equal(result.status, "NOT_RUN");
+  assert.deepEqual(attempts.map((attempt) => attempt.command), ["claude"]);
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "missing-cli");
 });
 
-test("the host is never used as the adversarial reviewer", async () => {
+test("a two-target pair keeps configured order when one target is the host", async () => {
   const { runner, attempts } = fakeRunner([
     { stdout: passing("codex") },
     { stdout: failing("claude") }
@@ -371,14 +377,16 @@ test("the host is never used as the adversarial reviewer", async () => {
     targets: ["codex", "claude"],
     cwd: process.cwd(),
     runner,
-    env: { CLAUDECODE: "1" }
+    env: { AGENT_OPS_HOST: "claude" },
+    probeBind: async () => true
   });
   const result = await execute(request());
-  assert.equal(result.status, "PASS");
-  assert.deepEqual(attempts.map((attempt) => attempt.command), ["codex"]);
+  assert.equal(result.status, "FAIL");
+  assert.deepEqual(attempts.map((attempt) => attempt.command), ["codex", "claude"]);
+  assert.equal(result.status === "FAIL" ? result.adversarial?.target : undefined, "claude");
 });
 
-test("unparseable output advances to the next target", async () => {
+test("unparseable output stops before the adversarial session", async () => {
   for (const stdout of [
     "",
     "{\"result\":",
@@ -387,11 +395,11 @@ test("unparseable output advances to the next target", async () => {
   ]) {
     const { result, attempts } = await run(
       ["claude", "codex"],
-      [{ stdout }, { stdout: passing("codex") }]
+      [{ stdout }]
     );
-    assert.equal(result.status, "PASS");
-    assert.equal(attempts.length, 2);
-    const [skipped, verdict] = result.attempts ?? [];
+    assert.equal(result.status, "NOT_RUN");
+    assert.equal(attempts.length, 1);
+    const [skipped] = result.attempts ?? [];
     assert.equal(skipped?.target, "claude");
     assert.equal(skipped?.status, "NOT_RUN");
     assert.equal(skipped?.reason, "unparseable-output");
@@ -400,7 +408,6 @@ test("unparseable output advances to the next target", async () => {
     if (stdout.length > 0) {
       assert.notEqual(skipped?.diagnostic, undefined, stdout);
     }
-    assert.deepEqual(verdict, { target: "codex", status: "PASS" });
   }
 });
 
@@ -409,8 +416,7 @@ test("a non-auth rejection surfaces the target's own complaint, redacted", async
   const { result, progress } = await run(
     ["claude", "codex"],
     [
-      { exitCode: 1, stderr: `Error: -p took "--output-format" as its prompt.\n${secret}` },
-      { stdout: passing("codex") }
+      { exitCode: 1, stderr: `Error: -p took "--output-format" as its prompt.\n${secret}` }
     ]
   );
   const line = progress.find((value) => /claude: capability-unavailable/.test(value)) ?? "";
@@ -447,28 +453,28 @@ test("a missing help flag is named, not flattened into a bare skip", async () =>
     targets: ["claude", "codex"],
     cwd: process.cwd(),
     runner: stale,
-    env: {}
+    env: {},
+    probeBind: async () => true
   });
   const result = await execute(request());
 
-  assert.equal(result.status, "PASS");
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "capability-unavailable");
   const skipped = result.attempts?.find((item) => item.target === "claude");
   assert.equal(skipped?.reason, "capability-unavailable");
   assert.match(skipped?.diagnostic ?? "", /help output is missing/);
   assert.match(skipped?.diagnostic ?? "", /--safe-mode/);
-  assert.equal(attempts.length, 1);
+  assert.equal(attempts.length, 0);
 });
 
-test("an unavailable challenger is recorded, not merely reported", async () => {
+test("an unavailable challenger keeps the final status NOT_RUN", async () => {
   const { result, progress } = await run(
     ["claude", "codex"],
     [{ stdout: passing("claude") }, { exitCode: 1, stderr: "Error: quota exhausted." }]
   );
 
-  assert.equal(result.status, "PASS");
-  // A PASS with no adversarial field must stay distinguishable from a PASS that
-  // had no challenger available at all.
-  assert.equal(result.status === "PASS" ? result.adversarial : "unset", undefined);
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "quota-exhausted");
   const challenger = result.attempts?.find((item) => item.target === "codex");
   assert.equal(challenger?.status, "NOT_RUN");
   assert.equal(challenger?.reason, "quota-exhausted");
@@ -479,7 +485,7 @@ test("an unavailable challenger is recorded, not merely reported", async () => {
 test("a rejected call with nothing to say still explains itself", async () => {
   const { result } = await run(
     ["claude", "codex"],
-    [{ exitCode: 1 }, { stdout: passing("codex") }]
+    [{ exitCode: 1 }]
   );
   const attempt = result.attempts?.find((item) => item.target === "claude");
   assert.equal(attempt?.reason, "capability-unavailable");
@@ -498,7 +504,7 @@ test("every skipped attempt carries a diagnostic, whatever the cause", async () 
   for (const [label, step, expected] of causes) {
     const { result } = await run(
       ["claude", "codex"],
-      [step, { stdout: passing("codex") }]
+      [step]
     );
     const attempt = result.attempts?.find((item) => item.target === "claude");
     assert.equal(attempt?.status, "NOT_RUN", label);
@@ -513,38 +519,38 @@ test("truncated output names the stream that overflowed", async () => {
     cwd: process.cwd(),
     runner,
     env: {},
-    outputLimitBytes: 8
+    outputLimitBytes: 8,
+    probeBind: async () => true
   });
   const result = await execute(request());
   const attempt = result.attempts?.find((item) => item.target === "claude");
+  assert.equal(result.status, "NOT_RUN");
   assert.equal(attempt?.reason, "output-too-large");
-  assert.match(attempt?.diagnostic ?? "", /stdout exceeded the capture limit/);
+  assert.match(attempt?.diagnostic ?? "", /capture limit/);
 });
 
-test("a nonzero reviewer exit falls back after reporting explicit missing authentication", async () => {
+test("a nonzero reviewer exit stops after reporting explicit missing authentication", async () => {
   const { result, attempts } = await run(
     ["claude", "codex"],
-    [{ exitCode: 1, stderr: "Error: not logged in" }, { stdout: passing("codex") }]
+    [{ exitCode: 1, stderr: "Error: not logged in" }]
   );
-  assert.equal(result.status, "PASS");
-  assert.equal(attempts.length, 2);
-  const [rejected, verdict] = result.attempts ?? [];
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(attempts.length, 1);
+  const [rejected] = result.attempts ?? [];
   assert.equal(rejected?.target, "claude");
   assert.equal(rejected?.reason, "login-required");
   assert.notEqual(rejected?.diagnostic, undefined);
-  assert.deepEqual(verdict, { target: "codex", status: "PASS" });
 });
 
-test("a sandbox permission failure is not reported as missing authentication", async () => {
+test("a sandbox permission failure stops as capability-unavailable", async () => {
   const { result, progress } = await run(
     ["codex", "claude"],
     [
-      { exitCode: 1, stderr: "Operation not permitted (os error 1)" },
-      { stdout: passing("claude") }
+      { exitCode: 1, stderr: "Operation not permitted (os error 1)" }
     ]
   );
 
-  assert.equal(result.status, "PASS");
+  assert.equal(result.status, "NOT_RUN");
   assert.ok(progress.some((line) => /capability-unavailable/.test(line)));
   const rejected = result.attempts?.find((attempt) => attempt.target === "codex");
   assert.equal(rejected?.reason, "capability-unavailable");
@@ -589,10 +595,12 @@ test("an exhausted chain reports missing-cli", async () => {
 test("every attempt carries its read-only flag and the prompt", async () => {
   const { attempts } = await run(
     ["codex", "claude"],
-    [{ errorCode: "ENOENT" }, { stdout: passing("claude") }]
+    [{ stdout: passing("codex") }, { stdout: passing("claude") }]
   );
   const [codex, claude] = attempts;
-  assert.deepEqual(codex?.args.slice(0, 2), ["exec", "-"]);
+  assert.deepEqual(codex?.args.slice(0, 3), ["exec", "-", "--skip-git-repo-check"]);
+  assert.ok(codex?.args.includes("-s"));
+  assert.ok(codex?.args.includes("read-only"));
   assert.deepEqual(claude?.args.slice(0, 1), ["-p"]);
   assert.ok(claude?.args.includes("--safe-mode"));
   for (const attempt of attempts) {
@@ -608,7 +616,10 @@ test("every attempt carries its read-only flag and the prompt", async () => {
 test("stderr is never fed to the extraction pipeline", async () => {
   const { result } = await run(
     ["claude"],
-    [{ stdout: passing("claude"), stderr: `sandbox: read-only\n${failing("claude")}` }]
+    [
+      { stdout: passing("claude"), stderr: `sandbox: read-only\n${failing("claude")}` },
+      { stdout: passing("claude") }
+    ]
   );
   assert.equal(result.status, "PASS");
 });
@@ -617,29 +628,31 @@ test("truncated Codex progress does not discard a complete stdout verdict", asyn
   const { runner } = fakeRunner([{
     stdout: passing("codex"),
     stderr: "progress\n".repeat(1_000)
-  }]);
+  }, { stdout: passing("codex") }]);
   const execute = createReviewExecutor({
     targets: ["codex"],
     cwd: process.cwd(),
     runner,
     env: {},
-    outputLimitBytes: 4_096
+    outputLimitBytes: 4_096,
+    probeBind: async () => true
   });
 
   assert.equal((await execute(request())).status, "PASS");
 });
 
-test("truncated stdout advances and records every attempt", async () => {
+test("truncated stdout stops the necessary review", async () => {
   const { runner, attempts } = fakeRunner([
     { stdout: passing("claude") },
-    { stdout: passing("claude") }
+    { stdout: passing("codex") }
   ]);
   const execute = createReviewExecutor({
     targets: ["claude", "codex"],
     cwd: process.cwd(),
     runner,
     env: {},
-    outputLimitBytes: 8
+    outputLimitBytes: 8,
+    probeBind: async () => true
   });
   const result = await execute(request());
   assert.equal(result.status, "NOT_RUN");
@@ -647,11 +660,11 @@ test("truncated stdout advances and records every attempt", async () => {
     result.status === "NOT_RUN" ? result.reason : undefined,
     "output-too-large"
   );
-  assert.equal(attempts.length, 2);
-  assert.equal(result.attempts?.length, 2);
+  assert.equal(attempts.length, 1);
+  assert.equal(result.attempts?.length, 1);
 });
 
-test("the detected host is tried last and warned about when it is alone", async () => {
+test("two configured targets stop on an unavailable primary even when the host is known", async () => {
   const { runner, attempts } = fakeRunner([
     { errorCode: "ENOENT" },
     { stdout: passing("claude") }
@@ -661,31 +674,31 @@ test("the detected host is tried last and warned about when it is alone", async 
     targets: ["codex", "claude"],
     cwd: process.cwd(),
     runner,
-    env: { CLAUDECODE: "1" },
+    env: { AGENT_OPS_HOST: "claude" },
+    probeBind: async () => true,
     onProgress: (line) => progress.push(line)
   });
   await ordered(request());
-  assert.deepEqual(
-    attempts.map((attempt) => attempt.command),
-    ["codex", "claude"]
-  );
+  assert.deepEqual(attempts.map((attempt) => attempt.command), ["codex"]);
   assert.ok(progress.some((line) => /codex: missing-cli/.test(line)));
-  assert.ok(progress.some((line) => /claude: review started/.test(line)));
 
-  const alone = fakeRunner([{ stdout: passing("claude") }]);
+  const alone = fakeRunner([
+    { stdout: passing("claude") },
+    { stdout: passing("claude") }
+  ]);
   const warnings: string[] = [];
   const selfReview = createReviewExecutor({
     targets: ["claude"],
     cwd: process.cwd(),
     runner: alone.runner,
-    env: { CLAUDECODE: "1" },
+    env: { AGENT_OPS_HOST: "claude" },
+    probeBind: async () => true,
     onProgress: (line) => warnings.push(line)
   });
   const result = await selfReview(request());
   assert.equal(result.status, "PASS");
-  assert.deepEqual(alone.attempts.map((attempt) => attempt.command), ["claude"]);
-  assert.ok(warnings.some((line) => /isolated self-review/.test(line)));
-  assert.ok(warnings.some((line) => /claude: review started/.test(line)));
+  assert.deepEqual(alone.attempts.map((attempt) => attempt.command), ["claude", "claude"]);
+  assert.ok(warnings.some((line) => /claude: adversarial re-check/.test(line)));
 });
 
 test("an exhausted timeout chain reports timeout rather than missing-cli", async () => {
@@ -708,6 +721,7 @@ test("cancellation stops the chain instead of falling back", async () => {
     cwd: process.cwd(),
     runner,
     env: {},
+    probeBind: async () => true,
     signal: controller.signal,
     onProgress: (line) => {
       progress.push(line);
@@ -725,19 +739,18 @@ test("cancellation stops the chain instead of falling back", async () => {
   assert.ok(progress.some((line) => /claude: review interrupted by SIGINT/.test(line)));
 });
 
-test("an ineligible target is skipped before agy runs sandboxed", async () => {
+test("an ineligible primary target stops before the next target", async () => {
   const { result, attempts } = await run(
     ["opencode" as ReviewTargetId, "agy"],
-    [{ stdout: passing("agy") }]
+    []
   );
-  assert.equal(result.status, "PASS");
-  assert.deepEqual(attempts.map((attempt) => attempt.command), ["agy"]);
-  assert.equal(basename(attempts[0]?.cwd ?? ""), "repository");
+  assert.equal(result.status, "NOT_RUN");
   assert.equal(
-    attempts[0]?.args[attempts[0].args.indexOf("--add-dir") + 1],
-    attempts[0]?.cwd
+    result.status === "NOT_RUN" ? result.reason : undefined,
+    "capability-unavailable"
   );
-  assert.ok(attempts[0]?.args[1]?.includes(`Repository root: ${attempts[0].cwd}`));
+  assert.deepEqual(attempts, []);
+  assert.equal(result.attempts?.[0]?.target, "opencode");
 });
 
 test("agy also challenges a PASS from inside its disposable clone", async () => {
@@ -757,9 +770,13 @@ test("agy also challenges a PASS from inside its disposable clone", async () => 
 
 test("every reviewer target runs from its disposable clone", async () => {
   for (const target of ["codex", "claude"] as const) {
-    const { result, attempts } = await run([target], [{ stdout: passing(target) }]);
+    const { result, attempts } = await run(
+      [target],
+      [{ stdout: passing(target) }, { stdout: passing(target) }]
+    );
     assert.equal(result.status, "PASS");
     assert.equal(basename(attempts[0]?.cwd ?? ""), "repository");
+    assert.equal(attempts.length, 2);
     if (target === "codex") {
       assert.equal(
         attempts[0]?.args[attempts[0].args.indexOf("-C") + 1],
@@ -828,58 +845,58 @@ test("the stall window is ninety seconds by default", () => {
   assert.equal(DEFAULT_STALL_IDLE_MS, 90_000);
 });
 
-test("a silent reviewer is abandoned as stalled, and the chain continues", async () => {
+test("a silent necessary reviewer stops the review as stalled", async () => {
   const { result, attempts, progress } = await run(
     ["agy", "claude"],
     [
-      { hang: true },
-      { stdout: passing("claude") }
+      { hang: true }
     ],
     // The full timeout stays far out of reach: only the stall window may fire.
     { stallIdleMs: 60, timeoutMs: 120_000 }
   );
 
-  assert.deepEqual(
-    attempts.map((attempt) => attempt.command),
-    ["agy", "claude"]
-  );
-  assert.equal(result.status, "PASS");
-  assert.deepEqual(result.attempts, [
-    {
-      target: "agy",
-      status: "NOT_RUN",
-      reason: "stalled",
-      diagnostic:
-        "no output for 1s; the reviewer is probably blocked by the host " +
-        "sandbox, and retrying with more permission will not help"
-    },
-    { target: "claude", status: "PASS" }
-  ]);
+  assert.deepEqual(attempts.map((attempt) => attempt.command), ["agy"]);
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "stalled");
+  assert.equal(result.attempts?.length, 1);
+  assert.equal(result.attempts?.[0]?.reason, "stalled");
   assert.ok(progress.some((line) => line.startsWith("agy: stalled →")));
 });
 
 test("log-file growth is a heartbeat that holds off the stall abort", async () => {
   const { result } = await run(
     ["agy"],
-    [{ beats: 8, beatMs: 15, beatVia: "log", stdout: passing("agy") }],
+    [
+      { beats: 8, beatMs: 15, beatVia: "log", stdout: passing("agy") },
+      { stdout: passing("agy") }
+    ],
     { stallIdleMs: 60, timeoutMs: 120_000 }
   );
 
   // Eight beats spans well past the 60ms window; without the file heartbeat
   // this target is killed before it answers.
   assert.equal(result.status, "PASS");
-  assert.deepEqual(result.attempts, [{ target: "agy", status: "PASS" }]);
+  assert.deepEqual(result.attempts?.map(({ target, status }) => ({ target, status })), [
+    { target: "agy", status: "PASS" },
+    { target: "agy", status: "PASS" }
+  ]);
 });
 
 test("streamed stderr is a heartbeat that holds off the stall abort", async () => {
   const { result } = await run(
     ["codex"],
-    [{ beats: 8, beatMs: 15, beatVia: "stderr", stdout: passing("codex") }],
+    [
+      { beats: 8, beatMs: 15, beatVia: "stderr", stdout: passing("codex") },
+      { stdout: passing("codex") }
+    ],
     { stallIdleMs: 60, timeoutMs: 120_000 }
   );
 
   assert.equal(result.status, "PASS");
-  assert.deepEqual(result.attempts, [{ target: "codex", status: "PASS" }]);
+  assert.deepEqual(result.attempts?.map(({ target, status }) => ({ target, status })), [
+    { target: "codex", status: "PASS" },
+    { target: "codex", status: "PASS" }
+  ]);
 });
 
 test("claude keeps its heartbeat flag out of the call when help omits it", async () => {
@@ -887,18 +904,18 @@ test("claude keeps its heartbeat flag out of the call when help omits it", async
   // install must still review — it only loses the file heartbeat.
   const { result, attempts } = await run(
     ["claude"],
-    [{ stdout: passing("claude") }]
+    [{ stdout: passing("claude") }, { stdout: passing("claude") }]
   );
 
   assert.equal(result.status, "PASS");
   assert.ok(!(attempts[0]?.args ?? []).includes("--debug-file"));
 });
 
-test("a network-blocked host ends the review before any target is spent", async () => {
-  const { runner, attempts } = fakeRunner([{ stdout: passing("codex") }]);
+test("a declared network block requires the external host runner", async () => {
+  const { runner, attempts } = fakeRunner([{ stdout: passing("agy") }]);
   const progress: string[] = [];
   const execute = createReviewExecutor({
-    targets: ["codex", "agy", "claude"],
+    targets: ["agy"],
     cwd: process.cwd(),
     runner,
     env: { CODEX_SANDBOX_NETWORK_DISABLED: "1" },
@@ -908,15 +925,13 @@ test("a network-blocked host ends the review before any target is spent", async 
   const result = await execute(request());
 
   assert.equal(result.status, "NOT_RUN");
-  assert.equal(result.reason, "host-sandboxed");
-  // Not one CLI was invoked: the chain costs 45 minutes to learn what the
-  // environment already says.
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "host-required");
   assert.deepEqual(attempts, []);
-  assert.deepEqual(result.attempts, []);
-  assert.ok(progress.some((line) => line.includes("blocks network access")));
+  assert.equal(result.status === "NOT_RUN" ? result.hostRestriction : undefined, "network-blocked");
+  assert.ok(progress.some((line) => line.includes("external review host runner required")));
 });
 
-test("a bind-blocked host runs the loopback-dependent target last", async () => {
+test("a bind-blocked host requires the external host runner", async () => {
   const { runner, attempts } = fakeRunner([{ stdout: passing("claude") }]);
   const progress: string[] = [];
   const execute = createReviewExecutor({
@@ -931,11 +946,11 @@ test("a bind-blocked host runs the loopback-dependent target last", async () => 
 
   const result = await execute(request());
 
-  assert.equal(result.status, "PASS");
-  // claude answers first even though agy was configured first; agy still runs,
-  // but only as the adversarial re-check behind the verdict it did not give.
-  assert.equal(attempts[0]?.command, "claude");
-  assert.ok(progress.some((line) => line.includes("cannot open a loopback listener")));
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "host-required");
+  assert.deepEqual(attempts, []);
+  assert.equal(result.status === "NOT_RUN" ? result.hostRestriction : undefined, "bind-blocked");
+  assert.ok(progress.some((line) => line.includes("external review host runner required")));
 });
 
 test("agy is told to answer the review rather than plan the work", async () => {

@@ -3,47 +3,39 @@ import test from "node:test";
 
 import { parseArgs } from "../../packages/cli/src/args.js";
 
-test("review accepts independent-review options", () => {
+test("review accepts the complete task-bound invocation", () => {
   assert.deepEqual(parseArgs([
     "review",
-    "--harness",
-    "codex",
     "--task",
     "task-one",
-    "--criterion",
-    "tests",
-    "--evidence",
-    "tests=report.json",
+    "--yes",
     "--json"
   ]), {
     command: "review",
-    harness: ["codex"],
     taskId: "task-one",
-    criteria: ["tests"],
-    evidence: ["tests=report.json"],
     profiles: [],
     dryRun: false,
     json: true,
-    yes: false
+    yes: true
   });
 });
 
-test("review accepts --yes as explicit reviewer authorization", () => {
-  assert.equal(parseArgs(["review", "--yes"]).yes, true);
+test("review requires --yes as explicit reviewer authorization", () => {
+  assert.throws(() => parseArgs(["review", "--task", "task-one"]));
 });
 
 test("review accepts one --base and rejects it elsewhere", () => {
-  assert.equal(parseArgs(["review", "--base", "origin/main"]).base, "origin/main");
-  assert.throws(() => parseArgs(["review", "--base", "a", "--base", "b"]));
+  assert.equal(parseArgs(["review", "--task", "task-one", "--yes", "--base", "origin/main"]).base, "origin/main");
+  assert.throws(() => parseArgs(["review", "--task", "task-one", "--yes", "--base", "a", "--base", "b"]));
   assert.throws(() => parseArgs(["task", "status", "--base", "origin/main"]));
 });
 
-test("review rejects the multi-harness selection", () => {
+test("review rejects harness selection so configuration owns the pair", () => {
   assert.throws(
-    () => parseArgs(["review", "--harness", "both"]),
+    () => parseArgs(["review", "--task", "task-one", "--yes", "--harness", "claude"]),
     (error: unknown) =>
       error instanceof Error &&
       "code" in error &&
-      error.code === "CLI_INVALID_VALUE"
+      error.code === "CLI_OPTION_NOT_ALLOWED"
   );
 });

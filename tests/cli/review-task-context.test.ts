@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { parseArgs } from "../../packages/cli/src/args.js";
+import { CliArgumentError, parseArgs } from "../../packages/cli/src/args.js";
 import { runReviewCommand } from "../../packages/cli/src/commands/review.js";
 import type { ReviewExecutionRequest } from "../../runtime/src/review/runner.js";
 import { reportFor } from "../review/report-fixture.js";
@@ -61,7 +61,11 @@ function service(root: string): TaskService {
 
 async function withTask(
   attach: boolean
-): Promise<{ readonly root: string; readonly tasks: TaskService }> {
+): Promise<{
+  readonly root: string;
+  readonly tasks: TaskService;
+  readonly taskId: string;
+}> {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
   const tasks = service(root);
   const record = await tasks.create({
@@ -82,10 +86,22 @@ async function withTask(
   if (attach) {
     await tasks.attach(SESSION, record.task.id);
   }
-  return { root, tasks };
+  return { root, tasks, taskId: record.task.id };
 }
 
-function passing(request: ReviewExecutionRequest) {
+function completePassing(
+  request: ReviewExecutionRequest,
+  changedFiles: readonly string[] = []
+) {
+  const plannedTargets = request.invocation.plannedTargets ?? [
+    request.invocation.harness,
+    request.invocation.harness
+  ];
+  const primary = reportFor(
+    request.invocation.packet.criteria,
+    "PASS",
+    changedFiles
+  );
   return {
     status: "PASS" as const,
     results: request.invocation.packet.criteria.map((criterion) => ({
@@ -93,16 +109,38 @@ function passing(request: ReviewExecutionRequest) {
       status: "PASS" as const,
       evidence: [`inspected ${criterion.id}`]
     })),
-    report: reportFor(request.invocation.packet.criteria)
+    report: primary,
+    plannedTargets,
+    sessionIsolation: "fresh" as const,
+    attempts: plannedTargets.map((target, index) => ({
+      target,
+      status: "PASS" as const,
+      sessionId: index === 0 ? "test-primary" : "test-adversarial"
+    })),
+    adversarial: {
+      target: plannedTargets[1]!,
+      refuted: false,
+      report: primary
+    }
+  };
+}
+
+function passing(request: ReviewExecutionRequest) {
+  return completePassing(request);
+}
+
+function reviewArgs(taskId: string, ...extra: string[]): ReturnType<typeof parseArgs> {
+  return {
+    ...parseArgs(["review", "--task", taskId, "--yes", ...extra])
   };
 }
 
 test("criterion descriptions and verifiers come from the bound task", async () => {
-  const { root, tasks } = await withTask(true);
+  const { root, tasks, taskId } = await withTask(true);
   try {
     let seen: ReviewExecutionRequest | undefined;
     const envelope = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
+      args: reviewArgs(taskId),
       authorized: true,
       tasks,
       sessionId: SESSION,
@@ -124,100 +162,28 @@ test("criterion descriptions and verifiers come from the bound task", async () =
   }
 });
 
-test("--criterion filters the bound task and rejects unknown ids", async () => {
-  const { root, tasks } = await withTask(true);
-  try {
-    const filtered = await runReviewCommand({
-      args: parseArgs([
-        "review", "--task", "task-1", "--yes", "--criterion", "scope"
-      ]),
-      authorized: true,
-      tasks,
-      sessionId: SESSION,
-      execute: async (request) => passing(request)
-    });
-    assert.equal(filtered.status, "ok");
-    assert.deepEqual(
-      filtered.data?.result.results?.map((item) => item.criterionId),
-      ["scope"]
-    );
-
-    await assert.rejects(
-      runReviewCommand({
-        args: parseArgs([
-          "review", "--task", "task-1", "--yes", "--criterion", "nope"
-        ]),
-        authorized: true,
-        tasks,
-        sessionId: SESSION,
-        execute: async (request) => passing(request)
-      }),
-      (error: unknown) =>
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "REVIEW_CRITERIA_NOT_FOUND"
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("complete review rejects criterion filters", () => {
+  assert.throws(
+    () => parseArgs(["review", "--task", "task-1", "--yes", "--criterion", "scope"]),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "CLI_OPTION_NOT_ALLOWED"
+  );
 });
 
-test("an unattached session falls back to the generic change review", async () => {
-  const { root, tasks } = await withTask(false);
-  try {
-    let calls = 0;
-    const envelope = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
-      authorized: true,
-      tasks,
-      sessionId: SESSION,
-      execute: async (request) => {
-        calls += 1;
-        return passing(request);
-      }
-    });
-    assert.equal(envelope.status, "ok");
-    assert.equal(envelope.data?.result.status, "PASS");
-    assert.equal(calls, 1);
-    assert.deepEqual(
-      envelope.data?.result.results?.map(({ criterionId }) => criterionId),
-      ["change-quality"]
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("review always requires an explicit task", () => {
+  assert.throws(
+    () => parseArgs(["review", "--yes"]),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "CLI_OPTION_NOT_ALLOWED"
+  );
 });
 
-test("generic PASS writes a source-bound attestation without a task id", async () => {
-  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
-  const gitRunner = reviewGitRunner();
-  try {
-    await mkdir(join(root, "src"), { recursive: true });
-    await writeFile(join(root, "src", "reviewed.ts"), "export {};\n");
-    const envelope = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
-      authorized: true,
-      root,
-      gitRunner,
-      execute: async (request) => ({
-        ...passing(request),
-        report: reportFor(
-          request.invocation.packet.criteria,
-          "PASS",
-          ["src/reviewed.ts"]
-        )
-      })
-    });
-    assert.equal(envelope.status, "ok");
-    const scope = envelope.data?.result.scope;
-    assert.ok(scope);
-    const fingerprint = await calculateSourceFingerprint(root, scope, gitRunner);
-    const stored = await findReviewAttestation(root, fingerprint);
-    assert.equal(stored?.taskId, undefined);
-    assert.equal(stored?.status, "PASS");
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("a review cannot write a source attestation without a task", () => {
+  assert.throws(() => parseArgs(["review", "--yes"]), CliArgumentError);
 });
 
 test("an explicit missing task remains a task error", async () => {
@@ -242,10 +208,11 @@ test("an explicit missing task remains a task error", async () => {
 });
 
 test("evidence for an active task is prefixed with the review target", async () => {
-  const { root, tasks } = await withTask(true);
+  const { root, tasks, taskId } = await withTask(true);
   try {
     await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
+      args: reviewArgs(taskId),
+      targets: ["codex"],
       authorized: true,
       tasks,
       sessionId: SESSION,
@@ -265,7 +232,7 @@ test("evidence for an active task is prefixed with the review target", async () 
 });
 
 test("a completed task is printed but never written to", async () => {
-  const { root, tasks } = await withTask(true);
+  const { root, tasks, taskId } = await withTask(true);
   try {
     const record = await tasks.status({ sessionId: SESSION });
     // Seed a legacy completed record: this test checks read-only review behavior.
@@ -275,7 +242,7 @@ test("a completed task is printed but never written to", async () => {
       state.tasks = state.tasks.map((current) => current.task.id === completed.task.id ? completed : current);
     });
     const envelope = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
+      args: reviewArgs(taskId),
       authorized: true,
       tasks,
       sessionId: SESSION,
@@ -291,20 +258,15 @@ test("a completed task is printed but never written to", async () => {
 });
 
 test("without --yes nothing is spawned and no evidence is written", async () => {
-  const { root, tasks } = await withTask(true);
+  const { root, tasks, taskId } = await withTask(true);
   try {
     let calls = 0;
-    const envelope = await runReviewCommand({
-      args: parseArgs(["review"]),
-      authorized: false,
-      tasks,
-      sessionId: SESSION,
-      execute: async (request) => {
-        calls += 1;
-        return passing(request);
-      }
-    });
-    assert.equal(envelope.data?.result.reason, "authorization-required");
+    assert.throws(
+      () => parseArgs(["review", "--task", taskId]),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        error.message === "Review requires --yes to authorize both reviewer sessions."
+    );
     assert.equal(calls, 0);
     const record = await tasks.status({ sessionId: SESSION });
     assert.deepEqual(record.evidence, {});
@@ -314,10 +276,10 @@ test("without --yes nothing is spawned and no evidence is written", async () => 
 });
 
 test("a non-auth not-run review does not point the operator at auth diagnostics", async () => {
-  const { root, tasks } = await withTask(true);
+  const { root, tasks, taskId } = await withTask(true);
   try {
     const envelope = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
+      args: reviewArgs(taskId),
       authorized: true,
       tasks,
       sessionId: SESSION,
@@ -405,16 +367,13 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.equal(loaded.ok, true);
     let calls = 0;
     const passed = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
+      targets: ["codex"],
       execute: async (request) => {
         calls += 1;
-        return {
-          status: "PASS" as const,
-          results: [],
-          report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"])
-        };
+        return completePassing(request, ["src/reviewed.ts"]);
       }
     });
     assert.equal(passed.status, "ok", passed.data?.result.reason ?? "missing reason");
@@ -426,26 +385,12 @@ test("review requires current PASS evidence before it spawns", async () => {
       { criterionId: "scope", commandId: "optional", required: false, status: "FAIL", evidenceReference: optionalReference }
     ]);
 
-    const partial = await runReviewCommand({
-      args: parseArgs(["review", "--yes", "--task", record.task.id, "--criterion", "unit"]), authorized: true, tasks,
-      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
-      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
-      execute: async (request) => ({ status: "PASS", results: [],
-        report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"]) })
-    });
-    assert.equal(partial.status, "ok");
-    assert.equal(await findReviewAttestation(root, fingerprint), null);
-    const full = await runReviewCommand({
-      args: parseArgs(["review", "--yes", "--task", record.task.id, "--criterion", "unit", "--criterion", "scope"]), authorized: true, tasks,
-      sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
-      policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
-      execute: async (request) => ({ status: "PASS", results: [],
-        report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"]) })
-    });
-    assert.equal(full.status, "ok");
-    assert.equal((await findReviewAttestation(root, fingerprint))?.taskId, record.task.id);
+    assert.throws(
+      () => parseArgs(["review", "--task", record.task.id, "--yes", "--criterion", "unit"]),
+      CliArgumentError
+    );
     const failed = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async () => ({ status: "NOT_RUN", reason: "timeout" })
@@ -454,7 +399,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.equal(await findReviewAttestation(root, fingerprint), null);
 
     const unsafeSupportingPath = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async (request) => ({
@@ -469,7 +414,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.equal(unsafeSupportingPath.data?.result.reason, "unsafe-review-path");
 
     const unsafeAdversarialSupportingPath = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async (request) => {
@@ -490,21 +435,17 @@ test("review requires current PASS evidence before it spawns", async () => {
 
     const referencesBeforeSourceChange = await tasks.status({ sessionId: SESSION });
     const sourceChanged = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async (request) => {
         calls += 1;
         await writeFile(join(root, "src", "reviewed.ts"), "export const changed = true\n");
-        return {
-          status: "PASS" as const,
-          results: [],
-          report: reportFor(request.invocation.packet.criteria, "PASS", ["src/reviewed.ts"])
-        };
+        return completePassing(request, ["src/reviewed.ts"]);
       }
     });
     assert.equal(sourceChanged.data?.result.reason, "source-changed-during-review");
-    assert.equal(sourceChanged.data?.result.report, undefined);
+    assert.equal(sourceChanged.data?.result.report?.summary, "Review complete.");
     assert.deepEqual(
       (await tasks.status({ sessionId: SESSION })).evidence,
       referencesBeforeSourceChange.evidence
@@ -528,7 +469,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     }));
     await tasks.recordEvidence(record.task.id, { unit: [contradictoryReference] });
     const contradictory = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async () => {
@@ -551,7 +492,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.doesNotMatch(contradictory.data?.text ?? "", /run this review again/);
 
     const stale = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: { ...REVIEW_CONFIG, profiles: ["loop"] },
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async () => {
@@ -569,6 +510,41 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.match(
       stale.data?.text ?? "",
       new RegExp(`Run: agent-ops verify --task ${record.task.id}, then run this review again\.`)
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an incomplete reviewer PASS cannot create an attestation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "reviewed.ts"), "export {}\n");
+    const result = await runReviewCommand({
+      args: parseArgs(["review", "--task", "task-1", "--yes"]),
+      authorized: true,
+      root,
+      gitRunner: reviewGitRunner(),
+      targets: ["codex"],
+      execute: async (request) => ({
+        status: "PASS" as const,
+        results: [],
+        report: reportFor(
+          request.invocation.packet.criteria,
+          "PASS",
+          ["src/reviewed.ts"]
+        )
+      })
+    });
+
+    assert.equal(result.status, "error");
+    assert.equal(result.code, "REVIEW_NOT_RUN");
+    assert.equal(result.data?.result.reason, "adversarial-review-missing");
+    assert.ok(result.data?.result.sourceFingerprint);
+    assert.equal(
+      await findReviewAttestation(root, result.data!.result.sourceFingerprint!),
+      null
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -599,7 +575,7 @@ test("a recorded verification failure is reported as a failure, not as stale evi
 
     let calls = 0;
     const result = await runReviewCommand({
-      args: parseArgs(["review", "--yes"]),
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]),
       authorized: true,
       tasks,
       sessionId: SESSION,

@@ -301,12 +301,12 @@ the project configuration defines those workflows.
 
 ### External review
 
-`agent-ops review` can hand the review to another agent CLI, so the work is not
-judged by the agent that produced it. Enable it during `agent-ops init` (the
-default is off). A bare review applies the built-in `change-quality` criterion
-to a deterministic worktree (or `--base`) scope. `--task` reviews keep their
-task criteria and require current verification evidence. The detailed report
-is displayed; a minimal source-fingerprint attestation is persisted after PASS.
+`agent-ops review --task <id> --yes` can hand a complete task-bound review to
+agent CLIs, so the work is not judged only by the agent that produced it.
+Enable review targets during `agent-ops init` (the default is off). Every task
+criterion and its original description are reviewed; partial criteria,
+generic reviews, and missing `--yes` are rejected. Current verification
+evidence is required before any reviewer starts.
 
 Each attempt uses a fresh temporary session and disposable repository clone, a
 small allowlisted environment, and a target-native read-only mode. Claude
@@ -315,14 +315,26 @@ persistence, while Agy runs in sandboxed plan mode. Codex and Agy preserve their
 existing login environment, so their context isolation is intentionally weaker
 than Claude's. `opencode` is not a review target.
 
-The chain prefers a reviewer CLI different from the hosting CLI. If none is
-usable, a fresh same-target session is allowed but is rendered as
-`DEGRADED: isolated self-review`; a development session is never resumed.
+Exactly two fresh sessions are planned. With three configured targets, the
+explicit `AGENT_OPS_HOST` is excluded and `agy` is primary when available; with
+two targets both run in configured order; with one target the same CLI is run
+twice. The first session is the necessary review. Only its PASS starts the
+second adversarial session, which receives the first full redacted report as
+untrusted data. The first FAIL or NOT_RUN stops; a second FAIL is final FAIL,
+and a missing second verdict is NOT_RUN. A same-target pair is still
+independent because the sessions and clones are fresh.
 
-The first valid `PASS` or `FAIL` is final. Attempts that produce no verdict —
-including login failures and unparseable output — advance to the next target
-and remain visible in the result's `attempts`. `--yes` is still required for
-every run, since each run spends another provider's quota.
+Host network or loopback restrictions return `REVIEW_NOT_RUN` before any
+reviewer is started. A trusted outer host runner may rerun the exact same
+command once with both capabilities; the result remains NOT_RUN if that host
+is unavailable. There is no automatic permission bypass inside the repository.
+Reviewer attempts and preflight diagnostics remain visible in JSON. `--yes` is
+required because a complete run spends provider quota twice.
+
+After a complete PASS, the full redacted primary and adversarial reports are
+stored privately under `.agent-ops/reviews/`; the source-fingerprint attestation
+stores only the task, reviewer/session identities, report digests, and artifact
+reference. Any artifact or attestation write failure is NOT_RUN, never PASS.
 
 Authentication is diagnosed, never guessed:
 

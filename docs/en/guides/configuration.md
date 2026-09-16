@@ -49,17 +49,19 @@ Enable it during `agent-ops init`, or by hand:
 }
 ```
 
-`targets` is an **ordered fallback chain**. Every review locks to the
-staged/unstaged/untracked surface (or a clean `--base <ref>...HEAD` range).
-A bare review uses the built-in `change-quality` criterion; `--task` uses the
-task criteria and requires fresh PASS evidence for required checks. The full
-report is printed, and PASS persists only a source-fingerprint attestation.
+`targets` is an ordered selection for the complete command
+`agent-ops review --task <id> --yes`. Every task criterion and its original
+description is reviewed against the staged/unstaged/untracked surface (or a
+clean `--base <ref>...HEAD` range). Current PASS evidence for required checks
+is required before a reviewer starts. Bare and partial reviews are not a
+complete task review and do not satisfy completion.
 
 `--review-target` belongs to `init` and configures that persistent chain.
-For one run, `review --harness <target>` narrows the chain to exactly one
-already-configured target; it never enables a target absent from project
-policy. The configured model, effort, and timeout still apply. Review JSON
-includes `plannedTargets` in the actual host-adjusted order.
+`review` does not accept target, criterion, or evidence overrides. Exactly two
+fresh sessions are planned: three configured targets require
+`AGENT_OPS_HOST=agy|claude|codex`, exclude that host, and prefer `agy` first;
+two targets run in configured order; one target runs twice. Review JSON includes
+`plannedTargets` in that actual order.
 
 Every attempt starts from a fresh session and disposable repository clone with
 native read-only mode.
@@ -74,9 +76,11 @@ repository even if sandboxed plan mode writes to its cwd:
 | `agy` | `agy --print <prompt>` | `--sandbox --mode plan` |
 | `claude` | `claude -p` | `--permission-mode plan --safe-mode` |
 
-The chain prefers a target different from the hosting CLI. If no other target
-is usable, a fresh same-target session is allowed but is reported as
-`DEGRADED: isolated self-review`; a development session is never resumed.
+The first session is the necessary review. A first PASS starts the second
+adversarial session with the first full redacted report as untrusted data. A
+first FAIL or NOT_RUN stops; a second FAIL is final FAIL, and a missing second
+verdict is NOT_RUN. A same-target pair is still independent because both
+sessions and clones are fresh; a development session is never resumed.
 
 `opencode` is **not** a review target even though it is a supported harness.
 Its `--agent plan` is rejected as a subagent and silently falls back to a
@@ -88,11 +92,11 @@ would consume the following flag instead. It deliberately does not pass
 `--dangerously-skip-permissions`, which overrides the permission boundary, or
 `--disable-slash-commands`, which disables plan-mode behavior.
 
-The chain advances whenever an attempt produces no valid verdict — including a
-missing executable, spawn failure, timeout (900s per target by default), login
-failure, oversized output, or unparseable output. Every attempt and reason is
-preserved in human and JSON output. A `PASS` or `FAIL` verdict is **terminal**,
-so the chain cannot shop for a passing review.
+Host network or loopback restrictions return `REVIEW_NOT_RUN` before any
+reviewer is started. A trusted outer host runner may rerun the exact same
+command once with both capabilities; an in-sandbox retry is not an elevation
+and cannot produce a PASS. Every attempt, preflight result, and diagnostic is
+preserved in human and JSON output.
 
 Capability checks and model starts are reported on stderr, including under
 `--json`; stdout remains one final JSON envelope and raw reviewer output is
@@ -100,16 +104,14 @@ never streamed. SIGINT or SIGTERM terminates the active reviewer process tree,
 does not advance the fallback chain, and never writes an attestation. An
 exhausted timeout chain reports `timeout`, not `missing-cli`.
 
-If Claude Code is the host (`CLAUDECODE` is set), `claude` is moved to the end
-of the chain. It still runs when it is the only configured target, with a
-`reviewer == host` warning.
-
-Criterion descriptions come from the task bound to the current session, so a
-review needs an attached task created under the current policy configuration;
-`--criterion` filters those ids. Run `agent-ops verify` first: review rejects
-stale, failed, or source-mismatched required evidence before any model call.
-Compact PASS evidence is appended with a `review:<target>:` prefix; the full
-human-readable report is transient. Completed tasks are never rewritten.
+The task ID is explicit and its criteria are always used; no session fallback
+or criterion filter can replace the original task requirements. Review rechecks
+the source fingerprint before the adversarial session and again before writing
+evidence. After a complete PASS, the full redacted reports are stored privately
+under `.agent-ops/reviews/`; the attestation stores only metadata and report
+digests. Any evidence write failure remains `REVIEW_NOT_RUN`. Compact PASS
+evidence is appended with a `review:<target>:` prefix, and completed tasks are
+never rewritten.
 
 `--yes` is still required for every review run: init selection decides which
 targets are permitted, `--yes` decides whether to spend money now.

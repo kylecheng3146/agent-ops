@@ -24,18 +24,18 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 
 ## REVIEW-HARNESS-001
 
-即使 installation 支援多個 harness，一次 review invocation MUST 解析成恰好一個 concrete review target。
+完整 review MUST 使用 configured independent-review target selection；review
+指令 MUST NOT 接受單次 harness override。
 
-- Trigger: 使用 harness selection 執行 `review`。
-- Action: 從 `codex`、`agy` 或 `claude` 中選一個；multi-harness installation 與 review execution 分開處理。
-- Evidence: argument parsing 會拒絕 review 使用 `all`、`both` 或逗號分隔的多 harness 值。
-- Positive: `review --harness claude` 解析成一個 target。
-- Negative: `讓一次 review invocation 隱式跑過所有已安裝 harness。`
+- Trigger: 執行 `review`。
+- Action: 解析設定的 targets，規劃恰好兩個全新 session。
+- Evidence: argument parsing 拒絕 `--harness`；`init --review-target` 仍是設定入口。
+- Positive: `review --task <id> --yes` 回報設定的 `plannedTargets`。
+- Negative: `review --task <id> --yes --harness claude` 改變 reviewer 集合。
 
-明確指定的 target MUST 已存在於 configured independent-review role。它只會將
-configured chain 縮窄為單一 target，並保留 model、effort 與 timeout policy。
-未提供 `--harness` 時，完整 configured chain 仍套用 host-aware ordering；每個
-結果都以 `plannedTargets` 保存這個實際順序。
+設定三個 target 時，`AGENT_OPS_HOST` MUST 指出目前 host；該 target 會被排除，
+若可用則 agy 為 primary。設定兩個時依順序執行，即使其中一個是 host；設定一個
+時，在全新 session 執行兩次。
 
 ## REVIEW-READONLY-001
 
@@ -48,9 +48,8 @@ review target MUST 以其自身的唯讀機制啟動；沒有唯讀機制的 tar
 - Negative: `信任 prompt 能阻止審查者修改檔案。`
 
 每次 review 都 MUST 使用全新 session（`sessionIsolation: "fresh"`）並在
-disposable repository clone 中執行。review chain 優先選擇不同於 hosting CLI 的
-target；沒有其他可用 target 時，才允許同 CLI 的 fresh review，但輸出 MUST 明確
-標示 `DEGRADED: isolated self-review`。不得 resume 開發 session 作為獨立審查。
+disposable repository clone 中執行。同 target pair 仍因 session 與 clone 全新而
+具獨立性。不得 resume 開發 session 作為獨立審查。
 
 Capability 與模型啟動進度即使在 JSON 模式也寫到 stderr；reviewer 原始輸出仍
 維持 bounded capture，不直接串流。SIGINT 或 SIGTERM 會中止 active process
@@ -59,24 +58,53 @@ tree，不 fallback、不寫 attestation；timeout 保留獨立 NOT_RUN reason�
 
 ## REVIEW-CHAIN-001
 
-已設定的 targets 組成有序後備鏈，MUST 僅在「沒有審到」時換下一家，且 MUST NOT 在取得判定後繼續往下試。
+兩個規劃的 session MUST 依序為必要 reviewer 與 adversarial 複審。第一個
+session 遇到 FAIL 或 NOT_RUN MUST 立即停止；不會在該結果後 fallback。
 
-- Trigger: 某個已設定的 target 不存在、spawn 失敗或逾時。
-- Action: 無法解析輸出時試下一個 target；遇到第一個 PASS 或 FAIL 即停止並回報。
-- Evidence: spawn 次數等於判定之前的失敗次數。
-- Positive: `codex 的 FAIL 是終局；不會再問任何 target 第二意見。`
-- Negative: `FAIL 之後改試其他 target，直到有人回報 PASS。`
+- Trigger: 第一個 target 不存在、未登入、不可用或回傳 malformed report。
+- Action: 回傳含第一個 attempt 診斷的 NOT_RUN，不啟動第二個 session。
+- Evidence: `attempts` 有第一個 diagnostic 且沒有第二個 attempt。
+- Positive: `primary NOT_RUN` 是終局 NOT_RUN。
+- Negative: `必要 reviewer 沒跑成後仍啟動第二個 target`。
 
 ## REVIEW-ADVERSARIAL-001
 
-PASS MUST 交給另一個合格 target 嘗試反駁，且反駁成立時 MUST 使整體判定為 FAIL。
+PASS MUST 交給第二個規劃的 target 嘗試反駁，且反駁成立時 MUST 使整體判定為 FAIL。
 
-- Trigger: primary target 回報 PASS，且尚有未走過的合格 target。host target 永不擔任挑戰者。
+- Trigger: primary target 回報 PASS。
 - Action: 將前一份 report 以不可信資料交給該 target 並要求它反駁；反駁成立即回報 FAIL，且無論結果都記錄為 `adversarial`。
 - Evidence: `adversarial` 記載挑戰者與是否反駁成立；未能產出 report 的挑戰者則記錄在 attempt 清單。
 - Positive: `codex 判 PASS，claude 找到 blocking 缺陷，整體判定 FAIL。`
 - Negative: `為了讓複查看起來有效而編造反駁。`
-- Note: 只有一個可用 target 時，primary 判定不受挑戰即成立。FAIL 已是終局，不再複查。
+- Note: 只有一個設定 target 時，會在全新 session 再呼叫同一 target。FAIL 已是終局，不再複查。
+
+## REVIEW-HOST-001
+
+Host 缺少 network 或 loopback 能力時，MUST 在任何 reviewer invocation 前
+fail closed。
+
+- Trigger: host 宣告 network disabled 或 loopback probe 失敗。
+- Action: 回傳 `REVIEW_NOT_RUN / host-required` 與 host restriction。
+- Evidence: `attempts` 為空，沒有 target preflight 或 reviewer process 執行。
+- Positive: 可信任的外部 host runner 可在具兩項能力的主機重跑同一指令一次。
+- Negative: 把 child login error 當作 authenticated reviewer 不可用的證明。
+
+repository 不提供 permission bypass。外部 host runner 不可用時，結果 MUST 保持
+NOT_RUN，不得製造 PASS。
+
+## REVIEW-EVIDENCE-001
+
+完整 PASS MUST 在寫入 attestation 前具備 primary report、adversarial report、
+兩個帶 fresh session ID 的 PASS attempt、穩定 source fingerprint，以及私密且
+有大小上限的 report artifact。artifact 或 attestation 寫入失敗 MUST 回傳 NOT_RUN。
+
+- Trigger: reviewer chain 得到 PASS verdict。
+- Action: 寫入 attestation 前驗證兩份 report、兩個 fresh attempt、source
+  fingerprint 與私密且有大小上限的 artifact。
+- Evidence: attestation 與 artifact 的 task、host、targets、session IDs、report
+  digests 及 source fingerprint 完全一致。
+- Positive: 完整 pair 寫入 artifact 與相符的 PASS attestation。
+- Negative: 不完整 PASS 或 evidence 寫入失敗會降為 NOT_RUN。
 
 ## REVIEW-CONTRACT-001
 
