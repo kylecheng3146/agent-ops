@@ -374,7 +374,7 @@ export async function runHookProcess(
     return 0;
   }
   try {
-    const root = dependencies.root ?? process.cwd();
+    let root = dependencies.root ?? process.cwd();
     const harnessId = harness as HarnessId;
     const hookEvent = event as HookEvent;
     if (process.env.AGENT_OPS_DISABLE === "1") {
@@ -395,6 +395,22 @@ export async function runHookProcess(
       harnessId,
       parseInput(rawInput)
     );
+    if (dependencies.root === undefined) {
+      const inputRoot =
+        typeof parsedInput === "object" &&
+        parsedInput !== null &&
+        Array.isArray((parsedInput as { workspacePaths?: unknown }).workspacePaths) &&
+        typeof (parsedInput as { workspacePaths: unknown[] }).workspacePaths[0] === "string"
+          ? ((parsedInput as { workspacePaths: string[] }).workspacePaths[0] as string)
+          : typeof parsedInput === "object" &&
+              parsedInput !== null &&
+              typeof (parsedInput as { projectRoot?: unknown }).projectRoot === "string"
+            ? ((parsedInput as { projectRoot: string }).projectRoot as string)
+            : undefined;
+      if (inputRoot !== undefined) {
+        root = inputRoot;
+      }
+    }
     const configOutcome = await hookConfigOutcome(root, dependencies.loadConfig);
     if (configOutcome.kind === "invalid") {
       if (completionGateInstalled) {
