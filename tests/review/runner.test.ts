@@ -202,6 +202,72 @@ test("authentication advice is shown only for an authentication failure", async 
   assert.match(renderReviewResult(mixed), /doctor --check-auth/);
 });
 
+test("every verification-evidence reason names the verifier to re-run", () => {
+  for (const reason of [
+    "stale-verification",
+    "missing-verification-evidence",
+    "unreadable-verification-evidence"
+  ] as const) {
+    const rendered = renderReviewResult({
+      status: "NOT_RUN",
+      harness: "codex",
+      taskId: "task-1",
+      model: "configured",
+      effort: "configured",
+      prompt: "",
+      reason
+    });
+    assert.match(
+      rendered,
+      /Run: agent-ops verify --task task-1, then run this review again\./,
+      reason
+    );
+  }
+
+  // A failing verifier is the one evidence reason that must not end with a
+  // review invitation: review is refused until the failure is fixed.
+  const failed = renderReviewResult({
+    status: "NOT_RUN",
+    harness: "codex",
+    taskId: "task-1",
+    model: "configured",
+    effort: "configured",
+    prompt: "",
+    reason: "verification-not-passed"
+  });
+  assert.match(failed, /Fix what failed, then run: agent-ops verify --task task-1\./);
+  assert.doesNotMatch(failed, /run this review again/);
+
+  // A reviewer-side reason is not fixed by re-verifying, so it must not carry
+  // the verifier advice.
+  assert.doesNotMatch(
+    renderReviewResult({
+      status: "NOT_RUN",
+      harness: "codex",
+      taskId: "task-1",
+      model: "configured",
+      effort: "configured",
+      prompt: "",
+      reason: "host-sandboxed"
+    }),
+    /agent-ops verify/
+  );
+});
+
+test("a verification-evidence reason without task context stays runnable", () => {
+  assert.match(
+    renderReviewResult({
+      status: "NOT_RUN",
+      harness: "codex",
+      model: "configured",
+      effort: "configured",
+      prompt: "",
+      reason: "stale-verification"
+    }),
+    /Run: agent-ops verify --task <task-id>/
+  );
+});
+
 test("a refuted PASS is reported as FAIL with the challenge rendered", async () => {
   const sensitive = ["Author", "ization: hidden"].join("");
   const challenge = reportFor(invocation.packet.criteria, "FAIL");

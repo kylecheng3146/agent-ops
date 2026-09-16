@@ -469,6 +469,7 @@ export async function runReviewCommand(
         return notRunEnvelope({
           ...resultBase,
           status: "NOT_RUN", reason: preflight.reason,
+          taskId: context.taskId,
           scope
         });
       }

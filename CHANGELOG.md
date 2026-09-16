@@ -4,6 +4,19 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-16
+
+- A review stopped by the task's own verification evidence now says what to run
+  next. `stale-verification`, `missing-verification-evidence`,
+  `unreadable-verification-evidence` and `verification-not-passed` each print
+  `agent-ops verify --task <id>` with the task that owns the evidence, and the
+  stale case says outright that the source moved after the evidence was
+  recorded — any edit to a changed file after the verifier ran, including a
+  document a later step rewrote, voids it. `verification-not-passed` names the
+  verifier alone: its evidence records a failure, so it says to fix that first
+  and never invites another review. Previously the run ended on the bare reason
+  line, and the caller re-ran the review it had just been refused.
+
 ## [0.2.0] - 2026-09-15
 
 - Independent review abandons a reviewer that produces no output for 90 seconds
