@@ -94,27 +94,20 @@ test("high-confidence commands in a shell batch block", async () => {
   assert.equal(result.code, "destructive-force-push");
 });
 
-test("shell command substitution remains explicitly unsupported", () => {
-  assert.deepEqual(
-    normalizeShellHookEvent(
-      "echo \"$(git push --force origin main)\"",
-      "/repo"
-    ),
-    {
-      event: "unsupported",
-      projectRoot: "/repo"
-    }
-  );
-  assert.deepEqual(
-    normalizeShellHookEvent(
-      "echo `git push --force origin main`",
-      "/repo"
-    ),
-    {
-      event: "unsupported",
-      projectRoot: "/repo"
-    }
-  );
+test("a destructive command inside a substitution is policed, not skipped", async () => {
+  for (const input of [
+    "echo \"$(git push --force origin main)\"",
+    "echo `git push --force origin main`"
+  ]) {
+    const event = normalizeShellHookEvent(input, "/repo");
+    assert.equal(event.event, "command-batch", input);
+    const result = await dispatchHookEvent(event, {
+      capabilities: ["command-policy"],
+      trusted: true
+    });
+    assert.equal(result.action, "block", input);
+    assert.equal(result.code, "destructive-force-push", input);
+  }
 });
 
 test("outer repository trust gates Stop verification", async () => {

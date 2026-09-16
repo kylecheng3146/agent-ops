@@ -244,7 +244,8 @@ export class TaskService {
         completedAt: null,
         archivedAt: null,
         failureFingerprint: null,
-        policyConfigHash: input.policyConfigHash ?? null
+        policyConfigHash: input.policyConfigHash ?? null,
+        completionBase: null
       };
       state.tasks.push(record);
       if (input.sessionId !== undefined) {
@@ -408,10 +409,14 @@ export class TaskService {
         }
       }
     }
+    let completionBase: string | null = null;
     const fingerprint = async (): Promise<string> => {
       try {
         const scope = await resolveReviewScope({ root: completion.root, runner: completion.gitRunner,
           ...(completion.base === undefined ? {} : { base: completion.base }) });
+        // Recorded so the completion gate can recompute this exact range once
+        // the work is committed and the worktree has nothing left to measure.
+        completionBase = scope.mode === "base" ? scope.resolvedBase : null;
         return await calculateSourceFingerprint(completion.root, scope, completion.gitRunner);
       } catch (error) {
         if (error instanceof AgentOpsError && error.code === "REVIEW_NO_CHANGE_SURFACE") {
@@ -457,7 +462,8 @@ export class TaskService {
         status: "complete",
         evidence,
         updatedAt: now,
-        completedAt: now
+        completedAt: now,
+        completionBase
       };
       replaceTask(state, completed);
       return cloneRecord(completed);

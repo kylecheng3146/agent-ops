@@ -22,6 +22,7 @@ import {
   FileEvidenceStore
 } from "../../runtime/src/verify/evidence.js";
 import {
+  collectBaseChangePaths,
   collectChangeSurface,
   type GitRunResult,
   type GitRunner
@@ -203,6 +204,89 @@ test("current task evidence and review allow Stop and checkpoint the source", as
     await tasks.clearFailure(task.task.id);
     assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_ALLOWED");
     assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_ALLOWED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("committed work completed against a base still satisfies the gate", async () => {
+  const root = await repository();
+  try {
+    const runner = gitRunner(root);
+    const base = (await execFile("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+    const { gate } = setup(root);
+    await gate.initialize(SESSION);
+
+    // The work of this conversation, committed: the worktree has nothing left
+    // to measure, so only the base range describes what changed.
+    await writeFile(join(root, "source.txt"), "changed\n");
+    await execFile("git", ["commit", "-am", "change"], { cwd: root });
+
+    const tasks = new TaskService(
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
+      { generateId: () => "task-base", now: () => "2026-08-29T00:00:00Z",
+        completion: { root, gitRunner: runner, loadConfig: async () => CONFIG, base } }
+    );
+    const evidence = new FileEvidenceStore(root, root);
+    const baseFingerprint = await calculateSourceFingerprint(
+      root,
+      {
+        mode: "base",
+        baseRef: base,
+        resolvedBase: base,
+        changedFiles: await collectBaseChangePaths(runner, base)
+      },
+      runner
+    );
+    const task = await tasks.create({
+      title: "Commit the change",
+      criteria: [
+        { id: "behavior", description: "Behavior passes", verifierIds: ["node-test"] },
+        { id: "regression", description: "Regression passes", verifierIds: ["node-test"] }
+      ],
+      policyConfigHash: calculateConfigHash(CONFIG)
+    });
+    await tasks.attach(SESSION, task.task.id);
+    const references: Record<string, string[]> = {};
+    for (const criterion of task.task.criteria) {
+      references[criterion.id] = [await evidence.save(buildVerificationEvidence({
+        taskId: task.task.id,
+        criterionId: criterion.id,
+        command: CONFIG.verification.commands[0]!,
+        scope: "project",
+        startedAt: "2026-08-29T00:00:00Z",
+        finishedAt: "2026-08-29T00:00:01Z",
+        exitCode: 0,
+        testCount: 1,
+        status: "PASS",
+        failureClass: "none",
+        sourceFingerprint: baseFingerprint,
+        toolVersions: {},
+        config: CONFIG
+      }))];
+    }
+    await saveReviewAttestation(root, {
+      schemaVersion: 1,
+      taskId: task.task.id,
+      harness: "self-review",
+      status: "PASS",
+      sourceFingerprint: baseFingerprint,
+      createdAt: "2026-08-29T00:00:02Z"
+    });
+    await tasks.complete(task.task.id, references);
+
+    // The gate reads the task service that completed against the base.
+    const committed = new CompletionGateService({
+      root, config: CONFIG, gitRunner: runner, taskService: tasks,
+      evidenceStore: evidence, stateStore: new FileCompletionGateStore(root)
+    });
+    assert.equal((await committed.handle(stop()))?.code, "COMPLETION_GATE_ALLOWED");
+
+    // A later commit moves the range's end: the recorded evidence no longer
+    // describes the source, and the gate says so instead of waving it through.
+    await writeFile(join(root, "source.txt"), "again\n");
+    await execFile("git", ["commit", "-am", "again"], { cwd: root });
+    assert.equal((await committed.handle(stop()))?.code, "COMPLETION_GATE_EVIDENCE_REQUIRED");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

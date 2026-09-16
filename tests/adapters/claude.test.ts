@@ -328,6 +328,42 @@ test("preserves Claude event-specific JSON decisions", () => {
   );
 });
 
+test("an advisory PreToolUse result says nothing to the user", () => {
+  assert.deepEqual(
+    claudeHookOutput("PreToolUse", {
+      action: "continue",
+      status: "UNKNOWN",
+      code: "HOOK_EVENT_UNSUPPORTED"
+    }),
+    { exitCode: 0, stdout: "", stderr: "" }
+  );
+
+  // A remedy is actionable, so it still reaches the user.
+  assert.deepEqual(
+    JSON.parse(
+      claudeHookOutput("PreToolUse", {
+        action: "continue",
+        status: "UNKNOWN",
+        code: "COMMAND_POLICY_DEGRADED",
+        remedy: "Repair .agent-ops/config.json."
+      }).stdout
+    ),
+    { systemMessage: "agent-ops: COMMAND_POLICY_DEGRADED" }
+  );
+
+  // Other events keep their advisory line.
+  assert.deepEqual(
+    JSON.parse(
+      claudeHookOutput("SessionStart", {
+        action: "continue",
+        status: "UNKNOWN",
+        code: "COMPLETION_GATE_CHANGED"
+      }).stdout
+    ),
+    { systemMessage: "agent-ops: COMPLETION_GATE_CHANGED" }
+  );
+});
+
 test("Claude PreToolUse denial shape conformance only matches its fixture", async () => {
   // This asserts the documented wire shape, not host runtime enforcement.
   const output = claudeHookOutput("PreToolUse", {

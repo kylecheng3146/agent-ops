@@ -72,6 +72,17 @@ export function claudeHookOutput(
   if (result.action === "continue" && result.status === "PASS") {
     return { exitCode: 0, stdout: "", stderr: "" };
   }
+  // An advisory PreToolUse result carries nothing the user can act on: the
+  // command runs either way. Saying so on every unparsed command — a heredoc,
+  // a substitution — trains the reader to ignore the hook that also refuses
+  // stops. A result with a remedy still speaks.
+  if (
+    event === "PreToolUse" &&
+    result.action === "continue" &&
+    result.remedy === undefined
+  ) {
+    return { exitCode: 0, stdout: "", stderr: "" };
+  }
   if (event === "PreToolUse" && result.action === "block") {
     return json({
       hookSpecificOutput: {

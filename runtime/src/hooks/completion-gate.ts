@@ -11,7 +11,11 @@ import {
 import type { TaskService } from "../task/service.js";
 import { checkTaskCompletionEvidence, findIncompleteSubtask } from "../task/completion.js";
 import type { FileEvidenceStore } from "../verify/evidence.js";
-import { collectChangeSurface, type GitRunner } from "../verify/change-surface.js";
+import {
+  collectBaseChangePaths,
+  collectChangeSurface,
+  type GitRunner
+} from "../verify/change-surface.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
 
@@ -133,6 +137,45 @@ export class CompletionGateService {
     );
   }
 
+  /**
+   * The fingerprint the task's evidence should carry. Committed work leaves an
+   * empty worktree surface: there is nothing left to measure there, and the
+   * evidence names the `--base` range `task complete` was given instead. That
+   * range is recomputed here rather than trusted, so evidence for a range that
+   * no longer ends at HEAD still fails.
+   */
+  async #evidenceFingerprint(completionBase: string | null): Promise<string> {
+    const worktree = await this.#fingerprint();
+    if (completionBase === null) {
+      return worktree;
+    }
+    const surface = await collectChangeSurface(this.#options.gitRunner);
+    if (surface.paths.length > 0) {
+      return worktree;
+    }
+    try {
+      const changedFiles = await collectBaseChangePaths(
+        this.#options.gitRunner,
+        completionBase
+      );
+      if (changedFiles.length === 0) {
+        return worktree;
+      }
+      return await calculateSourceFingerprint(
+        this.#options.root,
+        {
+          mode: "base",
+          baseRef: completionBase,
+          resolvedBase: completionBase,
+          changedFiles
+        },
+        this.#options.gitRunner
+      );
+    } catch {
+      return worktree;
+    }
+  }
+
   async initialize(sessionId: string): Promise<HookResult> {
     const fingerprint = await this.#fingerprint();
     const state = await this.#store.mutate(sessionId, (current) => current ?? {
@@ -168,7 +211,7 @@ export class CompletionGateService {
     return commands.some(({ command, args }) => [command, ...args].includes("allow-stop"));
   }
 
-  async #validateTask(sessionId: string, sourceFingerprint: string): Promise<HookResult | null> {
+  async #validateTask(sessionId: string): Promise<HookResult | null> {
     let stored;
     try {
       stored = await this.#options.taskService.status({ sessionId });
@@ -184,7 +227,11 @@ export class CompletionGateService {
     if (unfinished !== undefined) {
       return gateResult("block", "FAIL", "COMPLETION_GATE_SUBTASK_INCOMPLETE", `Complete subtask ${unfinished.task.id} before its parent.`);
     }
-    const problem = await checkTaskCompletionEvidence(stored, { ...this.#options, sourceFingerprint });
+    const sourceFingerprint = await this.#evidenceFingerprint(stored.completionBase);
+    const problem = await checkTaskCompletionEvidence(stored, {
+      ...this.#options,
+      sourceFingerprint
+    });
     if (problem !== null) {
       return gateResult("block", problem.status, `COMPLETION_GATE_${problem.code}`, problem.remedy);
     }
@@ -219,7 +266,7 @@ export class CompletionGateService {
       return gateResult("block", "UNKNOWN", "COMPLETION_GATE_NOT_INITIALIZED", "The session baseline is unavailable; continue once so PreInvocation can initialize it.");
     }
     if (state.baselineFingerprint !== fingerprint && state.permitFingerprint !== fingerprint) {
-      const failure = await this.#validateTask(sessionId, fingerprint);
+      const failure = await this.#validateTask(sessionId);
       if (failure !== null) return failure;
     }
     await this.#store.mutate(sessionId, (current) => {

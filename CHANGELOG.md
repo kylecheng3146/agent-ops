@@ -4,6 +4,29 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-16
+
+- The completion gate no longer deadlocks on a clean worktree. Work that is
+  committed leaves nothing for the worktree fingerprint to measure, so `verify`,
+  `review` and `task complete` are run with `--base`; the gate now records that
+  base on the completed task and recomputes the same range at Stop instead of
+  demanding worktree evidence that can never exist. The range is recomputed, not
+  trusted: evidence for a range that no longer ends at HEAD still fails.
+- The command-policy guardrail reads the commands it used to skip. One
+  quote-aware pass now decides what is structure and what is text: `$VAR` and
+  `${VAR}` are ordinary word characters, `$(...)` and backtick substitutions are
+  parsed and policed as commands of their own rather than abandoning the whole
+  line, a subshell contributes its commands, and a quoted `)` or `<<EOF` is
+  text. A heredoc body is data, not commands — but an unquoted delimiter
+  expands its body, so the substitutions in one are policed while its literal
+  text is not. Unreadable input — an unterminated heredoc, quote or
+  substitution — is still reported as unsupported and still allowed.
+- Claude no longer shows an advisory PreToolUse line with nothing to act on.
+  `HOOK_EVENT_UNSUPPORTED` fired on every command the old parser could not read,
+  and a hook that talks constantly about commands it allowed is a hook whose
+  refusals get skimmed. A PreToolUse result carrying a remedy still speaks, as
+  does every other event.
+
 ## [0.2.1] - 2026-09-16
 
 - A review stopped by the task's own verification evidence now says what to run

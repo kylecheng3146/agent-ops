@@ -31,6 +31,11 @@ export interface StoredTaskRecord {
   readonly failureFingerprint: FailureFingerprintState | null;
   /** Effective review-policy config at creation; null for legacy/API callers. */
   readonly policyConfigHash: string | null;
+  /**
+   * The commit a `--base` completion measured against, so a gate can recompute
+   * that range later. Null when the task was completed from the worktree.
+   */
+  readonly completionBase: string | null;
 }
 
 export interface SessionAttachment {
@@ -156,12 +161,17 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     "task",
     "updatedAt"
   ];
-  const allowedKeys = new Set([
-    baseKeys.join("\0"),
-    [...baseKeys, "failureFingerprint"].sort().join("\0"),
-    [...baseKeys, "policyConfigHash"].sort().join("\0"),
-    [...baseKeys, "failureFingerprint", "policyConfigHash"].sort().join("\0")
-  ]);
+  // Every record written before an optional field existed must still parse, so
+  // the accepted shapes are every combination of them.
+  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash"];
+  const allowedKeys = new Set(
+    Array.from({ length: 1 << optionalKeys.length }, (_unused, mask) =>
+      [
+        ...baseKeys,
+        ...optionalKeys.filter((_key, position) => (mask & (1 << position)) !== 0)
+      ].sort().join("\0")
+    )
+  );
   if (!isRecord(value) || !allowedKeys.has(Object.keys(value).sort().join("\0"))) {
     return invalidState("Task state contains an invalid task record.");
   }
@@ -246,6 +256,15 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   ) {
     return invalidState("Task state contains an invalid policy config hash.");
   }
+  const completionBase = value.completionBase === undefined
+    ? null
+    : value.completionBase;
+  if (
+    completionBase !== null &&
+    (typeof completionBase !== "string" || !/^[a-f0-9]{40,64}$/u.test(completionBase))
+  ) {
+    return invalidState("Task state contains an invalid completion base.");
+  }
   return {
     task: task.value,
     status,
@@ -255,7 +274,8 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     completedAt: value.completedAt as string | null,
     archivedAt: value.archivedAt as string | null,
     failureFingerprint,
-    policyConfigHash
+    policyConfigHash,
+    completionBase
   };
 }
 
