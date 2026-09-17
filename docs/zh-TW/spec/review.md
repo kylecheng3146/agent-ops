@@ -86,11 +86,12 @@ fail closed。
 - Trigger: host 宣告 network disabled 或 loopback probe 失敗。
 - Action: 回傳 `REVIEW_NOT_RUN / host-required` 與 host restriction。
 - Evidence: `attempts` 為空，沒有 target preflight 或 reviewer process 執行。
-- Positive: 可信任的外部 host runner 可在具兩項能力的主機重跑同一指令一次。
+- Positive: 可信任的外部 host runner 在任何 reviewer invocation 前，以兩項能力啟動同一指令一次。
 - Negative: 把 child login error 當作 authenticated reviewer 不可用的證明。
 
-repository 不提供 permission bypass。外部 host runner 不可用時，結果 MUST 保持
-NOT_RUN，不得製造 PASS。
+Managed host 規則要求在第一次呼叫前完成這個 handoff。repository 不提供
+permission bypass。外部 host runner 不可用時，結果 MUST 保持 NOT_RUN，不得
+製造 PASS。
 
 ## REVIEW-EVIDENCE-001
 

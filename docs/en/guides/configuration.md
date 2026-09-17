@@ -93,10 +93,11 @@ would consume the following flag instead. It deliberately does not pass
 `--disable-slash-commands`, which disables plan-mode behavior.
 
 Host network or loopback restrictions return `REVIEW_NOT_RUN` before any
-reviewer is started. A trusted outer host runner may rerun the exact same
-command once with both capabilities; an in-sandbox retry is not an elevation
-and cannot produce a PASS. Every attempt, preflight result, and diagnostic is
-preserved in human and JSON output.
+reviewer is started. The managed instructions require a trusted outer host
+runner to start the exact same command with both capabilities on its first
+invocation; an in-sandbox retry is not an elevation and cannot produce a PASS.
+Every attempt, preflight result, and diagnostic is preserved in human and JSON
+output.
 
 Capability checks and model starts are reported on stderr, including under
 `--json`; stdout remains one final JSON envelope and raw reviewer output is

@@ -325,9 +325,11 @@ and a missing second verdict is NOT_RUN. A same-target pair is still
 independent because the sessions and clones are fresh.
 
 Host network or loopback restrictions return `REVIEW_NOT_RUN` before any
-reviewer is started. A trusted outer host runner may rerun the exact same
-command once with both capabilities; the result remains NOT_RUN if that host
-is unavailable. There is no automatic permission bypass inside the repository.
+reviewer is started. The managed instructions require a trusted outer host
+runner to start the exact same command with both capabilities on its first
+invocation; an in-sandbox retry is not an elevation. The result remains
+`NOT_RUN` if that host is unavailable. There is no repository-level permission
+bypass.
 Reviewer attempts and preflight diagnostics remain visible in JSON. `--yes` is
 required because a complete run spends provider quota twice.
 

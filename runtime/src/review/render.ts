@@ -112,8 +112,9 @@ export function renderReviewResult(result: ReviewRunResult): string {
     }
     if (result.reason === "host-required") {
       lines.push(
-        "No reviewer ran: the host runner must restart this exact review with " +
-        "network and loopback permission."
+        "No reviewer ran: start the outer host runner before the first invocation " +
+        "and run this exact review with network and loopback permission; do not " +
+        "retry inside the restricted sandbox."
       );
     }
     if (result.reason === "host-identity-required") {
