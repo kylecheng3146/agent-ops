@@ -268,6 +268,21 @@ test("a verification-evidence reason without task context stays runnable", () =>
   );
 });
 
+test("host restriction explains the one-shot elevated handoff", () => {
+  const rendered = renderReviewResult({
+    status: "NOT_RUN",
+    harness: "codex",
+    taskId: "task-1",
+    model: "configured",
+    effort: "configured",
+    prompt: "",
+    reason: "host-required",
+    hostRestriction: "network-blocked"
+  });
+  assert.match(rendered, /outer host runner before the first invocation/);
+  assert.match(rendered, /do not retry inside the restricted sandbox/);
+});
+
 test("a refuted PASS is reported as FAIL with the challenge rendered", async () => {
   const sensitive = ["Author", "ization: hidden"].join("");
   const challenge = reportFor(invocation.packet.criteria, "FAIL");

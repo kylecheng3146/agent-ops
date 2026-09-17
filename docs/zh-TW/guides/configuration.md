@@ -82,9 +82,10 @@ agent-ops 刻意不傳會繞過權限邊界的 `--dangerously-skip-permissions`�
 使 plan mode 失效的 `--disable-slash-commands`。
 
 Host 缺少 network 或 loopback 權限時，會在啟動任何 reviewer 前回傳
-`REVIEW_NOT_RUN`。可信任的外部 host runner 可以用兩項權限重跑同一個完整
-指令一次；在原 sandbox 內重試不算升權，也不能產生 PASS。文字與 JSON 輸出
-都會保留每次 attempt、preflight 與 diagnostic。
+`REVIEW_NOT_RUN`。Managed 規則要求可信任的外部 host runner 在第一次呼叫時
+就用兩項權限啟動同一個完整指令；不要先在原 sandbox 執行再重試，因為那不算
+升權，也不能產生 PASS。文字與 JSON 輸出都會保留每次 attempt、preflight 與
+diagnostic。
 
 Capability check 與模型啟動進度都寫到 stderr，包括 `--json` 模式；stdout
 仍只有最終 JSON envelope，且不會串流 reviewer 原始輸出。SIGINT 或 SIGTERM

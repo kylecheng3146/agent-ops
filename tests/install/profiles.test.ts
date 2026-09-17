@@ -213,4 +213,9 @@ test("managed rules authorize the independent review invocation", () => {
     capabilities: ["rules", "review"]
   });
   assert.match(content, /agent-ops review --task <task-id> --yes/);
+  assert.match(content, /trusted outer host runner as its first/);
+  assert.match(content, /sandbox_permissions: "require_escalated"/);
+  assert.match(content, /unset[\s\S]*CODEX_SANDBOX_NETWORK_DISABLED/);
+  assert.match(content, /env -u CODEX_SANDBOX_NETWORK_DISABLED AGENT_OPS_HOST=<current-host>/);
+  assert.match(content, /Do not run it once in the restricted sandbox/);
 });

@@ -93,9 +93,10 @@ before any reviewer invocation.
 - Trigger: The host declares disabled network or the loopback probe fails.
 - Action: Return `REVIEW_NOT_RUN / host-required` with the host restriction.
 - Evidence: `attempts` is empty and no target preflight or reviewer process ran.
-- Positive: A trusted outer host runner can retry the exact command once with both capabilities.
+- Positive: A trusted outer host runner starts the exact command once with both capabilities before any reviewer invocation.
 - Negative: Treat a child login error as proof that an authenticated reviewer is unavailable.
 
+The managed host instructions require this handoff before the first command.
 There is no repository-level permission bypass. An unavailable outer host runner
 MUST leave the result NOT_RUN rather than manufacture PASS.
 

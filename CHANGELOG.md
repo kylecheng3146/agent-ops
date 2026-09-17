@@ -4,6 +4,12 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- Managed review instructions now require the trusted host handoff before the
+  first review invocation when network or loopback capability is restricted,
+  so a sandboxed attempt is not spent before the elevated run. The CLI still
+  fails closed as `REVIEW_NOT_RUN / host-required` when no such host is
+  available.
+
 ## [0.2.2] - 2026-09-16
 
 - The completion gate no longer deadlocks on a clean worktree. Work that is
