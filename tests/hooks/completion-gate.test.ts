@@ -33,6 +33,7 @@ import { passingCompletionEvidence } from "../task/completion-fixture.js";
 
 const execFile = promisify(execFileCallback);
 const SESSION = "conversation-one";
+const TRICKY_SESSION = "rm -rf /; o'brien";
 const CONFIG: AgentOpsConfig = {
   schemaVersion: 3,
   profiles: ["core", "loop"],
@@ -138,8 +139,17 @@ test("a session change blocks without a task and non-final stops stay allowed", 
   try {
     const { gate } = setup(root);
     await gate.initialize(SESSION);
+    await gate.initialize(TRICKY_SESSION);
     await writeFile(join(root, "source.txt"), "changed\n");
-    assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+    const blocked = await gate.handle(stop());
+    assert.equal(blocked?.code, "COMPLETION_GATE_TASK_REQUIRED");
+    assert.ok((blocked?.remedy ?? "").endsWith(`agent-ops task attach --task <task-id> --session '${SESSION}'.`));
+    assert.ok((blocked?.remedy ?? "").includes("agent-ops task create"));
+    assert.ok(((blocked?.remedy ?? "").match(/--criterion /gu) ?? []).length >= 2);
+    assert.ok(!(blocked?.remedy ?? "").includes("allow-stop"));
+    const tricky = await gate.handle({ ...stop(), sessionId: TRICKY_SESSION });
+    assert.equal(tricky?.code, "COMPLETION_GATE_TASK_REQUIRED");
+    assert.ok((tricky?.remedy ?? "").endsWith(`--session 'rm -rf /; o'"'"'brien'.`));
     const { fullyIdle: _fullyIdle, ...missingIdle } = stop();
     assert.equal((await gate.handle(missingIdle))?.code, "COMPLETION_GATE_STOP_INPUT_INVALID");
     assert.equal((await gate.handle({ ...stop(), fullyIdle: false }))?.code, "COMPLETION_GATE_NON_FINAL_STOP");
