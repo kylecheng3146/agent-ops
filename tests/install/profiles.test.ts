@@ -219,3 +219,22 @@ test("managed rules authorize the independent review invocation", () => {
   assert.match(content, /env -u CODEX_SANDBOX_NETWORK_DISABLED AGENT_OPS_HOST=<current-host>/);
   assert.match(content, /Do not run it once in the restricted sandbox/);
 });
+
+test("managed rules tell each harness how to delegate a subtask", () => {
+  const context = {
+    scope: "project",
+    profiles: ["core"],
+    capabilities: ["rules", "task"]
+  } as const;
+  const claude = managedRules(harnessDescriptor("claude"), context);
+  assert.match(claude, /Delegate it with the Task tool\./);
+  assert.match(claude, /fingerprint the working tree and report UNKNOWN/);
+  assert.match(
+    managedRules(harnessDescriptor("agy"), context),
+    /Delegate it with `invoke_subagent`/
+  );
+  assert.equal(
+    managedRules(harnessDescriptor("codex"), context),
+    managedRules(harnessDescriptor("opencode"), context)
+  );
+});

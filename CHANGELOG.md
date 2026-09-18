@@ -4,6 +4,22 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-18
+
+- `agent-ops task attach` now accepts a completed task and rejects only an
+  archived one. The completion gate requires the session to be attached to a
+  completed task, so refusing attachment after completion left "complete, then
+  attach" unrecoverable and forced a one-time permit.
+
+- Managed rules now tell the agent when and how to delegate a subtask to a
+  subagent, naming the native mechanism per harness (Task tool on Claude Code,
+  `invoke_subagent` on agy, the harness task tool or sequential steps on
+  AGENTS.md harnesses), and state the one-writer-per-worktree constraint that
+  `agent-ops verify` and `agent-ops review` fingerprinting imposes. New spec
+  rule `DELEGATE-ISOLATION-001` records the constraint.
+
+## [0.2.4] - 2026-09-17
+
 - Managed review instructions now require the trusted host handoff before the
   first review invocation when network or loopback capability is restricted,
   so a sandboxed attempt is not spent before the elevated run. The CLI still
