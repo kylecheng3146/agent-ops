@@ -212,11 +212,16 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
         });
       });
       await started;
-      await new Promise<void>((resolve, reject) => {
+      // The pid file appears before its contents land, so an existence-only poll can
+      // read an empty file; Number("") is 0 and process.kill(0) targets our own group.
+      const reviewerPid = await new Promise<number>((resolve, reject) => {
         const deadline = Date.now() + 5_000;
         const check = (): void => {
-          if (existsSync(reviewerPidPath)) {
-            resolve();
+          const pid = existsSync(reviewerPidPath)
+            ? Number.parseInt(readFileSync(reviewerPidPath, "utf8").trim(), 10)
+            : Number.NaN;
+          if (Number.isInteger(pid) && pid > 0) {
+            resolve(pid);
           } else if (Date.now() >= deadline) {
             reject(new Error("fake reviewer did not write its pid"));
           } else {
@@ -233,7 +238,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       assert.equal(exitCode, expectedExitCode);
       assert.equal(stdout, "");
       assert.match(stderr, new RegExp(`codex: review interrupted by ${signal}`));
-      const reviewerPid = Number(readFileSync(reviewerPidPath, "utf8"));
+      assert.ok(reviewerPid > 0, `refusing to signal process group ${reviewerPid}`);
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 2_000;
         const check = (): void => {

@@ -4,6 +4,22 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-09-18
+
+- `COMPLETION_GATE_TASK_REQUIRED` now names the session and the commands that
+  clear it. The block previously read only "Attach this conversation to a formal
+  task", and an agent that had never been told the session id could not attach,
+  so the only exit was a one-time permit. The remedy now carries `task create`
+  with the two-to-five criteria the schema demands and `task attach --session`,
+  shell-quoted because a session id may contain shell metacharacters. It omits
+  `allow-stop` on purpose: naming the escape hatch in the block invites routing
+  around the gate instead of through it.
+- The reviewer-interrupt end-to-end test no longer reads a half-written pid
+  file. Polling `existsSync` alone could observe the path before the fake
+  reviewer's pid landed, and `Number("")` is 0, so the survival check signalled
+  the test's own process group and could never see ESRCH. Under parallel suite
+  runs this failed reproducibly. The poll now waits for a positive integer.
+
 ## [0.2.5] - 2026-09-18
 
 - `agent-ops task attach` now accepts a completed task and rejects only an

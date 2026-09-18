@@ -29,6 +29,10 @@ interface CompletionGateState {
   readonly permitFingerprint: string | null;
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
 function gateResult(
   action: HookResult["action"],
   status: HookResult["status"],
@@ -217,7 +221,12 @@ export class CompletionGateService {
       stored = await this.#options.taskService.status({ sessionId });
     } catch (error) {
       return error instanceof AgentOpsError && error.code === "TASK_SESSION_UNATTACHED"
-        ? gateResult("block", "FAIL", "COMPLETION_GATE_TASK_REQUIRED", "Attach this conversation to a formal task.")
+        ? gateResult(
+          "block",
+          "FAIL",
+          "COMPLETION_GATE_TASK_REQUIRED",
+          `Attach this conversation to a formal task: agent-ops task create --title <title> --criterion <json> --criterion <json> (two to five criteria), then agent-ops task attach --task <task-id> --session ${shellQuote(sessionId)}.`
+        )
         : gateResult("block", "UNKNOWN", "COMPLETION_GATE_TASK_UNAVAILABLE", "Repair task state with agent-ops doctor before stopping.");
     }
     if (stored.status !== "complete") {
