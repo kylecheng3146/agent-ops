@@ -19,3 +19,13 @@ The coordinator MUST retain ownership of final integration and verification.
 - Evidence: The coordinator records the final command output.
 - Positive: `Reviewer reports PASS; coordinator reruns typecheck and tests.`
 - Negative: `Accept the delegated claim without inspecting the diff.`
+
+## DELEGATE-ISOLATION-001
+
+Concurrent delegated writers MUST NOT share one working tree.
+
+- Trigger: More than one delegated agent would edit files for the same task.
+- Action: Run delegated edits one at a time, or give each writer its own Git worktree and merge before verification.
+- Evidence: `agent-ops verify` returns a status other than `UNKNOWN` for the run.
+- Positive: `Read-only scans run in parallel; the single edit runs in the coordinator worktree.`
+- Negative: `Two subagents edit the same files while verification runs.`

@@ -571,6 +571,19 @@ export const COMMON_AGENTS_BLOCK = DESCRIPTORS.codex.control.routing.desired;
 export const COMMON_CLAUDE_BLOCK = DESCRIPTORS.claude.control.routing.desired;
 export const COMMON_GEMINI_BLOCK = DESCRIPTORS.agy.control.routing.desired;
 
+function subagentInstruction(descriptor: HarnessDescriptor): string {
+  // ponytail: keyed by instruction file, not harness id — codex and opencode
+  // share .agent-ops/AGENTS.md and install dedupe requires identical content.
+  switch (descriptor.control.instructionFile) {
+    case "CLAUDE.md":
+      return "Delegate it with the Task tool.";
+    case "GEMINI.md":
+      return "Delegate it with `invoke_subagent`: `research` for read-only scans, `self` for a bounded edit.";
+    default:
+      return "Delegate it with this harness's subagent or task tool when it has one; otherwise run the same bounded steps sequentially in this session.";
+  }
+}
+
 export function managedRules(
   descriptor: HarnessDescriptor,
   context: HarnessPlanContext
@@ -630,6 +643,19 @@ export function managedRules(
       "`agent-ops task status --parent <task-id>` lists them. Each subtask",
       "carries its own criteria, verification, and independent review;",
       "completing one never completes its parent.",
+      "",
+      "Delegate a subtask whose scope spans unknown files, broad scans, or an",
+      "independent workstream instead of doing it inline. Name the bounded",
+      "scope, the artifact to return, and the acceptance criteria it serves.",
+      subagentInstruction(descriptor),
+      "Read every returned artifact back yourself: integration, verification,",
+      "and review stay with the coordinator.",
+      "",
+      "One writer at a time. `agent-ops verify` and `agent-ops review`",
+      "fingerprint the working tree and report UNKNOWN when anything else",
+      "writes it during the run, so delegate edits to one subagent at a time,",
+      "or give each writer its own Git worktree and merge before verifying.",
+      "Read-only delegation has no such limit and may run in parallel.",
       ""
     );
   }

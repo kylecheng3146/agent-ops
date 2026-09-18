@@ -345,10 +345,13 @@ export class TaskService {
     const now = assertTimestamp(this.#now());
     return await this.#store.mutate((state) => {
       const record = findTask(state, taskId);
-      if (record.status !== "active") {
+      // A completed task still accepts attachment: the completion gate wants
+      // the session bound to a completed task, so refusing here would make
+      // "complete, then attach" an unrecoverable order.
+      if (record.status === "archived") {
         throw taskError(
           "TASK_NOT_ACTIVE",
-          "Only an active task can be attached to a session."
+          "An archived task cannot be attached to a session."
         );
       }
       const currentIndex = state.sessions.findIndex(

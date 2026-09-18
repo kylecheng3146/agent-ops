@@ -129,3 +129,38 @@ test("archiving detaches sessions and archived tasks cannot be attached", async 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a completed task still accepts session attachment", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-session-"));
+  try {
+    const store = new FileTaskStore(
+      join(root, ".agent-ops", "tasks", "state.json"),
+      root
+    );
+    const tasks = new TaskService(store, {
+      generateId: () => "task-1",
+      now: () => "2026-07-23T12:00:00.000Z"
+    });
+    const taskId = await createTask(tasks, "Completed task");
+    await store.mutate((state) => {
+      const index = state.tasks.findIndex((entry) => entry.task.id === taskId);
+      assert.notEqual(index, -1);
+      state.tasks[index] = {
+        ...state.tasks[index]!,
+        status: "complete",
+        completedAt: "2026-07-23T12:00:00.000Z",
+        evidence: {
+          "criterion-one": ["evidence/one.json"],
+          "criterion-two": ["evidence/two.json"]
+        }
+      };
+      return null;
+    });
+
+    const attached = await tasks.attach("session-one", taskId);
+    assert.equal(attached.status, "complete");
+    assert.equal((await tasks.status({ sessionId: "session-one" })).task.id, taskId);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
