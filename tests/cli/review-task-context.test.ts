@@ -509,7 +509,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     );
     assert.match(
       stale.data?.text ?? "",
-      new RegExp(`Run: agent-ops verify --task ${record.task.id}, then run this review again\.`)
+      new RegExp(`Run: agent-ops verify --task ${record.task.id}, then run this review again\\.`)
     );
   } finally {
     await rm(root, { recursive: true, force: true });
