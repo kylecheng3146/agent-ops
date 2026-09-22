@@ -16,7 +16,8 @@ test("review accepts the complete task-bound invocation", () => {
     profiles: [],
     dryRun: false,
     json: true,
-    yes: true
+    yes: true,
+    rerun: false
   });
 });
 

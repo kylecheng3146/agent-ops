@@ -34,6 +34,24 @@ export interface ReviewAttempt {
    * not reach.
    */
   readonly diagnostic?: string;
+  /**
+   * What this round cost, as the target reported it. Optional because an
+   * attempt recorded before any process ran has nothing to report, and
+   * because a target that publishes no usage must not be given invented
+   * numbers.
+   */
+  readonly metrics?: {
+    readonly promptBytes: number;
+    readonly durationMs: number;
+    readonly usage?: {
+      readonly inputTokens?: number;
+      readonly outputTokens?: number;
+      readonly cacheReadTokens?: number;
+      readonly cacheWriteTokens?: number;
+      readonly totalTokens?: number;
+      readonly costUsd?: number;
+    };
+  };
 }
 
 export interface ReviewPreflightAttempt {
@@ -142,6 +160,11 @@ export type ReviewExecutionResult =
 export interface ReviewRunResult {
   readonly status: "PASS" | "FAIL" | "NOT_RUN";
   readonly harness: ReviewInvocation["harness"];
+  /**
+   * Served from the attestation recorded for this exact source rather than
+   * from a fresh chain. Absent on every run that actually invoked a target.
+   */
+  readonly reused?: true;
   /** Present when the run had task context: names the task to re-verify. */
   readonly taskId?: string;
   readonly model: string;
@@ -180,6 +203,12 @@ const CONTRACT_INSTRUCTIONS = [
     "the task-data string values.",
   "Inspect every path in artifactRefs before replying, and copy that exact " +
     "path set into changedFilesInspected. Do not omit a changed path.",
+  "Read in this order: the changed paths first, then only the callers or " +
+    "supporting files a specific question actually needs. Do not survey the " +
+    "repository, and do not re-read a file you have already read. Cite the " +
+    "shortest sufficient evidence for each result — the file and line that " +
+    "show it, not a transcript of the search. Coverage of every criterion and " +
+    "every changed path is still required and is checked on your reply.",
   "Every FAIL criterion must have at least one blocking finding whose " +
     "criterionIds includes it. Blocking findings may reference only FAIL " +
     "criteria.",
@@ -197,6 +226,45 @@ function verificationLine(invocation: ReviewInvocation): string {
   return invocation.verification === undefined
     ? "Machine verification: unknown."
     : `Machine verification (runtime-owned): ${JSON.stringify(invocation.verification)}.`;
+}
+
+/**
+ * A path as one literal shell argument. Double quotes are not enough: a
+ * committed file named `src/$HOME.ts` would expand inside the reviewer's
+ * shell and silently select a different, usually missing, path — which reads
+ * as an empty diff and therefore as nothing to review.
+ */
+function shellArgument(value: string): string {
+  return `'${value.split("'").join("'\\''")}'`;
+}
+
+/**
+ * What the reviewer is being asked to compare. Without this a `--base` review
+ * reads the snapshot's HEAD and sees an empty ordinary diff: the files are
+ * already committed, so nothing distinguishes the requested range from the
+ * whole repository. The resolved commit is sent, never the user's ref text,
+ * so both rounds compare the same range the runtime measured.
+ */
+function scopeLine(invocation: ReviewInvocation): string {
+  const scope = invocation.scope;
+  if (scope === undefined) {
+    return "Review scope: unknown. Inspect the whole working tree.";
+  }
+  if (scope.mode === "worktree") {
+    return "Review scope: uncommitted working-tree changes. Compare with " +
+      "`git status` and `git diff HEAD`.";
+  }
+  const paths = scope.changedFiles.map(shellArgument).join(" ");
+  // The command sits alone on its line, unfenced: a path may itself contain a
+  // backtick, and wrapping it in one would end the span in the middle of a
+  // filename.
+  return [
+    `Review scope: the committed range ${scope.resolvedBase}..HEAD.`,
+    "The working tree is clean, so an ordinary diff of it is empty and proves",
+    "nothing. Run exactly this, as written:",
+    `git diff ${scope.resolvedBase} HEAD -- ${paths}`,
+    `Then run: git log ${scope.resolvedBase}..HEAD`
+  ].join("\n");
 }
 
 function taskDataBlock(invocation: ReviewInvocation): readonly string[] {
@@ -218,6 +286,7 @@ export function buildReviewPrompt(invocation: ReviewInvocation): string {
   return [
     "You are a read-only reviewer. Inspect this repository yourself " +
       "(git diff, git log, reading files); do not modify anything.",
+    scopeLine(invocation),
     verificationLine(invocation),
     "",
     ...taskDataBlock(invocation),
@@ -244,6 +313,7 @@ export function buildAdversarialPrompt(
       "already passed this change. Your job is to refute that verdict: inspect " +
       "this repository yourself (git diff, git log, reading files) and look for " +
       "a blocking defect the first reviewer missed. Do not modify anything.",
+    scopeLine(invocation),
     "Report FAIL only for a concrete defect you can point at with evidence " +
       "from the code. Do not manufacture findings in order to disagree: if the " +
       "change is sound, pass every criterion.",
@@ -287,7 +357,10 @@ function safeAttempt(attempt: ReviewAttempt): ReviewAttempt {
       : { reason: safeTaskText(redactSecrets(attempt.reason)) }),
     ...(attempt.diagnostic === undefined
       ? {}
-      : { diagnostic: safeTaskText(redactSecrets(attempt.diagnostic)) })
+      : { diagnostic: safeTaskText(redactSecrets(attempt.diagnostic)) }),
+    // Numbers only, and the sole record of what a round cost: dropping them
+    // here is what kept the cost of a real review invisible.
+    ...(attempt.metrics === undefined ? {} : { metrics: attempt.metrics })
   };
 }
 

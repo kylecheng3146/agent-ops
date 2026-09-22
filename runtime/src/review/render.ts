@@ -22,9 +22,12 @@ function lineList(values: readonly string[]): readonly string[] {
 }
 
 export function renderReviewResult(result: ReviewRunResult): string {
+  const reuse = result.reused === true
+    ? " (reused recorded evidence; no reviewer was invoked)"
+    : "";
   const plannedTargets = result.plannedTargets ?? [result.harness];
   const lines = [
-    `Independent review: ${result.status}`,
+    `Independent review: ${result.status}${reuse}`,
     `Reviewer: ${result.harness}; model: ${safe(result.model)}; effort: ${safe(result.effort)}.`,
     `Planned reviewers: ${plannedTargets.length === 0 ? "none" : plannedTargets.join(" → ")}.`
   ];
@@ -53,6 +56,19 @@ export function renderReviewResult(result: ReviewRunResult): string {
         `${attempt.reason === undefined ? "" : ` (${safe(attempt.reason)})`}` +
         `${attempt.diagnostic === undefined ? "" : ` — ${safe(attempt.diagnostic)}`}`
       );
+      const metrics = attempt.metrics;
+      if (metrics !== undefined) {
+        const usage = metrics.usage;
+        // Only what the target reported. "tokens unknown" is a real answer
+        // here, and a more useful one than a number nobody measured.
+        const tokens = usage?.totalTokens ?? usage?.inputTokens;
+        lines.push(
+          `  cost: ${Math.round(metrics.durationMs / 100) / 10}s, ` +
+          `prompt ${metrics.promptBytes} bytes, ` +
+          `tokens ${tokens === undefined ? "unknown" : tokens}` +
+          `${usage?.costUsd === undefined ? "" : `, usd ${usage.costUsd}`}`
+        );
+      }
     }
   }
   if (result.preflight !== undefined) {

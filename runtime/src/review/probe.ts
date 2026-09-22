@@ -41,6 +41,17 @@ const PROBE_PROMPT = "Reply with the single word OK and nothing else.";
 const PROBE_TIMEOUT_MS = 120_000;
 
 /**
+ * A caller may shorten the probe — a chain with little budget left does — but
+ * never lengthen it: a hung probe must still stop at its own ceiling rather
+ * than spend whatever budget it was handed.
+ */
+export function probeTimeoutMs(requested?: number): number {
+  return requested === undefined
+    ? PROBE_TIMEOUT_MS
+    : Math.max(1, Math.min(requested, PROBE_TIMEOUT_MS));
+}
+
+/**
  * The only check that actually proves a target is usable: ask it something
  * trivial and see whether an answer comes back. A credential-file check can
  * pass while the token is expired, and self-declaration ("already logged in?")
@@ -73,7 +84,7 @@ export async function probeReviewTarget(
       cwd: directory,
       required: true,
       evidence: { kind: "exit-code" },
-      timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS
+      timeoutMs: probeTimeoutMs(options.timeoutMs)
     },
     {
       cwd: directory,

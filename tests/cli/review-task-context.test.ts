@@ -7,6 +7,7 @@ import test from "node:test";
 import { CliArgumentError, parseArgs } from "../../packages/cli/src/args.js";
 import { runReviewCommand } from "../../packages/cli/src/commands/review.js";
 import type { ReviewExecutionRequest } from "../../runtime/src/review/runner.js";
+import { runIndependentReview } from "../../runtime/src/review/runner.js";
 import { reportFor } from "../review/report-fixture.js";
 import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
@@ -367,7 +368,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.equal(loaded.ok, true);
     let calls = 0;
     const passed = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       targets: ["codex"],
@@ -390,7 +391,7 @@ test("review requires current PASS evidence before it spawns", async () => {
       CliArgumentError
     );
     const failed = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async () => ({ status: "NOT_RUN", reason: "timeout" })
@@ -399,7 +400,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.equal(await findReviewAttestation(root, fingerprint), null);
 
     const unsafeSupportingPath = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async (request) => ({
@@ -414,7 +415,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.equal(unsafeSupportingPath.data?.result.reason, "unsafe-review-path");
 
     const unsafeAdversarialSupportingPath = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async (request) => {
@@ -435,7 +436,7 @@ test("review requires current PASS evidence before it spawns", async () => {
 
     const referencesBeforeSourceChange = await tasks.status({ sessionId: SESSION });
     const sourceChanged = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async (request) => {
@@ -469,7 +470,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     }));
     await tasks.recordEvidence(record.task.id, { unit: [contradictoryReference] });
     const contradictory = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: REVIEW_CONFIG,
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async () => {
@@ -492,7 +493,7 @@ test("review requires current PASS evidence before it spawns", async () => {
     assert.doesNotMatch(contradictory.data?.text ?? "", /run this review again/);
 
     const stale = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, tasks,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]), authorized: true, tasks,
       sessionId: SESSION, root, gitRunner, config: { ...REVIEW_CONFIG, profiles: ["loop"] },
       policyConfigHash: calculateConfigHash(REVIEW_CONFIG), evidenceStore,
       execute: async () => {
@@ -575,7 +576,7 @@ test("a recorded verification failure is reported as a failure, not as stale evi
 
     let calls = 0;
     const result = await runReviewCommand({
-      args: parseArgs(["review", "--task", record.task.id, "--yes"]),
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"]),
       authorized: true,
       tasks,
       sessionId: SESSION,
@@ -597,4 +598,168 @@ test("a recorded verification failure is reported as a failure, not as stale evi
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("an unchanged source reuses its recorded PASS instead of paying again", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-reuse-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "reviewed.ts"), "export {}\n");
+    const tasks = service(root);
+    const record = await tasks.create({
+      title: "Reuse recorded review",
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      criteria: [
+        { id: "unit", description: "Unit tests pass.", verifierIds: ["unit"] },
+        { id: "scope", description: "Review scope is exact.", verifierIds: ["unit"] }
+      ]
+    });
+    await tasks.attach(SESSION, record.task.id);
+    const gitRunner = reviewGitRunner();
+    const evidenceStore = new FileEvidenceStore(root, root);
+    const fingerprint = await calculateSourceFingerprint(
+      root,
+      { mode: "worktree", changedFiles: ["src/reviewed.ts"] },
+      gitRunner
+    );
+    const evidenceFor = async (criterionId: string): Promise<string> =>
+      evidenceStore.save(buildVerificationEvidence({
+        taskId: record.task.id,
+        criterionId,
+        command: REVIEW_CONFIG.verification.commands[0]!,
+        scope: "project",
+        startedAt: "2026-08-12T03:00:00.000Z",
+        finishedAt: "2026-08-12T03:00:01.000Z",
+        exitCode: 0,
+        testCount: null,
+        status: "PASS",
+        failureClass: "none",
+        sourceFingerprint: fingerprint,
+        toolVersions: {},
+        config: REVIEW_CONFIG
+      }));
+    // Every criterion in one call: partial evidence is rejected by design.
+    await tasks.recordEvidence(record.task.id, {
+      unit: [await evidenceFor("unit")],
+      scope: [await evidenceFor("scope")]
+    });
+    let calls = 0;
+    const shared = {
+      authorized: true as const,
+      tasks,
+      sessionId: SESSION,
+      root,
+      gitRunner,
+      config: REVIEW_CONFIG,
+      policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      evidenceStore,
+      targets: ["codex"] as const,
+      execute: async (request: ReviewExecutionRequest) => {
+        calls += 1;
+        return completePassing(request, ["src/reviewed.ts"]);
+      }
+    };
+
+    const first = await runReviewCommand({
+      ...shared,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"])
+    });
+    assert.equal(first.status, "ok", first.data?.result.reason ?? "no reason");
+    assert.equal(calls, 1);
+
+    const second = await runReviewCommand({
+      ...shared,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"])
+    });
+    assert.equal(second.status, "ok");
+    assert.equal(calls, 1, "an unchanged source must not invoke a target again");
+    assert.equal(second.data?.result.reused, true);
+    assert.match(second.data?.text ?? "", /reused recorded evidence/);
+
+    const forced = await runReviewCommand({
+      ...shared,
+      args: parseArgs(["review", "--task", record.task.id, "--yes", "--rerun"])
+    });
+    assert.equal(forced.status, "ok");
+    assert.equal(calls, 2, "--rerun must run the chain again");
+    assert.equal(forced.data?.result.reused, undefined);
+
+    // A verification failure recorded after the review must stop the cached
+    // PASS too: the source is unchanged, but it is no longer verified.
+    const failed = await tasks.recordFailure(record.task.id, {
+      value: "f".repeat(64),
+      commandId: "unit",
+      failureClass: "nonzero-exit",
+      exitCategory: "nonzero",
+      diagnostics: "the unit command failed after the review"
+    });
+    assert.equal(failed.state.commandId, "unit");
+    const afterFailure = await runReviewCommand({
+      ...shared,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"])
+    });
+    assert.equal(afterFailure.data?.result.reused, undefined);
+    assert.notEqual(afterFailure.data?.result.status, "PASS");
+    await tasks.clearFailure(record.task.id);
+
+    // A policy change must stop the command before reuse is considered: the
+    // recorded evidence proves the source, never the policy it ran under.
+    const policyChanged = await runReviewCommand({
+      ...shared,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"]),
+      policyConfigHash: "0".repeat(64)
+    });
+    assert.equal(policyChanged.status, "error");
+    assert.equal(policyChanged.data?.result.reason, "reviewer-policy-changed");
+    assert.equal(policyChanged.data?.result.reused, undefined);
+    assert.equal(calls, 2, "a policy mismatch must not spawn either");
+
+    // A changed source is a different fingerprint, so the recorded PASS no
+    // longer applies. Verification evidence goes stale with it, which is what
+    // stops this run before any target — but never with a reused PASS.
+    await writeFile(join(root, "src", "reviewed.ts"), "export const changed = 1\n");
+    const changed = await runReviewCommand({
+      ...shared,
+      args: parseArgs(["review", "--task", record.task.id, "--yes"])
+    });
+    assert.equal(changed.data?.result.reused, undefined);
+    assert.notEqual(changed.data?.result.status, "PASS");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("what a round cost survives the runner's own sanitizer", async () => {
+  const attempt = {
+    target: "agy" as const,
+    status: "PASS" as const,
+    sessionId: "session-1",
+    metrics: {
+      promptBytes: 4_096,
+      durationMs: 12_345,
+      usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 }
+    }
+  };
+
+  const result = await runIndependentReview({
+    invocation: {
+      harness: "agy",
+      model: "m",
+      effort: "e",
+      packet: {
+        request: "Review.",
+        criteria: [{ id: "tests", description: "Tests pass." }],
+        artifactRefs: [],
+        evidenceRequirements: []
+      }
+    },
+    authorized: true,
+    execute: async () => ({
+      status: "PASS" as const,
+      results: [{ criterionId: "tests", status: "PASS" as const, summary: "ok", evidence: ["npm test"] }],
+      attempts: [attempt]
+    })
+  });
+
+  assert.deepEqual(result.attempts?.[0]?.metrics, attempt.metrics);
 });

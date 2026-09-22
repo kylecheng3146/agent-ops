@@ -27,7 +27,8 @@ test("parses init choices and deterministic defaults", () => {
       profiles: ["core"],
       dryRun: false,
       json: false,
-      yes: false
+      yes: false,
+      rerun: false
     }
   );
 });
@@ -83,7 +84,8 @@ test("parses structured task lifecycle arguments", () => {
       ],
       dryRun: false,
       json: true,
-      yes: false
+      yes: false,
+      rerun: false
     }
   );
   assert.deepEqual(
@@ -134,7 +136,8 @@ test("parses verify task or session targets without task mutation options", () =
       taskId: "task-one",
       dryRun: false,
       json: true,
-      yes: false
+      yes: false,
+      rerun: false
     }
   );
   assert.equal(
@@ -254,7 +257,8 @@ test("parses repeated profiles and boolean flags", () => {
       profiles: ["core", "guardrails"],
       dryRun: true,
       json: true,
-      yes: true
+      yes: true,
+      rerun: false
     }
   );
 });
@@ -277,7 +281,8 @@ test("parses the explicit generic loop profile", () => {
       profiles: ["loop"],
       dryRun: false,
       json: false,
-      yes: false
+      yes: false,
+      rerun: false
     }
   );
 });
@@ -334,7 +339,8 @@ test("parses an explicit offline update target", () => {
     targetVersion: "0.0.1",
     dryRun: false,
     json: false,
-    yes: false
+    yes: false,
+    rerun: false
   });
   assert.throws(
     () => parseArgs(["doctor", "--target-version", "0.0.1"]),
@@ -350,14 +356,16 @@ test("parses global help and version actions", () => {
     profiles: [],
     dryRun: false,
     json: false,
-    yes: false
+    yes: false,
+    rerun: false
   });
   assert.deepEqual(parseArgs(["--json", "--version"]), {
     command: "version",
     profiles: [],
     dryRun: false,
     json: true,
-    yes: false
+    yes: false,
+    rerun: false
   });
 });
 
@@ -458,7 +466,8 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
     profiles: ["core", "advisory"],
     dryRun: true,
     json: false,
-    yes: false
+    yes: false,
+    rerun: false
   });
   assert.equal(questions.length, 4);
   assert.match(questions[3] ?? "", /external review/i);
@@ -478,7 +487,8 @@ test("TTY wizard accepts loop as the selected profile", async () => {
     profiles: ["loop"],
     dryRun: false,
     json: false,
-    yes: false
+    yes: false,
+    rerun: false
   });
 });
 

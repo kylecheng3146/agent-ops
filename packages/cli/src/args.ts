@@ -74,6 +74,8 @@ export interface ParsedArgs {
   dryRun: boolean;
   json: boolean;
   yes: boolean;
+  /** review: discard a matching PASS attestation and run the chain again. */
+  rerun: boolean;
 }
 
 export class CliArgumentError extends Error {
@@ -169,6 +171,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let dryRun = false;
   let json = false;
   let yes = false;
+  let rerun = false;
   let helpSeen = false;
   let versionSeen = false;
 
@@ -334,6 +337,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         yes = true;
         break;
+      case "--rerun":
+        if (rerun) {
+          duplicate(token);
+        }
+        rerun = true;
+        break;
       case "--help":
       case "-h":
         if (helpSeen) {
@@ -427,7 +436,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       profiles: [],
       dryRun: false,
       json,
-      yes: false
+      yes: false,
+      rerun: false
     };
   }
   if (versionSeen && command !== undefined) {
@@ -455,7 +465,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       checkAuth ||
       checkAuthTargets.length > 0 ||
       dryRun ||
-      yes
+      yes ||
+      rerun
     ) {
       throw new CliArgumentError(
         "CLI_OPTION_NOT_ALLOWED",
@@ -567,7 +578,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       harness !== undefined ||
       profiles.length > 0 ||
       dryRun ||
-      yes
+      yes ||
+      rerun
     ) {
       throw new CliArgumentError(
         "CLI_OPTION_NOT_ALLOWED",
@@ -696,6 +708,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(base === undefined ? {} : { base }),
     ...(checkAuth ? { checkAuth } : {}),
     ...(checkAuthTargets.length === 0 ? {} : { checkAuthTargets }),
+    rerun,
     dryRun,
     json,
     yes

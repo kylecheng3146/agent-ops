@@ -27,6 +27,7 @@ import {
   smokeAvailabilityStatus
 } from "../../../runtime/src/install/probes.js";
 import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
+import { readRecordedSessionId } from "../../../runtime/src/hooks/codex-loop.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -498,7 +499,11 @@ process.exitCode = await runCli(
             });
           }
           if (args.command === "task") {
-            const sessionId = process.env.AGENT_OPS_SESSION_ID;
+            // Explicit `--session` wins, then an injected identity, then the
+            // id a SessionStart hook recorded for this checkout: a command
+            // run inside a session is never told which session it is in.
+            const sessionId = process.env.AGENT_OPS_SESSION_ID ??
+              await readRecordedSessionId(root);
             const policyConfigHash = args.action === "create"
               ? calculateConfigHash((await loadEffectiveConfig(
                   root,
@@ -570,8 +575,16 @@ process.exitCode = await runCli(
                   ...(reviewRole?.timeoutMs === undefined
                     ? {}
                     : { timeoutMs: reviewRole.timeoutMs }),
-                  preflightTarget: async (target) =>
-                    await probeReviewTarget(target, { cwd: root, deep: true }),
+                  preflightTarget: async (target, budget) =>
+                    await probeReviewTarget(target, {
+                      cwd: root,
+                      deep: true,
+                      // The probe answers within the chain's remaining budget
+                      // or not at all; its own default would outlast it.
+                      ...(budget === undefined
+                        ? {}
+                        : { timeoutMs: budget.timeoutMs })
+                    }),
                   verifySourceFingerprint: async (expected) => {
                     const currentScope = await resolveReviewScope({
                       root,

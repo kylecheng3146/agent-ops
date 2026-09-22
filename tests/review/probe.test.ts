@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { lstat } from "node:fs/promises";
 import test from "node:test";
 
-import { probeReviewTarget } from "../../runtime/src/review/probe.js";
+import {
+  probeReviewTarget,
+  probeTimeoutMs
+} from "../../runtime/src/review/probe.js";
 import type {
   ProcessRequest,
   RunningVerificationProcess,
@@ -104,4 +107,16 @@ test("deep Agy probe binds the prompt and keeps sandboxed plan mode", async () =
   }
   assert.ok(request?.args.includes("--log-file"));
   assert.equal(request?.stdin, "");
+});
+
+test("the probe ceiling survives a caller handing it the whole chain budget", () => {
+  // The default, a shortened budget, and a budget far larger than the ceiling.
+  assert.equal(probeTimeoutMs(), 120_000);
+  assert.equal(probeTimeoutMs(5_000), 5_000);
+  assert.equal(
+    probeTimeoutMs(1_800_000),
+    120_000,
+    "a hung probe must still stop at two minutes"
+  );
+  assert.equal(probeTimeoutMs(0), 1, "a spent budget still leaves a real timeout");
 });

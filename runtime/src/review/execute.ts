@@ -30,6 +30,7 @@ import {
   type ReviewUnavailableReason
 } from "./runner.js";
 import { MAX_ADVERSARIAL_PROMPT_BYTES } from "./runner.js";
+import { extractUsage, type ReviewUsage } from "./usage.js";
 
 export type ReviewTargetPreflightResult =
   | "ok"
@@ -57,6 +58,9 @@ export const DEFAULT_REVIEW_TIMEOUT_MS = 900_000;
  */
 export const DEFAULT_STALL_IDLE_MS = 90_000;
 
+/** Two rounds at the per-target default: the previous worst case, now bounded. */
+export const DEFAULT_REVIEW_CHAIN_TIMEOUT_MS = 2 * DEFAULT_REVIEW_TIMEOUT_MS;
+
 export interface ReviewExecutorOptions {
   readonly targets: readonly ReviewTargetId[];
   readonly cwd: string;
@@ -68,9 +72,14 @@ export interface ReviewExecutorOptions {
   readonly stallIdleMs?: number;
   /** Loopback-bind probe used to detect a restricted host. Tests replace it. */
   readonly probeBind?: () => Promise<boolean>;
-  /** Auth/capability probe run for every planned target before any review. */
+  /**
+   * Auth/capability probe run for every planned target before any review. The
+   * budget is what the chain has left: a probe that outlasts it would spend
+   * the review's time before a reviewer ever starts.
+   */
   readonly preflightTarget?: (
-    target: ReviewTargetId
+    target: ReviewTargetId,
+    budget?: { readonly timeoutMs: number }
   ) => Promise<ReviewTargetPreflightResult>;
   /** Re-checks the source before the adversarial session starts. */
   readonly verifySourceFingerprint?: (expected: string) => Promise<boolean>;
@@ -78,6 +87,43 @@ export interface ReviewExecutorOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
   readonly signal?: AbortSignal;
+  /**
+   * One budget for the whole execution: capability probe, snapshot and both
+   * rounds draw on it. Without this, each round holds its own full timeout and
+   * a wedged-but-chatty reviewer can spend twice `timeoutMs` before anything
+   * stops it. Defaults to two rounds' worth, so no existing run gets shorter.
+   */
+  readonly chainTimeoutMs?: number;
+  /** Clock, so a test can exhaust the budget without waiting for it. */
+  readonly now?: () => number;
+  /**
+   * Absolute end of the chain's budget, set once per execution and read again
+   * before every subprocess. A captured duration would be spent in full by the
+   * probe, again by the clone and again by the reviewer.
+   */
+  readonly deadlineAt?: number;
+}
+
+/**
+ * What one subprocess may take: its own ceiling, or whatever is left of the
+ * chain, whichever is smaller. Recomputed at each call site on purpose.
+ */
+function stageTimeout(
+  options: ReviewExecutorOptions,
+  ceilingMs = DEFAULT_REVIEW_TIMEOUT_MS
+): number {
+  const own = Math.min(options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS, ceilingMs);
+  if (options.deadlineAt === undefined) {
+    return own;
+  }
+  const now = (options.now ?? Date.now)();
+  return Math.max(1, Math.min(own, options.deadlineAt - now));
+}
+
+/** True once the chain's budget is gone. */
+function budgetSpent(options: ReviewExecutorOptions): boolean {
+  return options.deadlineAt !== undefined &&
+    (options.now ?? Date.now)() >= options.deadlineAt;
 }
 
 export class ReviewInterruptedError extends Error {
@@ -297,8 +343,25 @@ function throwIfInterrupted(
   throw new ReviewInterruptedError(signal);
 }
 
+/**
+ * What one round cost. Recorded for every outcome, including the ones that
+ * produced no verdict: a round that times out or is refused still spends wall
+ * clock, and a cost record that only covers successes cannot answer whether
+ * review is expensive.
+ */
+export interface ReviewAttemptMetrics {
+  readonly promptBytes: number;
+  readonly durationMs: number;
+  readonly usage?: ReviewUsage;
+}
+
 type TargetAttemptOutcome =
-  | { readonly kind: "verdict"; readonly report: ReviewReport; readonly sessionId: string }
+  | {
+      readonly kind: "verdict";
+      readonly report: ReviewReport;
+      readonly sessionId: string;
+      readonly metrics: ReviewAttemptMetrics;
+    }
   | {
       readonly kind: "skip";
       readonly sessionId: string;
@@ -313,6 +376,7 @@ type TargetAttemptOutcome =
        */
       readonly diagnostic: string;
       readonly message: string;
+      readonly metrics: ReviewAttemptMetrics;
     };
 
 interface TargetAttemptRequest {
@@ -323,6 +387,12 @@ interface TargetAttemptRequest {
   readonly repositoryRoot: string;
   readonly expectedCriterionIds: readonly string[];
   readonly changedFiles?: readonly string[];
+  /**
+   * The commit a `--base` review compares against. The snapshot is a clone of
+   * HEAD, so this object has to be present inside it or the reviewer is asked
+   * for a comparison it cannot make.
+   */
+  readonly baseCommit?: string;
 }
 
 async function snapshotRepository(
@@ -338,7 +408,7 @@ async function snapshotRepository(
       cwd: dirname(destination),
       required: true,
       evidence: { kind: "exit-code" },
-      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS, 60_000)
+      timeoutMs: stageTimeout(options, 60_000)
     },
     {
       cwd: dirname(destination),
@@ -350,6 +420,30 @@ async function snapshotRepository(
   if (cloned.status !== "PASS") {
     return firstComplaint(cloned.stderr, cloned.stdout) ??
       `git clone failed (${cloned.failureClass})`;
+  }
+  if (request.baseCommit !== undefined) {
+    const present = await runVerificationCommand(
+      {
+        id: `review-snapshot-base-${request.label}`,
+        command: "git",
+        args: ["cat-file", "-e", `${request.baseCommit}^{commit}`],
+        cwd: destination,
+        required: true,
+        evidence: { kind: "exit-code" },
+        timeoutMs: stageTimeout(options, 60_000)
+      },
+      {
+        cwd: destination,
+        ...(options.runner === undefined ? {} : { runner: options.runner }),
+        ...(options.signal === undefined ? {} : { signal: options.signal })
+      }
+    );
+    throwIfInterrupted(request.target, options, present.failureClass);
+    if (present.status !== "PASS") {
+      // Falling back to HEAD or to an empty diff would let a reviewer pass a
+      // range it never saw, so the chain stops instead.
+      return `review base commit ${request.baseCommit} is missing from the snapshot`;
+    }
   }
   for (const path of request.changedFiles ?? []) {
     const source = join(request.repositoryRoot, path);
@@ -384,6 +478,13 @@ async function attemptTarget(
 ): Promise<TargetAttemptOutcome> {
   const { target } = request;
   const sessionId = randomUUID();
+  const startedAt = Date.now();
+  let usage: ReviewUsage | undefined;
+  const metrics = (): ReviewAttemptMetrics => ({
+    promptBytes: Buffer.byteLength(request.prompt, "utf8"),
+    durationMs: Date.now() - startedAt,
+    ...(usage === undefined ? {} : { usage })
+  });
   const skip = (
     reason: ReviewUnavailableReason,
     diagnostic: string,
@@ -393,8 +494,17 @@ async function attemptTarget(
     sessionId,
     reason,
     diagnostic,
-    message: `${target}: ${reason} → ${verb} (${diagnostic})`
+    message: `${target}: ${reason} → ${verb} (${diagnostic})`,
+    metrics: metrics()
   });
+  const overdue = (stage: string): TargetAttemptOutcome | undefined =>
+    budgetSpent(options)
+      ? skip("timeout", `the review deadline was reached ${stage}`)
+      : undefined;
+  const beforeStart = overdue("before this round started");
+  if (beforeStart !== undefined) {
+    return beforeStart;
+  }
   const attemptDirectory = await mkdtemp(join(tmpdir(), "agent-ops-review-"));
   try {
     const agyLog = target === "agy"
@@ -432,7 +542,7 @@ async function attemptTarget(
         cwd: attemptDirectory,
         required: true,
         evidence: { kind: "exit-code" },
-        timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS, 10_000)
+        timeoutMs: stageTimeout(options, 10_000)
       },
       {
         cwd: attemptDirectory,
@@ -443,6 +553,13 @@ async function attemptTarget(
       }
     );
     throwIfInterrupted(target, options, capability.failureClass);
+    // Before the probe's own failure is interpreted: a probe cut short by the
+    // chain's remaining time looks exactly like a CLI missing its flags, and
+    // reporting it that way hides the real reason the review stopped.
+    const afterProbe = overdue("after the capability probe");
+    if (afterProbe !== undefined) {
+      return afterProbe;
+    }
     const help = `${capability.stdout}\n${capability.stderr}`;
     const missingFlags = (REQUIRED_HELP_FLAGS[target] ?? []).filter(
       (flag) => !help.includes(flag)
@@ -481,6 +598,10 @@ async function attemptTarget(
       snapshotRoot,
       options
     );
+    const afterSnapshot = overdue("after the repository snapshot");
+    if (afterSnapshot !== undefined) {
+      return afterSnapshot;
+    }
     if (snapshotError !== undefined) {
       return skip("capability-unavailable", snapshotError, "skipping");
     }
@@ -533,7 +654,7 @@ async function attemptTarget(
           cwd: executionDirectory,
           required: true,
           evidence: { kind: "exit-code" },
-          timeoutMs: options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS
+          timeoutMs: stageTimeout(options)
         },
         {
           cwd: executionDirectory,
@@ -562,6 +683,8 @@ async function attemptTarget(
           "permission will not help"
       );
     }
+    // Read before any branch: a round that then fails still cost what it spent.
+    usage = extractUsage(target, spawned.stdout, spawned.stderr);
     throwIfInterrupted(target, options, spawned.failureClass);
     if (spawned.failureClass === "timeout") {
       return skip("timeout", "the reviewer exceeded its timeout");
@@ -628,7 +751,12 @@ async function attemptTarget(
             "the answer carried no review report"
       );
     }
-    return { kind: "verdict", report: parsed.value, sessionId };
+    return {
+      kind: "verdict",
+      report: parsed.value,
+      sessionId,
+      metrics: metrics()
+    };
   } finally {
     await rm(attemptDirectory, { recursive: true, force: true });
   }
@@ -643,7 +771,23 @@ export function createReviewExecutor(
   const plan = planReviewTargets(options.targets, host);
   const plannedTargets = plan.targets;
 
+  const clock = options.now ?? (() => Date.now());
+
   return async (request) => {
+    const deadlineAt = clock() +
+      (options.chainTimeoutMs ?? DEFAULT_REVIEW_CHAIN_TIMEOUT_MS);
+    const remainingMs = (): number => deadlineAt - clock();
+    /**
+     * The options one stage runs under: its own timeout, or what is left of
+     * the chain's budget, whichever is smaller. A heartbeat keeps a stage
+     * alive against the stall detector but buys the chain no extra time.
+     */
+    const staged = (): ReviewExecutorOptions => ({
+      ...options,
+      deadlineAt,
+      now: clock
+    });
+    const outOfTime = (): boolean => remainingMs() <= 0;
     if (plan.reason !== undefined) {
       report("host: three review targets require explicit AGENT_OPS_HOST");
       return {
@@ -678,7 +822,26 @@ export function createReviewExecutor(
     const preflight: ReviewPreflightAttempt[] = [];
     if (options.preflightTarget !== undefined) {
       for (const target of new Set(plannedTargets)) {
-        const result = await options.preflightTarget(target);
+        if (outOfTime()) {
+          const diagnostic = "the review deadline was reached during target " +
+            "preflight";
+          preflight.push({
+            target,
+            status: "NOT_RUN",
+            reason: "timeout",
+            diagnostic
+          });
+          report(`${target}: preflight timeout (${diagnostic})`);
+          return {
+            status: "NOT_RUN",
+            reason: "timeout",
+            preflight,
+            attempts: []
+          };
+        }
+        const result = await options.preflightTarget(target, {
+          timeoutMs: Math.max(1, remainingMs())
+        });
         if (result === "ok") {
           preflight.push({ target, status: "PASS" });
           continue;
@@ -705,11 +868,18 @@ export function createReviewExecutor(
       expectedCriterionIds,
       ...(request.invocation.scope?.changedFiles === undefined
         ? {}
-        : { changedFiles: request.invocation.scope.changedFiles })
+        : { changedFiles: request.invocation.scope.changedFiles }),
+      ...(request.invocation.scope?.mode === "base"
+        ? { baseCommit: request.invocation.scope.resolvedBase }
+        : {})
     } as const;
     const attempts: ReviewAttempt[] = [];
     const primaryTarget = plannedTargets[0]!;
     const adversarialTarget = plannedTargets[1]!;
+    if (outOfTime()) {
+      report("chain: review deadline reached before the first round");
+      return { status: "NOT_RUN", reason: "timeout", attempts: [] };
+    }
     const primaryOutcome = await attemptTarget(
       {
         ...shared,
@@ -717,7 +887,7 @@ export function createReviewExecutor(
         label: `${primaryTarget}-primary`,
         prompt: buildReviewPrompt({ ...request.invocation, harness: primaryTarget })
       },
-      options
+      staged()
     );
     if (primaryOutcome.kind === "skip") {
       attempts.push({
@@ -725,7 +895,8 @@ export function createReviewExecutor(
         status: "NOT_RUN",
         sessionId: primaryOutcome.sessionId,
         reason: primaryOutcome.attemptReason ?? primaryOutcome.reason,
-        diagnostic: primaryOutcome.diagnostic
+        diagnostic: primaryOutcome.diagnostic,
+        metrics: primaryOutcome.metrics
       });
       report(primaryOutcome.message);
       return {
@@ -741,7 +912,8 @@ export function createReviewExecutor(
     attempts.push({
       target: primaryTarget,
       status: primaryStatus,
-      sessionId: primaryOutcome.sessionId
+      sessionId: primaryOutcome.sessionId,
+      metrics: primaryOutcome.metrics
     });
     const independence: ReviewIndependence = primaryTarget === adversarialTarget
       ? "same-target"
@@ -808,6 +980,27 @@ export function createReviewExecutor(
         attempts
       };
     }
+    if (outOfTime()) {
+      const diagnostic = "the review deadline was reached before the " +
+        "adversarial round, so the PASS is unconfirmed";
+      attempts.push({
+        target: adversarialTarget,
+        status: "NOT_RUN",
+        reason: "timeout",
+        diagnostic
+      });
+      report(`${adversarialTarget}: timeout → stopping review (${diagnostic})`);
+      return {
+        status: "NOT_RUN",
+        reason: "timeout",
+        report: primaryReport,
+        preflight,
+        independence,
+        sessionIsolation: "fresh",
+        attempts
+      };
+    }
+    // The second round draws on what is left, never a fresh full budget.
     const adversarialOutcome = await attemptTarget(
       {
         ...shared,
@@ -815,13 +1008,14 @@ export function createReviewExecutor(
         label: `${adversarialTarget}-adversarial`,
         prompt: adversarialPrompt
       },
-      options
+      staged()
     );
     if (adversarialOutcome.kind === "skip") {
       attempts.push({
         target: adversarialTarget,
         status: "NOT_RUN",
         sessionId: adversarialOutcome.sessionId,
+        metrics: adversarialOutcome.metrics,
         reason: adversarialOutcome.attemptReason ?? adversarialOutcome.reason,
         diagnostic: adversarialOutcome.diagnostic
       });
@@ -841,8 +1035,23 @@ export function createReviewExecutor(
     attempts.push({
       target: adversarialTarget,
       status: refuted ? "FAIL" : "PASS",
-      sessionId: adversarialOutcome.sessionId
+      sessionId: adversarialOutcome.sessionId,
+      metrics: adversarialOutcome.metrics
     });
+    if (outOfTime()) {
+      const diagnostic = "the adversarial round finished after the review " +
+        "deadline, so its verdict is not accepted";
+      report(`${adversarialTarget}: timeout → stopping review (${diagnostic})`);
+      return {
+        status: "NOT_RUN",
+        reason: "timeout",
+        report: primaryReport,
+        preflight,
+        independence,
+        sessionIsolation: "fresh",
+        attempts
+      };
+    }
     report(
       `${adversarialTarget}: adversarial re-check ${refuted ? "refuted the PASS" : "upheld the PASS"}`
     );
