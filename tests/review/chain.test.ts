@@ -12,6 +12,7 @@ import {
   ReviewInterruptedError
 } from "../../runtime/src/review/execute.js";
 import { buildTargetInvocation } from "../../runtime/src/review/invocation.js";
+import { renderReviewResult } from "../../runtime/src/review/render.js";
 import type { ReviewExecutionRequest } from "../../runtime/src/review/runner.js";
 import type {
   ProcessRequest,
@@ -241,6 +242,7 @@ async function run(
   options: {
     readonly timeoutMs?: number;
     readonly stallIdleMs?: number;
+    readonly chainTimeoutMs?: number;
   } = {}
 ): Promise<{
   readonly result: Awaited<ReturnType<ReturnType<typeof createReviewExecutor>>>;
@@ -257,6 +259,9 @@ async function run(
     // These cases assert chain behavior, not the machine's loopback policy.
     probeBind: async () => true,
     timeoutMs: options.timeoutMs ?? 120_000,
+    ...(options.chainTimeoutMs === undefined
+      ? {}
+      : { chainTimeoutMs: options.chainTimeoutMs }),
     ...(options.stallIdleMs === undefined
       ? {}
       : { stallIdleMs: options.stallIdleMs }),
@@ -963,4 +968,294 @@ test("agy is told to answer the review rather than plan the work", async () => {
   assert.match(prompt, /Do not write an implementation plan/u);
   assert.match(prompt, /Do not create or edit any file/u);
   assert.match(prompt, /Do not ask the user anything/u);
+});
+
+test("every attempt records what it cost, including one that never ran", async () => {
+  const { result } = await run(
+    ["agy", "codex"],
+    [{ stdout: passing("agy") }, { stdout: passing("codex") }]
+  );
+
+  assert.equal(result.status, "PASS");
+  assert.equal(result.attempts?.length, 2);
+  for (const attempt of result.attempts ?? []) {
+    assert.ok(attempt.metrics, `${attempt.target} recorded no cost`);
+    assert.ok(attempt.metrics.promptBytes > 0);
+    assert.ok(attempt.metrics.durationMs >= 0);
+  }
+  assert.match(
+    renderReviewResult({
+      ...result,
+      harness: "agy",
+      model: "m",
+      effort: "e",
+      prompt: "p"
+    }),
+    /cost: .*prompt \d+ bytes, tokens unknown/
+  );
+
+  const stopped = await run(
+    ["agy", "codex"],
+    [{ stdout: "not a review report at all" }]
+  );
+  assert.equal(stopped.result.status, "NOT_RUN");
+  assert.ok(
+    stopped.result.attempts?.[0]?.metrics,
+    "a round that produced no verdict still spent time"
+  );
+});
+
+test("reported usage reaches the attempt record and the rendered summary", async () => {
+  const withUsage = JSON.stringify({
+    structured_output: JSON.parse(
+      passing("agy").startsWith("{\"structured_output\"")
+        ? JSON.stringify(
+            (JSON.parse(passing("agy")) as { structured_output: unknown })
+              .structured_output
+          )
+        : passing("agy")
+    ),
+    usage: { input_tokens: 1_000, output_tokens: 250, total_tokens: 1_250 }
+  });
+  const { result } = await run(
+    ["agy", "codex"],
+    [{ stdout: withUsage }, { stdout: passing("codex") }]
+  );
+
+  assert.equal(result.status, "PASS");
+  assert.deepEqual(result.attempts?.[0]?.metrics?.usage, {
+    inputTokens: 1_000,
+    outputTokens: 250,
+    totalTokens: 1_250
+  });
+  assert.match(
+    renderReviewResult({
+      ...result,
+      harness: "agy",
+      model: "m",
+      effort: "e",
+      prompt: "p"
+    }),
+    /tokens 1250/
+  );
+});
+
+test("a reviewer that keeps emitting heartbeats is still cut off by the deadline", async () => {
+  // Real timers: the first round answers immediately, the second hangs while
+  // emitting stderr heartbeats, which satisfies the stall detector. Only the
+  // chain budget can end it.
+  const { result, attempts } = await run(
+    ["agy", "codex"],
+    [
+      { stdout: passing("agy") },
+      { hang: true, beats: 200, beatMs: 10, beatVia: "stderr" }
+    ],
+    { timeoutMs: 60_000, chainTimeoutMs: 1_500, stallIdleMs: 30_000 }
+  );
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(attempts.length, 2, "both rounds must have started");
+  assert.equal(result.attempts?.[0]?.status, "PASS");
+  assert.equal(result.attempts?.at(-1)?.status, "NOT_RUN");
+  assert.equal(result.attempts?.at(-1)?.reason, "timeout");
+});
+
+test("the chain budget bounds a round whose own timeout is far larger", async () => {
+  const started = Date.now();
+  // Per-target timeout of a minute, chain budget of a fraction of a second:
+  // the round has to end on the chain's terms, not its own.
+  const { result } = await run(
+    ["agy", "codex"],
+    [{ hang: true }],
+    { timeoutMs: 60_000, chainTimeoutMs: 300 }
+  );
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.ok(
+    Date.now() - started < 30_000,
+    "the chain waited on the per-target timeout instead of its own budget"
+  );
+});
+
+test("each subprocess re-reads the budget instead of inheriting a stale one", async () => {
+  // Every spawn advances the clock past what is left. If any stage captured
+  // its timeout once, the reviewer would still get a full budget after the
+  // probe and the clone had already spent it.
+  let now = 0;
+  const { runner } = fakeRunner([
+    { stdout: passing("agy") },
+    { stdout: passing("codex") }
+  ]);
+  const execute = createReviewExecutor({
+    targets: ["agy", "codex"],
+    cwd: process.cwd(),
+    runner: {
+      start(request) {
+        const running = runner.start(request);
+        now += 200;
+        return running;
+      }
+    },
+    env: {},
+    probeBind: async () => true,
+    timeoutMs: 900_000,
+    chainTimeoutMs: 500,
+    now: () => now
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "timeout");
+});
+
+test("an adversarial verdict that lands after the deadline is not accepted", async () => {
+  let now = 0;
+  let spawns = 0;
+  const { runner } = fakeRunner([
+    { stdout: passing("agy") },
+    { stdout: passing("codex") }
+  ]);
+  const execute = createReviewExecutor({
+    targets: ["agy", "codex"],
+    cwd: process.cwd(),
+    runner: {
+      start(request) {
+        const running = runner.start(request);
+        if (!request.args.includes("--help")) {
+          spawns += 1;
+          // Only the last round overruns, so the chain reaches its verdict.
+          now += spawns >= 4 ? 10_000 : 1;
+        }
+        return running;
+      }
+    },
+    env: {},
+    probeBind: async () => true,
+    timeoutMs: 900_000,
+    chainTimeoutMs: 5_000,
+    now: () => now
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "timeout");
+  assert.ok(
+    result.attempts?.some((attempt) => attempt.status === "PASS"),
+    "the first round still happened"
+  );
+});
+
+test("a preflight that outlasts the chain budget cannot spend the review's time", async () => {
+  let now = 0;
+  const budgets: number[] = [];
+  const { runner } = fakeRunner([{ stdout: passing("agy") }]);
+  const execute = createReviewExecutor({
+    targets: ["agy", "codex"],
+    cwd: process.cwd(),
+    runner,
+    env: {},
+    probeBind: async () => true,
+    timeoutMs: 900_000,
+    chainTimeoutMs: 100,
+    now: () => now,
+    preflightTarget: async (_target, budget) => {
+      budgets.push(budget?.timeoutMs ?? -1);
+      // A slow probe: it outlasts the whole chain budget on its own.
+      now += 150;
+      return "ok";
+    }
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "timeout");
+  assert.equal(budgets.length, 1, "the second preflight must not start");
+  assert.ok(
+    (budgets[0] ?? 0) <= 100,
+    `the probe was given ${budgets[0]} ms of a 100 ms chain`
+  );
+  assert.equal(
+    result.preflight?.at(-1)?.diagnostic,
+    "the review deadline was reached during target preflight"
+  );
+});
+
+test("budget spent during a stage stops the round naming the deadline", async () => {
+  let now = 0;
+  const { runner } = fakeRunner([{ stdout: passing("agy") }]);
+  const execute = createReviewExecutor({
+    targets: ["agy", "codex"],
+    cwd: process.cwd(),
+    runner: {
+      start(request) {
+        const running = runner.start(request);
+        // The capability probe alone spends the whole chain budget.
+        if (request.args.includes("--help")) {
+          now += 5_000;
+        }
+        return running;
+      }
+    },
+    env: {},
+    probeBind: async () => true,
+    timeoutMs: 900_000,
+    chainTimeoutMs: 1_000,
+    now: () => now
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "timeout");
+  assert.match(
+    result.attempts?.[0]?.diagnostic ?? "",
+    /review deadline was reached after the capability probe/,
+    "an exhausted budget must not be reported as an unavailable reviewer"
+  );
+});
+
+test("a probe cut short by the deadline is reported as time, not as a bad CLI", async () => {
+  // The help probe hangs with no output. Its timeout is the chain's remaining
+  // budget, so it fails exactly like a CLI whose flags are missing — the only
+  // thing that distinguishes them is the deadline check.
+  const execute = createReviewExecutor({
+    targets: ["agy", "codex"],
+    cwd: process.cwd(),
+    runner: {
+      start(): RunningVerificationProcess {
+        let finish: ((value: {
+          exitCode: number | null;
+          signal: string | null;
+        }) => void) | undefined;
+        return {
+          pid: 1,
+          stdout: bytes(""),
+          stderr: bytes(""),
+          completion: new Promise((resolve) => {
+            finish = resolve;
+          }),
+          terminateTree: async () => {
+            finish?.({ exitCode: null, signal: "SIGTERM" });
+          }
+        };
+      }
+    },
+    env: {},
+    probeBind: async () => true,
+    timeoutMs: 900_000,
+    chainTimeoutMs: 200
+  });
+
+  const result = await execute(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "timeout");
+  assert.match(
+    result.attempts?.[0]?.diagnostic ?? "",
+    /review deadline was reached/,
+    "an exhausted budget must not be reported as a capability problem"
+  );
 });

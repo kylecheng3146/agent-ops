@@ -4,6 +4,39 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-09-22
+
+- Review now records what each round cost: prompt bytes, wall-clock duration
+  and the token usage each target already reports in its own transport
+  envelope. A target that reports none is recorded as unknown rather than
+  given an invented number. One chain on this repository measured 0.7-1.5M
+  tokens over five to eight minutes, which had previously been a structural
+  guess with no measurement behind it.
+- An authorized review whose source fingerprint, task, review policy and
+  verification evidence all still match a recorded PASS now completes from
+  that evidence without invoking a reviewer. `--rerun` forces a fresh chain.
+  Every other check runs first, so a policy change or a verification failure
+  recorded after the review still stops the command.
+- One absolute deadline now covers the whole execution: target preflight, the
+  capability probe, the repository snapshot and both rounds. It is recomputed
+  before each subprocess rather than captured once, the authentication probe
+  keeps its own shorter ceiling, a verdict that lands after the deadline is
+  not accepted, and a reviewer that keeps emitting heartbeats is still cut
+  off. Previously each round held a full timeout and preflight held none.
+- A `--base` review now sends the resolved base commit to both rounds with an
+  explicit range diff, and the executor confirms that commit exists inside the
+  snapshot. A committed range previously reached the reviewer as an empty
+  worktree diff, so a PASS could be returned for a range nobody had seen.
+- Task state is restored after compaction. `SessionStart` branches on its
+  `source`: a compaction receives the checkpoint, a resumed transcript
+  receives nothing, and a fresh or cleared session is offered the previous
+  task rather than handed its contents. Required fields are never truncated,
+  and every interpolated task string passes the existing guardrail and
+  redaction before it is shortened.
+- `SessionStart` records the session id the host tells it, so
+  `agent-ops task attach` works in a session that was never told its own
+  identifier.
+
 ## [0.2.6] - 2026-09-18
 
 - `COMPLETION_GATE_TASK_REQUIRED` now names the session and the commands that

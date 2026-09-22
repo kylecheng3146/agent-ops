@@ -17,8 +17,11 @@ import {
   type ReviewVerificationSummary
 } from "../../../../runtime/src/review/runner.js";
 import { renderReviewResult } from "../../../../runtime/src/review/render.js";
+import { reviewReportResults } from "../../../../runtime/src/review/report.js";
 import {
+  findReviewAttestation,
   invalidateReviewAttestation,
+  readReviewReportArtifact,
   reviewReportDigest,
   saveReviewAttestation,
   saveReviewReportArtifact
@@ -415,6 +418,70 @@ function hasCompleteReviewEvidence(
     );
 }
 
+/**
+ * The recorded verdict for this exact source, when it is still the right one:
+ * same source fingerprint, same task, and a stored report that still matches
+ * its attestation. Anything else returns null and the chain runs.
+ */
+async function reusableReview(
+  options: ReviewCommandOptions,
+  sourceFingerprint: string,
+  context: TaskContext | undefined
+): Promise<ReviewRunResult | null> {
+  if (options.root === undefined) {
+    return null;
+  }
+  const attestation = await findReviewAttestation(
+    options.root,
+    sourceFingerprint
+  );
+  if (attestation === null || attestation.taskId !== context?.taskId) {
+    return null;
+  }
+  // The task's own policy baseline must still be the active one. This is
+  // checked before this point too; repeating it here keeps the reuse path
+  // safe wherever it is called from.
+  if (
+    options.policyConfigHash !== undefined &&
+    context?.policyConfigHash !== options.policyConfigHash
+  ) {
+    return null;
+  }
+  const artifact = await readReviewReportArtifact(
+    options.root,
+    sourceFingerprint
+  );
+  if (
+    artifact === null ||
+    artifact.taskId !== attestation.taskId ||
+    artifact.report === undefined ||
+    artifact.adversarial === undefined
+  ) {
+    return null;
+  }
+  return {
+    status: "PASS",
+    harness: artifact.harness,
+    model: options.model ?? "configured",
+    effort: options.effort ?? "configured",
+    prompt: "",
+    results: reviewReportResults(artifact.report),
+    report: artifact.report,
+    adversarial: artifact.adversarial,
+    attempts: artifact.attempts,
+    preflight: artifact.preflight,
+    plannedTargets: artifact.plannedTargets,
+    sourceFingerprint,
+    reused: true,
+    ...(artifact.independence === undefined
+      ? {}
+      : { independence: artifact.independence }),
+    ...(artifact.sessionIsolation === undefined
+      ? {}
+      : { sessionIsolation: artifact.sessionIsolation })
+  };
+}
+
 async function persistReviewEvidence(
   options: ReviewCommandOptions,
   result: ReviewRunResult,
@@ -570,9 +637,7 @@ export async function runReviewCommand(
       scope,
       options.gitRunner
     );
-    if (options.authorized) {
-      await invalidateReviewAttestation(options.root, sourceFingerprint);
-    }
+    let pendingInvalidation = options.authorized;
     if (context !== undefined && options.policyConfigHash !== undefined) {
       if (context.policyConfigHash === null) {
         return notRunEnvelope({
@@ -604,6 +669,27 @@ export async function runReviewCommand(
         });
       }
       verification = preflight.summary;
+    }
+    if (pendingInvalidation) {
+      // Last of all the checks, never before them. A recorded PASS proves the
+      // source was reviewed; it says nothing about the policy in force now or
+      // about verification that has failed since, and both of those are
+      // decided above.
+      const reused = options.args.rerun
+        ? null
+        : await reusableReview(options, sourceFingerprint, context);
+      if (reused !== null) {
+        return okEnvelope("REVIEW_RESULT", {
+          message: "Independent review passed (reused recorded evidence).",
+          result: reused,
+          text: renderReviewResult({
+            ...reused,
+            ...(verification === undefined ? {} : { verification })
+          })
+        });
+      }
+      await invalidateReviewAttestation(options.root, sourceFingerprint);
+      pendingInvalidation = false;
     }
   }
   const criteria: ReviewCriterion[] = [

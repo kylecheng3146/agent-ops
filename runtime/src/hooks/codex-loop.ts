@@ -12,6 +12,11 @@ import {
   writePrivateFile
 } from "../security/permissions.js";
 import { redactSecrets } from "../security/redact.js";
+import {
+  DEFAULT_CHECKPOINT_BUDGET,
+  renderTaskCheckpoint
+} from "../task/render.js";
+import { parseTaskStateSource } from "../task/store.js";
 import { normalizeShellHookEvent } from "./shell.js";
 
 const execFile = promisify(execFileCallback);
@@ -20,6 +25,12 @@ const MAX_CONTEXT_CHARS = 1_200;
 const MAX_GIT_STATUS_CHARS = 4_096;
 const DEFAULT_TELEMETRY_MAX_BYTES = 64 * 1024;
 const LOOP_SNAPSHOT_ID = "loop-snapshot";
+const LOOP_SESSION_ID = "loop-session";
+/** Task state outranks the goal when both compete for the same ceiling. */
+const MAX_CHECKPOINT_CHARS = DEFAULT_CHECKPOINT_BUDGET;
+const MAX_GOAL_CHARS = 400;
+const MIN_GOAL_CHARS = 40;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 export const PROJECT_LOOP_EVENTS = [
   "SessionStart",
@@ -260,6 +271,16 @@ function boundedContext(value: string): string {
     : `${normalized.slice(0, MAX_CONTEXT_CHARS - 14)}\n[truncated]`;
 }
 
+/**
+ * Task titles and criterion descriptions are ordinary user text, so they get
+ * the same treatment as the goal file: secret-shaped content is dropped
+ * rather than injected, and everything else is redacted.
+ */
+function safeStateContext(value: string, scope: string): string | undefined {
+  const decision = evaluateGuardrail({ kind: "content", content: value, scope });
+  return decision.action === "block" ? undefined : redactSecrets(value);
+}
+
 function safeGoalContext(source: string | null): string {
   if (source === null || source.trim().length === 0) {
     return "No project loop goal is recorded.";
@@ -447,16 +468,248 @@ async function writeCompactSnapshot(options: {
   });
 }
 
-function sessionContext(goal: string, telemetryEntries: number): string {
+/** Recovery kind this entry point is being asked for. */
+type RestoreMode = "compact" | "resume" | "fresh";
+
+function inputField(input: unknown, field: string): string | undefined {
+  if (typeof input !== "object" || input === null) {
+    return undefined;
+  }
+  const value = (input as Record<string, unknown>)[field];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Claude Code publishes `source` on SessionStart: `compact` after a
+ * compaction, `resume` when the transcript is still present, `startup` and
+ * `clear` for an empty one. A host that publishes nothing is treated as
+ * `fresh`, which injects the least.
+ */
+function restoreMode(input: unknown): RestoreMode {
+  switch (inputField(input, "source")) {
+    case "compact":
+      return "compact";
+    case "resume":
+      return "resume";
+    default:
+      return "fresh";
+  }
+}
+
+function sessionIdOf(input: unknown): string | undefined {
+  const value = inputField(input, "session_id");
+  return value !== undefined && SESSION_ID_PATTERN.test(value)
+    ? value
+    : undefined;
+}
+
+interface LoopSessionMarker {
+  readonly sessionId?: string;
+  readonly taskId?: string;
+}
+
+function parseSessionMarker(source: string | null): LoopSessionMarker {
+  if (source === null) {
+    return {};
+  }
+  const session = source.match(/^Session: (\S+)$/mu)?.[1];
+  const task = source.match(/^Task: (\S+)$/mu)?.[1];
+  return {
+    ...(session === undefined ? {} : { sessionId: session }),
+    ...(task === undefined ? {} : { taskId: task })
+  };
+}
+
+/**
+ * The bridge the CLI cannot build for itself: a hook is told the session id,
+ * a command run inside that session is not. Recording it here lets
+ * `agent-ops task attach` default to the session actually running.
+ *
+ * ponytail: last writer wins. Two concurrent sessions in one checkout already
+ * violate the one-writer rule; pass `--session` explicitly if you need that.
+ */
+async function writeSessionMarker(options: {
+  readonly root: string;
+  readonly harness: ProjectLoopHarness;
+  readonly sessionId: string;
+  readonly taskId?: string;
+}): Promise<void> {
+  const path = loopPath(options.root, options.harness, "loop-state.md");
+  await withPrivateFileLock(path, options.root, async () => {
+    const source = await readPrivateFile(path, options.root);
+    const baseline = source ?? "# Loop state\n";
+    const previous = parseSessionMarker(source);
+    const taskId = options.taskId ?? previous.taskId;
+    await writePrivateFile(
+      path,
+      applyManagedBlock(baseline, {
+        id: LOOP_SESSION_ID,
+        version: 1,
+        content: [
+          `Session: ${options.sessionId}`,
+          ...(taskId === undefined ? [] : [`Task: ${taskId}`])
+        ].join("\n")
+      }),
+      options.root
+    );
+  });
+}
+
+/**
+ * The session id a hook recorded for this checkout, for commands the host
+ * never tells. Both harness directories are considered and the most recently
+ * written marker wins, because a checkout may carry both.
+ */
+export async function readRecordedSessionId(
+  root: string
+): Promise<string | undefined> {
+  const candidates: { readonly sessionId: string; readonly at: number }[] = [];
+  for (const harness of ["claude", "codex"] as const) {
+    const path = loopPath(root, harness, "loop-state.md");
+    try {
+      const marker = parseSessionMarker(await readPrivateFile(path, root));
+      if (marker.sessionId === undefined) {
+        continue;
+      }
+      const status = await lstat(path);
+      candidates.push({ sessionId: marker.sessionId, at: status.mtimeMs });
+    } catch {
+      continue;
+    }
+  }
+  return candidates.sort((left, right) => right.at - left.at)[0]?.sessionId;
+}
+
+interface RestoreState {
+  readonly checkpoint?: string;
+  readonly pointer?: string;
+  readonly taskId?: string;
+  readonly outcome: "hit" | "pointer" | "miss";
+}
+
+/**
+ * The task attached to this session, never merely the most recent one: a
+ * checkpoint from somebody else's task is worse than none. When this session
+ * is unknown, the previous task is offered as a one-line pointer instead, so
+ * the agent can attach to it deliberately.
+ */
+async function restoreState(options: {
+  readonly root: string;
+  readonly harness: ProjectLoopHarness;
+  readonly sessionId: string | undefined;
+}): Promise<RestoreState> {
+  const marker = parseSessionMarker(
+    await readPrivateFile(
+      loopPath(options.root, options.harness, "loop-state.md"),
+      options.root
+    )
+  );
+  const state = parseTaskStateSource(
+    await readPrivateFile(
+      join(options.root, ".agent-ops", "tasks", "state.json"),
+      options.root
+    )
+  );
+  const attachment = options.sessionId === undefined
+    ? undefined
+    : state.sessions.find(
+        (candidate) => candidate.sessionId === options.sessionId
+      );
+  const attached = attachment === undefined
+    ? undefined
+    : state.tasks.find((record) => record.task.id === attachment.taskId);
+  if (attached !== undefined) {
+    return {
+      checkpoint: renderTaskCheckpoint(
+        attached,
+        DEFAULT_CHECKPOINT_BUDGET,
+        (value) => safeStateContext(value, "task-checkpoint")
+      ),
+      // A fresh start of an attached session — `/clear` keeps the id — is told
+      // the task exists without being handed its contents.
+      pointer: `Attached task here: ${attached.task.id} — its state was not ` +
+        `injected; read it with \`agent-ops task status --task ` +
+        `${attached.task.id}\`.`,
+      taskId: attached.task.id,
+      outcome: "hit"
+    };
+  }
+  const previous = marker.taskId === undefined
+    ? undefined
+    : state.tasks.find(
+        (record) =>
+          record.task.id === marker.taskId && record.status === "active"
+      );
+  if (previous === undefined) {
+    return { outcome: "miss" };
+  }
+  return {
+    pointer: `Last active task here: ${previous.task.id} — ` +
+      `attach it with \`agent-ops task attach --task ${previous.task.id}\` ` +
+      "to restore its state, or start a new one.",
+    taskId: previous.task.id,
+    outcome: "pointer"
+  };
+}
+
+function clamp(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 14)}\n[truncated]`;
+}
+
+function sessionContext(options: {
+  readonly goal: string;
+  readonly telemetryEntries: number;
+  readonly mode: RestoreMode;
+  readonly restore: RestoreState;
+}): string {
+  // Task state is assembled first and clamped on its own budget, so a long
+  // goal can no longer crowd out the one thing recovery exists to carry.
+  // Strictly one shape per mode. A resumed transcript still holds the state,
+  // and a fresh session is offered the previous task rather than handed its
+  // contents: `/clear` keeps the session id, so an attachment alone must not
+  // be read as "this context still knows the task".
+  const restored = ((): readonly string[] => {
+    if (options.mode === "compact") {
+      // Already sanitized field by field, and never clamped here: the
+      // criterion ids and the evidence pointer are required, and slicing the
+      // assembled text is what would cut through them.
+      return options.restore.checkpoint === undefined
+        ? []
+        : [options.restore.checkpoint, ""];
+    }
+    if (options.mode === "fresh") {
+      const pointer = options.restore.pointer === undefined
+        ? undefined
+        : safeStateContext(options.restore.pointer, "task-pointer");
+      return pointer === undefined ? [] : [pointer, ""];
+    }
+    return [];
+  })();
+  const telemetry = `Telemetry: ${options.telemetryEntries} recent redacted event(s).`;
+  const fixed = [
+    "agent-ops project loop is active.",
+    "",
+    ...restored,
+    telemetry
+  ];
+  // The goal takes what is left rather than a fixed share: a task at the
+  // schema's limits needs most of the ceiling, and dropping the goal line is
+  // better than truncating the state the session is being restored with.
+  const spent = fixed.reduce((total, line) => total + line.length + 1, 0);
+  const goalRoom = Math.min(
+    MAX_GOAL_CHARS,
+    MAX_CONTEXT_CHARS - spent - "Current goal:".length - 2
+  );
   return boundedContext(
-    [
-      "agent-ops project loop is active.",
-      "",
-      "Current goal:",
-      goal,
-      "",
-      `Telemetry: ${telemetryEntries} recent redacted event(s).`
-    ].join("\n")
+    (goalRoom < MIN_GOAL_CHARS
+      ? fixed
+      : [
+          ...fixed.slice(0, -1),
+          "Current goal:",
+          clamp(options.goal, goalRoom),
+          "",
+          telemetry
+        ]).join("\n")
   );
 }
 
@@ -515,7 +768,9 @@ export async function runProjectLoop(
     options.root,
     options.harness
   ).catch(() => null);
-  if (root !== null) {
+  // SessionStart records its own event naming the restore outcome, so the
+  // generic record is skipped rather than written twice.
+  if (root !== null && options.event !== "SessionStart") {
     await appendTelemetry({
       root,
       harness: options.harness,
@@ -543,12 +798,51 @@ export async function runProjectLoop(
     }).catch(() => undefined);
   }
   if (options.event === "SessionStart" && root !== null) {
+    const sessionId = sessionIdOf(options.input);
+    const restore = await restoreState({
+      root,
+      harness: options.harness,
+      sessionId
+    }).catch((): RestoreState => ({ outcome: "miss" }));
+    // Exactly one event per SessionStart, written before the context is built
+    // so a later read failure cannot lose the outcome.
+    await appendTelemetry({
+        root,
+        harness: options.harness,
+        event: "SessionStart",
+        decision: {
+          blocked: false,
+          outcome: "observed",
+          code: `restore-${restore.outcome}`,
+          denial: "none"
+        },
+        ...(options.now === undefined ? {} : { now: options.now }),
+        ...(options.telemetryMaxBytes === undefined
+          ? {}
+          : { maxBytes: options.telemetryMaxBytes })
+    }).catch(() => undefined);
+    if (sessionId !== undefined) {
+      await writeSessionMarker({
+        root,
+        harness: options.harness,
+        sessionId,
+        ...(restore.taskId === undefined ? {} : { taskId: restore.taskId })
+      }).catch(() => undefined);
+    }
     try {
       const [goal, telemetryEntries] = await Promise.all([
         readPrivateFile(loopPath(root, options.harness, "loop-goal.md"), root),
         telemetryCount(root, options.harness)
       ]);
-      return sessionOutput(options.harness, sessionContext(safeGoalContext(goal), telemetryEntries));
+      return sessionOutput(
+        options.harness,
+        sessionContext({
+          goal: safeGoalContext(goal),
+          telemetryEntries,
+          mode: restoreMode(options.input),
+          restore
+        })
+      );
     } catch {
       return noOutput();
     }

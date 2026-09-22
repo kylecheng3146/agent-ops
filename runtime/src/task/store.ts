@@ -297,6 +297,15 @@ function parseSession(value: unknown): SessionAttachment {
   };
 }
 
+/**
+ * Validated task state without taking the write lock. A recovery hook must
+ * stay fail-open and fast: contending for the lock that `mutate` holds would
+ * make a read of the state able to fail, or to delay, a session start.
+ */
+export function parseTaskStateSource(source: string | null): TaskState {
+  return parseState(source);
+}
+
 function parseState(source: string | null): MutableTaskState {
   if (source === null) {
     return {

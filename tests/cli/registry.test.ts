@@ -20,6 +20,7 @@ test("command registry exposes every parsed top-level command", async () => {
       command: name,
       profiles: [],
       dryRun: false,
+  rerun: false,
       json: true,
       yes: false
     }))?.status, "ok");

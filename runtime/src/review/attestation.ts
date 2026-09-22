@@ -86,7 +86,9 @@ function safeAttempt(attempt: ReviewAttempt): ReviewAttempt {
     status: attempt.status,
     ...(attempt.sessionId === undefined ? {} : { sessionId: safeText(attempt.sessionId) }),
     ...(attempt.reason === undefined ? {} : { reason: safeText(attempt.reason) }),
-    ...(attempt.diagnostic === undefined ? {} : { diagnostic: safeText(attempt.diagnostic) })
+    ...(attempt.diagnostic === undefined ? {} : { diagnostic: safeText(attempt.diagnostic) }),
+    // Numbers only, so the cost of a round survives in the record too.
+    ...(attempt.metrics === undefined ? {} : { metrics: attempt.metrics })
   };
 }
 
@@ -374,6 +376,39 @@ export async function findReviewAttestation(
     return attestation?.sourceFingerprint === sourceFingerprint &&
       await hasMatchingReportArtifact(root, attestation)
       ? attestation
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The stored report behind an attestation, for a caller that wants to reuse
+ * the recorded verdict rather than run the chain again. Returns null unless it
+ * parses, matches this exact source and records a PASS: a reuse path must fail
+ * closed exactly like the gates that read the attestation.
+ */
+export async function readReviewReportArtifact(
+  root: string,
+  sourceFingerprint: string
+): Promise<ReviewReportArtifact | null> {
+  if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
+    return null;
+  }
+  const source = await readPrivateFile(
+    artifactPath(root, sourceFingerprint),
+    root
+  );
+  if (source === null) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(source) as ReviewReportArtifact;
+    return value.sourceFingerprint === sourceFingerprint &&
+      value.status === "PASS" &&
+      value.report !== undefined &&
+      value.adversarial !== undefined
+      ? value
       : null;
   } catch {
     return null;

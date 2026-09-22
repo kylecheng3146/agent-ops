@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildAdversarialPrompt,
+  buildReviewPrompt,
   runIndependentReview,
   type ReviewInvocation
 } from "../../runtime/src/review/runner.js";
@@ -367,4 +368,54 @@ test("the fallback-safe prompt carries the complete report contract", async () =
     assert.ok(result.prompt.includes(field));
   }
   assert.match(result.prompt, /Every FAIL criterion.*blocking finding/s);
+});
+
+test("both prompts carry the resolved base range of a --base review", () => {
+  const scoped: ReviewInvocation = {
+    ...invocation,
+    scope: {
+      mode: "base",
+      baseRef: "HEAD~3",
+      resolvedBase: "1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e",
+      changedFiles: ["runtime/src/review/runner.ts", "docs/en/spec/review.md"]
+    }
+  };
+  for (const prompt of [
+    buildReviewPrompt(scoped),
+    buildAdversarialPrompt(scoped, reportFor(scoped.packet.criteria))
+  ]) {
+    assert.match(prompt, /1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e\.\.HEAD/);
+    assert.ok(
+      prompt.includes(
+        "git diff 1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e HEAD -- " +
+          "'runtime/src/review/runner.ts' 'docs/en/spec/review.md'"
+      ),
+      "prompt lacks the range diff instruction"
+    );
+    // The user's ref text is never sent: only the commit the runtime resolved.
+    assert.doesNotMatch(prompt, /HEAD~3/);
+  }
+});
+
+test("a worktree review is told to compare the working tree", () => {
+  const prompt = buildReviewPrompt({
+    ...invocation,
+    scope: { mode: "worktree", changedFiles: ["runtime/src/review/runner.ts"] }
+  });
+  assert.match(prompt, /uncommitted working-tree changes/);
+  assert.doesNotMatch(prompt, /committed range/);
+});
+
+test("both prompts bound the reviewer's reading without loosening coverage", () => {
+  for (const prompt of [
+    buildReviewPrompt(invocation),
+    buildAdversarialPrompt(invocation, reportFor(invocation.packet.criteria))
+  ]) {
+    assert.match(prompt, /Read in this order: the changed paths first/);
+    assert.match(prompt, /Do not survey the repository/);
+    assert.match(prompt, /shortest sufficient evidence/);
+    // The narrowing must not weaken what the report has to cover.
+    assert.match(prompt, /copy that exact path set into changedFilesInspected/);
+    assert.match(prompt, /Name every requested criterion exactly once/);
+  }
 });
