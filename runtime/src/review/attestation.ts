@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { AgentOpsError } from "../fs/paths.js";
@@ -9,6 +10,7 @@ import {
 import { redactSecrets } from "../security/redact.js";
 import { safeTaskText } from "../task/render.js";
 import type {
+  PriorReviewFinding,
   ReviewAttempt,
   ReviewPreflightAttempt,
   ReviewRunResult
@@ -426,5 +428,98 @@ export async function invalidateReviewAttestation(
   const path = attestationPath(root, sourceFingerprint);
   if (await readPrivateFile(path, root) !== null) {
     await writePrivateFile(path, "null\n", root);
+  }
+}
+
+/** Prior findings stay a short checklist, never a second report to digest. */
+export const MAX_PRIOR_FINDINGS = 20;
+export const MAX_PRIOR_FINDINGS_BYTES = 16 * 1024;
+
+function blockingFindings(
+  artifact: ReviewReportArtifact
+): readonly PriorReviewFinding[] {
+  // A refuted PASS failed on the adversarial report; otherwise the primary
+  // report is the one that failed.
+  const report = artifact.adversarial?.refuted === true
+    ? artifact.adversarial.report
+    : artifact.report;
+  const findings: PriorReviewFinding[] = [];
+  let bytes = 2;
+  for (const finding of redactReviewReport(report!).findings) {
+    if (!finding.blocking) {
+      continue;
+    }
+    const prior: PriorReviewFinding = {
+      severity: finding.severity,
+      title: finding.title,
+      details: finding.details,
+      locations: finding.locations,
+      criterionIds: finding.criterionIds
+    };
+    bytes += Buffer.byteLength(JSON.stringify(prior), "utf8") + 1;
+    if (findings.length === MAX_PRIOR_FINDINGS || bytes > MAX_PRIOR_FINDINGS_BYTES) {
+      break;
+    }
+    findings.push(prior);
+  }
+  return findings;
+}
+
+/**
+ * Blocking findings of this task's most recent decided review, when that
+ * review failed. NOT_RUN artifacts decide nothing and are skipped; a newer
+ * PASS settles the earlier findings, so none are returned. Any unreadable
+ * record is ignored: these are a hint for the next reviewer, and without them
+ * the review simply runs as it always has.
+ */
+export async function findPriorFailingFindings(
+  root: string,
+  taskId: string
+): Promise<readonly PriorReviewFinding[]> {
+  const directory = join(root, ...REVIEW_ATTESTATION_DIRECTORY.split("/"));
+  let names: string[];
+  try {
+    names = await readdir(directory);
+  } catch {
+    return [];
+  }
+  // ponytail: linear scan of every report; index by task if the directory grows large.
+  let latest: ReviewReportArtifact | undefined;
+  for (const name of names) {
+    const fingerprint = name.slice(0, -REVIEW_REPORT_ARTIFACT_SUFFIX.length);
+    if (!name.endsWith(REVIEW_REPORT_ARTIFACT_SUFFIX) || !FINGERPRINT_PATTERN.test(fingerprint)) {
+      continue;
+    }
+    try {
+      const source = await readPrivateFile(artifactPath(root, fingerprint), root);
+      if (source === null) {
+        continue;
+      }
+      const value = JSON.parse(source) as ReviewReportArtifact;
+      const decided = value.status === "PASS" ||
+        (value.status === "FAIL" && value.report !== undefined);
+      if (
+        value?.schemaVersion !== 1 ||
+        value.sourceFingerprint !== fingerprint ||
+        value.taskId !== taskId ||
+        !decided ||
+        !Number.isFinite(Date.parse(value.createdAt))
+      ) {
+        continue;
+      }
+      if (latest === undefined || Date.parse(value.createdAt) > Date.parse(latest.createdAt)) {
+        latest = value;
+      }
+    } catch {
+      continue;
+    }
+  }
+  if (latest?.status !== "FAIL") {
+    return [];
+  }
+  try {
+    return blockingFindings(latest);
+  } catch {
+    return [];
   }
 }
