@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-09-23
+
 - Both review rounds are now asked to report every blocking defect in one
   reply, and the adversarial round to look for every defect the first
   reviewer missed rather than one. Recorded chains on this repository failed
