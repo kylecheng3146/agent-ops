@@ -4,6 +4,20 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-09-23
+
+- Both review rounds are now asked to report every blocking defect in one
+  reply, and the adversarial round to look for every defect the first
+  reviewer missed rather than one. Recorded chains on this repository failed
+  up to five times in a row with one or two new findings each, at five to
+  seven minutes per chain.
+- A review now carries the blocking findings of the task's most recent
+  decided review forward when that review failed. Both rounds receive them
+  fenced as untrusted, confirm each one against the code, and still inspect
+  every changed path. Only the same task's FAIL counts: a newer PASS settles
+  them, NOT_RUN decides nothing, and they are redacted and capped at 20
+  findings and 16 KiB.
+
 ## [0.2.7] - 2026-09-22
 
 - Review now records what each round cost: prompt bytes, wall-clock duration

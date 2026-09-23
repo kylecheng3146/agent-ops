@@ -16,7 +16,7 @@ import type { GitRunner } from "../../runtime/src/verify/change-surface.js";
 import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fingerprint.js";
 import { buildVerificationEvidence, calculateConfigHash, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../runtime/src/schema/validate.js";
-import { findReviewAttestation } from "../../runtime/src/review/attestation.js";
+import { findReviewAttestation, saveReviewReportArtifact } from "../../runtime/src/review/attestation.js";
 import { createFailureFingerprint } from "../../runtime/src/verify/fingerprint.js";
 
 const REVIEW_CONFIG: AgentOpsConfig = {
@@ -762,4 +762,42 @@ test("what a round cost survives the runner's own sanitizer", async () => {
   });
 
   assert.deepEqual(result.attempts?.[0]?.metrics, attempt.metrics);
+});
+
+test("the task's latest failed review is carried into the next one", async () => {
+  const { root, tasks, taskId } = await withTask(true);
+  try {
+    const seen: ReviewExecutionRequest[] = [];
+    const review = () => runReviewCommand({
+      args: reviewArgs(taskId),
+      authorized: true,
+      tasks,
+      sessionId: SESSION,
+      root,
+      execute: async (request) => {
+        seen.push(request);
+        return passing(request);
+      }
+    });
+    const clean = await review();
+    assert.equal(seen[0]?.invocation.priorFindings, undefined);
+    assert.doesNotMatch(clean.data?.result.prompt ?? "", /PRIOR_FINDINGS/);
+
+    await saveReviewReportArtifact(root, {
+      status: "FAIL",
+      harness: "codex",
+      model: "fixture",
+      effort: "fixture",
+      prompt: "fixture",
+      report: reportFor([{ id: "tests" }, { id: "scope" }], "FAIL")
+    }, "d".repeat(64), taskId);
+    const carried = await review();
+    assert.deepEqual(
+      seen[1]?.invocation.priorFindings?.map((item) => item.title),
+      ["Criterion failed."]
+    );
+    assert.match(carried.data?.result.prompt ?? "", /BEGIN_PRIOR_FINDINGS/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

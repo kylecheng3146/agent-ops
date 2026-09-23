@@ -19,6 +19,7 @@ import {
 import { renderReviewResult } from "../../../../runtime/src/review/render.js";
 import { reviewReportResults } from "../../../../runtime/src/review/report.js";
 import {
+  findPriorFailingFindings,
   findReviewAttestation,
   invalidateReviewAttestation,
   readReviewReportArtifact,
@@ -720,6 +721,9 @@ export async function runReviewCommand(
     }
     throw error;
   }
+  const priorFindings = options.root === undefined || context === undefined
+    ? []
+    : await findPriorFailingFindings(options.root, context.taskId);
   const result = await runIndependentReview({
     invocation: {
       harness: target,
@@ -730,7 +734,8 @@ export async function runReviewCommand(
       effort: role?.effort ?? options.effort ?? "configured",
       packet,
       ...(scope === undefined ? {} : { scope }),
-      ...(verification === undefined ? {} : { verification })
+      ...(verification === undefined ? {} : { verification }),
+      ...(priorFindings.length === 0 ? {} : { priorFindings })
     },
     authorized: options.authorized,
     execute: options.execute ?? (async () => ({
