@@ -528,7 +528,7 @@ function parseSessionMarker(source: string | null): LoopSessionMarker {
  * ponytail: last writer wins. Two concurrent sessions in one checkout already
  * violate the one-writer rule; pass `--session` explicitly if you need that.
  */
-async function writeSessionMarker(options: {
+export async function writeSessionMarker(options: {
   readonly root: string;
   readonly harness: ProjectLoopHarness;
   readonly sessionId: string;

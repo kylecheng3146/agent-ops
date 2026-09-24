@@ -44,7 +44,8 @@ test("recognizes every top-level command", () => {
     "task",
     "verify",
     "review",
-    "allow-stop"
+    "allow-stop",
+    "worktree"
   ]);
 
   for (const command of COMMAND_NAMES) {
@@ -55,6 +56,8 @@ test("recognizes every top-level command", () => {
           ? [command, "--session", "session-one"]
           : command === "review"
             ? [command, "--task", "task-one", "--yes"]
+          : command === "worktree"
+            ? [command, "add", "alpha"]
           : [command];
     assert.equal(parseArgs(argv).command, command);
   }

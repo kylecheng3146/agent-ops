@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -77,6 +77,8 @@ import {
 } from "./commands/update.js";
 import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
+import { runWorktreeCommand } from "./commands/worktree.js";
+import type { WorktreeDependencies } from "../../../runtime/src/worktree/service.js";
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
@@ -192,6 +194,53 @@ async function plannedTrustBinding(
     : await repositoryTrustBinding(root, config, CLI_VERSION);
 }
 
+function worktreeDependencies(): WorktreeDependencies {
+  const gateFor = async (root: string, config: AgentOpsConfig) =>
+    new CompletionGateService({
+      root,
+      config,
+      gitRunner: gitRunner(root),
+      taskService: new TaskService(
+        new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+      ),
+      evidenceStore: new FileEvidenceStore(root, root)
+    });
+  return {
+    git: async (cwd, gitArgs) => await new Promise((resolve) => {
+      execFile("git", [...gitArgs], { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+        (error, stdout, stderr) => resolve({
+          exitCode: error === null ? 0 : typeof error.code === "number" ? error.code : 1,
+          stdout,
+          stderr
+        }));
+    }),
+    loadConfig: async (root) => (await loadEffectiveConfig(root, "project")).config,
+    trust: {
+      status: async (root, config) => await repositoryTrust(root, config, CLI_VERSION),
+      grant: async (root, config) =>
+        await trustStore().grant(await repositoryTrustBinding(root, config, CLI_VERSION)),
+      revoke: async (root, config) => {
+        await trustStore().revoke(await repositoryTrustBinding(root, config, CLI_VERSION));
+      }
+    },
+    gate: gateFor,
+    runSetup: async (cwd, step) => await new Promise((resolve) => {
+      execFile(step.command, [...step.args], {
+        cwd,
+        encoding: "utf8",
+        timeout: step.timeoutMs,
+        maxBuffer: 16 * 1024 * 1024,
+        ...(process.platform === "win32" ? { shell: true } : {})
+      }, (error, stdout, stderr) => resolve({
+        exitCode: error === null
+          ? 0
+          : typeof error.code === "number" && error.killed !== true ? error.code : null,
+        output: `${stdout}${stderr}`
+      }));
+    })
+  };
+}
+
 const argv = process.argv.slice(2);
 
 function runAgy(
@@ -274,7 +323,8 @@ process.exitCode = await runCli(
           "task",
           "verify",
           "review",
-          "allow-stop"
+          "allow-stop",
+          "worktree"
         ].map((command) => [command, async (args: Parameters<NonNullable<import("./commands/index.js").CommandHandler>>[0]) => {
           const root = args.scope === "user"
             ? process.env.AGENT_OPS_HOME ?? homedir()
@@ -310,6 +360,13 @@ process.exitCode = await runCli(
                 await plannedTrustBinding(root, config),
               confirm: async (plan, trust, warnings) =>
                 await confirmInit(plan, trust, warnings)
+            });
+          }
+          if (args.command === "worktree") {
+            return await runWorktreeCommand({
+              args,
+              cwd: root,
+              deps: worktreeDependencies()
             });
           }
           if (args.command === "doctor") {

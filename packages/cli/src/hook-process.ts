@@ -344,6 +344,33 @@ function shouldBuildStopVerification(
 }
 
 /**
+ * The gate of one checkout. A session redirected into a worktree is judged by
+ * that worktree's gate, built the same way from the worktree's own config.
+ */
+function completionGateFor(
+  root: string,
+  config: AgentOpsConfig,
+  gitRunner: GitRunner
+): CompletionGateService {
+  return new CompletionGateService({
+    root,
+    config,
+    gitRunner,
+    taskService: new TaskService(
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+    ),
+    evidenceStore: new FileEvidenceStore(root, root),
+    forRoot: async (worktree) => {
+      const outcome = await loadProjectHookConfig(worktree);
+      if (outcome.kind !== "loaded" || !outcome.config.features.completionGate.enabled) {
+        throw new Error("The redirected worktree has no enabled completion gate.");
+      }
+      return completionGateFor(worktree, outcome.config, defaultGitRunner(worktree));
+    }
+  });
+}
+
+/**
  * Runs one hook invocation. Exit code stays zero because native JSON carries
  * decisions; only an explicitly installed agy completion gate fails closed.
  */
@@ -477,18 +504,7 @@ export async function runHookProcess(
       config.features.completionGate.enabled
         ? dependencies.completionGate ?? {
             handle: async (normalized) =>
-              await new CompletionGateService({
-                root,
-                config,
-                gitRunner,
-                taskService: new TaskService(
-                  new FileTaskStore(
-                    join(root, ".agent-ops", "tasks", "state.json"),
-                    root
-                  )
-                ),
-                evidenceStore: new FileEvidenceStore(root, root)
-              }).handle(normalized)
+              await completionGateFor(root, config, gitRunner).handle(normalized)
           }
         : undefined;
     const output = await runHookCommand({
