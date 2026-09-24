@@ -3,19 +3,19 @@ import { okEnvelope, type CliEnvelope } from "../output.js";
 import {
   addWorktree,
   type WorktreeAddResult
-} from "../../../../runtime/src/worktree/service.js";
+} from "../../../../runtime/src/parallel/service.js";
 import {
   finishWorktree,
   type FinishDependencies,
   type FinishResult
-} from "../../../../runtime/src/worktree/finish.js";
+} from "../../../../runtime/src/parallel/finish.js";
 import {
   idleWorktrees,
   listWorktrees,
   removeWorktree,
   resumeWorktree,
   type WorktreeStatus
-} from "../../../../runtime/src/worktree/manage.js";
+} from "../../../../runtime/src/parallel/manage.js";
 
 function listText(statuses: readonly WorktreeStatus[], now: number): string {
   if (statuses.length === 0) return "No agent-ops worktrees.";

@@ -10,7 +10,7 @@ import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
 import type { GitRunResult, GitRunner } from "../../runtime/src/verify/change-surface.js";
 import { FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
-import type { TrustState, WorktreeDependencies } from "../../runtime/src/worktree/service.js";
+import type { TrustState, WorktreeDependencies } from "../../runtime/src/parallel/service.js";
 
 export const execFile = promisify(execFileCallback);
 

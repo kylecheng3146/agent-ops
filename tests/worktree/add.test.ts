@@ -6,7 +6,7 @@ import test from "node:test";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
-import { addWorktree, readWorktreeRecord } from "../../runtime/src/worktree/service.js";
+import { addWorktree, readWorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { CONFIG, deps, gateFor, git, repository, stopEvent, write } from "./fixture.js";
 
 const SESSION = "session-one";

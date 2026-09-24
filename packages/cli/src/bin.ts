@@ -77,12 +77,12 @@ import {
 } from "./commands/update.js";
 import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
-import { runWorktreeCommand } from "./commands/worktree.js";
-import type { FinishDependencies } from "../../../runtime/src/worktree/finish.js";
+import { runWorktreeCommand } from "./commands/parallel.js";
+import type { FinishDependencies } from "../../../runtime/src/parallel/finish.js";
 import {
   listWorktrees,
   worktreeDoctorResult
-} from "../../../runtime/src/worktree/manage.js";
+} from "../../../runtime/src/parallel/manage.js";
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)

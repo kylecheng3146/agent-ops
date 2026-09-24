@@ -19,7 +19,7 @@ import {
 } from "../verify/change-surface.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
-import { readWorktreeRecord } from "../worktree/service.js";
+import { readWorktreeRecord } from "../parallel/service.js";
 
 const FINGERPRINT = /^[a-f0-9]{64}$/u;
 const SESSION = /^[^\0\r\n]{1,256}$/u;

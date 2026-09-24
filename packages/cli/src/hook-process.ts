@@ -28,7 +28,7 @@ import type {
 import {
   evaluateWorktreeWrite,
   resolveMainRoot
-} from "../../../runtime/src/worktree/guard.js";
+} from "../../../runtime/src/parallel/guard.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";

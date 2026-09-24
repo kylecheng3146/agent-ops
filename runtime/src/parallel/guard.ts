@@ -19,8 +19,8 @@ export async function resolveMainRoot(runner: GitRunner): Promise<string | null>
 
 /**
  * The real path of `path`, resolved through its deepest existing ancestor: a
- * Write creates files that do not exist yet, and `/tmp` vs `/private/tmp`
- * must not decide whether an edit lands in the main checkout.
+ * Write creates files that do not exist yet, and a symlinked spelling of the
+ * repository must not decide whether an edit lands in the main checkout.
  */
 export async function canonicalPath(path: string): Promise<string> {
   const pending: string[] = [];

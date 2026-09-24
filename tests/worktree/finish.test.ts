@@ -21,8 +21,8 @@ import {
   finishWorktree,
   WorktreeConflictError,
   type FinishDependencies
-} from "../../runtime/src/worktree/finish.js";
-import { addWorktree, type WorktreeRecord } from "../../runtime/src/worktree/service.js";
+} from "../../runtime/src/parallel/finish.js";
+import { addWorktree, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
 import { CONFIG, deps, gateFor, git, gitRunner, repository, stopEvent, write } from "./fixture.js";
 

@@ -10,7 +10,7 @@ import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate
 import { doctorInstallation } from "../../runtime/src/install/doctor.js";
 import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
-import type { FinishDependencies } from "../../runtime/src/worktree/finish.js";
+import type { FinishDependencies } from "../../runtime/src/parallel/finish.js";
 import {
   idleWorktrees,
   listWorktrees,
@@ -19,8 +19,8 @@ import {
   resumeWorktree,
   worktreeDoctorResult,
   type WorktreeStatus
-} from "../../runtime/src/worktree/manage.js";
-import { addWorktree, readWorktreeRecord } from "../../runtime/src/worktree/service.js";
+} from "../../runtime/src/parallel/manage.js";
+import { addWorktree, readWorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { CONFIG, deps, gateFor, git, repository, stopEvent, write } from "./fixture.js";
 
 const SESSION = "session-one";

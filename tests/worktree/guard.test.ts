@@ -9,8 +9,8 @@ import { runHookProcess } from "../../packages/cli/src/hook-process.js";
 import { normalizeClaudeHookInput } from "../../runtime/src/adapters/claude/input.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { runProjectLoop } from "../../runtime/src/hooks/codex-loop.js";
-import { evaluateWorktreeWrite } from "../../runtime/src/worktree/guard.js";
-import { addWorktree } from "../../runtime/src/worktree/service.js";
+import { evaluateWorktreeWrite } from "../../runtime/src/parallel/guard.js";
+import { addWorktree } from "../../runtime/src/parallel/service.js";
 import { CONFIG, deps, gateFor, gitRunner, repository } from "./fixture.js";
 
 const SESSION = "session-one";
