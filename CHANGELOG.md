@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-24
+
 - Parallel conversations in one repository no longer void each other's
   verification and review. `agent-ops worktree add <name> --session <id>`
   gives an editing conversation `.worktrees/<name>` on `agent-ops/<name>`,
