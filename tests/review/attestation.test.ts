@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -72,8 +72,47 @@ test("reports no attestation for a different source state", async () => {
   await writeFile(join(directory, REVIEW_ATTESTATION_DIRECTORY, `${"c".repeat(64)}.json`),
     JSON.stringify(attestation()), { mode: 0o600 });
   assert.equal(await findReviewAttestation(directory, "c".repeat(64)), null);
-  await invalidateReviewAttestation(directory, FINGERPRINT);
+  await invalidateReviewAttestation(directory, FINGERPRINT, "task-1234");
   assert.equal(await findReviewAttestation(directory, FINGERPRINT), null);
+});
+
+test("each task keeps its own review of the same source", async () => {
+  const directory = await root();
+  await saveValidAttestation(directory, fixtureAttestation(FINGERPRINT, "task-parent"));
+  await saveValidAttestation(directory, fixtureAttestation(FINGERPRINT, "task-child"));
+  assert.equal((await findReviewAttestation(directory, FINGERPRINT, "task-parent"))?.taskId, "task-parent");
+  assert.equal((await findReviewAttestation(directory, FINGERPRINT, "task-child"))?.taskId, "task-child");
+  assert.equal(await findReviewAttestation(directory, FINGERPRINT, "task-other"), null);
+
+  // A new attempt for one task leaves the other's PASS standing.
+  await invalidateReviewAttestation(directory, FINGERPRINT, "task-child");
+  assert.equal(await findReviewAttestation(directory, FINGERPRINT, "task-child"), null);
+  assert.equal((await findReviewAttestation(directory, FINGERPRINT, "task-parent"))?.taskId, "task-parent");
+});
+
+test("a bare record written before per-task records still reads", async () => {
+  const directory = await root();
+  const legacy = attestation({
+    reportArtifact: `${REVIEW_ATTESTATION_DIRECTORY}/${FINGERPRINT}.reports.json`
+  });
+  await saveReviewReportArtifact(directory, fixtureReviewResult(FINGERPRINT), FINGERPRINT, "task-1234");
+  // Move the per-task artifact to the bare name an older review used.
+  await writeFile(
+    join(directory, REVIEW_ATTESTATION_DIRECTORY, `${FINGERPRINT}.reports.json`),
+    await readFile(join(directory, REVIEW_ATTESTATION_DIRECTORY, `${FINGERPRINT}.task-1234.reports.json`), "utf8"),
+    { mode: 0o600 }
+  );
+  await rm(join(directory, REVIEW_ATTESTATION_DIRECTORY, `${FINGERPRINT}.task-1234.reports.json`));
+  await writeFile(join(directory, REVIEW_ATTESTATION_DIRECTORY, `${FINGERPRINT}.json`),
+    JSON.stringify(legacy), { mode: 0o600 });
+  assert.equal((await findReviewAttestation(directory, FINGERPRINT, "task-1234"))?.taskId, "task-1234");
+  assert.equal((await findReviewAttestation(directory, FINGERPRINT))?.taskId, "task-1234");
+
+  // Another task's new attempt leaves this task's bare record alone.
+  await invalidateReviewAttestation(directory, FINGERPRINT, "task-other");
+  assert.equal((await findReviewAttestation(directory, FINGERPRINT, "task-1234"))?.taskId, "task-1234");
+  await invalidateReviewAttestation(directory, FINGERPRINT, "task-1234");
+  assert.equal(await findReviewAttestation(directory, FINGERPRINT, "task-1234"), null);
 });
 
 test("rejects an invalid attestation and reads a corrupt one as absent", async () => {

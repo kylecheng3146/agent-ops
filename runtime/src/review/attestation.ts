@@ -103,11 +103,22 @@ function safePreflight(attempt: ReviewPreflightAttempt): ReviewPreflightAttempt 
   };
 }
 
-function artifactPath(root: string, fingerprint: string): string {
+/**
+ * A task's review records live under `<fingerprint>.<task id>`, so a parent
+ * and its subtask reviewed on the same source each keep their own PASS until
+ * `worktree finish` completes both. A bare `<fingerprint>` is a record with no
+ * task, or one written before records were kept per task; readers fall back
+ * to it.
+ */
+function recordKey(fingerprint: string, taskId?: string): string {
+  return taskId === undefined ? fingerprint : `${fingerprint}.${taskId}`;
+}
+
+function artifactPath(root: string, fingerprint: string, taskId?: string): string {
   return join(
     root,
     ...REVIEW_ATTESTATION_DIRECTORY.split("/"),
-    `${fingerprint}${REVIEW_REPORT_ARTIFACT_SUFFIX}`
+    `${recordKey(fingerprint, taskId)}${REVIEW_REPORT_ARTIFACT_SUFFIX}`
   );
 }
 
@@ -219,8 +230,9 @@ async function hasMatchingReportArtifact(
   root: string,
   attestation: ReviewAttestation
 ): Promise<boolean> {
+  // `reportArtifact` was validated to name this fingerprint's own record.
   const source = await readPrivateFile(
-    artifactPath(root, attestation.sourceFingerprint),
+    join(root, ...attestation.reportArtifact.split("/")),
     root
   );
   if (source === null) {
@@ -260,16 +272,16 @@ export async function saveReviewReportArtifact(
     );
   }
   const relativePath =
-    `${REVIEW_ATTESTATION_DIRECTORY}/${sourceFingerprint}${REVIEW_REPORT_ARTIFACT_SUFFIX}`;
-  await writePrivateFile(artifactPath(root, sourceFingerprint), serialized, root);
+    `${REVIEW_ATTESTATION_DIRECTORY}/${recordKey(sourceFingerprint, taskId)}${REVIEW_REPORT_ARTIFACT_SUFFIX}`;
+  await writePrivateFile(artifactPath(root, sourceFingerprint, taskId), serialized, root);
   return relativePath;
 }
 
-function attestationPath(root: string, fingerprint: string): string {
+function attestationPath(root: string, fingerprint: string, taskId?: string): string {
   return join(
     root,
     ...REVIEW_ATTESTATION_DIRECTORY.split("/"),
-    `${fingerprint}.json`
+    `${recordKey(fingerprint, taskId)}.json`
   );
 }
 
@@ -302,8 +314,12 @@ function parseAttestation(value: unknown): ReviewAttestation | null {
     typeof record.adversarialReportDigest !== "string" ||
     !DIGEST_PATTERN.test(record.adversarialReportDigest) ||
     typeof record.reportArtifact !== "string" ||
-    record.reportArtifact !==
-      `${REVIEW_ATTESTATION_DIRECTORY}/${record.sourceFingerprint}${REVIEW_REPORT_ARTIFACT_SUFFIX}` ||
+    // Its own per-task record, or the bare one an older review wrote.
+    ![
+      recordKey(record.sourceFingerprint, record.taskId as string | undefined),
+      record.sourceFingerprint
+    ].some((key) => record.reportArtifact ===
+      `${REVIEW_ATTESTATION_DIRECTORY}/${key}${REVIEW_REPORT_ARTIFACT_SUFFIX}`) ||
     (record.hostTarget !== undefined && !isReviewTarget(record.hostTarget)) ||
     typeof record.createdAt !== "string" ||
     !Number.isFinite(Date.parse(record.createdAt))
@@ -345,9 +361,9 @@ export async function saveReviewAttestation(
     );
   }
   const relativePath =
-    `${REVIEW_ATTESTATION_DIRECTORY}/${validated.sourceFingerprint}.json`;
+    `${REVIEW_ATTESTATION_DIRECTORY}/${recordKey(validated.sourceFingerprint, validated.taskId)}.json`;
   await writePrivateFile(
-    attestationPath(root, validated.sourceFingerprint),
+    attestationPath(root, validated.sourceFingerprint, validated.taskId),
     `${JSON.stringify(validated, null, 2)}\n`,
     root
   );
@@ -355,33 +371,69 @@ export async function saveReviewAttestation(
 }
 
 /**
+ * The record keys that may hold `taskId`'s review of this source: its own,
+ * then the bare one. Without a task, every task's record for the source.
+ */
+async function candidateKeys(
+  root: string,
+  sourceFingerprint: string,
+  taskId: string | undefined,
+  suffix: string
+): Promise<readonly string[]> {
+  if (taskId !== undefined) {
+    return [recordKey(sourceFingerprint, taskId), sourceFingerprint];
+  }
+  let names: string[] = [];
+  try {
+    names = await readdir(join(root, ...REVIEW_ATTESTATION_DIRECTORY.split("/")));
+  } catch {
+    // No reviews yet.
+  }
+  const own = names
+    .filter((name) => name.startsWith(`${sourceFingerprint}.`) && name.endsWith(suffix))
+    .map((name) => name.slice(0, -suffix.length))
+    .filter((key) => key !== sourceFingerprint && !key.endsWith(".reports") &&
+      TASK_ID_PATTERN.test(key.slice(sourceFingerprint.length + 1)));
+  return [sourceFingerprint, ...own];
+}
+
+/**
  * Returns the attestation recorded for this exact source state, or null. A
  * malformed file reads as absent: a gate must fail closed on garbage, never
- * treat it as a passing review.
+ * treat it as a passing review. With `taskId`, only that task's record or the
+ * bare one; callers still check the task the attestation names.
  */
 export async function findReviewAttestation(
   root: string,
-  sourceFingerprint: string
+  sourceFingerprint: string,
+  taskId?: string
 ): Promise<ReviewAttestation | null> {
-  if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
+  if (!FINGERPRINT_PATTERN.test(sourceFingerprint) ||
+      (taskId !== undefined && !TASK_ID_PATTERN.test(taskId))) {
     return null;
   }
-  const source = await readPrivateFile(
-    attestationPath(root, sourceFingerprint),
-    root
-  );
-  if (source === null) {
-    return null;
+  for (const key of await candidateKeys(root, sourceFingerprint, taskId, ".json")) {
+    const source = await readPrivateFile(
+      join(root, ...REVIEW_ATTESTATION_DIRECTORY.split("/"), `${key}.json`),
+      root
+    );
+    if (source === null) {
+      continue;
+    }
+    try {
+      const attestation = parseAttestation(JSON.parse(source) as unknown);
+      if (
+        attestation?.sourceFingerprint === sourceFingerprint &&
+        recordKey(sourceFingerprint, key === sourceFingerprint ? undefined : attestation.taskId) === key &&
+        await hasMatchingReportArtifact(root, attestation)
+      ) {
+        return attestation;
+      }
+    } catch {
+      continue;
+    }
   }
-  try {
-    const attestation = parseAttestation(JSON.parse(source) as unknown);
-    return attestation?.sourceFingerprint === sourceFingerprint &&
-      await hasMatchingReportArtifact(root, attestation)
-      ? attestation
-      : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 /**
@@ -392,42 +444,72 @@ export async function findReviewAttestation(
  */
 export async function readReviewReportArtifact(
   root: string,
-  sourceFingerprint: string
+  sourceFingerprint: string,
+  taskId?: string
 ): Promise<ReviewReportArtifact | null> {
-  if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
+  if (!FINGERPRINT_PATTERN.test(sourceFingerprint) ||
+      (taskId !== undefined && !TASK_ID_PATTERN.test(taskId))) {
     return null;
   }
-  const source = await readPrivateFile(
-    artifactPath(root, sourceFingerprint),
-    root
-  );
-  if (source === null) {
-    return null;
+  const keys = taskId === undefined
+    ? [sourceFingerprint]
+    : [recordKey(sourceFingerprint, taskId), sourceFingerprint];
+  for (const key of keys) {
+    const source = await readPrivateFile(
+      join(root, ...REVIEW_ATTESTATION_DIRECTORY.split("/"), `${key}${REVIEW_REPORT_ARTIFACT_SUFFIX}`),
+      root
+    );
+    if (source === null) {
+      continue;
+    }
+    try {
+      const value = JSON.parse(source) as ReviewReportArtifact;
+      if (value.sourceFingerprint === sourceFingerprint &&
+        value.status === "PASS" &&
+        value.report !== undefined &&
+        value.adversarial !== undefined) {
+        return value;
+      }
+    } catch {
+      continue;
+    }
   }
-  try {
-    const value = JSON.parse(source) as ReviewReportArtifact;
-    return value.sourceFingerprint === sourceFingerprint &&
-      value.status === "PASS" &&
-      value.report !== undefined &&
-      value.adversarial !== undefined
-      ? value
-      : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
-/** A new authorized attempt supersedes any earlier PASS for this source. */
+/**
+ * A new authorized attempt supersedes any earlier PASS for this source: the
+ * task's own record, and the bare one when it is this task's (or no task's).
+ * Another task's bare record from before per-task records is left alone.
+ */
 export async function invalidateReviewAttestation(
   root: string,
-  sourceFingerprint: string
+  sourceFingerprint: string,
+  taskId?: string
 ): Promise<void> {
-  if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
+  if (!FINGERPRINT_PATTERN.test(sourceFingerprint) ||
+      (taskId !== undefined && !TASK_ID_PATTERN.test(taskId))) {
     throw new AgentOpsError("REVIEW_ATTESTATION_INVALID", "Invalid source fingerprint.");
   }
-  const path = attestationPath(root, sourceFingerprint);
-  if (await readPrivateFile(path, root) !== null) {
-    await writePrivateFile(path, "null\n", root);
+  if (taskId !== undefined) {
+    const own = attestationPath(root, sourceFingerprint, taskId);
+    if (await readPrivateFile(own, root) !== null) {
+      await writePrivateFile(own, "null\n", root);
+    }
+  }
+  const bare = attestationPath(root, sourceFingerprint);
+  const source = await readPrivateFile(bare, root);
+  if (source === null) {
+    return;
+  }
+  let owner: unknown;
+  try {
+    owner = (JSON.parse(source) as { taskId?: unknown } | null)?.taskId;
+  } catch {
+    owner = undefined;
+  }
+  if (taskId === undefined || owner === undefined || owner === taskId) {
+    await writePrivateFile(bare, "null\n", root);
   }
 }
 
@@ -486,12 +568,15 @@ export async function findPriorFailingFindings(
   // ponytail: linear scan of every report; index by task if the directory grows large.
   let latest: ReviewReportArtifact | undefined;
   for (const name of names) {
-    const fingerprint = name.slice(0, -REVIEW_REPORT_ARTIFACT_SUFFIX.length);
-    if (!name.endsWith(REVIEW_REPORT_ARTIFACT_SUFFIX) || !FINGERPRINT_PATTERN.test(fingerprint)) {
+    // `<fingerprint>` or `<fingerprint>.<task id>`, then the suffix.
+    const key = name.slice(0, -REVIEW_REPORT_ARTIFACT_SUFFIX.length);
+    const fingerprint = key.slice(0, 64);
+    if (!name.endsWith(REVIEW_REPORT_ARTIFACT_SUFFIX) || !FINGERPRINT_PATTERN.test(fingerprint) ||
+        (key !== fingerprint && key !== recordKey(fingerprint, taskId))) {
       continue;
     }
     try {
-      const source = await readPrivateFile(artifactPath(root, fingerprint), root);
+      const source = await readPrivateFile(join(directory, name), root);
       if (source === null) {
         continue;
       }

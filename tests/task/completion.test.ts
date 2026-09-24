@@ -49,7 +49,7 @@ test("completion rejects fake references, absent or wrong-task review, and later
     const evidence = validation.value;
     const attestation = await findReviewAttestation(root, evidence.sourceFingerprint!);
     assert.ok(attestation);
-    await invalidateReviewAttestation(root, attestation.sourceFingerprint);
+    await invalidateReviewAttestation(root, attestation.sourceFingerprint, attestation.taskId);
     await assert.rejects(tasks.complete(task.task.id, references), { code: "TASK_COMPLETION_REVIEW_REQUIRED" });
     await saveReviewReportArtifact(
       root,
@@ -57,7 +57,11 @@ test("completion rejects fake references, absent or wrong-task review, and later
       attestation.sourceFingerprint,
       "another-task"
     );
-    await saveReviewAttestation(root, { ...attestation, taskId: "another-task" });
+    await saveReviewAttestation(root, {
+      ...attestation,
+      taskId: "another-task",
+      reportArtifact: `.agent-ops/reviews/${attestation.sourceFingerprint}.another-task.reports.json`
+    });
     await assert.rejects(tasks.complete(task.task.id, references), { code: "TASK_COMPLETION_REVIEW_REQUIRED" });
     await saveReviewReportArtifact(
       root,

@@ -53,7 +53,7 @@ export async function checkTaskCompletionEvidence(
       }
     }
   }
-  const attestation = await findReviewAttestation(root, sourceFingerprint);
+  const attestation = await findReviewAttestation(root, sourceFingerprint, stored.task.id);
   if (attestation === null || attestation.taskId !== stored.task.id) {
     return { status: "FAIL", code: "REVIEW_REQUIRED", remedy: `Run agent-ops review --task ${stored.task.id} --yes for the whole task and current source.` };
   }
