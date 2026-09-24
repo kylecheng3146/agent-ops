@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -128,6 +130,31 @@ test("the first blocked Edit creates the session's worktree, and later ones reus
     assert.equal(await preToolUse(path, AUTO, edit(path, join(path, "source.txt")), deps()), "");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the hook entry Claude Code runs creates the session worktree too", async () => {
+  // Claude Code runs hook-entry.js, not bin.js, so it must carry the
+  // worktree dependencies itself.
+  const root = await repository(AUTO);
+  const home = await mkdtemp(join(tmpdir(), "agent-ops-home-"));
+  try {
+    const entry = fileURLToPath(new URL("../../packages/cli/src/hook-entry.js", import.meta.url));
+    const stdout = await new Promise<string>((resolvePromise, reject) => {
+      const child = execFile(process.execPath, [entry, "claude", "PreToolUse"], {
+        cwd: root,
+        env: { ...process.env, AGENT_OPS_HOME: home }
+      }, (error, out) => error === null ? resolvePromise(out) : reject(error));
+      child.stdin?.end(JSON.stringify(edit(root, join(root, "source.txt"))));
+    });
+    assert.match(denialReason(stdout), /^WORKTREE_CREATED: /u);
+    assert.equal(
+      (await readWorktreeRecord(join(root, ".worktrees", sessionWorktreeName(SESSION))))?.sessionId,
+      SESSION
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 });
 
