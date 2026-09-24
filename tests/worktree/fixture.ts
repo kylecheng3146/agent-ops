@@ -65,6 +65,8 @@ export async function write(root: string, path: string, content: string): Promis
 export async function repository(config: AgentOpsConfig = CONFIG): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), "agent-ops-worktree-")));
   await git(root, "init", "-b", "main");
+  // Windows runners default to autocrlf; the tests compare exact bytes.
+  await git(root, "config", "core.autocrlf", "false");
   await git(root, "config", "user.email", "test@example.com");
   await git(root, "config", "user.name", "Test");
   await write(root, ".gitignore", ".agent-ops/\n.env\n");

@@ -1,5 +1,5 @@
-import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, realpath, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
@@ -96,7 +96,9 @@ export async function listWorktrees(deps: FinishDependencies, cwd: string): Prom
   const statuses: WorktreeStatus[] = [];
   for (const line of listing.stdout.split("\n")) {
     if (!line.startsWith("worktree ")) continue;
-    const path = line.slice("worktree ".length);
+    // Git prints forward slashes on Windows; mainRoot is a native real path.
+    const listed = resolve(line.slice("worktree ".length));
+    const path = await realpath(listed).catch(() => listed);
     if (!insideWorktreeDirectory(mainRoot, path)) continue;
     const record = await readWorktreeRecord(path);
     if (record !== null) statuses.push(await describe(deps, record));

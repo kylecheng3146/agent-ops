@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
@@ -44,11 +44,11 @@ async function preToolUse(root: string, config: AgentOpsConfig, input: unknown):
 test("Claude file tools normalize to a file-write event with absolute paths", () => {
   for (const tool of ["Edit", "Write", "MultiEdit", "NotebookEdit"]) {
     const event = normalizeClaudeHookInput(edit("/repo", "src/a.ts", tool));
-    assert.deepEqual(event, { event: "file-write", projectRoot: "/repo", paths: ["/repo/src/a.ts"], sessionId: SESSION }, tool);
+    assert.deepEqual(event, { event: "file-write", projectRoot: "/repo", paths: [resolve("/repo", "src/a.ts")], sessionId: SESSION }, tool);
   }
   assert.deepEqual(
     (normalizeClaudeHookInput(edit("/repo", "/elsewhere/b.ts")) as unknown as { paths: string[] }).paths,
-    ["/elsewhere/b.ts"]
+    [resolve("/elsewhere/b.ts")]
   );
   assert.equal(normalizeClaudeHookInput({ ...edit("/repo", "a"), tool_name: "Read" }).event, "unsupported");
 });
