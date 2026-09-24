@@ -1,6 +1,16 @@
+import { resolve } from "node:path";
+
 import type { NormalizedHookEvent } from "../../hooks/events.js";
 import { normalizeHookEvent } from "../../hooks/normalize.js";
 import { normalizeShellHookEvent } from "../../hooks/shell.js";
+
+/** Claude's tools that write a file without a shell. */
+export const CLAUDE_FILE_TOOLS: ReadonlySet<string> = new Set([
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+  "Write"
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -46,6 +56,24 @@ export function normalizeClaudeHookInput(
       terminationReason: "model_stop",
       fullyIdle: input.stop_hook_active !== true
     };
+  }
+  if (
+    input.hook_event_name === "PreToolUse" &&
+    typeof input.tool_name === "string" &&
+    CLAUDE_FILE_TOOLS.has(input.tool_name) &&
+    isRecord(input.tool_input) &&
+    typeof projectRoot === "string" &&
+    projectRoot.length > 0
+  ) {
+    const target = input.tool_input.file_path ?? input.tool_input.notebook_path;
+    if (typeof target === "string" && target.length > 0 && !target.includes("\0")) {
+      return {
+        event: "file-write",
+        projectRoot,
+        paths: [resolve(projectRoot, target)],
+        ...(sessionId === undefined ? {} : { sessionId })
+      };
+    }
   }
   if (
     input.hook_event_name === "PreToolUse" &&

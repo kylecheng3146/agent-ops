@@ -20,9 +20,15 @@ import {
   type HookProcessOutput
 } from "../../../runtime/src/install/harness.js";
 import type {
+  FileWriteHookEvent,
   HookDispatchOptions,
+  HookResult,
   StopVerificationOptions
 } from "../../../runtime/src/hooks/events.js";
+import {
+  evaluateWorktreeWrite,
+  resolveMainRoot
+} from "../../../runtime/src/worktree/guard.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -507,12 +513,21 @@ export async function runHookProcess(
               await completionGateFor(root, config, gitRunner).handle(normalized)
           }
         : undefined;
+    const worktreeGuard = config.worktree?.mode === "auto"
+      ? async (write: FileWriteHookEvent): Promise<HookResult> => {
+          const mainRoot = await resolveMainRoot(gitRunner);
+          return mainRoot === null
+            ? { action: "continue", status: "UNKNOWN", code: "WORKTREE_GUARD_UNAVAILABLE" }
+            : await evaluateWorktreeWrite(mainRoot, write.paths, write.sessionId);
+        }
+      : undefined;
     const output = await runHookCommand({
       harness: harness as HarnessId,
       event: hookEvent,
       stdin: rawInput,
       config,
       trusted,
+      ...(worktreeGuard === undefined ? {} : { worktreeGuard }),
       ...(dependencies.advisory === undefined
         ? {}
         : { advisory: dependencies.advisory }),

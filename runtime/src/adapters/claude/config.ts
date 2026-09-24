@@ -40,6 +40,7 @@ const CLAUDE_LOOP_EVENTS: readonly ClaudeSupportedEvent[] = [
   "SubagentStop"
 ];
 const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
+export const CLAUDE_PRE_TOOL_MATCHER = "Bash|Edit|MultiEdit|NotebookEdit|Write";
 const CLAUDE_LOOP_LAUNCHER =
   "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.sh";
 const CLAUDE_WINDOWS_LOOP_LAUNCHER =
@@ -90,7 +91,9 @@ function matcherGroup(
   completionGate = false
 ): ClaudeMatcherGroup {
   return {
-    ...(event === "PreToolUse" ? { matcher: "Bash" } : {}),
+    // File tools as well as Bash: in worktree auto mode the guard must see a
+    // direct edit of the shared checkout, which never passes through a shell.
+    ...(event === "PreToolUse" ? { matcher: CLAUDE_PRE_TOOL_MATCHER } : {}),
     hooks: [commandHook(event, runtimePath, completionGate)]
   };
 }

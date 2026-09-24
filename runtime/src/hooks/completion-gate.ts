@@ -19,6 +19,7 @@ import {
 } from "../verify/change-surface.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
+import { readWorktreeRecord } from "../worktree/service.js";
 
 const FINGERPRINT = /^[a-f0-9]{64}$/u;
 const SESSION = /^[^\0\r\n]{1,256}$/u;
@@ -295,6 +296,19 @@ export class CompletionGateService {
       permitFingerprint: null
     });
     const changed = state.baselineFingerprint !== fingerprint;
+    if (
+      !changed &&
+      this.#options.config.worktree?.mode === "auto" &&
+      state.root === undefined &&
+      await readWorktreeRecord(this.#options.root) === null
+    ) {
+      return gateResult(
+        "continue",
+        "UNKNOWN",
+        "COMPLETION_GATE_WORKTREE_MODE",
+        `worktree.mode is auto. Session: ${sessionId}. Before your first edit run agent-ops worktree add <name> --session ${shellQuote(sessionId)} and work only inside the printed path.`
+      );
+    }
     return gateResult(
       "continue",
       changed ? "UNKNOWN" : "PASS",
