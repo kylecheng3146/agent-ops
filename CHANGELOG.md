@@ -4,6 +4,30 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- Parallel conversations in one repository no longer void each other's
+  verification and review. `agent-ops worktree add <name> --session <id>`
+  gives an editing conversation `.worktrees/<name>` on `agent-ops/<name>`,
+  excluded through `.git/info/exclude`, with the ignored agent-ops files and
+  `.worktreeinclude` matches copied, trust inherited for an identical config
+  and `worktree.setup` run inside it. `worktree finish` merges by
+  fast-forward only under a repository-wide lock, rebasing and re-verifying
+  when the target moved and reporting conflicts with the intent other tasks
+  recorded in `refs/notes/agent-ops`; `worktree list`, `resume` and `remove`
+  manage the rest, and `remove --force` asks the user.
+- New `worktree` config block: `mode` (`auto` or `off`, absent means off)
+  and `setup` commands. In `auto` mode Claude Code's Edit, Write, MultiEdit
+  and NotebookEdit of the main checkout are denied with a `worktree add`
+  remedy. The managed Claude PreToolUse handler now matches those tools as
+  well as Bash; run `agent-ops update` to pick the matcher up.
+- The completion gate follows a session into its worktree. A Stop that
+  reaches the main checkout for a redirected session is judged by the
+  worktree's gate, and blocks when the worktree is gone or the main
+  checkout changed too. A merge that moves HEAD under a session which
+  changed nothing no longer reads as that session's change.
+- The project-loop SessionStart context now names the session id, and in
+  `auto` mode the gate's SessionStart result tells the agent to create its
+  worktree first. `doctor` reports worktrees idle for more than seven days.
+
 ## [0.2.8] - 2026-09-23
 
 - Both review rounds are now asked to report every blocking defect in one

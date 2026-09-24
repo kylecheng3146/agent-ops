@@ -238,3 +238,17 @@ test("managed rules tell each harness how to delegate a subtask", () => {
     managedRules(harnessDescriptor("opencode"), context)
   );
 });
+
+test("managed rules route parallel conversations through their own worktree", () => {
+  const content = managedRules(harnessDescriptor("claude"), {
+    scope: "project",
+    profiles: ["core"],
+    capabilities: ["rules", "task"]
+  }).replace(/\s+/gu, " ");
+  assert.match(content, /`worktree\.mode` to `auto`/u);
+  assert.match(content, /`agent-ops worktree add <name> --session <session-id>` from the main checkout before your first edit/u);
+  assert.match(content, /Claude Code: EnterWorktree with that path/u);
+  assert.match(content, /`task complete` with the printed `--base`/u);
+  assert.match(content, /ExitWorktree with action keep\) and run `agent-ops worktree finish <name>`/u);
+  assert.match(content, /resolved once, as a new task whose criteria cover both intents/u);
+});

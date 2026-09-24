@@ -656,6 +656,18 @@ export function managedRules(
       "writes it during the run, so delegate edits to one subagent at a time,",
       "or give each writer its own Git worktree and merge before verifying.",
       "Read-only delegation has no such limit and may run in parallel.",
+      "",
+      "Parallel conversations in one repository each need their own worktree.",
+      "When `.agent-ops/config.json` sets `worktree.mode` to `auto`, run",
+      "`agent-ops worktree add <name> --session <session-id>` from the main",
+      "checkout before your first edit, and work only inside the printed path",
+      "(Claude Code: EnterWorktree with that path; otherwise use it as every",
+      "command's working directory). Commit, then run verify, review and",
+      "`task complete` with the printed `--base`; leave the worktree (Claude",
+      "Code: ExitWorktree with action keep) and run `agent-ops worktree finish",
+      "<name>` from the main checkout. A finish that reports a conflict is",
+      "resolved once, as a new task whose criteria cover both intents; if its",
+      "verification or review fails, reset as instructed and report.",
       ""
     );
   }
