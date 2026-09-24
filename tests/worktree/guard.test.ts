@@ -183,6 +183,7 @@ test("SessionStart tells the agent its session id, and auto mode asks for a work
 
     const started = await gateFor(root, AUTO).handle({ event: "session-start", projectRoot: root, sessionId: SESSION });
     assert.equal(started?.code, "COMPLETION_GATE_WORKTREE_MODE");
+    assert.match(started?.remedy ?? "", /run agent-ops task create from this checkout, which creates this session's worktree/u);
     assert.match(started?.remedy ?? "", /worktree add <name> --session 'session-one'/u);
     assert.equal(
       (await gateFor(root, CONFIG).handle({ event: "session-start", projectRoot: root, sessionId: "session-off" }))?.code,

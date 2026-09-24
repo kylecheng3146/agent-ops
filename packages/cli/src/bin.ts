@@ -80,6 +80,10 @@ import { runAgyHeadless } from "./agy-headless.js";
 import { runWorktreeCommand } from "./commands/parallel.js";
 import type { FinishDependencies } from "../../../runtime/src/parallel/finish.js";
 import {
+  ensureSessionWorktree,
+  resolveCheckouts
+} from "../../../runtime/src/parallel/service.js";
+import {
   listWorktrees,
   worktreeDoctorResult
 } from "../../../runtime/src/parallel/manage.js";
@@ -581,17 +585,46 @@ process.exitCode = await runCli(
             // run inside a session is never told which session it is in.
             const sessionId = process.env.AGENT_OPS_SESSION_ID ??
               await readRecordedSessionId(root);
-            const policyConfigHash = args.action === "create"
-              ? calculateConfigHash((await loadEffectiveConfig(
+            const createConfig = args.action === "create"
+              ? (await loadEffectiveConfig(
                   root,
                   args.scope === "user" ? "user" : "project"
-                )).config)
+                )).config
               : undefined;
+            const policyConfigHash = createConfig === undefined
+              ? undefined
+              : calculateConfigHash(createConfig);
+            // Auto mode starts the work where it belongs: a task created from
+            // the main checkout lands in the session's own worktree.
+            const worktreeDeps = worktreeDependencies();
+            const fromMain = createConfig?.worktree?.mode === "auto" &&
+              args.scope !== "user" &&
+              await resolveCheckouts(worktreeDeps, root)
+                .then(({ mainRoot, currentRoot }) => mainRoot === currentRoot)
+                .catch(() => false);
             return await runTaskCommand({
               args,
               service: taskService,
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
-              ...(sessionId === undefined ? {} : { sessionId })
+              ...(sessionId === undefined ? {} : { sessionId }),
+              ...(fromMain
+                ? {
+                    sessionWorktree: async (session: string) => {
+                      const record = await ensureSessionWorktree(worktreeDeps, {
+                        cwd: root,
+                        sessionId: session
+                      });
+                      return {
+                        path: record.path,
+                        base: record.base,
+                        service: new TaskService(new FileTaskStore(
+                          join(record.path, ".agent-ops", "tasks", "state.json"),
+                          record.path
+                        ))
+                      };
+                    }
+                  }
+                : {})
             });
           }
           if (args.command === "review") {

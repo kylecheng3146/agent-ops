@@ -152,7 +152,11 @@ evidence. Give each editing conversation its own worktree instead:
   On Claude Code a direct Edit or Write of the main checkout outside
   `.worktrees/` is denied (run `agent-ops update` once so the PreToolUse hook
   matches the file tools). Absent or `"off"` keeps today's single checkout.
-- On Claude Code the first denied edit creates that worktree itself:
+- `agent-ops task create` run from the main checkout with a known session
+  creates that session's worktree first (or reuses it) and records the task
+  there, so the work starts in the worktree. Its output names the path to
+  enter and the `--base` to verify against.
+- As a fallback on Claude Code, the first denied edit creates that worktree:
   `.worktrees/session-<first eight characters of the session id>`, setup
   included, bound to the session. The denial names the path to enter with
   EnterWorktree; a later denial for the same session reuses it. If creation

@@ -246,7 +246,8 @@ test("managed rules route parallel conversations through their own worktree", ()
     capabilities: ["rules", "task"]
   }).replace(/\s+/gu, " ");
   assert.match(content, /`worktree\.mode` to `auto`/u);
-  assert.match(content, /`agent-ops worktree add <name> --session <session-id>` from the main checkout before your first edit/u);
+  assert.match(content, /run `agent-ops task create` from the main checkout before your first edit: it creates this session's worktree and puts the task there/u);
+  assert.match(content, /`agent-ops worktree add <name> --session <session-id>` does the same without a task/u);
   assert.match(content, /Claude Code: EnterWorktree with that path/u);
   assert.match(content, /`task complete` with the printed `--base`/u);
   assert.match(content, /ExitWorktree with action keep\) and run `agent-ops worktree finish <name>`/u);

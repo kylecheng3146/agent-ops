@@ -521,3 +521,43 @@ test("the task CLI creates subtasks and lists them by parent", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("task create in worktree auto mode lands in the session's worktree", async () => {
+  const main = await mkdtemp(join(tmpdir(), "agent-ops-task-main-"));
+  const worktree = await mkdtemp(join(tmpdir(), "agent-ops-task-worktree-"));
+  try {
+    const mainTasks = service(main);
+    const worktreeTasks = service(worktree);
+    const sessions: string[] = [];
+    const args = parseArgs([
+      "task", "create", "--title", "Worktree task",
+      "--criterion", JSON.stringify({ id: "one", description: "One.", verifierIds: ["unit"] }),
+      "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] })
+    ]);
+    const sessionWorktree = async (sessionId: string) => {
+      sessions.push(sessionId);
+      return { service: worktreeTasks, path: worktree, base: "abc123" };
+    };
+
+    const result = await runTaskCommand({
+      args, service: mainTasks, sessionId: "session-one", sessionWorktree
+    });
+    assert.equal(result.code, "TASK_CREATED");
+    assert.deepEqual(sessions, ["session-one"]);
+    assert.equal((await worktreeTasks.list()).length, 1);
+    assert.equal((await mainTasks.list()).length, 0);
+    const text = result.data?.text ?? "";
+    assert.ok(text.includes(`- Claude Code: EnterWorktree with path ${worktree}\n`), text);
+    assert.match(text, /--base abc123/u);
+    assert.match(text, /^# Worktree task$/mu);
+
+    // Without a session there is no worktree to bind, so nothing moves.
+    const anonymous = await runTaskCommand({ args, service: mainTasks, sessionWorktree });
+    assert.equal(anonymous.code, "TASK_CREATED");
+    assert.deepEqual(sessions, ["session-one"]);
+    assert.equal((await mainTasks.list()).length, 1);
+  } finally {
+    await rm(main, { recursive: true, force: true });
+    await rm(worktree, { recursive: true, force: true });
+  }
+});
