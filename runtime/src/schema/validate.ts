@@ -13,7 +13,8 @@ import type {
   ValidationFailure,
   ValidationResult,
   VerificationCommand,
-  VerificationEvidence
+  VerificationEvidence,
+  WorktreeConfig
 } from "../contracts.js";
 import {
   CONFIG_SCHEMA_VERSION,
@@ -478,7 +479,8 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     "reviewRoles",
     "schemaVersion",
     "securityExceptions",
-    "verification"
+    "verification",
+    "worktree"
   ], CONFIG_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
@@ -689,7 +691,84 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     }
   }
 
+  if (root.worktree !== undefined) {
+    const worktree = validateWorktree(root.worktree, "$.worktree");
+    if (!worktree.ok) {
+      return worktree;
+    }
+  }
+
   return success(root as unknown as AgentOpsConfig);
+}
+
+function validateWorktree(
+  value: unknown,
+  path: string
+): ValidationResult<WorktreeConfig> {
+  if (!isRecord(value)) {
+    return failure("INVALID_TYPE", path, "worktree must be an object.");
+  }
+  const unknown = unknownFieldFailure(value, ["mode", "setup"], path);
+  if (unknown !== undefined) {
+    return unknown;
+  }
+  if (value.mode !== "auto" && value.mode !== "off") {
+    return failure(
+      "INVALID_WORKTREE_MODE",
+      `${path}.mode`,
+      `Unsupported worktree mode: ${String(value.mode)}`
+    );
+  }
+  if (value.setup === undefined) {
+    return success(value as unknown as WorktreeConfig);
+  }
+  if (!Array.isArray(value.setup)) {
+    return failure("INVALID_TYPE", `${path}.setup`, "setup must be an array.");
+  }
+  for (const [index, step] of value.setup.entries()) {
+    const stepPath = `${path}.setup[${index}]`;
+    if (!isRecord(step)) {
+      return failure("INVALID_TYPE", stepPath, "Expected a setup command object.");
+    }
+    const stepUnknown = unknownFieldFailure(
+      step,
+      ["args", "command", "timeoutMs"],
+      stepPath
+    );
+    if (stepUnknown !== undefined) {
+      return stepUnknown;
+    }
+    if (!isNonEmptyString(step.command)) {
+      return failure(
+        "INVALID_COMMAND",
+        `${stepPath}.command`,
+        "command must be a non-empty string."
+      );
+    }
+    if (
+      !isStringArray(step.args) ||
+      step.args.some((argument) => argument.includes("\0"))
+    ) {
+      return failure(
+        "INVALID_ARGS",
+        `${stepPath}.args`,
+        "args must be an array of strings."
+      );
+    }
+    if (
+      step.timeoutMs !== undefined &&
+      (!Number.isSafeInteger(step.timeoutMs) ||
+        (step.timeoutMs as number) <= 0 ||
+        (step.timeoutMs as number) > MAX_TIMEOUT_MS)
+    ) {
+      return failure(
+        "INVALID_TIMEOUT",
+        `${stepPath}.timeoutMs`,
+        "timeoutMs must be a positive integer."
+      );
+    }
+  }
+  return success(value as unknown as WorktreeConfig);
 }
 
 function validateReviewRole(
