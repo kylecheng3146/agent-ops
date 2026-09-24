@@ -191,7 +191,9 @@ export async function runTaskCommand(
         "TASK_CREATED",
         sessionId === undefined
           ? `Created task ${record.task.id}.`
-          : `Created and attached task ${record.task.id}.`,
+          : record.task.parentTaskId === undefined
+            ? `Created and attached task ${record.task.id}.`
+            : `Created subtask ${record.task.id}; the session stays on the top of its task tree.`,
         record
       );
       if (worktree === undefined || created.data === null) return created;

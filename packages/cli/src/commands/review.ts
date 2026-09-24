@@ -834,7 +834,9 @@ export async function runReviewCommand(
           item.criterionId,
           item.evidence.map((reference) => `review:${finalResult.harness}:${reference}`)
         ])
-      )
+      ),
+      // What `worktree finish` completes this task against.
+      scope?.mode === "base" ? scope.resolvedBase : null
     );
   }
   const message =
