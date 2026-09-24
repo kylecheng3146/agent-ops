@@ -78,7 +78,7 @@ import {
 import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
 import { runWorktreeCommand } from "./commands/worktree.js";
-import type { WorktreeDependencies } from "../../../runtime/src/worktree/service.js";
+import type { FinishDependencies } from "../../../runtime/src/worktree/finish.js";
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
@@ -194,7 +194,7 @@ async function plannedTrustBinding(
     : await repositoryTrustBinding(root, config, CLI_VERSION);
 }
 
-function worktreeDependencies(): WorktreeDependencies {
+function worktreeDependencies(): FinishDependencies {
   const gateFor = async (root: string, config: AgentOpsConfig) =>
     new CompletionGateService({
       root,
@@ -224,6 +224,10 @@ function worktreeDependencies(): WorktreeDependencies {
       }
     },
     gate: gateFor,
+    tasks: (root) => new TaskService(
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+    ),
+    processRunner: new NodeVerificationProcessRunner(),
     runSetup: async (cwd, step) => await new Promise((resolve) => {
       execFile(step.command, [...step.args], {
         cwd,

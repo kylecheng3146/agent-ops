@@ -249,6 +249,14 @@ export class CompletionGateService {
   }
 
   /**
+   * Whether the session's attached task would let it stop right now: complete,
+   * with current evidence and review. Null means it would.
+   */
+  async validate(sessionId: string): Promise<HookResult | null> {
+    return await this.#validateTask(sessionId);
+  }
+
+  /**
    * The fingerprint the task's evidence should carry. Committed work leaves an
    * empty worktree surface: there is nothing left to measure there, and the
    * evidence names the `--base` range `task complete` was given instead. That

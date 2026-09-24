@@ -186,13 +186,15 @@ test("worktree add parses a name and --session and rejects anything else", () =>
     ),
     { command: "worktree", action: "add", worktreeName: "alpha", sessionId: "s-1" }
   );
+  assert.equal(parseArgs(["worktree", "finish", "alpha"]).action, "finish");
   for (const [argv, code] of [
     [["worktree"], "CLI_ACTION_REQUIRED"],
     [["worktree", "add"], "CLI_OPTION_NOT_ALLOWED"],
     [["worktree", "add", "a", "b"], "CLI_UNEXPECTED_ARGUMENT"],
     [["worktree", "add", "a", "--yes"], "CLI_OPTION_NOT_ALLOWED"],
     [["worktree", "add", "a", "--task", "t"], "CLI_OPTION_NOT_ALLOWED"],
-    [["worktree", "add", "a", "--base", "main"], "CLI_OPTION_NOT_ALLOWED"]
+    [["worktree", "add", "a", "--base", "main"], "CLI_OPTION_NOT_ALLOWED"],
+    [["worktree", "finish", "a", "--session", "s-1"], "CLI_OPTION_NOT_ALLOWED"]
   ] as const) {
     assert.throws(() => parseArgs(argv), (error: unknown) =>
       typeof error === "object" && error !== null && (error as { code?: string }).code === code,

@@ -51,7 +51,7 @@ Commands:
   review     Run an independent review
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
-  worktree add <name>
+  worktree <add|finish> <name>
              Give one session its own Git worktree for parallel work
 
 Options:
@@ -205,7 +205,7 @@ Options:
   --session <id>   Required
   --json
 `,
-  worktree: `Usage: agent-ops worktree add <name> --session <id> [options]
+  worktree: `Usage: agent-ops worktree <add|finish> <name> [options]
 
 Give one writing session its own Git worktree, so parallel sessions stop
 voiding each other's verification and review. Run it from the main checkout.
@@ -214,9 +214,14 @@ voiding each other's verification and review. Run it from the main checkout.
                copy the ignored agent-ops files and .worktreeinclude matches,
                inherit trust for an identical config, run worktree.setup, and
                point the session's completion gate at the new worktree.
+  finish <name>
+               Once its task is complete, fast-forward the main checkout's
+               branch to the worktree's (after a clean rebase and
+               re-verification if the branch moved), record the task in
+               git notes, and remove the worktree. One finish runs at a time.
 
 Options:
-  --session <id>   The conversation that will work there (required)
+  --session <id>   add: the conversation that will work there (required)
   --json
 `
 };

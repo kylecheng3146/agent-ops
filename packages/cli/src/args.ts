@@ -42,8 +42,8 @@ export type TaskAction =
   | "create"
   | "export"
   | "status";
-export type WorktreeAction = "add";
-export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add"];
+export type WorktreeAction = "add" | "finish";
+export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "finish"];
 export type CliAction = ConfigAction | TaskAction | TrustAction | WorktreeAction;
 
 export interface ParsedArgs {
@@ -733,6 +733,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "worktree accepts only a name, --session and --json."
+    );
+  }
+  if (command === "worktree" && action !== "add" && sessionId !== undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      `worktree ${action} takes the session from the worktree; omit --session.`
     );
   }
 

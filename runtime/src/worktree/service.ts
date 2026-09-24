@@ -268,7 +268,7 @@ export async function bindSession(
   await (await deps.gate(record.mainRoot, mainConfig)).redirect(record.sessionId, record.path);
 }
 
-async function removeCheckout(deps: WorktreeDependencies, record: WorktreeRecord, force: boolean): Promise<void> {
+export async function removeCheckout(deps: WorktreeDependencies, record: WorktreeRecord, force: boolean): Promise<void> {
   await git(deps, record.mainRoot,
     ["worktree", "remove", ...(force ? ["--force"] : []), record.path],
     "WORKTREE_REMOVE_FAILED", `Git could not remove ${record.path}.`);
