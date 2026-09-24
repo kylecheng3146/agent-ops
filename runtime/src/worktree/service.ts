@@ -178,7 +178,9 @@ function portableRelative(path: string): boolean {
  * always keeps the branch's version.
  */
 async function carriedFiles(deps: WorktreeDependencies, mainRoot: string): Promise<string[]> {
-  const paths = new Set<string>();
+  // The config is what makes the new checkout an agent-ops checkout at all:
+  // carried even when no manifest lists it.
+  const paths = new Set<string>([".agent-ops/config.json"]);
   const manifestSource = await readFile(join(mainRoot, ".agent-ops", "manifest.json"), "utf8").catch(() => null);
   if (manifestSource !== null) {
     paths.add(".agent-ops/manifest.json");

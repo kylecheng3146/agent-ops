@@ -201,3 +201,15 @@ test("worktree add parses a name and --session and rejects anything else", () =>
       argv.join(" "));
   }
 });
+
+test("add carries an ignored config even without an install manifest", async () => {
+  const root = await repository();
+  try {
+    await rm(join(root, ".agent-ops", "manifest.json"));
+    const result = await addWorktree(deps(), { cwd: root, name: "alpha", sessionId: SESSION });
+    assert.deepEqual(result.copied, [".agent-ops/config.json"]);
+    assert.equal(result.trusted, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
