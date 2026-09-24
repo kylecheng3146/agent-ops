@@ -1,0 +1,6 @@
+agent-ops task task-4091562d-8190-4de0-b8cc-1e63447ae53d: Keep one review attestation per task and source
+worktree: finish-completes (agent-ops/finish-completes)
+criteria:
+- per-task: Review attestations and report artifacts are stored and found per task (<fingerprint>.<task id>), so a parent and its subtask reviewed on the same source each keep their own PASS, and a new attempt for one task leaves the other standing
+- legacy: A bare <fingerprint> record written before per-task records still reads for its task, and another task never invalidates it
+- suite: The full node test suite passes
