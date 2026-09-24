@@ -1,0 +1,5 @@
+agent-ops task task-4471096d-e21c-4f3c-a588-a7f0bea5edf1: Route task create into the session worktree
+worktree: auto-worktree (agent-ops/auto-worktree)
+criteria:
+- task-create-worktree: In worktree auto mode, agent-ops task create from the main checkout with a known session creates or reuses the session worktree, records the task in its store, and prints the EnterWorktree path and --base; without a session nothing moves
+- routing: The managed rules and the SessionStart worktree message tell agents to run agent-ops task create from the main checkout, keeping worktree add as the no-task alternative
