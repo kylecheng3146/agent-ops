@@ -19,7 +19,8 @@ export function agyHookOutput(
     ? `agent-ops: ${result.code}`
     : `agent-ops: ${result.code}: ${result.remedy}`;
   const value = event === "PreToolUse"
-    ? result.code === "COMPLETION_GATE_PERMIT_CONFIRMATION"
+    ? result.code === "COMPLETION_GATE_PERMIT_CONFIRMATION" ||
+        result.code === "WORKTREE_REMOVE_CONFIRMATION"
       ? { decision: "force_ask", reason }
       : result.action === "block"
         ? { decision: "deny", reason }

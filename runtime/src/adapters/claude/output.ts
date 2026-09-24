@@ -36,7 +36,8 @@ export function claudeHookOutput(
   }
   if (
     event === "PreToolUse" &&
-    result.code === "COMPLETION_GATE_PERMIT_CONFIRMATION"
+    (result.code === "COMPLETION_GATE_PERMIT_CONFIRMATION" ||
+      result.code === "WORKTREE_REMOVE_CONFIRMATION")
   ) {
     // Asked, never allowed: a one-time Stop permit is the user's to grant, and
     // an agent that could answer this for itself would hold the key to its own

@@ -821,3 +821,51 @@ test("keeps adversarial runtime and JSON Schema constraints aligned", async () =
     JSON.stringify(manifestSchema.errors)
   );
 });
+
+test("both validators accept an absent or well-formed worktree block", async () => {
+  const schema = await compileJsonSchema("config.schema.json");
+  const base = await readJsonFixture("valid-config.json");
+  const variants: unknown[] = [
+    { mode: "off" },
+    { mode: "auto" },
+    {
+      mode: "auto",
+      setup: [
+        { command: "pnpm", args: ["install", "--frozen-lockfile"] },
+        { command: "node", args: [], timeoutMs: 60_000 }
+      ]
+    }
+  ];
+  assert.equal(validateConfig(base).ok, true);
+  assert.equal(schema(base), true);
+  for (const worktree of variants) {
+    const config = { ...(cloneJson(base) as object), worktree };
+    assert.equal(validateConfig(config).ok, true, JSON.stringify(worktree));
+    assert.equal(schema(config), true, JSON.stringify(worktree));
+  }
+});
+
+test("both validators reject a malformed worktree block", async () => {
+  const schema = await compileJsonSchema("config.schema.json");
+  const base = await readJsonFixture("valid-config.json");
+  const cases: [unknown, string][] = [
+    [{ mode: "always" }, "INVALID_WORKTREE_MODE"],
+    [{}, "INVALID_WORKTREE_MODE"],
+    [{ mode: "auto", extra: true }, "UNKNOWN_FIELD"],
+    [{ mode: "auto", setup: {} }, "INVALID_TYPE"],
+    [{ mode: "auto", setup: [{ command: "  ", args: [] }] }, "INVALID_COMMAND"],
+    [{ mode: "auto", setup: [{ command: "pnpm", args: [1] }] }, "INVALID_ARGS"],
+    [{ mode: "auto", setup: [{ command: "pnpm" }] }, "INVALID_ARGS"],
+    [{ mode: "auto", setup: [{ command: "pnpm", args: [], timeoutMs: 0 }] }, "INVALID_TIMEOUT"],
+    [{ mode: "auto", setup: [{ command: "pnpm", args: [], cwd: "." }] }, "UNKNOWN_FIELD"]
+  ];
+  for (const [worktree, code] of cases) {
+    const config = { ...(cloneJson(base) as object), worktree };
+    const result = validateConfig(config);
+    assert.equal(result.ok, false, JSON.stringify(worktree));
+    if (!result.ok) {
+      assert.equal(firstErrorCode(result), code, JSON.stringify(worktree));
+    }
+    assert.equal(schema(config), false, JSON.stringify(worktree));
+  }
+});

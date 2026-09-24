@@ -116,6 +116,46 @@ agent-ops doctor --check-auth # 每個目標一次真實 print 呼叫
 不會代為修復：所有目標都經由互動式 OAuth 認證，因此沒有 `--fix`。
 請自行執行 `<target> login`。
 
+### 在 worktree 中並行 session
+
+Verification、review 與 completion gate 都對整個 Git change surface 計算
+fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方的 evidence。
+請讓每個修改中的對話使用自己的 worktree：
+
+```json
+{
+  "worktree": {
+    "mode": "auto",
+    "setup": [{ "command": "pnpm", "args": ["install", "--frozen-lockfile"] }]
+  }
+}
+```
+
+- `mode: "auto"` 讓每個修改中的對話都先在主 checkout 執行
+  `agent-ops worktree add <name> --session <id>`。Claude Code 直接以 Edit 或
+  Write 修改主 checkout 中 `.worktrees/` 以外的檔案會被拒絕（需先執行一次
+  `agent-ops update`，讓 PreToolUse hook 比對檔案工具）。未設定或 `"off"` 則維持
+  目前的單一 checkout。
+- `add` 從主 checkout 的 HEAD 建立 `.worktrees/<name>` 與 branch
+  `agent-ops/<name>`，並透過 `.git/info/exclude`（而非 `.gitignore`）排除
+  `/.worktrees/`。它會複製 agent-ops 安裝的 ignored 檔案，以及根目錄
+  `.worktreeinclude`（gitignore 語法，例如 `.env` 或 `local.properties`）比對到
+  的檔案；Git 已 checkout 的檔案一律不覆寫。只有主 checkout 已 trusted 且
+  worktree 的 effective config 完全相同時才繼承 trust。
+- `setup` 指令在新 worktree 中執行（預設 timeout 十分鐘），處理 Git 不會帶過去
+  的東西，例如已安裝的相依套件。它屬於 trusted config 的一部分，不需另外核准；
+  任一步驟失敗會移除該 worktree。
+- Session 的 completion gate 會跟著它：Claude Code 以 EnterWorktree 進入
+  worktree；無法移動 session 的 host（agy）則透過主 checkout 記錄的 redirect，
+  由 worktree 的 gate 判定。
+- `agent-ops worktree finish <name>` 只以 fast-forward 合併，一次只執行一個
+  finish。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
+  重新驗證再合併；衝突則連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
+  回報。
+- `worktree list`、`resume <name> --session <id>` 與 `remove <name>` 管理剩下的
+  worktree；`remove --force` 會丟棄工作，執行前會先詢問使用者。`doctor` 會回報
+  閒置超過七天的 worktree。
+
 ### Project-local loop profile
 
 `--profile loop` 是明確 opt-in 的 project-scope profile。請選擇 `codex`、

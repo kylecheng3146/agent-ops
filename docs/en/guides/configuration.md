@@ -132,6 +132,48 @@ agent-ops doctor --check-auth # one real print call per target
 reports what to do but never fixes it: every target authenticates through
 interactive OAuth, so there is no `--fix`. Run `<target> login` yourself.
 
+### Parallel sessions in worktrees
+
+Verification, review and the completion gate all fingerprint the whole Git
+change surface, so two conversations editing one checkout void each other's
+evidence. Give each editing conversation its own worktree instead:
+
+```json
+{
+  "worktree": {
+    "mode": "auto",
+    "setup": [{ "command": "pnpm", "args": ["install", "--frozen-lockfile"] }]
+  }
+}
+```
+
+- `mode: "auto"` routes every editing conversation through
+  `agent-ops worktree add <name> --session <id>`, run from the main checkout.
+  On Claude Code a direct Edit or Write of the main checkout outside
+  `.worktrees/` is denied (run `agent-ops update` once so the PreToolUse hook
+  matches the file tools). Absent or `"off"` keeps today's single checkout.
+- `add` creates `.worktrees/<name>` on branch `agent-ops/<name>` from the main
+  checkout's HEAD and excludes `/.worktrees/` through `.git/info/exclude`,
+  never `.gitignore`. It copies the ignored files agent-ops installed and any
+  file matched by a root `.worktreeinclude` (gitignore syntax, for example
+  `.env` or `local.properties`); a file Git already checked out is never
+  overwritten. Trust is inherited only when the main checkout is trusted and
+  the worktree's effective config is identical.
+- `setup` commands run in the new worktree (default timeout ten minutes) for
+  what Git does not carry, such as installed dependencies. They are part of
+  the trusted config, so they need no separate approval; a failing step
+  removes the worktree again.
+- The session's completion gate follows it: Claude Code enters the worktree
+  with EnterWorktree, and a host that cannot move a session (agy) is judged by
+  the worktree's gate through a redirect the main checkout records.
+- `agent-ops worktree finish <name>` merges by fast-forward only, one finish
+  at a time. If the target moved, it rebases; a clean rebase whose own patch
+  is unchanged is re-verified before merging, and a conflict is reported with
+  the `refs/notes/agent-ops` intent of the work that landed first.
+- `worktree list`, `resume <name> --session <id>` and `remove <name>` manage
+  what is left; `remove --force` discards work and asks the user first.
+  `doctor` reports worktrees idle for more than seven days.
+
 ### Project-local loop profile
 
 `--profile loop` is an opt-in project-scope profile. Select `codex`, `claude`,

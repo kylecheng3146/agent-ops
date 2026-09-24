@@ -74,6 +74,11 @@ export async function dispatchHookEvent(
   if (event.event === "unsupported") {
     return continueWith("UNKNOWN", "HOOK_EVENT_UNSUPPORTED");
   }
+  if (event.event === "file-write") {
+    return options.worktreeGuard === undefined
+      ? continueWith("PASS", "HOOK_NOOP")
+      : await options.worktreeGuard(event);
+  }
   if (
     event.event === "session-start" &&
     options.capabilities.includes("lifecycle-summary") &&

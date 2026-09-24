@@ -61,7 +61,8 @@ export type DoctorCheckId =
   | "review-targets"
   | "host-sandbox"
   | "verification-commands"
-  | "smoke-availability";
+  | "smoke-availability"
+  | "worktrees";
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -101,6 +102,8 @@ export interface DoctorProbes {
   readonly repositoryTrust?: DoctorProbe;
   readonly smokeAvailability?: DoctorProbe;
   readonly reviewTarget?: DoctorReviewTargetProbe;
+  /** Agent-ops worktrees left idle; absent outside a Git checkout. */
+  readonly worktrees?: DoctorProbe;
 }
 
 export interface DoctorInstallationOptions {
@@ -546,7 +549,8 @@ async function checkProbe(
     | "agy-runtime"
     | "hook-registration"
     | "repository-trust"
-    | "smoke-availability",
+    | "smoke-availability"
+    | "worktrees",
   probe: DoctorProbe | undefined
 ): Promise<DoctorCheck> {
   if (probe === undefined) {
@@ -1053,7 +1057,10 @@ export async function doctorInstallation(
       options.checkAuthTargets
     ),
     await checkHostSandbox(options.probes?.hostRestriction),
-    checkVerificationCommands(config.config)
+    checkVerificationCommands(config.config),
+    ...(options.probes?.worktrees === undefined
+      ? []
+      : [await checkProbe("worktrees", options.probes.worktrees)])
   ];
   return {
     checks,

@@ -119,6 +119,41 @@
         }
       }
     },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "enum": ["auto", "off"]
+        },
+        "setup": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command", "args"],
+            "properties": {
+              "command": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[^\\u0000]*$"
+                }
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            }
+          }
+        }
+      }
+    },
     "securityExceptions": {
       "type": "array",
       "items": {

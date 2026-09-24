@@ -6,7 +6,8 @@ import type {
   ReviewRole,
   ReviewRoleConfig,
   SecurityException,
-  VerificationCommand
+  VerificationCommand,
+  WorktreeConfig
 } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
@@ -33,6 +34,7 @@ export interface ConfigProvenance {
   pathMappings: EffectiveValue<PathMapping>[];
   securityExceptions: EffectiveValue<SecurityException>[];
   reviewRoles: EffectiveValue<ReviewRoleConfig>[];
+  worktree?: EffectiveValue<WorktreeConfig>;
 }
 
 export interface MergedConfig {
@@ -242,10 +244,16 @@ export function mergeConfigLayers(
   >();
   let schemaVersion: EffectiveValue<number> | undefined;
   let features: EffectiveValue<AgentOpsFeatures> | undefined;
+  let worktree: EffectiveValue<WorktreeConfig> | undefined;
 
   for (const layer of layers) {
     schemaVersion = effective(layer.config.schemaVersion, layer);
     features = effective(layer.config.features, layer);
+    // Whole-block override: a workflow choice, not a guardrail, so a project
+    // may turn a user-level `auto` off.
+    if (layer.config.worktree !== undefined) {
+      worktree = effective(layer.config.worktree, layer);
+    }
     for (const profile of layer.config.profiles) {
       profiles.set(profile, effective(profile, layer));
     }
@@ -300,7 +308,8 @@ export function mergeConfigLayers(
     verificationCommands: [...commands.values()],
     pathMappings: [...mappings.values()],
     securityExceptions: [...exceptions.values()],
-    reviewRoles: [...reviewRoles.values()]
+    reviewRoles: [...reviewRoles.values()],
+    ...(worktree === undefined ? {} : { worktree })
   };
   const config: AgentOpsConfig = {
     schemaVersion: schemaVersion.value as AgentOpsConfig["schemaVersion"],
@@ -317,7 +326,8 @@ export function mergeConfigLayers(
       ? {}
       : {
           reviewRoles: provenance.reviewRoles.map(({ value }) => value)
-        })
+        }),
+    ...(worktree === undefined ? {} : { worktree: worktree.value })
   };
   const validation = validateConfig(config);
   if (!validation.ok) {

@@ -51,6 +51,8 @@ Commands:
   review     Run an independent review
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
+  worktree <add|finish|list|resume|remove>
+             Give one session its own Git worktree for parallel work
 
 Options:
   --scope <project|user>
@@ -201,6 +203,35 @@ agent cannot self-authorize it.
 
 Options:
   --session <id>   Required
+  --json
+`,
+  worktree: `Usage: agent-ops worktree <add|finish|resume|remove> <name> [options]
+       agent-ops worktree list [--json]
+
+Give one writing session its own Git worktree, so parallel sessions stop
+voiding each other's verification and review. Run it from the main checkout.
+
+  add <name>   Create .worktrees/<name> on branch agent-ops/<name> from HEAD,
+               copy the ignored agent-ops files and .worktreeinclude matches,
+               inherit trust for an identical config, run worktree.setup, and
+               point the session's completion gate at the new worktree.
+  finish <name>
+               Once its task is complete, fast-forward the main checkout's
+               branch to the worktree's (after a clean rebase and
+               re-verification if the branch moved), record the task in
+               git notes, and remove the worktree. One finish runs at a time.
+  list         Every agent-ops worktree: session, commits ahead, uncommitted
+               changes, task status and last activity.
+  resume <name>
+               Hand a worktree whose session ended to --session <id>.
+  remove <name>
+               Delete the worktree and its branch. Uncommitted or unmerged
+               work needs --force, which the completion gate asks the user
+               about.
+
+Options:
+  --session <id>   add, resume: the conversation that will work there (required)
+  --force          remove: discard uncommitted or unmerged work
   --json
 `
 };

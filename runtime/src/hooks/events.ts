@@ -36,6 +36,12 @@ export interface ContentHookEvent extends HookEventBase {
   readonly scope: string;
 }
 
+/** A host tool that writes files directly (Claude Edit/Write), not via a shell. */
+export interface FileWriteHookEvent extends HookEventBase {
+  readonly event: "file-write";
+  readonly paths: readonly string[];
+}
+
 export interface StopHookEvent extends HookEventBase {
   readonly event: "stop";
   readonly terminationReason?: string;
@@ -50,6 +56,7 @@ export type NormalizedHookEvent =
   | CommandBatchHookEvent
   | CommandHookEvent
   | ContentHookEvent
+  | FileWriteHookEvent
   | SessionStartHookEvent
   | StopHookEvent
   | UnsupportedHookEvent;
@@ -81,6 +88,8 @@ export interface HookDispatchOptions {
   readonly advisory?: (event: SessionStartHookEvent) => Promise<void>;
   readonly stopVerification?: StopVerificationOptions;
   readonly completionGate?: CompletionGateOptions;
+  /** Decides direct file writes; absent means they are not policed. */
+  readonly worktreeGuard?: (event: FileWriteHookEvent) => Promise<HookResult>;
 }
 
 export interface CompletionGateOptions {

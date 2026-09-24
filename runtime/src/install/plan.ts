@@ -5,6 +5,7 @@ import {
   MANIFEST_SCHEMA_VERSION,
   type AgentOpsFeatures,
   type ReviewRoleConfig,
+  type WorktreeConfig,
   type ReviewTargetId,
   type AgentOpsConfig,
   type Harness,
@@ -216,6 +217,7 @@ function buildConfig(
     readonly pathMappings: AgentOpsConfig["pathMappings"];
     readonly securityExceptions: AgentOpsConfig["securityExceptions"];
     readonly reviewRoles?: readonly ReviewRoleConfig[];
+    readonly worktree?: WorktreeConfig;
   },
   reviewTargets: readonly ReviewTargetId[] = [],
   detectedCommands: readonly VerificationCommand[] = [],
@@ -245,7 +247,10 @@ function buildConfig(
     },
     pathMappings: existing?.pathMappings ?? [],
     securityExceptions: existing?.securityExceptions ?? [],
-    ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] })
+    ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] }),
+    ...(existing?.worktree === undefined
+      ? {}
+      : { worktree: structuredClone(existing.worktree) })
   };
 }
 
@@ -282,6 +287,7 @@ async function planConfig(
         readonly pathMappings: AgentOpsConfig["pathMappings"];
         readonly securityExceptions: AgentOpsConfig["securityExceptions"];
         readonly reviewRoles?: readonly ReviewRoleConfig[];
+        readonly worktree?: WorktreeConfig;
       }
     | undefined;
   if (suppliedConfig !== undefined) {

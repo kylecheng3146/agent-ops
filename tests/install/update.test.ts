@@ -821,3 +821,30 @@ test("post-apply validation failure rolls back and removes recovery backups", as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("update preserves a configured worktree block", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
+  try {
+    await install(root);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const current = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    const worktree = {
+      mode: "auto",
+      setup: [{ command: "pnpm", args: ["install", "--frozen-lockfile"] }]
+    };
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ ...current, worktree }, null, 2)}\n`
+    );
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+    await applyUpdatePlan(root, plan);
+    const updated = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(updated.worktree, worktree);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

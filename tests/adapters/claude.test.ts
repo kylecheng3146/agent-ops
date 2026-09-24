@@ -613,7 +613,7 @@ test("a gated loop install reaches the gate on SessionStart and PreToolUse", () 
     "PreToolUse",
     "--managed-by=agent-ops"
   ]);
-  assert.equal(groups[1]?.matcher, "Bash");
+  assert.equal(groups[1]?.matcher, "Bash|Edit|MultiEdit|NotebookEdit|Write");
 
   // SessionStart for the same reason: the gate records its baseline there, and
   // without one every stop is refused as uninitialized.

@@ -528,7 +528,7 @@ function parseSessionMarker(source: string | null): LoopSessionMarker {
  * ponytail: last writer wins. Two concurrent sessions in one checkout already
  * violate the one-writer rule; pass `--session` explicitly if you need that.
  */
-async function writeSessionMarker(options: {
+export async function writeSessionMarker(options: {
   readonly root: string;
   readonly harness: ProjectLoopHarness;
   readonly sessionId: string;
@@ -656,7 +656,11 @@ function clamp(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 14)}\n[truncated]`;
 }
 
+/** Printed only when it is a plain token: it lands verbatim in agent context. */
+const PRINTABLE_SESSION = /^[A-Za-z0-9._:-]{1,128}$/u;
+
 function sessionContext(options: {
+  readonly sessionId?: string;
   readonly goal: string;
   readonly telemetryEntries: number;
   readonly mode: RestoreMode;
@@ -686,8 +690,15 @@ function sessionContext(options: {
     return [];
   })();
   const telemetry = `Telemetry: ${options.telemetryEntries} recent redacted event(s).`;
+  // The id every `--session` flag wants. Hooks hear it; the agent otherwise
+  // never does, and a shared checkout's recorded marker belongs to whichever
+  // session started last.
+  const session = options.sessionId !== undefined && PRINTABLE_SESSION.test(options.sessionId)
+    ? [`Session: ${options.sessionId}`]
+    : [];
   const fixed = [
     "agent-ops project loop is active.",
+    ...session,
     "",
     ...restored,
     telemetry
@@ -837,6 +848,7 @@ export async function runProjectLoop(
       return sessionOutput(
         options.harness,
         sessionContext({
+          ...(sessionId === undefined ? {} : { sessionId }),
           goal: safeGoalContext(goal),
           telemetryEntries,
           mode: restoreMode(options.input),

@@ -29,3 +29,13 @@ Concurrent delegated writers MUST NOT share one working tree.
 - Evidence: `agent-ops verify` returns a status other than `UNKNOWN` for the run.
 - Positive: `Read-only scans run in parallel; the single edit runs in the coordinator worktree.`
 - Negative: `Two subagents edit the same files while verification runs.`
+
+## DELEGATE-ISOLATION-002
+
+Parallel editing conversations in one repository MUST each work in their own agent-ops worktree.
+
+- Trigger: `worktree.mode` is `auto`, or a second conversation will edit the repository while another is still open.
+- Action: Run `agent-ops worktree add <name> --session <id>` from the main checkout before the first edit, work only in the printed path, and merge with `agent-ops worktree finish <name>` after the task completes against the printed `--base`.
+- Evidence: `agent-ops worktree list` shows one worktree per editing session, and each finish reports a fast-forward merge.
+- Positive: `Two conversations edit .worktrees/login and .worktrees/cart; each verifies, reviews and finishes on its own.`
+- Negative: `Two conversations edit the main checkout at once, so each one's verification and review is voided by the other's writes.`

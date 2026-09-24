@@ -350,3 +350,33 @@ test("a merge of configs without review roles leaves the field absent", () => {
   const merged = mergeConfigLayers([layer("project", config())]);
   assert.equal(merged.config.reviewRoles, undefined);
 });
+
+test("project worktree overrides user worktree as a whole block", () => {
+  const merged = mergeConfigLayers([
+    layer(
+      "user",
+      config({
+        worktree: {
+          mode: "auto",
+          setup: [{ command: "pnpm", args: ["install"] }]
+        }
+      })
+    ),
+    layer("project", config({ worktree: { mode: "off" } }))
+  ]);
+  assert.deepEqual(merged.config.worktree, { mode: "off" });
+  assert.equal(merged.provenance.worktree?.source, "project");
+});
+
+test("a user worktree survives a project layer that does not set one", () => {
+  const merged = mergeConfigLayers([
+    layer("user", config({ worktree: { mode: "auto" } })),
+    layer("project", config())
+  ]);
+  assert.deepEqual(merged.config.worktree, { mode: "auto" });
+});
+
+test("a merge of configs without worktree leaves the field absent", () => {
+  const merged = mergeConfigLayers([layer("project", config())]);
+  assert.equal("worktree" in merged.config, false);
+});

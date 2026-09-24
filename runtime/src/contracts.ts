@@ -96,6 +96,28 @@ export interface ReviewRoleConfig {
   readonly timeoutMs?: number;
 }
 
+/**
+ * `auto` gives every writing session its own Git worktree so parallel sessions
+ * never share the fingerprinted change surface. `off` keeps one shared tree.
+ */
+export type WorktreeMode = "auto" | "off";
+
+/**
+ * Runs inside a freshly created worktree before any session works in it, for
+ * what Git does not carry: installed dependencies, generated sources. It is
+ * covered by the config hash, so trust for the config is trust for it.
+ */
+export interface WorktreeSetupCommand {
+  command: string;
+  args: string[];
+  timeoutMs?: number;
+}
+
+export interface WorktreeConfig {
+  mode: WorktreeMode;
+  setup?: WorktreeSetupCommand[];
+}
+
 export interface AgentOpsConfig {
   schemaVersion: typeof CONFIG_SCHEMA_VERSION;
   profiles: Profile[];
@@ -105,6 +127,8 @@ export interface AgentOpsConfig {
   securityExceptions: SecurityException[];
   /** Absent means external review is disabled. */
   reviewRoles?: ReviewRoleConfig[];
+  /** Absent means `mode: "off"`. */
+  worktree?: WorktreeConfig;
 }
 
 export interface AcceptanceCriterion {

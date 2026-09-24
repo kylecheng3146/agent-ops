@@ -21,7 +21,8 @@ export const COMMAND_NAMES = [
   "task",
   "verify",
   "review",
-  "allow-stop"
+  "allow-stop",
+  "worktree"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -41,7 +42,9 @@ export type TaskAction =
   | "create"
   | "export"
   | "status";
-export type CliAction = ConfigAction | TaskAction | TrustAction;
+export type WorktreeAction = "add" | "finish" | "list" | "remove" | "resume";
+export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "finish", "list", "resume", "remove"];
+export type CliAction = ConfigAction | TaskAction | TrustAction | WorktreeAction;
 
 export interface ParsedArgs {
   command: CliCommand;
@@ -76,6 +79,10 @@ export interface ParsedArgs {
   yes: boolean;
   /** review: discard a matching PASS attestation and run the chain again. */
   rerun: boolean;
+  /** worktree: the worktree name after the action. */
+  worktreeName?: string;
+  /** worktree remove: discard uncommitted or unmerged work. */
+  force?: boolean;
 }
 
 export class CliArgumentError extends Error {
@@ -174,6 +181,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let rerun = false;
   let helpSeen = false;
   let versionSeen = false;
+  let worktreeName: string | undefined;
+  let force = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -337,6 +346,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         yes = true;
         break;
+      case "--force":
+        if (force) {
+          duplicate(token);
+        }
+        force = true;
+        break;
       case "--rerun":
         if (rerun) {
           duplicate(token);
@@ -394,6 +409,18 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           ].includes(token)
         ) {
           action = token as TaskAction;
+          break;
+        }
+        if (
+          command === "worktree" &&
+          action === undefined &&
+          (WORKTREE_ACTIONS as readonly string[]).includes(token)
+        ) {
+          action = token as WorktreeAction;
+          break;
+        }
+        if (command === "worktree" && action !== undefined && action !== "list" && worktreeName === undefined) {
+          worktreeName = token;
           break;
         }
         if (command !== undefined) {
@@ -466,7 +493,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       checkAuthTargets.length > 0 ||
       dryRun ||
       yes ||
-      rerun
+      rerun ||
+      force
     ) {
       throw new CliArgumentError(
         "CLI_OPTION_NOT_ALLOWED",
@@ -487,6 +515,18 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "The trust command requires one of: status, grant, revoke."
     );
   }
+  if (command === "worktree" && action === undefined) {
+    throw new CliArgumentError(
+      "CLI_ACTION_REQUIRED",
+      `The worktree command requires one of: ${WORKTREE_ACTIONS.join(", ")}.`
+    );
+  }
+  if (command === "worktree" && action !== "list" && worktreeName === undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      `worktree ${action} requires a worktree name.`
+    );
+  }
   if (command === "task" && action === undefined) {
     throw new CliArgumentError(
       "CLI_ACTION_REQUIRED",
@@ -505,6 +545,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     command !== "verify" &&
     command !== "review" &&
     command !== "allow-stop" &&
+    !(command === "worktree" && sessionId !== undefined && taskId === undefined) &&
     (hasTaskTargetOptions || hasTaskMutationOptions)
   ) {
     throw new CliArgumentError(
@@ -689,9 +730,39 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     );
   }
 
+  if (
+    command === "worktree" &&
+    (scope !== undefined ||
+      harness !== undefined ||
+      profiles.length > 0 ||
+      hasTaskMutationOptions ||
+      dryRun ||
+      yes ||
+      rerun)
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "worktree accepts only a name, --session and --json."
+    );
+  }
+  if (force && !(command === "worktree" && action === "remove")) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--force may be used only with worktree remove."
+    );
+  }
+  if (command === "worktree" && action !== "add" && action !== "resume" && sessionId !== undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      `worktree ${action} takes the session from the worktree; omit --session.`
+    );
+  }
+
   return {
     command,
     ...(action === undefined ? {} : { action }),
+    ...(worktreeName === undefined ? {} : { worktreeName }),
+    ...(force ? { force } : {}),
     ...(scope === undefined ? {} : { scope }),
     ...(harness === undefined ? {} : { harness }),
     ...(hookTargets.length === 0 ? {} : { hookTargets }),
