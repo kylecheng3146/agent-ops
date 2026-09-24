@@ -58,6 +58,20 @@ export const DEFAULT_REVIEW_TIMEOUT_MS = 900_000;
  */
 export const DEFAULT_STALL_IDLE_MS = 90_000;
 
+/**
+ * agy writes nothing to stdout, stderr or its log while one generation
+ * streams, so a long think is indistinguishable from a wedge. Its own logs
+ * show normal generations silent for up to ~177s; 90s cut real reviews off.
+ */
+export const AGY_STALL_IDLE_MS = 240_000;
+
+/**
+ * A call the service dropped before answering. It produced no verdict, so
+ * one fresh retry is not review shopping.
+ */
+const TRANSIENT_NETWORK =
+  /\b(?:network issue|503|service is currently unavailable|ECONNRESET|ETIMEDOUT|socket hang up)\b/iu;
+
 /** Two rounds at the per-target default: the previous worst case, now bounded. */
 export const DEFAULT_REVIEW_CHAIN_TIMEOUT_MS = 2 * DEFAULT_REVIEW_TIMEOUT_MS;
 
@@ -377,6 +391,8 @@ type TargetAttemptOutcome =
       readonly diagnostic: string;
       readonly message: string;
       readonly metrics: ReviewAttemptMetrics;
+      /** The service dropped the call; worth one fresh retry. */
+      readonly transient?: boolean;
     };
 
 interface TargetAttemptRequest {
@@ -638,7 +654,8 @@ async function attemptTarget(
     options.onProgress?.(
       `${target}: review started (timeout: ${Math.ceil((options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS) / 1_000)}s)`
     );
-    const stallIdleMs = options.stallIdleMs ?? DEFAULT_STALL_IDLE_MS;
+    const stallIdleMs = options.stallIdleMs ??
+      (target === "agy" ? AGY_STALL_IDLE_MS : DEFAULT_STALL_IDLE_MS);
     const stallWatch = watchForStall(
       heartbeatLog,
       options.signal,
@@ -706,11 +723,14 @@ async function attemptTarget(
     }
     if (spawned.failureClass === "nonzero-exit") {
       const output = `${spawned.stderr}\n${spawned.stdout}`;
-      return skip(
-        rejectedCallReason(output),
-        firstComplaint(spawned.stderr, spawned.stdout) ??
-          `the call was rejected with exit ${spawned.exitCode ?? "unknown"} and no output`
-      );
+      return {
+        ...skip(
+          rejectedCallReason(output),
+          firstComplaint(spawned.stderr, spawned.stdout) ??
+            `the call was rejected with exit ${spawned.exitCode ?? "unknown"} and no output`
+        ),
+        ...(TRANSIENT_NETWORK.test(output) ? { transient: true } : {})
+      };
     }
     if (spawned.failureClass === "signal-exit") {
       return skip(
@@ -760,6 +780,22 @@ async function attemptTarget(
   } finally {
     await rm(attemptDirectory, { recursive: true, force: true });
   }
+}
+
+/**
+ * `attemptTarget`, retried once in a fresh session when the service dropped
+ * the call. Only once: a service that is down stays down.
+ */
+async function attemptTargetWithRetry(
+  request: TargetAttemptRequest,
+  options: ReviewExecutorOptions
+): Promise<TargetAttemptOutcome> {
+  const first = await attemptTarget(request, options);
+  if (first.kind !== "skip" || first.transient !== true || budgetSpent(options)) {
+    return first;
+  }
+  options.onProgress?.(`${request.target}: ${first.diagnostic} → retrying once`);
+  return attemptTarget(request, options);
 }
 
 /** Builds the `execute` callback with one necessary and one adversarial review. */
@@ -880,7 +916,7 @@ export function createReviewExecutor(
       report("chain: review deadline reached before the first round");
       return { status: "NOT_RUN", reason: "timeout", attempts: [] };
     }
-    const primaryOutcome = await attemptTarget(
+    const primaryOutcome = await attemptTargetWithRetry(
       {
         ...shared,
         target: primaryTarget,
@@ -1001,7 +1037,7 @@ export function createReviewExecutor(
       };
     }
     // The second round draws on what is left, never a fresh full budget.
-    const adversarialOutcome = await attemptTarget(
+    const adversarialOutcome = await attemptTargetWithRetry(
       {
         ...shared,
         target: adversarialTarget,

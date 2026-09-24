@@ -7,6 +7,7 @@ import type { ReviewTargetId } from "../../runtime/src/contracts.js";
 import {
   createReviewExecutor,
   DEFAULT_REVIEW_TIMEOUT_MS,
+  AGY_STALL_IDLE_MS,
   DEFAULT_STALL_IDLE_MS,
   isolatedReviewEnvironment,
   ReviewInterruptedError
@@ -848,6 +849,54 @@ test("the stall window is ninety seconds by default", () => {
   // Short enough that a sandbox-blocked chain reports in minutes, long enough
   // that a reviewer thinking between progress lines is never cut off.
   assert.equal(DEFAULT_STALL_IDLE_MS, 90_000);
+});
+
+test("agy gets a longer stall window than the default", () => {
+  // agy is silent on every channel while one generation streams; its own
+  // logs show normal generations quiet for up to ~177s.
+  assert.equal(AGY_STALL_IDLE_MS, 240_000);
+  assert.ok(AGY_STALL_IDLE_MS > DEFAULT_STALL_IDLE_MS);
+});
+
+const networkDrop = {
+  exitCode: 1,
+  stderr: "error: There was a network issue connecting to the server, please try again."
+} as const;
+
+test("a dropped call is retried once in a fresh session", async () => {
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [networkDrop, { stdout: passing() }, { stdout: passing() }]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  assert.equal(result.attempts?.length, 2);
+  assert.notEqual(result.attempts?.[0]?.sessionId, result.attempts?.[1]?.sessionId);
+  assert.ok(progress.some((line) => /agy: .*network issue.* → retrying once/.test(line)));
+});
+
+test("a second dropped call stops the review without a third", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      networkDrop,
+      { exitCode: 1, stderr: "UNAVAILABLE (code 503): The service is currently unavailable." },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "capability-unavailable");
+  assert.equal(attempts.length, 3);
+});
+
+test("a rejection that is not a dropped call is never retried", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [{ exitCode: 1, stderr: "error: unknown flag --mode" }, { stdout: passing() }]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(attempts.length, 1);
 });
 
 test("a silent necessary reviewer stops the review as stalled", async () => {

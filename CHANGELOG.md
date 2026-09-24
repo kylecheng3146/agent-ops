@@ -4,6 +4,14 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+- agy reviewers get a 240-second stall window instead of 90. agy is silent on
+  every channel while one generation streams, and its own logs show normal
+  generations quiet for up to ~177 seconds, so large adversarial rounds were
+  cut off as stalled.
+- A review round whose target exits reporting a dropped call (network issue,
+  503/UNAVAILABLE, connection reset or timeout) is retried once in a fresh
+  session. Any other rejection, and a second drop, still stops the review.
+
 ## [0.3.0] - 2026-09-24
 
 - Parallel conversations in one repository no longer void each other's
