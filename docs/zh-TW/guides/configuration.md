@@ -136,6 +136,11 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   Write 修改主 checkout 中 `.worktrees/` 以外的檔案會被拒絕（需先執行一次
   `agent-ops update`，讓 PreToolUse hook 比對檔案工具）。未設定或 `"off"` 則維持
   目前的單一 checkout。
+- 在 Claude Code 上，第一次被拒絕的編輯會自動建立該 worktree：
+  `.worktrees/session-<session id 前八個字元>`，包含 setup，並綁定該 session。
+  拒絕訊息會列出要以 EnterWorktree 進入的路徑；同一 session 之後被拒絕時會重用它。
+  建立失敗時，拒絕訊息會說明原因並退回手動 `worktree add`。需先執行一次
+  `agent-ops update`，讓 PreToolUse hook 取得 setup 所需的 600 秒逾時。
 - `add` 從主 checkout 的 HEAD 建立 `.worktrees/<name>` 與 branch
   `agent-ops/<name>`，並透過 `.git/info/exclude`（而非 `.gitignore`）排除
   `/.worktrees/`。它會複製 agent-ops 安裝的 ignored 檔案，以及根目錄

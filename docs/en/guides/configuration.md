@@ -152,6 +152,13 @@ evidence. Give each editing conversation its own worktree instead:
   On Claude Code a direct Edit or Write of the main checkout outside
   `.worktrees/` is denied (run `agent-ops update` once so the PreToolUse hook
   matches the file tools). Absent or `"off"` keeps today's single checkout.
+- On Claude Code the first denied edit creates that worktree itself:
+  `.worktrees/session-<first eight characters of the session id>`, setup
+  included, bound to the session. The denial names the path to enter with
+  EnterWorktree; a later denial for the same session reuses it. If creation
+  fails, the denial says why and falls back to the manual `worktree add`.
+  Run `agent-ops update` once so the PreToolUse hook gets the 600-second
+  timeout setup needs.
 - `add` creates `.worktrees/<name>` on branch `agent-ops/<name>` from the main
   checkout's HEAD and excludes `/.worktrees/` through `.git/info/exclude`,
   never `.gitignore`. It copies the ignored files agent-ops installed and any

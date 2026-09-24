@@ -362,3 +362,25 @@ export async function addWorktree(
     throw error;
   }
 }
+
+/** `session-` plus the session id's first eight name-safe characters. */
+export function sessionWorktreeName(sessionId: string): string {
+  const slug = sessionId.toLowerCase().replace(/[^a-z0-9]/gu, "").slice(0, 8);
+  return `session-${slug === "" ? "0" : slug}`;
+}
+
+/**
+ * The worktree `sessionId` works in, created on first use. One already bound
+ * to the same session is reused, so a session blocked twice before it moves
+ * still gets exactly one worktree.
+ */
+export async function ensureSessionWorktree(
+  deps: WorktreeDependencies,
+  options: { readonly cwd: string; readonly sessionId: string }
+): Promise<WorktreeRecord> {
+  const { mainRoot } = await resolveCheckouts(deps, options.cwd);
+  const name = sessionWorktreeName(options.sessionId);
+  const existing = await readWorktreeRecord(worktreePath(mainRoot, name));
+  if (existing?.sessionId === options.sessionId) return existing;
+  return (await addWorktree(deps, { cwd: mainRoot, name, sessionId: options.sessionId })).record;
+}

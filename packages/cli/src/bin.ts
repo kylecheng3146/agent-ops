@@ -315,7 +315,8 @@ if (argv[0] === "agy-run") {
       writeStdout: (value) => process.stdout.write(value),
       writeStderr: (value) => process.stderr.write(value)
     },
-    CLI_VERSION
+    CLI_VERSION,
+    { worktree: worktreeDependencies() }
   );
 } else {
 process.exitCode = await runCli(

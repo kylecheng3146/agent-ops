@@ -11,6 +11,12 @@ All notable changes to this unreleased project are documented here.
 - A review round whose target exits reporting a dropped call (network issue,
   503/UNAVAILABLE, connection reset or timeout) is retried once in a fresh
   session. Any other rejection, and a second drop, still stops the review.
+- In worktree auto mode, Claude Code's first denied edit of the main checkout
+  creates the session's worktree (`.worktrees/session-<id prefix>`, setup
+  included) and names the path to enter, instead of asking the agent to run
+  `agent-ops worktree add` itself. Later denials reuse it; a failed creation
+  falls back to the manual remedy with its reason. The PreToolUse hook's
+  timeout is now 600 seconds so setup can finish; run `agent-ops update`.
 
 ## [0.3.0] - 2026-09-24
 

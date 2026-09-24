@@ -81,7 +81,8 @@ function commandHook(
       CLAUDE_HOOK_MARKER,
       ...(completionGate ? ["--completion-gate"] : [])
     ],
-    timeout: 30
+    // PreToolUse may create the session's worktree, setup steps included.
+    timeout: event === "PreToolUse" ? 600 : 30
   };
 }
 
