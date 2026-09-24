@@ -82,8 +82,14 @@ export function worktreeDependencies(): FinishDependencies {
       }
     },
     gate: gateFor,
-    tasks: (root) => new TaskService(
-      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+    tasks: (root, base) => new TaskService(
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
+      base === undefined ? {} : { completion: {
+        root,
+        gitRunner: gitRunner(root),
+        base,
+        loadConfig: async () => (await loadEffectiveConfig(root, "project")).config
+      } }
     ),
     processRunner: new NodeVerificationProcessRunner(),
     runSetup: async (cwd, step) => await new Promise((resolve) => {

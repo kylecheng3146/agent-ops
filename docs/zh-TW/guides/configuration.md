@@ -156,10 +156,17 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
 - Session 的 completion gate 會跟著它：Claude Code 以 EnterWorktree 進入
   worktree；無法移動 session 的 host（agy）則透過主 checkout 記錄的 redirect，
   由 worktree 的 gate 判定。
+- 在 worktree 裡對每個 task 執行 verify 與 review，但不要執行 `task complete`
+  （Claude Code 在隔離的 worktree session 中會拒絕它）。`agent-ops worktree finish
+  <name>` 會在任何 rebase 之前 complete worktree 內每個未封存的 task，先 subtask
+  後 parent，各自使用其 PASS review 記錄的 base（沒有記錄時使用 worktree 的 base）。
+  任一 task 無法完成時不會合併，錯誤訊息會指出是哪個 task。建立 subtask 時 session
+  維持附著在 task 樹最上層，且每個 task 各自保留 review 紀錄，所以在同一份原始碼上
+  review 的 parent 與 subtask 不會互相覆蓋。
 - `agent-ops worktree finish <name>` 只以 fast-forward 合併，一次只執行一個
   finish。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
   重新驗證再合併；衝突則連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
-  回報。
+  回報。Note 會記錄 worktree 的每個 task，subtask 縮排在其 parent 之下。
 - `worktree list`、`resume <name> --session <id>` 與 `remove <name>` 管理剩下的
   worktree；`remove --force` 會丟棄工作，執行前會先詢問使用者。`doctor` 會回報
   閒置超過七天的 worktree。

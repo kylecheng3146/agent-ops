@@ -206,7 +206,9 @@ export async function runTaskCommand(
             "Work only inside that path from now on:",
             `- Claude Code: EnterWorktree with path ${worktree.path}`,
             `- Codex and agy: run every command with ${worktree.path} as its working directory`,
-            `Run verify, review and task complete there with --base ${worktree.base}.`,
+            `Commit, then run verify and review there with --base ${worktree.base};`,
+            "then leave the worktree (Claude Code: ExitWorktree with action keep) and run",
+            "agent-ops worktree finish from the main checkout, which completes the task and merges.",
             "",
             created.data.text
           ].join("\n")

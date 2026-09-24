@@ -594,7 +594,9 @@ test("task create in worktree auto mode lands in the session's worktree", async 
     assert.equal((await mainTasks.list()).length, 0);
     const text = result.data?.text ?? "";
     assert.ok(text.includes(`- Claude Code: EnterWorktree with path ${worktree}\n`), text);
-    assert.match(text, /--base abc123/u);
+    assert.match(text, /run verify and review there with --base abc123;/u);
+    assert.match(text, /agent-ops worktree finish from the main checkout, which completes the task and merges/u);
+    assert.doesNotMatch(text, /task complete/u);
     assert.match(text, /^# Worktree task$/mu);
 
     // Without a session there is no worktree to bind, so nothing moves.

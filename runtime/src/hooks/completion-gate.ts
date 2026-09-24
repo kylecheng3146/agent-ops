@@ -314,7 +314,7 @@ export class CompletionGateService {
         "continue",
         "UNKNOWN",
         "COMPLETION_GATE_WORKTREE_MODE",
-        `worktree.mode is auto. Session: ${sessionId}. Before your first edit run agent-ops task create from this checkout, which creates this session's worktree and puts the task there (or agent-ops worktree add <name> --session ${shellQuote(sessionId)}), and work only inside the printed path.`
+        `worktree.mode is auto. Session: ${sessionId}. Before your first edit run agent-ops task create from this checkout, which creates this session's worktree and puts the task there (or agent-ops worktree add <name> --session ${shellQuote(sessionId)}), and work only inside the printed path. Verify and review there, then finish with agent-ops worktree finish from this checkout, which completes the tasks; do not run task complete in the worktree.`
       );
     }
     return gateResult(

@@ -249,7 +249,8 @@ test("managed rules route parallel conversations through their own worktree", ()
   assert.match(content, /run `agent-ops task create` from the main checkout before your first edit: it creates this session's worktree and puts the task there/u);
   assert.match(content, /`agent-ops worktree add <name> --session <session-id>` does the same without a task/u);
   assert.match(content, /Claude Code: EnterWorktree with that path/u);
-  assert.match(content, /`task complete` with the printed `--base`/u);
-  assert.match(content, /ExitWorktree with action keep\) and run `agent-ops worktree finish <name>`/u);
+  assert.match(content, /run verify and review for each task with the printed `--base`; do not run `task complete` in the worktree/u);
+  assert.match(content, /ExitWorktree with action keep\) and run `agent-ops worktree finish <name>` from the main checkout: it completes every task in the worktree, subtasks first, then merges/u);
+  assert.match(content, /reports an incomplete task names it; verify or review that task again/u);
   assert.match(content, /resolved once, as a new task whose criteria cover both intents/u);
 });

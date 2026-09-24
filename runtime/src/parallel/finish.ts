@@ -32,7 +32,8 @@ const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 const MAX_INTENTS = 20;
 
 export interface FinishDependencies extends WorktreeDependencies {
-  readonly tasks: (root: string) => TaskService;
+  /** With `completionBase`, a service that can complete tasks over that range. */
+  readonly tasks: (root: string, completionBase?: string) => TaskService;
   readonly processRunner?: VerificationProcessRunner;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly lockWaitMs?: number;
@@ -42,7 +43,8 @@ export interface FinishResult {
   readonly record: WorktreeRecord;
   readonly mergedHead: string;
   readonly rebased: boolean;
-  readonly taskId: string;
+  /** Every task the merge carries, top of each tree first. */
+  readonly taskIds: readonly string[];
   readonly warnings: readonly string[];
 }
 
@@ -217,12 +219,38 @@ async function targetIntents(deps: WorktreeDependencies, cwd: string, target: st
   return intents;
 }
 
-function noteText(record: WorktreeRecord, task: Awaited<ReturnType<TaskService["status"]>>): string {
+type StoredTask = Awaited<ReturnType<TaskService["status"]>>;
+
+/** Each tree top first, its subtasks after it; `depth` counts parents. */
+function taskTree(tasks: readonly StoredTask[]): { readonly task: StoredTask; readonly depth: number }[] {
+  const ids = new Set(tasks.map(({ task }) => task.id));
+  const ordered: { task: StoredTask; depth: number }[] = [];
+  const visit = (parent: string | undefined, depth: number): void => {
+    for (const task of tasks) {
+      const own = task.task.parentTaskId !== undefined && ids.has(task.task.parentTaskId)
+        ? task.task.parentTaskId
+        : undefined;
+      if (own === parent) {
+        ordered.push({ task, depth });
+        visit(task.task.id, depth + 1);
+      }
+    }
+  };
+  visit(undefined, 0);
+  return ordered;
+}
+
+function noteText(record: WorktreeRecord, tasks: readonly { readonly task: StoredTask; readonly depth: number }[]): string {
   return [
-    `agent-ops task ${task.task.id}: ${task.task.title}`,
     `worktree: ${record.name} (${record.branch})`,
-    "criteria:",
-    ...task.task.criteria.map(({ id, description }) => `- ${id}: ${description}`)
+    ...tasks.flatMap(({ task, depth }) => {
+      const indent = "  ".repeat(depth);
+      return [
+        `${indent}agent-ops task ${task.task.id}: ${task.task.title}`,
+        `${indent}criteria:`,
+        ...task.task.criteria.map(({ id, description }) => `${indent}- ${id}: ${description}`)
+      ];
+    })
   ].join("\n");
 }
 
@@ -267,13 +295,30 @@ export async function finishWorktree(
         `${record.branch} has no commits beyond ${record.targetBranch}; remove the worktree instead.`);
     }
     const worktreeConfig = await deps.loadConfig(record.path);
+    // The whole branch merges, so every task in the worktree completes first,
+    // subtasks before their parents, each over the range its review covered.
+    // Before any rebase: rebasing rewrites the commits those fingerprints name.
+    const tree = taskTree((await deps.tasks(record.path).list()).filter(({ status }) => status !== "archived"));
+    if (tree.length === 0) {
+      throw finishError("WORKTREE_TASK_INCOMPLETE",
+        "The worktree has no task; create one, verify and review it before finishing.");
+    }
+    for (const { task } of [...tree].sort((left, right) => right.depth - left.depth)) {
+      if (task.status === "complete") continue;
+      const base = task.reviewBase ?? record.base;
+      try {
+        await deps.tasks(record.path, base).complete(task.task.id, {});
+      } catch (error) {
+        throw finishError("WORKTREE_TASK_INCOMPLETE",
+          `Task ${task.task.id} (${task.task.title}) could not be completed against ${base}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     const worktreeGate = await deps.gate(record.path, worktreeConfig);
     const problem = await worktreeGate.validate(record.sessionId);
     if (problem !== null) {
       throw finishError("WORKTREE_TASK_INCOMPLETE",
         `The worktree's task is not ready to merge (${problem.code}). ${problem.remedy ?? ""}`.trim());
     }
-    const task = await deps.tasks(record.path).status({ sessionId: record.sessionId });
 
     const head = await git(deps, record.path, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
     const fastForward = (await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode === 0;
@@ -323,7 +368,7 @@ export async function finishWorktree(
       }
     };
     await attempt("note", async () => await git(deps, mainRoot,
-      ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", noteText(record, task), mergedHead],
+      ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", noteText(record, tree), mergedHead],
       "WORKTREE_NOTE_FAILED", "Git could not write the agent-ops note."));
     if (gateEnabled) {
       await attempt("gate", async () => {
@@ -334,6 +379,6 @@ export async function finishWorktree(
     }
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));
     await attempt("remove", async () => await removeCheckout(deps, record, true));
-    return { record, mergedHead, rebased: !fastForward, taskId: task.task.id, warnings };
+    return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings };
   });
 }
