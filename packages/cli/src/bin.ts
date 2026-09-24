@@ -79,6 +79,10 @@ import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
 import { runWorktreeCommand } from "./commands/worktree.js";
 import type { FinishDependencies } from "../../../runtime/src/worktree/finish.js";
+import {
+  listWorktrees,
+  worktreeDoctorResult
+} from "../../../runtime/src/worktree/manage.js";
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
@@ -243,6 +247,16 @@ function worktreeDependencies(): FinishDependencies {
       }));
     })
   };
+}
+
+async function worktreeDoctorProbe(root: string) {
+  let statuses;
+  try {
+    statuses = await listWorktrees(worktreeDependencies(), root);
+  } catch {
+    return { status: "PASS" as const, message: "No agent-ops worktrees to inspect." };
+  }
+  return worktreeDoctorResult(statuses, Date.now());
 }
 
 const argv = process.argv.slice(2);
@@ -471,7 +485,8 @@ process.exitCode = await runCli(
                     : { status };
                 },
                 reviewTarget: async (target, deep) =>
-                  await probeReviewTarget(target, { cwd: root, deep })
+                  await probeReviewTarget(target, { cwd: root, deep }),
+                worktrees: async () => await worktreeDoctorProbe(root)
               },
               ...(args.checkAuth === true
                 ? { checkReviewTargetAuth: true }

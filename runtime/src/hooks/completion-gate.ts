@@ -375,7 +375,20 @@ export class CompletionGateService {
     return null;
   }
 
+  /** `agent-ops worktree remove --force`: discards work that exists nowhere else. */
+  #isForcedRemove(event: NormalizedHookEvent): boolean {
+    const commands = event.event === "command" ? [event] :
+      event.event === "command-batch" ? event.commands : [];
+    return commands.some(({ command, args }) => {
+      const words = [command, ...args];
+      return words.includes("worktree") && words.includes("remove") && words.includes("--force");
+    });
+  }
+
   async handle(event: NormalizedHookEvent): Promise<HookResult | null> {
+    if (this.#isForcedRemove(event)) {
+      return gateResult("block", "UNKNOWN", "WORKTREE_REMOVE_CONFIRMATION", "Allow this only if the user wants the worktree's uncommitted or unmerged work discarded.");
+    }
     if (this.#isPermitCommand(event)) {
       return gateResult("block", "UNKNOWN", "COMPLETION_GATE_PERMIT_CONFIRMATION", "Allow this command only to grant one Stop for the current source fingerprint.");
     }
