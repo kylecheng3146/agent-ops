@@ -4,6 +4,22 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-25
+
+- Interactive worktree selection for `agent-ops init` and `agent-ops update`:
+  prompts whether to enable parallel session isolation via Git worktrees when
+  unconfigured in project scope, defaulting to yes.
+- Automatic setup command detection: inspects project lockfiles for bun, npm,
+  pnpm, and yarn to generate deterministic install commands (`npm ci`,
+  `pnpm install --frozen-lockfile`, `yarn install --immutable`,
+  `bun install --frozen-lockfile`) for worktree creation.
+- Added `--worktree <auto|off>` flag to `init` and `update` commands for
+  scripting and CI environments.
+- Notice warning during init/update when `.env*` files exist without a
+  matching `.worktreeinclude` file.
+- Restored harness session protocol routing, risk baseline, and routing tests in
+  English.
+
 ## [0.3.1] - 2026-09-25
 
 - agy reviewers get a 240-second stall window instead of 90. agy is silent on
