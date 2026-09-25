@@ -139,9 +139,27 @@ test("prefers direct exec and keeps paths with spaces as one argument", () => {
       "PreToolUse",
       "--managed-by=agent-ops"
     ],
-    timeout: 30
+    // PreToolUse may create the session's worktree, setup steps included.
+    timeout: 600
   });
   assert.equal("shell" in (handler ?? {}), false);
+});
+
+test("only the PreToolUse handler gets the worktree setup timeout", () => {
+  const settings = buildClaudeHookSettings(
+    ["command-policy", "completion-gate"],
+    "/opt/agent-ops/hook-entry.js"
+  );
+  const seen = new Set<string>();
+  for (const [event, groups] of Object.entries(settings.hooks)) {
+    for (const hook of groups?.flatMap((group) => group.hooks) ?? []) {
+      if (hook.command === "node") {
+        seen.add(event);
+        assert.equal(hook.timeout, event === "PreToolUse" ? 600 : 30, event);
+      }
+    }
+  }
+  assert.ok(seen.has("PreToolUse") && seen.size > 1, [...seen].join(","));
 });
 
 test("registers the Claude loop lifecycle through its generated launcher", async () => {

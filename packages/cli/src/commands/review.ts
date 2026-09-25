@@ -434,7 +434,8 @@ async function reusableReview(
   }
   const attestation = await findReviewAttestation(
     options.root,
-    sourceFingerprint
+    sourceFingerprint,
+    context?.taskId
   );
   if (attestation === null || attestation.taskId !== context?.taskId) {
     return null;
@@ -450,7 +451,8 @@ async function reusableReview(
   }
   const artifact = await readReviewReportArtifact(
     options.root,
-    sourceFingerprint
+    sourceFingerprint,
+    attestation.taskId
   );
   if (
     artifact === null ||
@@ -689,7 +691,7 @@ export async function runReviewCommand(
           })
         });
       }
-      await invalidateReviewAttestation(options.root, sourceFingerprint);
+      await invalidateReviewAttestation(options.root, sourceFingerprint, context?.taskId);
       pendingInvalidation = false;
     }
   }
@@ -834,7 +836,9 @@ export async function runReviewCommand(
           item.criterionId,
           item.evidence.map((reference) => `review:${finalResult.harness}:${reference}`)
         ])
-      )
+      ),
+      // What `worktree finish` completes this task against.
+      scope?.mode === "base" ? scope.resolvedBase : null
     );
   }
   const message =

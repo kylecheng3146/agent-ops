@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { basename, dirname, join, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 
 import type { HookResult } from "../hooks/events.js";
 import type { GitRunner } from "../verify/change-surface.js";
@@ -46,18 +46,34 @@ export async function canonicalPath(path: string): Promise<string> {
 export async function evaluateWorktreeWrite(
   mainRoot: string,
   paths: readonly string[],
-  sessionId: string | undefined
+  sessionId: string | undefined,
+  /** Creates or reuses this session's worktree and returns its path. */
+  ensureWorktree?: (sessionId: string) => Promise<string>
 ): Promise<HookResult> {
   for (const path of paths) {
     const target = await canonicalPath(path);
     const inMain = target === mainRoot || target.startsWith(`${mainRoot}${sep}`);
     if (inMain && !insideWorktreeDirectory(mainRoot, target)) {
+      let failure = "";
+      if (sessionId !== undefined && ensureWorktree !== undefined) {
+        try {
+          const worktree = await ensureWorktree(sessionId);
+          return {
+            action: "block",
+            status: "FAIL",
+            code: "WORKTREE_CREATED",
+            remedy: `worktree.mode is auto, so this session now has its own worktree at ${worktree}. Enter it (Claude Code: EnterWorktree with path ${worktree}) and redo this edit there, at ${join(worktree, relative(mainRoot, target))}.`
+          };
+        } catch (error) {
+          failure = ` Creating this session's worktree failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
       const session = sessionId ?? "<session-id>";
       return {
         action: "block",
         status: "FAIL",
         code: "WORKTREE_REQUIRED",
-        remedy: `worktree.mode is auto, so the main checkout is shared and not edited directly. Run \`agent-ops worktree add <name> --session ${session}\` in ${mainRoot}, enter the printed path (Claude Code: EnterWorktree with that path), and edit there.`
+        remedy: `worktree.mode is auto, so the main checkout is shared and not edited directly.${failure} Run \`agent-ops worktree add <name> --session ${session}\` in ${mainRoot}, enter the printed path (Claude Code: EnterWorktree with that path), and edit there.`
       };
     }
   }

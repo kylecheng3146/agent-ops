@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -31,8 +31,6 @@ import { readRecordedSessionId } from "../../../runtime/src/hooks/codex-loop.js"
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
-import { FileTrustStore } from "../../../runtime/src/security/trust.js";
-import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { calculateSourceFingerprint } from "../../../runtime/src/verify/source-fingerprint.js";
@@ -45,6 +43,7 @@ import {
   repositoryTrustBinding
 } from "./context.js";
 import { runHookProcess } from "./hook-process.js";
+import { gitRunner, trustStore, worktreeDependencies } from "./parallel-deps.js";
 import { selectYesNo, writeBanner } from "./ui.js";
 import { CLI_VERSION } from "./version.js";
 import { createCommandRegistry } from "./commands/index.js";
@@ -78,7 +77,10 @@ import {
 import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
 import { runWorktreeCommand } from "./commands/parallel.js";
-import type { FinishDependencies } from "../../../runtime/src/parallel/finish.js";
+import {
+  ensureSessionWorktree,
+  resolveCheckouts
+} from "../../../runtime/src/parallel/service.js";
 import {
   listWorktrees,
   worktreeDoctorResult
@@ -135,31 +137,6 @@ async function installedHarness(root: string): Promise<Harness> {
   return (await installedManifest(root))?.harness ?? [...HARNESS_IDS];
 }
 
-function gitRunner(root: string) {
-  return {
-    run: async (gitArgs: readonly string[]) => {
-      try {
-        return {
-          exitCode: 0,
-          stdout: execFileSync("git", [...gitArgs], {
-            cwd: root,
-            encoding: "buffer",
-            stdio: ["ignore", "pipe", "ignore"]
-          })
-        };
-      } catch (error) {
-        const failure = error as {
-          status?: number | null;
-          stdout?: Uint8Array;
-        };
-        return {
-          exitCode: failure.status ?? 1,
-          stdout: failure.stdout ?? new Uint8Array()
-        };
-      }
-    }
-  };
-}
 
 async function confirmInit(
   plan: Parameters<typeof formatInstallPlan>[0],
@@ -183,10 +160,6 @@ async function confirmPlan(text: string): Promise<boolean> {
   );
 }
 
-function trustStore(): FileTrustStore {
-  const state = localStatePaths(process.env.AGENT_OPS_HOME ?? homedir());
-  return new FileTrustStore(state.trustStore, state.anchorDirectory);
-}
 
 async function plannedTrustBinding(
   root: string,
@@ -198,56 +171,6 @@ async function plannedTrustBinding(
     : await repositoryTrustBinding(root, config, CLI_VERSION);
 }
 
-function worktreeDependencies(): FinishDependencies {
-  const gateFor = async (root: string, config: AgentOpsConfig) =>
-    new CompletionGateService({
-      root,
-      config,
-      gitRunner: gitRunner(root),
-      taskService: new TaskService(
-        new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
-      ),
-      evidenceStore: new FileEvidenceStore(root, root)
-    });
-  return {
-    git: async (cwd, gitArgs) => await new Promise((resolve) => {
-      execFile("git", [...gitArgs], { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-        (error, stdout, stderr) => resolve({
-          exitCode: error === null ? 0 : typeof error.code === "number" ? error.code : 1,
-          stdout,
-          stderr
-        }));
-    }),
-    loadConfig: async (root) => (await loadEffectiveConfig(root, "project")).config,
-    trust: {
-      status: async (root, config) => await repositoryTrust(root, config, CLI_VERSION),
-      grant: async (root, config) =>
-        await trustStore().grant(await repositoryTrustBinding(root, config, CLI_VERSION)),
-      revoke: async (root, config) => {
-        await trustStore().revoke(await repositoryTrustBinding(root, config, CLI_VERSION));
-      }
-    },
-    gate: gateFor,
-    tasks: (root) => new TaskService(
-      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
-    ),
-    processRunner: new NodeVerificationProcessRunner(),
-    runSetup: async (cwd, step) => await new Promise((resolve) => {
-      execFile(step.command, [...step.args], {
-        cwd,
-        encoding: "utf8",
-        timeout: step.timeoutMs,
-        maxBuffer: 16 * 1024 * 1024,
-        ...(process.platform === "win32" ? { shell: true } : {})
-      }, (error, stdout, stderr) => resolve({
-        exitCode: error === null
-          ? 0
-          : typeof error.code === "number" && error.killed !== true ? error.code : null,
-        output: `${stdout}${stderr}`
-      }));
-    })
-  };
-}
 
 async function worktreeDoctorProbe(root: string) {
   let statuses;
@@ -315,7 +238,8 @@ if (argv[0] === "agy-run") {
       writeStdout: (value) => process.stdout.write(value),
       writeStderr: (value) => process.stderr.write(value)
     },
-    CLI_VERSION
+    CLI_VERSION,
+    { worktree: worktreeDependencies() }
   );
 } else {
 process.exitCode = await runCli(
@@ -580,17 +504,46 @@ process.exitCode = await runCli(
             // run inside a session is never told which session it is in.
             const sessionId = process.env.AGENT_OPS_SESSION_ID ??
               await readRecordedSessionId(root);
-            const policyConfigHash = args.action === "create"
-              ? calculateConfigHash((await loadEffectiveConfig(
+            const createConfig = args.action === "create"
+              ? (await loadEffectiveConfig(
                   root,
                   args.scope === "user" ? "user" : "project"
-                )).config)
+                )).config
               : undefined;
+            const policyConfigHash = createConfig === undefined
+              ? undefined
+              : calculateConfigHash(createConfig);
+            // Auto mode starts the work where it belongs: a task created from
+            // the main checkout lands in the session's own worktree.
+            const worktreeDeps = worktreeDependencies();
+            const fromMain = createConfig?.worktree?.mode === "auto" &&
+              args.scope !== "user" &&
+              await resolveCheckouts(worktreeDeps, root)
+                .then(({ mainRoot, currentRoot }) => mainRoot === currentRoot)
+                .catch(() => false);
             return await runTaskCommand({
               args,
               service: taskService,
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
-              ...(sessionId === undefined ? {} : { sessionId })
+              ...(sessionId === undefined ? {} : { sessionId }),
+              ...(fromMain
+                ? {
+                    sessionWorktree: async (session: string) => {
+                      const record = await ensureSessionWorktree(worktreeDeps, {
+                        cwd: root,
+                        sessionId: session
+                      });
+                      return {
+                        path: record.path,
+                        base: record.base,
+                        service: new TaskService(new FileTaskStore(
+                          join(record.path, ".agent-ops", "tasks", "state.json"),
+                          record.path
+                        ))
+                      };
+                    }
+                  }
+                : {})
             });
           }
           if (args.command === "review") {

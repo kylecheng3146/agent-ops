@@ -4,6 +4,42 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
+- agy reviewers get a 240-second stall window instead of 90. agy is silent on
+  every channel while one generation streams, and its own logs show normal
+  generations quiet for up to ~177 seconds, so large adversarial rounds were
+  cut off as stalled.
+- A review round whose target exits reporting a dropped call (network issue,
+  503/UNAVAILABLE, connection reset or timeout) is retried once in a fresh
+  session. Any other rejection, and a second drop, still stops the review.
+- In worktree auto mode, `agent-ops task create` from the main checkout
+  creates the session's worktree (or reuses it) and records the task there,
+  so work starts in the worktree. The managed rules and the SessionStart
+  message now route through it.
+- As a fallback, Claude Code's first denied edit of the main checkout
+  creates the session's worktree (`.worktrees/session-<id prefix>`, setup
+  included) and names the path to enter, instead of asking the agent to run
+  `agent-ops worktree add` itself. Later denials reuse it; a failed creation
+  falls back to the manual remedy with its reason. The PreToolUse hook's
+  timeout is now 600 seconds so setup can finish; run `agent-ops update`.
+- `agent-ops worktree finish` now completes every task in the worktree before
+  merging, subtasks first, each against the base its PASS review recorded
+  (the new `reviewBase` on the task record; the worktree's base otherwise).
+  Claude Code refuses `task complete` inside an isolated worktree session, so
+  the managed rules no longer ask for it there. A task that cannot complete
+  stops the merge and is named.
+- The merge note records every task of the worktree, subtasks indented, and
+  finish reports all their ids. It used to record only the attached task,
+  which after creating a subtask was the subtask.
+- Creating a subtask keeps the session attached to the top of its task tree.
+  Attaching the subtask let the completion gate pass a Stop with the parent
+  unfinished.
+- Review attestations and report artifacts are kept per task
+  (`<fingerprint>.<task id>`), so a parent and a subtask reviewed on the same
+  source no longer overwrite each other. Records written before this change
+  still read.
+
 ## [0.3.0] - 2026-09-24
 
 - Parallel conversations in one repository no longer void each other's

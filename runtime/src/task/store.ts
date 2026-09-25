@@ -36,6 +36,12 @@ export interface StoredTaskRecord {
    * that range later. Null when the task was completed from the worktree.
    */
   readonly completionBase: string | null;
+  /**
+   * The commit the latest PASS review measured against, so `worktree finish`
+   * can complete the task over the range that was reviewed. Absent when the
+   * review covered uncommitted work or predates this field.
+   */
+  readonly reviewBase?: string;
 }
 
 export interface SessionAttachment {
@@ -163,7 +169,7 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   ];
   // Every record written before an optional field existed must still parse, so
   // the accepted shapes are every combination of them.
-  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash"];
+  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash", "reviewBase"];
   const allowedKeys = new Set(
     Array.from({ length: 1 << optionalKeys.length }, (_unused, mask) =>
       [
@@ -265,6 +271,12 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   ) {
     return invalidState("Task state contains an invalid completion base.");
   }
+  if (
+    value.reviewBase !== undefined &&
+    (typeof value.reviewBase !== "string" || !/^[a-f0-9]{40,64}$/u.test(value.reviewBase))
+  ) {
+    return invalidState("Task state contains an invalid review base.");
+  }
   return {
     task: task.value,
     status,
@@ -275,7 +287,8 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     archivedAt: value.archivedAt as string | null,
     failureFingerprint,
     policyConfigHash,
-    completionBase
+    completionBase,
+    ...(value.reviewBase === undefined ? {} : { reviewBase: value.reviewBase })
   };
 }
 

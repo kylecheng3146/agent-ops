@@ -25,6 +25,15 @@ export interface TaskCommandOptions {
   readonly service: TaskService;
   readonly sessionId?: string;
   readonly policyConfigHash?: string;
+  /**
+   * Worktree auto mode from the main checkout: the session's worktree,
+   * created or reused, whose task store a new task belongs in.
+   */
+  readonly sessionWorktree?: (sessionId: string) => Promise<{
+    readonly service: TaskService;
+    readonly path: string;
+    readonly base: string;
+  }>;
 }
 
 export interface TaskCommandData {
@@ -163,7 +172,10 @@ export async function runTaskCommand(
           "Task creation requires --title."
         );
       }
-      const record = await options.service.create({
+      const worktree = sessionId === undefined || options.sessionWorktree === undefined
+        ? undefined
+        : await options.sessionWorktree(sessionId);
+      const record = await (worktree?.service ?? options.service).create({
         title: options.args.title,
         criteria: (options.args.criteria ?? []).map(parseCriterion),
         ...(options.policyConfigHash === undefined
@@ -174,14 +186,34 @@ export async function runTaskCommand(
           : { parentTaskId: options.args.parentTaskId }),
         ...(sessionId === undefined ? {} : { sessionId })
       });
-      return taskEnvelope(
+      const created = taskEnvelope(
         action,
         "TASK_CREATED",
         sessionId === undefined
           ? `Created task ${record.task.id}.`
-          : `Created and attached task ${record.task.id}.`,
+          : record.task.parentTaskId === undefined
+            ? `Created and attached task ${record.task.id}.`
+            : `Created subtask ${record.task.id}; the session stays on the top of its task tree.`,
         record
       );
+      if (worktree === undefined || created.data === null) return created;
+      return {
+        ...created,
+        data: {
+          ...created.data,
+          text: [
+            `Created in this session's worktree ${worktree.path}.`,
+            "Work only inside that path from now on:",
+            `- Claude Code: EnterWorktree with path ${worktree.path}`,
+            `- Codex and agy: run every command with ${worktree.path} as its working directory`,
+            `Commit, then run verify and review there with --base ${worktree.base};`,
+            "then leave the worktree (Claude Code: ExitWorktree with action keep) and run",
+            "agent-ops worktree finish from the main checkout, which completes the task and merges.",
+            "",
+            created.data.text
+          ].join("\n")
+        }
+      };
     }
     if (action === "status") {
       if (options.args.taskId === undefined && sessionId === undefined) {

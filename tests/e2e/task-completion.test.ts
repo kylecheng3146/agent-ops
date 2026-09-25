@@ -111,6 +111,11 @@ test("default core CLI completion enforces evidence and review regardless of hos
       }
     });
     assert.equal(reviewed.status, "ok", JSON.stringify(reviewed));
+    // `worktree finish` completes against the range this review covered.
+    assert.equal(
+      (await tasks.status({ taskId: committedId })).reviewBase,
+      execFileSync("git", ["rev-parse", "HEAD^"], { cwd: root, encoding: "utf8" }).trim()
+    );
     const completeCommitted = runBuiltCli(completionArgs, root).result;
     assert.equal(completeCommitted.status, 0, completeCommitted.stdout);
     assert.equal(JSON.parse(completeCommitted.stdout).code, "TASK_COMPLETED");

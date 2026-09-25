@@ -29,6 +29,10 @@ import {
   evaluateWorktreeWrite,
   resolveMainRoot
 } from "../../../runtime/src/parallel/guard.js";
+import {
+  ensureSessionWorktree,
+  type WorktreeDependencies
+} from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -77,6 +81,8 @@ export interface HookProcessDependencies {
   readonly gitRunner?: GitRunner;
   readonly processRunner?: VerificationProcessRunner;
   readonly completionGate?: HookDispatchOptions["completionGate"];
+  /** Lets the worktree guard create the session's worktree itself. */
+  readonly worktree?: WorktreeDependencies;
 }
 
 export interface HookProcessIo {
@@ -518,7 +524,17 @@ export async function runHookProcess(
           const mainRoot = await resolveMainRoot(gitRunner);
           return mainRoot === null
             ? { action: "continue", status: "UNKNOWN", code: "WORKTREE_GUARD_UNAVAILABLE" }
-            : await evaluateWorktreeWrite(mainRoot, write.paths, write.sessionId);
+            : await evaluateWorktreeWrite(
+                mainRoot,
+                write.paths,
+                write.sessionId,
+                dependencies.worktree === undefined
+                  ? undefined
+                  : async (sessionId) => (await ensureSessionWorktree(
+                      dependencies.worktree!,
+                      { cwd: mainRoot, sessionId }
+                    )).path
+              );
         }
       : undefined;
     const output = await runHookCommand({

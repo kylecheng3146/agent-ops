@@ -521,3 +521,91 @@ test("the task CLI creates subtasks and lists them by parent", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a subtask keeps the session attached to the top of its tree", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-attach-"));
+  try {
+    let next = 0;
+    const tasks = service(root, () => `task-${++next}`);
+    await tasks.create({ ...input("Parent"), sessionId: "session-one" });
+    const child = await tasks.create({ ...input("Child"), parentTaskId: "task-1", sessionId: "session-one" });
+    await tasks.create({ ...input("Grandchild"), parentTaskId: child.task.id, sessionId: "session-one" });
+    assert.equal((await tasks.status({ sessionId: "session-one" })).task.id, "task-1");
+
+    // A session that had nothing attached lands on the tree's top, too.
+    await tasks.create({ ...input("Other child"), parentTaskId: "task-1", sessionId: "session-two" });
+    assert.equal((await tasks.status({ sessionId: "session-two" })).task.id, "task-1");
+
+    const message = await runTaskCommand({
+      args: parseArgs(["task", "create", "--title", "Via CLI", "--parent", "task-1",
+        "--criterion", JSON.stringify({ id: "one", description: "One.", verifierIds: ["unit"] }),
+        "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] })]),
+      service: tasks,
+      sessionId: "session-one"
+    });
+    assert.match(message.data?.message ?? "", /^Created subtask task-5; the session stays on the top of its task tree\.$/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("review evidence records, keeps and clears the review base", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-review-base-"));
+  try {
+    const tasks = service(root);
+    const created = await tasks.create(input());
+    const criterion = created.task.criteria[0]!.id;
+    const base = "a".repeat(40);
+    await tasks.recordEvidence(created.task.id, { [criterion]: ["review:agy:one"] }, base);
+    // A fresh service reads it back through the store's parser.
+    assert.equal((await service(root).status({ taskId: created.task.id })).reviewBase, base);
+    await tasks.recordEvidence(created.task.id, { [criterion]: ["review:agy:two"] });
+    assert.equal((await service(root).status({ taskId: created.task.id })).reviewBase, base);
+    await tasks.recordEvidence(created.task.id, { [criterion]: ["review:agy:three"] }, null);
+    assert.equal("reviewBase" in await service(root).status({ taskId: created.task.id }), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("task create in worktree auto mode lands in the session's worktree", async () => {
+  const main = await mkdtemp(join(tmpdir(), "agent-ops-task-main-"));
+  const worktree = await mkdtemp(join(tmpdir(), "agent-ops-task-worktree-"));
+  try {
+    const mainTasks = service(main);
+    const worktreeTasks = service(worktree);
+    const sessions: string[] = [];
+    const args = parseArgs([
+      "task", "create", "--title", "Worktree task",
+      "--criterion", JSON.stringify({ id: "one", description: "One.", verifierIds: ["unit"] }),
+      "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] })
+    ]);
+    const sessionWorktree = async (sessionId: string) => {
+      sessions.push(sessionId);
+      return { service: worktreeTasks, path: worktree, base: "abc123" };
+    };
+
+    const result = await runTaskCommand({
+      args, service: mainTasks, sessionId: "session-one", sessionWorktree
+    });
+    assert.equal(result.code, "TASK_CREATED");
+    assert.deepEqual(sessions, ["session-one"]);
+    assert.equal((await worktreeTasks.list()).length, 1);
+    assert.equal((await mainTasks.list()).length, 0);
+    const text = result.data?.text ?? "";
+    assert.ok(text.includes(`- Claude Code: EnterWorktree with path ${worktree}\n`), text);
+    assert.match(text, /run verify and review there with --base abc123;/u);
+    assert.match(text, /agent-ops worktree finish from the main checkout, which completes the task and merges/u);
+    assert.doesNotMatch(text, /task complete/u);
+    assert.match(text, /^# Worktree task$/mu);
+
+    // Without a session there is no worktree to bind, so nothing moves.
+    const anonymous = await runTaskCommand({ args, service: mainTasks, sessionWorktree });
+    assert.equal(anonymous.code, "TASK_CREATED");
+    assert.deepEqual(sessions, ["session-one"]);
+    assert.equal((await mainTasks.list()).length, 1);
+  } finally {
+    await rm(main, { recursive: true, force: true });
+    await rm(worktree, { recursive: true, force: true });
+  }
+});

@@ -152,6 +152,17 @@ evidence. Give each editing conversation its own worktree instead:
   On Claude Code a direct Edit or Write of the main checkout outside
   `.worktrees/` is denied (run `agent-ops update` once so the PreToolUse hook
   matches the file tools). Absent or `"off"` keeps today's single checkout.
+- `agent-ops task create` run from the main checkout with a known session
+  creates that session's worktree first (or reuses it) and records the task
+  there, so the work starts in the worktree. Its output names the path to
+  enter and the `--base` to verify against.
+- As a fallback on Claude Code, the first denied edit creates that worktree:
+  `.worktrees/session-<first eight characters of the session id>`, setup
+  included, bound to the session. The denial names the path to enter with
+  EnterWorktree; a later denial for the same session reuses it. If creation
+  fails, the denial says why and falls back to the manual `worktree add`.
+  Run `agent-ops update` once so the PreToolUse hook gets the 600-second
+  timeout setup needs.
 - `add` creates `.worktrees/<name>` on branch `agent-ops/<name>` from the main
   checkout's HEAD and excludes `/.worktrees/` through `.git/info/exclude`,
   never `.gitignore`. It copies the ignored files agent-ops installed and any
@@ -166,10 +177,20 @@ evidence. Give each editing conversation its own worktree instead:
 - The session's completion gate follows it: Claude Code enters the worktree
   with EnterWorktree, and a host that cannot move a session (agy) is judged by
   the worktree's gate through a redirect the main checkout records.
+- In a worktree, verify and review each task but do not run `task complete`
+  (Claude Code refuses it inside an isolated worktree session). `agent-ops
+  worktree finish <name>` completes every non-archived task in the worktree,
+  subtasks before their parents, each against the base its PASS review
+  recorded (the worktree's base when none was recorded), before any rebase.
+  If one cannot complete, nothing merges and the error names the task.
+  Creating a subtask keeps the session attached to the top of its tree, and
+  each task keeps its own review record, so a parent and a subtask reviewed
+  on the same source do not overwrite each other.
 - `agent-ops worktree finish <name>` merges by fast-forward only, one finish
   at a time. If the target moved, it rebases; a clean rebase whose own patch
   is unchanged is re-verified before merging, and a conflict is reported with
-  the `refs/notes/agent-ops` intent of the work that landed first.
+  the `refs/notes/agent-ops` intent of the work that landed first. The note
+  records every task of the worktree, subtasks indented under their parent.
 - `worktree list`, `resume <name> --session <id>` and `remove <name>` manage
   what is left; `remove --force` discards work and asks the user first.
   `doctor` reports worktrees idle for more than seven days.

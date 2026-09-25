@@ -24,7 +24,7 @@ import {
 } from "../../runtime/src/parallel/finish.js";
 import { addWorktree, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
-import { CONFIG, deps, gateFor, git, gitRunner, repository, stopEvent, write } from "./fixture.js";
+import { CONFIG, deps, gateFor, git, gitRunner, loadConfig as loadFixtureConfig, repository, stopEvent, write } from "./fixture.js";
 
 const SESSION = "session-one";
 
@@ -49,7 +49,12 @@ function finishDeps(options: { readonly exitCode?: number; readonly sleep?: (ms:
   const processRunner = new ExitRunner(options.exitCode ?? 0);
   const result: FinishDependencies & { granted: string[]; revoked: string[]; processRunner: ExitRunner } = {
     ...base,
-    tasks: (root) => new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)),
+    tasks: (root, completionBase) => new TaskService(
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
+      completionBase === undefined ? {} : { completion: {
+        root, gitRunner: gitRunner(root), base: completionBase, loadConfig: async () => loadFixtureConfig(root)
+      } }
+    ),
     processRunner,
     ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
     ...(options.lockWaitMs === undefined ? {} : { lockWaitMs: options.lockWaitMs })
@@ -93,6 +98,52 @@ async function completeWork(record: WorktreeRecord, file: string, content: strin
   }
   await saveFixtureReviewAttestation(record.path, fingerprint, task.task.id);
   await tasks.complete(task.task.id, references);
+  return task.task.id;
+}
+
+/**
+ * A task verified and (unless `reviewed` is false) reviewed over `base..HEAD`
+ * in the worktree, left active for `worktree finish` to complete. `reviewBase`
+ * records the base the way a PASS review does; omitted, finish falls back to
+ * the worktree's own base.
+ */
+async function reviewedTask(record: WorktreeRecord, options: {
+  readonly title: string;
+  readonly base: string;
+  readonly parentTaskId?: string;
+  readonly reviewBase?: boolean;
+  readonly reviewed?: boolean;
+}): Promise<string> {
+  const runner = gitRunner(record.path);
+  const tasks = new TaskService(new FileTaskStore(join(record.path, ".agent-ops", "tasks", "state.json"), record.path));
+  const fingerprint = await calculateSourceFingerprint(record.path, {
+    mode: "base", baseRef: options.base, resolvedBase: options.base,
+    changedFiles: await collectBaseChangePaths(runner, options.base)
+  }, runner);
+  const task = await tasks.create({
+    title: options.title,
+    criteria: [
+      { id: "behavior", description: `${options.title} holds`, verifierIds: ["node-test"] },
+      { id: "regression", description: "Nothing else broke", verifierIds: ["node-test"] }
+    ],
+    policyConfigHash: calculateConfigHash(CONFIG),
+    ...(options.parentTaskId === undefined ? {} : { parentTaskId: options.parentTaskId }),
+    sessionId: record.sessionId
+  });
+  const evidence = new FileEvidenceStore(record.path, record.path);
+  const references: Record<string, string[]> = {};
+  for (const criterion of task.task.criteria) {
+    references[criterion.id] = [await evidence.save(buildVerificationEvidence({
+      taskId: task.task.id, criterionId: criterion.id, command: CONFIG.verification.commands[0]!,
+      scope: "project", startedAt: "2026-09-24T00:00:00Z", finishedAt: "2026-09-24T00:00:01Z",
+      exitCode: 0, testCount: 1, status: "PASS", failureClass: "none",
+      sourceFingerprint: fingerprint, toolVersions: {}, config: CONFIG
+    }))];
+  }
+  if (options.reviewed !== false) {
+    await saveFixtureReviewAttestation(record.path, fingerprint, task.task.id);
+  }
+  await tasks.recordEvidence(task.task.id, references, options.reviewBase === true ? options.base : undefined);
   return task.task.id;
 }
 
@@ -149,6 +200,66 @@ test("finish fast-forwards, records the task in notes and retires the worktree",
     assert.equal((await store.read("idle-session"))?.baselineFingerprint, now);
     assert.equal((await gateFor(root, CONFIG).handle(stopEvent("idle-session")))?.code, "COMPLETION_GATE_ALLOWED");
     assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finish completes the worktree's whole task tree, subtasks first, and records it", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "source.txt", "parent work\n");
+    await git(record.path, "add", "source.txt");
+    await git(record.path, "commit", "-qm", "parent work");
+    const middle = await git(record.path, "rev-parse", "HEAD");
+    await write(record.path, "child.txt", "child work\n");
+    await git(record.path, "add", "child.txt");
+    await git(record.path, "commit", "-qm", "child work");
+    // The parent has no recorded base, so finish falls back to the worktree's;
+    // the subtask was reviewed over its own, narrower range.
+    const parent = await reviewedTask(record, { title: "Parent", base: record.base });
+    const child = await reviewedTask(record, { title: "Child", base: middle, parentTaskId: parent, reviewBase: true });
+    const head = await git(record.path, "rev-parse", "HEAD");
+
+    const result = await finishWorktree(d, { cwd: root, name: "alpha" });
+
+    assert.deepEqual(result.taskIds, [parent, child]);
+    assert.equal(await git(root, "rev-parse", "main"), head);
+    const note = await git(root, "notes", "--ref=agent-ops", "show", head);
+    assert.match(note, new RegExp(`^agent-ops task ${parent}: Parent$`, "mu"));
+    assert.match(note, /^- behavior: Parent holds$/mu);
+    assert.match(note, new RegExp(`^  agent-ops task ${child}: Child$`, "mu"));
+    assert.match(note, /^ {2}- behavior: Child holds$/mu);
+    assert.ok(note.indexOf(parent) < note.indexOf(child), note);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finish merges nothing when a task in the worktree cannot complete", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "source.txt", "work\n");
+    await git(record.path, "add", "source.txt");
+    await git(record.path, "commit", "-qm", "work");
+    const parent = await reviewedTask(record, { title: "Parent", base: record.base });
+    const child = await reviewedTask(record, { title: "Child", base: record.base, parentTaskId: parent, reviewed: false });
+    const main = await git(root, "rev-parse", "main");
+
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), (error: unknown) =>
+      rejectsWith("WORKTREE_TASK_INCOMPLETE")(error) &&
+      (error as Error).message.includes(`Task ${child} (Child) could not be completed against ${record.base}`) &&
+      /agent-ops review --task/u.test((error as Error).message));
+
+    assert.equal(await git(root, "rev-parse", "main"), main);
+    assert.equal(await exists(record.path), true);
+    const tasks = d.tasks(record.path);
+    assert.equal((await tasks.status({ taskId: child })).status, "active");
+    assert.equal((await tasks.status({ taskId: parent })).status, "active");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

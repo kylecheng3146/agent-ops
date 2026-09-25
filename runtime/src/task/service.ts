@@ -252,9 +252,17 @@ export class TaskService {
         const currentIndex = state.sessions.findIndex(
           ({ sessionId }) => sessionId === input.sessionId
         );
+        // A subtask keeps the session on the top of its tree: the completion
+        // gate checks the attached task and everything under it, so attaching
+        // the subtask would let a Stop through with its parent unfinished.
+        let rootId = record.task.id;
+        for (let parentId = record.task.parentTaskId; parentId !== undefined;) {
+          rootId = parentId;
+          parentId = state.tasks.find(({ task }) => task.id === parentId)?.task.parentTaskId;
+        }
         const attachment = {
           sessionId: input.sessionId,
-          taskId: record.task.id,
+          taskId: rootId,
           attachedAt: now
         };
         if (currentIndex === -1) {
@@ -482,7 +490,12 @@ export class TaskService {
    */
   async recordEvidence(
     taskId: string,
-    evidenceInput: CriterionEvidenceInput
+    evidenceInput: CriterionEvidenceInput,
+    /**
+     * A PASS review's base: set records it, null clears it (the review covered
+     * uncommitted work), undefined leaves the record's value alone.
+     */
+    reviewBase?: string | null
   ): Promise<StoredTaskRecord> {
     const now = assertTimestamp(this.#now());
     return await this.#store.mutate((state) => {
@@ -525,10 +538,13 @@ export class TaskService {
           ...new Set([...(evidence[criterionId] ?? []), ...references])
         ];
       }
+      const { reviewBase: previousBase, ...rest } = current;
+      const base = reviewBase === undefined ? previousBase : reviewBase ?? undefined;
       const updated: StoredTaskRecord = {
-        ...current,
+        ...rest,
         evidence,
-        updatedAt: now
+        updatedAt: now,
+        ...(base === undefined ? {} : { reviewBase: base })
       };
       replaceTask(state, updated);
       return cloneRecord(updated);

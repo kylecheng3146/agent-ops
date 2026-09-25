@@ -68,7 +68,7 @@ export function fixtureAttestation(
     sessionIsolation: "fresh",
     primaryReportDigest: reviewReportDigest(result.report!),
     adversarialReportDigest: reviewReportDigest(result.adversarial!.report),
-    reportArtifact: `.agent-ops/reviews/${sourceFingerprint}.reports.json`,
+    reportArtifact: `.agent-ops/reviews/${sourceFingerprint}${taskId === undefined ? "" : `.${taskId}`}.reports.json`,
     createdAt: "2026-08-01T00:00:00.000Z"
   };
 }

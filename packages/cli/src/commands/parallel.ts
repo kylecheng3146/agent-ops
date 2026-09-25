@@ -43,9 +43,10 @@ function addText(result: WorktreeAddResult): string {
     "Work only inside that path from now on:",
     `- Claude Code: EnterWorktree with path ${record.path}`,
     `- Codex and agy: run every command with ${record.path} as its working directory`,
-    `Finish with: commit, agent-ops verify/review/task complete with --base ${record.base},`,
-    `then agent-ops worktree finish ${record.name} from ${record.mainRoot}`,
-    "(Claude Code: ExitWorktree with action keep before finishing)."
+    `Finish with: commit, agent-ops verify and review with --base ${record.base},`,
+    `then agent-ops worktree finish ${record.name} from ${record.mainRoot}, which`,
+    "completes every task in the worktree and merges",
+    "(Claude Code: ExitWorktree with action keep before finishing; do not run task complete in the worktree)."
   ].join("\n");
 }
 
@@ -53,7 +54,7 @@ function finishText(result: FinishResult): string {
   const { record } = result;
   return [
     `Merged ${record.branch} into ${record.targetBranch} at ${result.mergedHead}${result.rebased ? " after a clean rebase and re-verification" : ""}.`,
-    `Task ${result.taskId} is recorded in git notes (refs/notes/agent-ops).`,
+    `Completed and recorded in git notes (refs/notes/agent-ops): ${result.taskIds.join(", ")}.`,
     `Removed ${record.path}.`,
     ...result.warnings.map((warning) => `Warning: ${warning}`)
   ].join("\n");
