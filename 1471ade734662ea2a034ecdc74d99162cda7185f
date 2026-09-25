@@ -1,0 +1,6 @@
+worktree: session-1383eb5f (agent-ops/session-1383eb5f)
+agent-ops task task-8d1aaa75-941b-40a9-9d9a-9c754c41bb70: Restore harness specifications and routing verification tests
+criteria:
+- routing-paths-resolve: docs/harness/10-session-protocol.md exists and contains markdown link routes to all 9 modules in docs/en/spec/ and docs/harness/00-harness-risk-baseline.md
+- harness-risk-baseline: docs/harness/00-harness-risk-baseline.md exists and documents H-01, H-02, H-03 harness risks
+- routing-tests-pass: tests/docs/harness-routing.test.ts tests ENTRY_POINTS and validates that non-.agent-ops paths resolve using git ls-files
