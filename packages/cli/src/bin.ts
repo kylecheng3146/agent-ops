@@ -43,7 +43,7 @@ import {
   repositoryTrustBinding
 } from "./context.js";
 import { runHookProcess } from "./hook-process.js";
-import { gitRunner, trustStore, worktreeDependencies } from "./worktree-deps.js";
+import { gitRunner, trustStore, worktreeDependencies } from "./parallel-deps.js";
 import { selectYesNo, writeBanner } from "./ui.js";
 import { CLI_VERSION } from "./version.js";
 import { createCommandRegistry } from "./commands/index.js";

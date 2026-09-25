@@ -4,7 +4,7 @@
 //   node <this file> <harness> <event> --managed-by=agent-ops
 import { CLI_VERSION } from "./version.js";
 import { runHookProcess } from "./hook-process.js";
-import { worktreeDependencies } from "./worktree-deps.js";
+import { worktreeDependencies } from "./parallel-deps.js";
 
 process.exitCode = await runHookProcess(
   process.argv.slice(2),
