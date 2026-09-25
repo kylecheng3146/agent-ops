@@ -1,0 +1,10 @@
+worktree: session-wtguard0 (agent-ops/session-wtguard0)
+agent-ops task task-88881516-0666-446a-aed4-b22241732cf4: opencode worktree guard for file tools
+criteria:
+- deny-main-file-write: edit/write/patch/apply_patch on main checkout denied with WORKTREE_REQUIRED remedy
+- read-tools-passthrough: read-only tools pass through as unsupported without runtime call
+- plugin-forwards-write-tools: generated plugin forwards write tools and guard remedy covers non-Claude hosts
+agent-ops task task-d6cf3646-77f2-40da-b674-47abe1537ff0: agy deep probe runs inside a repo clone
+criteria:
+- probe-deep-agy-clones: agy deep probe clones the repo into temp and runs the prompt with cwd inside the clone, falling back to plain temp when cloning fails
+- no-regression: full node-test suite passes with the probe change
