@@ -4,6 +4,8 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
 - agy reviewers get a 240-second stall window instead of 90. agy is silent on
   every channel while one generation streams, and its own logs show normal
   generations quiet for up to ~177 seconds, so large adversarial rounds were
