@@ -1,0 +1,6 @@
+worktree: session-21305e14 (agent-ops/session-21305e14)
+agent-ops task task-428a94a8-6422-42b5-8a5a-080250102e88: feat: interactive worktree selection for init and update
+criteria:
+- worktree-setup-detection: Lockfile detection reliably maps package managers to setup commands or empty array
+- cli-worktree-flag: CLI parses --worktree auto and off in init and update
+- interactive-worktree-selection: init and update prompt for worktree when appropriate and update config.json with auto mode and detected setup
