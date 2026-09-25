@@ -83,6 +83,8 @@ export interface ParsedArgs {
   worktreeName?: string;
   /** worktree remove: discard uncommitted or unmerged work. */
   force?: boolean;
+  /** Worktree mode: auto isolates sessions into git worktrees, off disables. */
+  worktree?: "auto" | "off";
 }
 
 export class CliArgumentError extends Error {
@@ -183,6 +185,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let versionSeen = false;
   let worktreeName: string | undefined;
   let force = false;
+  let worktree: "auto" | "off" | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -328,6 +331,22 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         completionGate = true;
         break;
+      case "--worktree": {
+        if (worktree !== undefined) {
+          duplicate(token);
+        }
+        const value = readOptionValue(argv, index, token);
+        if (value !== "auto" && value !== "off") {
+          throw new CliArgumentError(
+            "CLI_INVALID_VALUE",
+            `Worktree mode must be auto or off: ${value}`,
+            token
+          );
+        }
+        worktree = value;
+        index += 1;
+        break;
+      }
       case "--dry-run":
         if (dryRun) {
           duplicate(token);
@@ -494,6 +513,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       dryRun ||
       yes ||
       rerun ||
+      worktree !== undefined ||
       force
     ) {
       throw new CliArgumentError(
@@ -612,6 +632,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "--completion-gate may be used only with init."
+    );
+  }
+  if (worktree !== undefined && command !== "init" && command !== "update") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--worktree may be used only with init or update."
     );
   }
   if (command === "task") {
@@ -782,6 +808,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     rerun,
     dryRun,
     json,
-    yes
+    yes,
+    ...(worktree === undefined ? {} : { worktree })
   };
 }

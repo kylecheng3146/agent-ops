@@ -133,8 +133,10 @@ test("TTY with no arguments launches the branded interactive init wizard", async
       profiles: ["core"]
     }
   );
-  assert.equal(questions.length, 4);
+  assert.equal(questions.length, 5);
+  assert.match(questions[4] ?? "", /worktree/i);
   assert.equal(received?.reviewTargets, undefined);
+  assert.equal(received?.worktree, "auto");
 });
 
 test("non-TTY with no arguments remains an explicit command error", async () => {

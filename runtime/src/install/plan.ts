@@ -102,6 +102,7 @@ export interface CreateInstallPlanOptions {
     readonly value: AgentOpsConfig;
     readonly sourceHash: string;
   };
+  readonly worktree?: WorktreeConfig | null;
 }
 
 export interface InstallPlan {
@@ -221,7 +222,8 @@ function buildConfig(
   },
   reviewTargets: readonly ReviewTargetId[] = [],
   detectedCommands: readonly VerificationCommand[] = [],
-  completionGateEnabled = false
+  completionGateEnabled = false,
+  worktree?: WorktreeConfig | null
 ): AgentOpsConfig {
   // Absent reviewRoles means external review is disabled; an empty selection
   // must therefore omit the field rather than write an empty array.
@@ -233,6 +235,10 @@ function buildConfig(
     existing.verification.commands.length > 0
       ? existing.verification
       : { commands: [...detectedCommands] };
+  const effectiveWorktree: WorktreeConfig | undefined =
+    worktree !== undefined
+      ? (worktree === null ? undefined : structuredClone(worktree))
+      : (existing?.worktree === undefined ? undefined : structuredClone(existing.worktree));
   return {
     schemaVersion: CONFIG_SCHEMA_VERSION,
     profiles: [...profiles],
@@ -248,9 +254,7 @@ function buildConfig(
     pathMappings: existing?.pathMappings ?? [],
     securityExceptions: existing?.securityExceptions ?? [],
     ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] }),
-    ...(existing?.worktree === undefined
-      ? {}
-      : { worktree: structuredClone(existing.worktree) })
+    ...(effectiveWorktree === undefined ? {} : { worktree: effectiveWorktree })
   };
 }
 
@@ -263,7 +267,8 @@ async function planConfig(
     readonly sourceHash: string;
   },
   reviewTargets: readonly ReviewTargetId[] = [],
-  completionGateEnabled = false
+  completionGateEnabled = false,
+  worktree?: WorktreeConfig | null
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -343,7 +348,8 @@ async function planConfig(
     existingConfig,
     reviewTargets,
     detected.commands,
-    completionGateEnabled
+    completionGateEnabled,
+    worktree
   );
   const content = `${JSON.stringify(config, null, 2)}\n`;
   return {
@@ -909,7 +915,8 @@ export async function createInstallPlan(
     existing?.manifest ?? null,
     options.existingConfig,
     options.reviewTargets ?? [],
-    completionGateEnabled
+    completionGateEnabled,
+    options.worktree
   );
   operations.push(config.operation);
   artifacts.push(config.record);

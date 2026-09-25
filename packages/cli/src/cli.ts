@@ -61,6 +61,7 @@ Options:
   --profile <core|advisory|guardrails|loop>  Repeatable
   --review-target <codex|agy|claude>  Repeatable init option; review pair order
   --completion-gate                  Init only: enable the project-loop completion gate
+  --worktree <auto|off>              Init/update: configure session worktree isolation
   --check-auth                        Doctor only: probe selected review targets'
                                       authentication with one real call
   --check-auth-target <target>        Repeatable doctor filter with --check-auth
@@ -98,6 +99,7 @@ Options:
   --profile <core|advisory|guardrails|loop>  Repeatable
   --review-target <codex|agy|claude>   Repeatable, in fallback-chain order
   --completion-gate                    Enable the project-loop completion gate
+  --worktree <auto|off>                Configure session worktree isolation
   --dry-run                            Print the plan without writing
   --json
   --yes
@@ -137,6 +139,7 @@ Options:
   --scope <project|user>
   --harness <all|both|agy|claude|codex|opencode|comma-separated>
   --target-version <version>   Offline-capable update target
+  --worktree <auto|off>        Configure session worktree isolation
   --dry-run
   --json
   --yes

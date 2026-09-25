@@ -15,7 +15,7 @@ import type { RegistryClient } from "../registry/npm.js";
 import { applyInstallPlan } from "./apply.js";
 import { doctorInstallation, type DoctorStatus } from "./doctor.js";
 import type { HarnessInstallAdapter } from "./harness.js";
-import type { Harness } from "../contracts.js";
+import type { Harness, WorktreeConfig } from "../contracts.js";
 import type { HookTargetSelection } from "./types.js";
 import {
   createInstallPlan,
@@ -44,6 +44,8 @@ export interface CreateUpdatePlanOptions {
   readonly hookTargets?: readonly HookTargetSelection[];
   /** Select a new harness set; update reconciles removed managed paths. */
   readonly harness?: Harness;
+  /** Worktree configuration override; undefined preserves existing. */
+  readonly worktree?: WorktreeConfig | null;
 }
 
 export interface UpdatePlan {
@@ -231,7 +233,10 @@ export async function createUpdatePlan(
     existingConfig: {
       value: configPreview.migrated,
       sourceHash: configPreview.sourceHash
-    }
+    },
+    ...(options.worktree === undefined
+      ? {}
+      : { worktree: options.worktree })
   });
   return {
     targetVersion,

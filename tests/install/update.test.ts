@@ -22,6 +22,8 @@ import {
   createUpdatePlan
 } from "../../runtime/src/install/update.js";
 import type { RegistryClient } from "../../runtime/src/registry/npm.js";
+import { parseArgs } from "../../packages/cli/src/args.js";
+import { runUpdateCommand } from "../../packages/cli/src/commands/update.js";
 
 const CODEX_START = "<!-- agent-ops:start agents-routing v1 -->";
 const CODEX_END = "<!-- agent-ops:end agents-routing -->";
@@ -848,3 +850,119 @@ test("update preserves a configured worktree block", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("update --worktree auto enables worktree auto mode with detected setup", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-wt-"));
+  try {
+    await install(root);
+    await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'");
+    const result = await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.2.0", "--worktree", "auto", "--yes"]),
+      root,
+      adapters: commonHarnessAdapters(),
+      isTTY: false,
+      confirm: async () => true
+    });
+    assert.equal(result.status, "ok");
+    const configPath = join(root, ".agent-ops", "config.json");
+    const updated = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(updated.worktree, {
+      mode: "auto",
+      setup: [{ command: "pnpm", args: ["install", "--frozen-lockfile"] }]
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update prompts for worktree when absent and user confirms", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-prompt-"));
+  try {
+    await install(root);
+    await writeFile(join(root, "package-lock.json"), "{}");
+    let prompted = false;
+    const result = await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.2.0"]),
+      root,
+      adapters: commonHarnessAdapters(),
+      isTTY: true,
+      promptWorktree: async () => {
+        prompted = true;
+        return true;
+      },
+      confirm: async () => true
+    });
+    assert.equal(result.status, "ok");
+    assert.equal(prompted, true);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const updated = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(updated.worktree, {
+      mode: "auto",
+      setup: [{ command: "npm", args: ["ci"] }]
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update prompts for worktree when absent and user declines", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-prompt-decline-"));
+  try {
+    await install(root);
+    let prompted = false;
+    const result = await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.2.0"]),
+      root,
+      adapters: commonHarnessAdapters(),
+      isTTY: true,
+      promptWorktree: async () => {
+        prompted = true;
+        return false;
+      },
+      confirm: async () => true
+    });
+    assert.equal(result.status, "ok");
+    assert.equal(prompted, true);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const updated = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    assert.equal(updated.worktree, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("update does not prompt for worktree when already configured", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-no-prompt-"));
+  try {
+    await install(root);
+    const configPath = join(root, ".agent-ops", "config.json");
+    const current = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    const customWorktree = {
+      mode: "auto",
+      setup: [{ command: "yarn", args: ["install", "--immutable"] }]
+    };
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ ...current, worktree: customWorktree }, null, 2)}\n`
+    );
+    let prompted = false;
+    const result = await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.2.0"]),
+      root,
+      adapters: commonHarnessAdapters(),
+      isTTY: true,
+      promptWorktree: async () => {
+        prompted = true;
+        return true;
+      },
+      confirm: async () => true
+    });
+    assert.equal(result.status, "ok");
+    assert.equal(prompted, false);
+    const updated = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    assert.deepEqual(updated.worktree, customWorktree);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
