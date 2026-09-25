@@ -1,0 +1,6 @@
+agent-ops task task-b85ad5ba-1883-4acb-b8e8-c0b8bd73a8ca: Prepare the 0.3.1 release
+worktree: release-031 (agent-ops/release-031)
+criteria:
+- scans: npm run package:check and node scripts/scan-source.mjs both pass; the shared dependency module no longer has worktree in its packed file name
+- version: package.json, package-lock.json and CLI_VERSION report 0.3.1, and CHANGELOG moves Unreleased under a dated 0.3.1 heading
+- suite: The full node test suite passes
