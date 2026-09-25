@@ -79,6 +79,73 @@ test("normalizes opencode lifecycle and bash tool inputs", () => {
   );
 });
 
+test("normalizes opencode file-write tools with session binding", () => {
+  assert.deepEqual(
+    normalizeOpencodeHookInput({
+      event: "PreToolUse",
+      projectRoot: "/repo",
+      input: { tool: "edit", sessionID: "session-one" },
+      output: { args: { filePath: "/repo/src/a.ts" } }
+    }),
+    {
+      event: "file-write",
+      projectRoot: "/repo",
+      paths: ["/repo/src/a.ts"],
+      sessionId: "session-one"
+    }
+  );
+  assert.deepEqual(
+    normalizeOpencodeHookInput({
+      event: "PreToolUse",
+      projectRoot: "/repo",
+      input: { tool: "write", sessionID: "session-one" },
+      output: { args: { filePath: "src/b.ts" } }
+    }),
+    {
+      event: "file-write",
+      projectRoot: "/repo",
+      paths: ["/repo/src/b.ts"],
+      sessionId: "session-one"
+    }
+  );
+  assert.deepEqual(
+    normalizeOpencodeHookInput({
+      event: "PreToolUse",
+      projectRoot: "/repo",
+      input: { tool: "apply_patch", sessionID: "session-one" },
+      output: {
+        args: {
+          patchText: "*** Update File: src/c.ts\n*** Add File: src/d.ts\n"
+        }
+      }
+    }),
+    {
+      event: "file-write",
+      projectRoot: "/repo",
+      paths: ["/repo/src/c.ts", "/repo/src/d.ts"],
+      sessionId: "session-one"
+    }
+  );
+  assert.deepEqual(
+    normalizeOpencodeHookInput({
+      event: "PreToolUse",
+      projectRoot: "/repo",
+      input: { tool: "read", sessionID: "session-one" },
+      output: { args: { filePath: "/repo/src/a.ts" } }
+    }),
+    { event: "unsupported", projectRoot: "/repo" }
+  );
+  assert.deepEqual(
+    normalizeOpencodeHookInput({
+      event: "PreToolUse",
+      projectRoot: "/repo",
+      input: { tool: "edit", sessionID: "session-one" },
+      output: { args: {} }
+    }),
+    { event: "unsupported", projectRoot: "/repo" }
+  );
+});
+
 test("declares opencode hooks and generates a managed plugin source", () => {
   assert.deepEqual(OPENCODE_SUPPORTED_EVENTS, [
     "SessionStart",
@@ -194,6 +261,8 @@ test("declares opencode hooks and generates a managed plugin source", () => {
   assert.ok(source !== null);
   assert.match(source, /export const AgentOps/);
   assert.match(source, /tool\.execute\.before/);
+  assert.match(source, /WRITE_TOOLS/);
+  assert.doesNotMatch(source, /input\?\.tool !== "bash"/);
   assert.match(source, /session\.idle/);
   assert.match(source, /node/);
   assert.match(source, /opencode/);

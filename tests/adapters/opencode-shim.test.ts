@@ -134,6 +134,38 @@ test("generated shim allows a runtime allow decision", async () => {
   }
 });
 
+test("generated shim forwards file-write tools and ignores read-only tools", async () => {
+  const loaded = await loadPlugin(["command-policy"]);
+  try {
+    const shell = fakeShell(
+      JSON.stringify({ decision: "deny", reason: "WORKTREE_REQUIRED" })
+    );
+    const hooks = await loaded.module.AgentOps({
+      $: shell.$,
+      directory: "/repo"
+    });
+    const before = hooks["tool.execute.before"] as (
+      input: unknown,
+      output: unknown
+    ) => Promise<void>;
+    await assert.rejects(
+      before(
+        { tool: "edit", sessionID: "session-one" },
+        { args: { filePath: "/repo/src/a.ts" } }
+      ),
+      /WORKTREE_REQUIRED/
+    );
+    assert.equal(shell.calls.length, 1);
+    await before(
+      { tool: "read", sessionID: "session-one" },
+      { args: { filePath: "/repo/src/a.ts" } }
+    );
+    assert.equal(shell.calls.length, 1);
+  } finally {
+    await loaded.cleanup();
+  }
+});
+
 test("missing runtime fails open for advisory and closed for guardrails", async () => {
   const advisory = await loadPlugin(["lifecycle-summary"]);
   const guardrail = await loadPlugin(["command-policy"]);
