@@ -347,6 +347,26 @@ export async function completeInitChoices(
           { startEmpty: true }
         )
       : []);
+    const worktree = args.worktree ?? (
+      scope === "project"
+        ? (await selectOption(
+            "Enable Git worktree isolation for parallel agent sessions?",
+            [
+              {
+                label: "yes",
+                value: "auto" as const,
+                description: "Recommended. Isolates each agent session in a dedicated worktree."
+              },
+              {
+                label: "no",
+                value: "off" as const,
+                description: "Keep a single shared checkout."
+              }
+            ],
+            selectorIo
+          ))
+        : undefined
+    );
     await probeReviewTargets(reviewTargets, setup);
     return {
       ...args,
@@ -354,7 +374,8 @@ export async function completeInitChoices(
       harness,
       profiles,
       ...(completionGate ? { completionGate: true } : {}),
-      ...(reviewTargets.length === 0 ? {} : { reviewTargets })
+      ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
+      ...(worktree !== undefined ? { worktree } : {})
     };
   }
 
@@ -413,13 +434,24 @@ export async function completeInitChoices(
     );
     await probeReviewTargets(reviewTargets, setup);
 
+    const worktree = args.worktree ?? (
+      scope === "project"
+        ? (!/^(n|no)$/i.test(
+            (await session.question(
+              "Enable Git worktree isolation for parallel agent sessions? [Y/n]: "
+            )).trim()
+          ) ? "auto" as const : "off" as const)
+        : undefined
+    );
+
     return {
       ...args,
       scope,
       harness,
       profiles,
       ...(completionGate ? { completionGate: true } : {}),
-      ...(reviewTargets.length === 0 ? {} : { reviewTargets })
+      ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
+      ...(worktree !== undefined ? { worktree } : {})
     };
   } finally {
     session.close();

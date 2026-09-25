@@ -1,5 +1,10 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import type { HarnessInstallAdapter } from "../../../../runtime/src/install/harness.js";
 import type { HookTargetSelection } from "../../../../runtime/src/install/types.js";
+import type { WorktreeConfig } from "../../../../runtime/src/contracts.js";
+import { detectWorktreeSetup } from "../../../../runtime/src/install/parallel-setup.js";
 import {
   applyUpdatePlan,
   createUpdatePlan,
@@ -39,6 +44,7 @@ export interface UpdateCommandOptions {
   readonly trustStore?: TrustStore;
   calculateTrustBinding?(config: UpdatePlan["installation"]["config"]): Promise<TrustBinding | null>;
   confirm(plan: UpdatePlan, trust: PublicTrustChange): Promise<boolean>;
+  promptWorktree?(message: string): Promise<boolean>;
 }
 
 export interface UpdateCommandData {
@@ -58,6 +64,15 @@ export function formatUpdatePlan(
     metadata: [
       `Target version: ${plan.targetVersion}`,
       `Harness: ${plan.installation.harness.join(", ")}`,
+      ...(plan.installation.config.worktree === undefined
+        ? []
+        : [
+            `Worktree: mode=${plan.installation.config.worktree.mode}${
+              plan.installation.config.worktree.setup && plan.installation.config.worktree.setup.length > 0
+                ? `, setup=${plan.installation.config.worktree.setup.map((s) => `${s.command} ${s.args.join(" ")}`.trim()).join("; ")}`
+                : ""
+            }`
+          ]),
       ...(trust === undefined ? [] : formatTrustChange(trust)),
       `Schema migrations: ${
         plan.migrationSteps.length === 0
@@ -119,9 +134,45 @@ async function trustChange(
     : await planTrustGrant(binding, options.trustStore);
 }
 
+async function existingConfigHasWorktree(root: string): Promise<boolean> {
+  try {
+    const content = await readFile(join(root, ".agent-ops", "config.json"), "utf8");
+    const parsed = JSON.parse(content) as { worktree?: unknown };
+    return parsed.worktree !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 export async function runUpdateCommand(
   options: UpdateCommandOptions
 ): Promise<CliEnvelope<UpdateCommandData>> {
+  let worktree: WorktreeConfig | undefined;
+  if (options.args.worktree === "auto") {
+    worktree = {
+      mode: "auto",
+      setup: await detectWorktreeSetup(options.root)
+    };
+  } else if (options.args.worktree === "off") {
+    worktree = { mode: "off" };
+  } else if (
+    options.args.worktree === undefined &&
+    options.promptWorktree !== undefined &&
+    options.isTTY &&
+    !options.args.yes &&
+    !(await existingConfigHasWorktree(options.root))
+  ) {
+    const shouldEnable = await options.promptWorktree(
+      "Enable Git worktree isolation for parallel agent sessions?"
+    );
+    if (shouldEnable) {
+      worktree = {
+        mode: "auto",
+        setup: await detectWorktreeSetup(options.root)
+      };
+    }
+  }
+
   const plan = await createUpdatePlan({
     root: options.root,
     adapters: options.adapters,
@@ -131,9 +182,9 @@ export async function runUpdateCommand(
     ...(options.registry === undefined
       ? {}
       : { registry: options.registry }),
-    ...(options.targetVersion === undefined
+    ...((options.targetVersion ?? options.args.targetVersion) === undefined
       ? {}
-      : { targetVersion: options.targetVersion }),
+      : { targetVersion: options.targetVersion ?? options.args.targetVersion }),
     ...(options.toolkitVersion === undefined
       ? {}
       : { toolkitVersion: options.toolkitVersion }),
@@ -142,7 +193,8 @@ export async function runUpdateCommand(
       : { hookRuntimePath: options.hookRuntimePath }),
     ...((options.hookTargets ?? options.args.hookTargets) === undefined
       ? {}
-      : { hookTargets: options.hookTargets ?? options.args.hookTargets })
+      : { hookTargets: options.hookTargets ?? options.args.hookTargets }),
+    ...(worktree === undefined ? {} : { worktree })
   });
   const trust = await trustChange(options, plan);
   if (options.args.dryRun) {

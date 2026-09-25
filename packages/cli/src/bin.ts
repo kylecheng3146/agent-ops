@@ -466,6 +466,12 @@ process.exitCode = await runCli(
                 await plannedTrustBinding(root, config),
               confirm: async (plan, trust) =>
                 await confirmPlan(formatUpdatePlan(plan, trust)),
+              promptWorktree: async (message) =>
+                await selectYesNo(
+                  message,
+                  { input: process.stdin, output: process.stdout },
+                  true
+                ),
               ...(updateArgs.targetVersion === undefined
                 ? {}
                 : { targetVersion: updateArgs.targetVersion })

@@ -477,3 +477,66 @@ test("human plan rendering escapes terminal control sequences", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("init --worktree auto detects lockfile and configures worktree mode auto", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-wt-"));
+  try {
+    await writeFile(join(root, "package-lock.json"), "{}");
+    const result = await runInitCommand(
+      options(root, [
+        "init",
+        "--scope",
+        "project",
+        "--harness",
+        "codex",
+        "--profile",
+        "core",
+        "--worktree",
+        "auto",
+        "--yes"
+      ])
+    );
+
+    assert.equal(result.status, "ok");
+    const config = JSON.parse(
+      await readFile(join(root, ".agent-ops", "config.json"), "utf8")
+    );
+    assert.deepEqual(config.worktree, {
+      mode: "auto",
+      setup: [{ command: "npm", args: ["ci"] }]
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("init --worktree off configures worktree mode off", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-init-wt-off-"));
+  try {
+    const result = await runInitCommand(
+      options(root, [
+        "init",
+        "--scope",
+        "project",
+        "--harness",
+        "codex",
+        "--profile",
+        "core",
+        "--worktree",
+        "off",
+        "--yes"
+      ])
+    );
+
+    assert.equal(result.status, "ok");
+    const config = JSON.parse(
+      await readFile(join(root, ".agent-ops", "config.json"), "utf8")
+    );
+    assert.deepEqual(config.worktree, {
+      mode: "off"
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

@@ -491,7 +491,8 @@ test("TTY wizard accepts loop as the selected profile", async () => {
     dryRun: false,
     json: false,
     yes: false,
-    rerun: false
+    rerun: false,
+    worktree: "auto"
   });
 });
 
@@ -592,3 +593,27 @@ test("review points init-only --review-target users to configured pair", () => {
       /configured reviewer pair/.test(error.message)
   );
 });
+
+test("parses --worktree for init and update", () => {
+  assert.equal(
+    parseArgs(["init", "--scope", "project", "--harness", "codex", "--profile", "core", "--worktree", "auto"]).worktree,
+    "auto"
+  );
+  assert.equal(
+    parseArgs(["update", "--worktree", "off"]).worktree,
+    "off"
+  );
+  assert.throws(
+    () => parseArgs(["init", "--scope", "project", "--harness", "codex", "--profile", "core", "--worktree", "invalid"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_INVALID_VALUE"
+  );
+  assert.throws(
+    () => parseArgs(["doctor", "--worktree", "auto"]),
+    (error: unknown) =>
+      error instanceof CliArgumentError &&
+      error.code === "CLI_OPTION_NOT_ALLOWED"
+  );
+});
+

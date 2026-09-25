@@ -25,6 +25,11 @@ import {
   formatTrustChange,
   planTrustGrant
 } from "./trust.js";
+import type { WorktreeConfig } from "../../../../runtime/src/contracts.js";
+import {
+  checkWorktreeEnvWarning,
+  detectWorktreeSetup
+} from "../../../../runtime/src/install/parallel-setup.js";
 
 export interface InitCommandOptions {
   readonly args: ParsedArgs;
@@ -66,6 +71,15 @@ export function formatInstallPlan(
       `Scope: ${plan.scope}`,
       `Harness: ${plan.harness}`,
       `Profiles: ${plan.profiles.join(", ")}`,
+      ...(plan.config.worktree === undefined
+        ? []
+        : [
+            `Worktree: mode=${plan.config.worktree.mode}${
+              plan.config.worktree.setup && plan.config.worktree.setup.length > 0
+                ? `, setup=${plan.config.worktree.setup.map((s) => `${s.command} ${s.args.join(" ")}`.trim()).join("; ")}`
+                : ""
+            }`
+          ]),
       ...(plan.scope === "user" && plan.harness.includes("agy")
         ? ["Notice: .gemini/GEMINI.md is a shared Gemini rule surface."]
         : []),
@@ -174,6 +188,13 @@ export async function runInitCommand(
     );
   }
 
+  const worktreeConfig: WorktreeConfig | undefined =
+    args.worktree === "auto"
+      ? { mode: "auto", setup: await detectWorktreeSetup(options.root) }
+      : args.worktree === "off"
+        ? { mode: "off" }
+        : undefined;
+
   const plan = await createInstallPlan({
     root: options.root,
     scope: args.scope,
@@ -194,7 +215,10 @@ export async function runInitCommand(
       : { reviewTargets: args.reviewTargets }),
     ...(args.completionGate === undefined
       ? {}
-      : { completionGateEnabled: args.completionGate })
+      : { completionGateEnabled: args.completionGate }),
+    ...(worktreeConfig === undefined
+      ? {}
+      : { worktree: worktreeConfig })
   });
   const trust = await trustChange(options, plan);
   // An installation with no verifier looks finished and is not: every task
@@ -210,16 +234,26 @@ export async function runInitCommand(
           : ` Detection stopped because — ${plan.verificationBlockers.join("; ")}`)
       ]
     : [];
-  const warnings = [...verificationWarnings, ...(plan.harness.includes("agy") && options.agyWarning !== undefined
-    ? (() => {
-        try {
-          const warning = options.agyWarning();
-          return warning === undefined ? [] : [warning];
-        } catch {
-          return ["agy could not be probed; run `agent-ops doctor` to verify it."];
-        }
-      })()
-    : [])];
+  const worktreeEnvWarning =
+    plan.config.worktree?.mode === "auto"
+      ? await checkWorktreeEnvWarning(options.root)
+      : undefined;
+  const worktreeWarnings =
+    worktreeEnvWarning === undefined ? [] : [worktreeEnvWarning];
+  const warnings = [
+    ...verificationWarnings,
+    ...worktreeWarnings,
+    ...(plan.harness.includes("agy") && options.agyWarning !== undefined
+      ? (() => {
+          try {
+            const warning = options.agyWarning();
+            return warning === undefined ? [] : [warning];
+          } catch {
+            return ["agy could not be probed; run `agent-ops doctor` to verify it."];
+          }
+        })()
+      : [])
+  ];
   if (args.dryRun) {
     return okEnvelope("INIT_PLAN_READY", {
       applied: false,
