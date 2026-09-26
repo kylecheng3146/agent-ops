@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { lstat } from "node:fs/promises";
+import { basename } from "node:path";
 import test from "node:test";
 
 import {
@@ -134,7 +135,7 @@ test("deep Agy probe clones the repo so the sandbox answers", async () => {
   assert.deepEqual(clone?.args.slice(0, 4), ["clone", "--no-hardlinks", "--quiet", "--"]);
   assert.equal(clone?.args.at(-2), "/project");
   assert.equal(clone?.args.at(-1), invocation?.cwd);
-  assert.ok(invocation?.cwd.endsWith("/repository"));
+  assert.equal(basename(invocation?.cwd ?? ""), "repository");
   await assert.rejects(lstat(invocation?.cwd ?? "/project"));
 });
 
@@ -161,7 +162,7 @@ test("deep Agy probe falls back to plain temp when cloning fails", async () => {
   const [clone, invocation] = requests;
   assert.equal(clone?.command, "git");
   assert.equal(invocation?.command, "agy");
-  assert.ok(!invocation?.cwd.endsWith("/repository"));
+  assert.notEqual(basename(invocation?.cwd ?? ""), "repository");
   await assert.rejects(lstat(invocation?.cwd ?? "/project"));
 });
 

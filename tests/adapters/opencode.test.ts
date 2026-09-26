@@ -90,7 +90,7 @@ test("normalizes opencode file-write tools with session binding", () => {
     {
       event: "file-write",
       projectRoot: "/repo",
-      paths: ["/repo/src/a.ts"],
+      paths: [resolve("/repo", "/repo/src/a.ts")],
       sessionId: "session-one"
     }
   );
@@ -104,7 +104,7 @@ test("normalizes opencode file-write tools with session binding", () => {
     {
       event: "file-write",
       projectRoot: "/repo",
-      paths: ["/repo/src/b.ts"],
+      paths: [resolve("/repo", "src/b.ts")],
       sessionId: "session-one"
     }
   );
@@ -122,7 +122,7 @@ test("normalizes opencode file-write tools with session binding", () => {
     {
       event: "file-write",
       projectRoot: "/repo",
-      paths: ["/repo/src/c.ts", "/repo/src/d.ts"],
+      paths: [resolve("/repo", "src/c.ts"), resolve("/repo", "src/d.ts")],
       sessionId: "session-one"
     }
   );
