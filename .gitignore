@@ -14,12 +14,12 @@ coverage/
 Thumbs.db
 *.log
 
-# agent-ops init files (AGENTS.md is tracked: it carries this repo's own
-# definition of done for agent sessions)
+# agent-ops init files
 .agent-ops/
 .claude/
 .codex/
 .opencode/
+AGENTS.md
 CLAUDE.md
 
 # agent-ops:start loop-state v1
