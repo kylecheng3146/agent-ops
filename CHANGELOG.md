@@ -4,6 +4,20 @@ All notable changes to this unreleased project are documented here.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-26
+
+- opencode worktree guard for file tools: in worktree auto mode, direct
+  `edit`, `write`, `patch`, and `apply_patch` writes to the main checkout
+  outside `.worktrees/` are denied with a `WORKTREE_REQUIRED` remedy instead
+  of only shell commands being policed. Read-only tools keep passing through,
+  and the denial names the session worktree path to use as every command's
+  working directory on non-Claude hosts.
+- agy deep probe runs inside a repository clone: the preflight prompt used to
+  run in an empty temp dir, where agy's sandbox hangs or denies file access
+  and the probe misreported `unauthenticated`. Cloning the repo first matches
+  the review attempt, which already runs inside a disposable clone; a failed
+  clone falls back to the plain temp dir.
+
 ## [0.3.2] - 2026-09-25
 
 - Interactive worktree selection for `agent-ops init` and `agent-ops update`:

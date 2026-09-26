@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { lstat } from "node:fs/promises";
+import { basename } from "node:path";
 import test from "node:test";
 
 import {
@@ -81,10 +82,10 @@ test("deep Codex probes preserve login while ignoring user config", async () => 
 });
 
 test("deep Agy probe binds the prompt and keeps sandboxed plan mode", async () => {
-  let request: ProcessRequest | undefined;
+  const requests: ProcessRequest[] = [];
   const runner: VerificationProcessRunner = {
     start(value) {
-      request = value;
+      requests.push(value);
       return {
         pid: 1,
         stdout: bytes('{"response":"OK"}'),
@@ -98,6 +99,7 @@ test("deep Agy probe binds the prompt and keeps sandboxed plan mode", async () =
     await probeReviewTarget("agy", { cwd: "/project", deep: true, runner }),
     "ok"
   );
+  const request = requests.at(-1);
   assert.deepEqual(request?.args.slice(0, 2), [
     "-p",
     "Reply with the single word OK and nothing else."
@@ -107,6 +109,61 @@ test("deep Agy probe binds the prompt and keeps sandboxed plan mode", async () =
   }
   assert.ok(request?.args.includes("--log-file"));
   assert.equal(request?.stdin, "");
+});
+
+test("deep Agy probe clones the repo so the sandbox answers", async () => {
+  const requests: ProcessRequest[] = [];
+  const runner: VerificationProcessRunner = {
+    start(value) {
+      requests.push(value);
+      return {
+        pid: 1,
+        stdout: bytes('{"response":"OK"}'),
+        stderr: bytes(""),
+        completion: Promise.resolve({ exitCode: 0, signal: null }),
+        terminateTree: async () => {}
+      };
+    }
+  };
+  assert.equal(
+    await probeReviewTarget("agy", { cwd: "/project", deep: true, runner }),
+    "ok"
+  );
+  assert.equal(requests.length, 2);
+  const [clone, invocation] = requests;
+  assert.equal(clone?.command, "git");
+  assert.deepEqual(clone?.args.slice(0, 4), ["clone", "--no-hardlinks", "--quiet", "--"]);
+  assert.equal(clone?.args.at(-2), "/project");
+  assert.equal(clone?.args.at(-1), invocation?.cwd);
+  assert.equal(basename(invocation?.cwd ?? ""), "repository");
+  await assert.rejects(lstat(invocation?.cwd ?? "/project"));
+});
+
+test("deep Agy probe falls back to plain temp when cloning fails", async () => {
+  const requests: ProcessRequest[] = [];
+  const runner: VerificationProcessRunner = {
+    start(value) {
+      requests.push(value);
+      const cloneFailed = value.command === "git";
+      return {
+        pid: 1,
+        stdout: bytes(cloneFailed ? "" : '{"response":"OK"}'),
+        stderr: bytes(""),
+        completion: Promise.resolve({ exitCode: cloneFailed ? 1 : 0, signal: null }),
+        terminateTree: async () => {}
+      };
+    }
+  };
+  assert.equal(
+    await probeReviewTarget("agy", { cwd: "/project", deep: true, runner }),
+    "ok"
+  );
+  assert.equal(requests.length, 2);
+  const [clone, invocation] = requests;
+  assert.equal(clone?.command, "git");
+  assert.equal(invocation?.command, "agy");
+  assert.notEqual(basename(invocation?.cwd ?? ""), "repository");
+  await assert.rejects(lstat(invocation?.cwd ?? "/project"));
 });
 
 test("the probe ceiling survives a caller handing it the whole chain budget", () => {

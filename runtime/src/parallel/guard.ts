@@ -62,7 +62,7 @@ export async function evaluateWorktreeWrite(
             action: "block",
             status: "FAIL",
             code: "WORKTREE_CREATED",
-            remedy: `worktree.mode is auto, so this session now has its own worktree at ${worktree}. Enter it (Claude Code: EnterWorktree with path ${worktree}) and redo this edit there, at ${join(worktree, relative(mainRoot, target))}.`
+            remedy: `worktree.mode is auto, so this session now has its own worktree at ${worktree}. Enter it (Claude Code: EnterWorktree with path ${worktree}; otherwise use the worktree path as every command's working directory) and redo this edit there, at ${join(worktree, relative(mainRoot, target))}.`
           };
         } catch (error) {
           failure = ` Creating this session's worktree failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -73,7 +73,7 @@ export async function evaluateWorktreeWrite(
         action: "block",
         status: "FAIL",
         code: "WORKTREE_REQUIRED",
-        remedy: `worktree.mode is auto, so the main checkout is shared and not edited directly.${failure} Run \`agent-ops worktree add <name> --session ${session}\` in ${mainRoot}, enter the printed path (Claude Code: EnterWorktree with that path), and edit there.`
+        remedy: `worktree.mode is auto, so the main checkout is shared and not edited directly.${failure} Run \`agent-ops worktree add <name> --session ${session}\` in ${mainRoot}, enter the printed path (Claude Code: EnterWorktree with that path; otherwise use it as every command's working directory), and edit there.`
       };
     }
   }

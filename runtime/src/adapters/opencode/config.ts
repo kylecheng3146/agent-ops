@@ -204,8 +204,10 @@ export function buildOpencodePlugin(
   }
   if (events.includes("PreToolUse")) {
     lines.push(
+      '  const WRITE_TOOLS = ["bash", "edit", "write", "patch", "apply_patch"];',
       '  hooks["tool.execute.before"] = async (input, output) => {',
-      '    if (input?.tool !== "bash") return;',
+      '    const tool = typeof input?.tool === "string" ? input.tool.toLowerCase() : "";',
+      "    if (!WRITE_TOOLS.includes(tool)) return;",
       "    await runManagedHook($, \"PreToolUse\", {",
       "      event: \"PreToolUse\",",
       "      projectRoot,",

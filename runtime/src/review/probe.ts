@@ -66,6 +66,33 @@ export async function probeReviewTarget(
     ? await mkdtemp(join(tmpdir(), "agent-ops-review-probe-"))
     : options.cwd;
   try {
+  // agy's sandbox only answers inside a project-shaped directory: an empty
+  // temp dir hangs or denies file access, which this probe then misreads as
+  // unauthenticated. Cloning first matches the review attempt, which already
+  // runs inside a disposable clone; a failed clone falls back to the plain
+  // temp dir, which is exactly today's behavior.
+  let invocationCwd = directory;
+  if (deep && target === "agy") {
+    const clone = join(directory, "repository");
+    const cloned = await runVerificationCommand(
+      {
+        id: "review-probe-clone",
+        command: "git",
+        args: ["clone", "--no-hardlinks", "--quiet", "--", options.cwd, clone],
+        cwd: directory,
+        required: true,
+        evidence: { kind: "exit-code" },
+        timeoutMs: Math.min(probeTimeoutMs(options.timeoutMs), 30_000)
+      },
+      {
+        cwd: directory,
+        ...(options.runner === undefined ? {} : { runner: options.runner })
+      }
+    );
+    if (cloned.status === "PASS") {
+      invocationCwd = clone;
+    }
+  }
   const invocation = buildProbeInvocation({
     target,
     prompt: PROBE_PROMPT,
@@ -81,13 +108,13 @@ export async function probeReviewTarget(
       id: `review-probe-${target}`,
       command: invocation.command,
       args: deep ? [...invocation.args] : ["--version"],
-      cwd: directory,
+      cwd: invocationCwd,
       required: true,
       evidence: { kind: "exit-code" },
       timeoutMs: probeTimeoutMs(options.timeoutMs)
     },
     {
-      cwd: directory,
+      cwd: invocationCwd,
       ...(options.runner === undefined ? {} : { runner: options.runner }),
       ...(deep
         ? {

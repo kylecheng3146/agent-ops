@@ -132,16 +132,17 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
 ```
 
 - `mode: "auto"` 讓每個修改中的對話都先在主 checkout 執行
-  `agent-ops worktree add <name> --session <id>`。Claude Code 直接以 Edit 或
+  `agent-ops worktree add <name> --session <id>`。Claude Code 與 opencode 直接以 Edit 或
   Write 修改主 checkout 中 `.worktrees/` 以外的檔案會被拒絕（需先執行一次
   `agent-ops update`，讓 PreToolUse hook 比對檔案工具）。未設定或 `"off"` 則維持
   目前的單一 checkout。
 - 在主 checkout、已知 session 的情況下執行 `agent-ops task create`，會先建立（或重用）
   該 session 的 worktree，並把 task 記錄在那裡，讓工作一開始就在 worktree 內。輸出會列出
   要進入的路徑與 verify 用的 `--base`。
-- 作為 Claude Code 上的後備，第一次被拒絕的編輯會自動建立該 worktree：
+- 作為 Claude Code 與 opencode 上的後備，第一次被拒絕的編輯會自動建立該 worktree：
   `.worktrees/session-<session id 前八個字元>`，包含 setup，並綁定該 session。
-  拒絕訊息會列出要以 EnterWorktree 進入的路徑；同一 session 之後被拒絕時會重用它。
+  拒絕訊息會列出要進入的路徑（Claude Code 以 EnterWorktree 進入，其他 harness
+  則作為每條命令的工作目錄）；同一 session 之後被拒絕時會重用它。
   建立失敗時，拒絕訊息會說明原因並退回手動 `worktree add`。需先執行一次
   `agent-ops update`，讓 PreToolUse hook 取得 setup 所需的 600 秒逾時。
 - `add` 從主 checkout 的 HEAD 建立 `.worktrees/<name>` 與 branch
