@@ -24,6 +24,7 @@ export const WORKTREE_RECORD_PATH = ".agent-ops/tasks/worktree.json";
 const EXCLUDE_LINE = `/${WORKTREE_DIRECTORY}/`;
 const NAME = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const SESSION = /^[^\0\r\n]{1,256}$/u;
+const TARGET_BRANCH = /^[A-Za-z0-9._/-]{1,128}$/u;
 const DEFAULT_SETUP_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface GitResult {
@@ -138,6 +139,43 @@ export function worktreePath(mainRoot: string, name: string): string {
 /** True when `path` is inside `<mainRoot>/.worktrees/`. */
 export function insideWorktreeDirectory(mainRoot: string, path: string): boolean {
   return path.startsWith(`${join(mainRoot, WORKTREE_DIRECTORY)}${sep}`);
+}
+
+export interface WorktreeListEntry {
+  readonly path: string;
+  readonly branch: string | null;
+}
+
+/**
+ * Parses `git worktree list --porcelain` into path/branch pairs.
+ * Detached checkouts yield a null branch.
+ */
+export function parseWorktreeListPorcelain(output: string): WorktreeListEntry[] {
+  const entries: WorktreeListEntry[] = [];
+  let currentPath: string | undefined;
+  let currentBranch: string | null | undefined;
+  const flush = () => {
+    if (currentPath !== undefined) {
+      entries.push({ path: currentPath, branch: currentBranch ?? null });
+    }
+    currentPath = undefined;
+    currentBranch = undefined;
+  };
+  for (const line of output.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      flush();
+      currentPath = line.slice("worktree ".length).trim();
+    } else if (line.startsWith("branch ")) {
+      const ref = line.slice("branch ".length).trim();
+      currentBranch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
+    } else if (line === "detached") {
+      currentBranch = null;
+    } else if (line === "") {
+      flush();
+    }
+  }
+  flush();
+  return entries.filter((entry) => entry.path.length > 0);
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -279,24 +317,52 @@ export async function removeCheckout(deps: WorktreeDependencies, record: Worktre
 }
 
 /**
- * Creates `.worktrees/<name>` on `agent-ops/<name>` from the main checkout's
- * HEAD and makes it a working agent-ops checkout for `sessionId`.
+ * Creates `.worktrees/<name>` on `agent-ops/<name>` from `from` (default HEAD)
+ * and makes it a working agent-ops checkout for `sessionId`. When the main
+ * checkout is detached, `targetBranch` names the branch `finish` merges back
+ * into. A branch already checked out in another worktree is rejected before
+ * Git runs, so the failure names the conflicting path.
  */
 export async function addWorktree(
   deps: WorktreeDependencies,
-  options: { readonly cwd: string; readonly name: string | undefined; readonly sessionId: string | undefined }
+  options: {
+    readonly cwd: string;
+    readonly name: string | undefined;
+    readonly sessionId: string | undefined;
+    readonly from?: string;
+    readonly targetBranch?: string;
+  }
 ): Promise<WorktreeAddResult> {
   const name = assertWorktreeName(options.name);
   const sessionId = assertSessionId(options.sessionId);
+  if (options.targetBranch !== undefined && !TARGET_BRANCH.test(options.targetBranch)) {
+    throw worktreeError("WORKTREE_TARGET_INVALID",
+      `Invalid --target-branch ${options.targetBranch}; use 1-128 letters, digits, '.', '_', '/' or '-'.`);
+  }
+  if (options.from !== undefined && options.from.trim() === "") {
+    throw worktreeError("WORKTREE_BASE_INVALID", "Invalid --from: a commit hash, branch or tag is required.");
+  }
   const { mainRoot, currentRoot, commonDir } = await resolveCheckouts(deps, options.cwd);
   if (currentRoot !== mainRoot) {
     throw worktreeError("WORKTREE_NESTED",
       `Run worktree commands from the main checkout (${mainRoot}), not from inside a worktree.`);
   }
-  const targetBranch = await git(deps, mainRoot, ["symbolic-ref", "--short", "-q", "HEAD"],
-    "WORKTREE_DETACHED_HEAD", "The main checkout must be on a branch to merge back into.");
-  const base = await git(deps, mainRoot, ["rev-parse", "--verify", "HEAD^{commit}"],
-    "WORKTREE_NO_COMMIT", "The main checkout has no commit to branch from.");
+  const headRef = await deps.git(mainRoot, ["symbolic-ref", "--short", "-q", "HEAD"]);
+  const targetBranch = options.targetBranch ?? headRef.stdout.trim();
+  if (targetBranch === "") {
+    throw worktreeError("WORKTREE_TARGET_REQUIRED",
+      "The main checkout is detached; pass --target-branch <branch> naming the branch finish merges back into.");
+  }
+  if (!TARGET_BRANCH.test(targetBranch)) {
+    throw worktreeError("WORKTREE_TARGET_INVALID",
+      `Invalid target branch ${targetBranch}; use 1-128 letters, digits, '.', '_', '/' or '-'.`);
+  }
+  const fromRef = options.from ?? "HEAD";
+  const base = await git(deps, mainRoot, ["rev-parse", "--verify", `${fromRef}^{commit}`],
+    options.from === undefined ? "WORKTREE_NO_COMMIT" : "WORKTREE_BASE_INVALID",
+    options.from === undefined
+      ? "The main checkout has no commit to branch from."
+      : `Cannot resolve --from ${options.from} to a commit.`);
   const path = worktreePath(mainRoot, name);
   const branch = `${WORKTREE_BRANCH_PREFIX}${name}`;
   if (await exists(path)) {
@@ -304,6 +370,16 @@ export async function addWorktree(
   }
   if ((await deps.git(mainRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])).exitCode === 0) {
     throw worktreeError("WORKTREE_EXISTS", `Branch ${branch} already exists; pick another name.`);
+  }
+  const listing = await deps.git(mainRoot, ["worktree", "list", "--porcelain"]);
+  if (listing.exitCode === 0) {
+    for (const entry of parseWorktreeListPorcelain(listing.stdout)) {
+      if (entry.branch !== targetBranch && entry.branch !== branch) continue;
+      const listed = await realpath(entry.path).catch(() => entry.path);
+      if (listed === mainRoot) continue;
+      throw worktreeError("WORKTREE_BRANCH_CHECKED_OUT",
+        `Branch ${entry.branch} is already checked out at ${entry.path}; switch it back, finish or remove that worktree first (see agent-ops worktree list).`);
+    }
   }
   const mainConfig = await deps.loadConfig(mainRoot);
   const mainTrust = await deps.trust.status(mainRoot, mainConfig);

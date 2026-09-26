@@ -103,7 +103,9 @@ export async function runWorktreeCommand(options: {
   const result = await addWorktree(options.deps, {
     cwd: options.cwd,
     name: args.worktreeName,
-    sessionId
+    sessionId,
+    ...(args.worktreeFrom === undefined ? {} : { from: args.worktreeFrom }),
+    ...(args.worktreeTargetBranch === undefined ? {} : { targetBranch: args.worktreeTargetBranch })
   });
   return okEnvelope("WORKTREE_CREATED", { ...result, text: addText(result) });
 }

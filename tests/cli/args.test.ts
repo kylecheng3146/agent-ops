@@ -617,3 +617,26 @@ test("parses --worktree for init and update", () => {
   );
 });
 
+test("parses --from and --target-branch for worktree add only", () => {
+  const parsed = parseArgs(["worktree", "add", "alpha", "--session", "s-1", "--from", "abc123", "--target-branch", "main"]);
+  assert.equal(parsed.worktreeFrom, "abc123");
+  assert.equal(parsed.worktreeTargetBranch, "main");
+  for (const argv of [
+    ["worktree", "list", "--from", "abc123"],
+    ["worktree", "remove", "alpha", "--target-branch", "main"],
+    ["worktree", "finish", "alpha", "--from", "abc123"],
+    ["worktree", "add", "alpha", "--session", "s-1", "--target-branch", "bad name!"],
+    ["worktree", "add", "alpha", "--session", "s-1", "--from", "--target-branch"]
+  ]) {
+    assert.throws(
+      () => parseArgs(argv),
+      (error: unknown) =>
+        error instanceof CliArgumentError &&
+        (error.code === "CLI_OPTION_NOT_ALLOWED" ||
+          error.code === "CLI_INVALID_VALUE" ||
+          error.code === "CLI_MISSING_VALUE"),
+      argv.join(" ")
+    );
+  }
+});
+

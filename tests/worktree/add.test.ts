@@ -213,3 +213,56 @@ test("add carries an ignored config even without an install manifest", async () 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("add from a detached HEAD requires --target-branch and branches from HEAD", async () => {
+  const root = await repository();
+  try {
+    const d = deps();
+    await git(root, "checkout", "--detach", "HEAD");
+    await assert.rejects(
+      addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION }),
+      rejectsWith("WORKTREE_TARGET_REQUIRED")
+    );
+    const head = await git(root, "rev-parse", "HEAD");
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION, targetBranch: "main" });
+    assert.equal(record.targetBranch, "main");
+    assert.equal(record.base, head);
+    assert.equal(await git(record.path, "rev-parse", "--abbrev-ref", "HEAD"), "agent-ops/alpha");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("add honors --from and rejects an unresolvable ref or target", async () => {
+  const root = await repository();
+  try {
+    const d = deps();
+    const head = await git(root, "rev-parse", "HEAD");
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION, from: head });
+    assert.equal(record.base, head);
+    await assert.rejects(
+      addWorktree(d, { cwd: root, name: "beta", sessionId: SESSION, from: "does-not-exist" }),
+      rejectsWith("WORKTREE_BASE_INVALID")
+    );
+    await assert.rejects(
+      addWorktree(d, { cwd: root, name: "gamma", sessionId: SESSION, targetBranch: "bad name!" }),
+      rejectsWith("WORKTREE_TARGET_INVALID")
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("add refuses a branch already checked out in another worktree", async () => {
+  const root = await repository();
+  try {
+    const d = deps();
+    await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await assert.rejects(
+      addWorktree(d, { cwd: root, name: "alpha-again", sessionId: SESSION, targetBranch: "agent-ops/alpha" }),
+      rejectsWith("WORKTREE_BRANCH_CHECKED_OUT")
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

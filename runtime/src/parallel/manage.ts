@@ -10,6 +10,7 @@ import {
   assertWorktreeName,
   bindSession,
   insideWorktreeDirectory,
+  parseWorktreeListPorcelain,
   readWorktreeRecord,
   removeCheckout,
   resolveCheckouts,
@@ -124,6 +125,46 @@ export function worktreeDoctorResult(statuses: readonly WorktreeStatus[], now: n
         message: `Idle for more than ${IDLE_DAYS} days: ${idle.map(({ record }) => record.name).join(", ")}.`,
         remediation: "Resume, finish or remove them; see agent-ops worktree list."
       };
+}
+
+export interface DuplicateBranchCheckout {
+  readonly branch: string;
+  readonly paths: readonly string[];
+}
+
+/** Branches checked out in more than one worktree. Scans every worktree: Git's branch lock does not distinguish agent-ops checkouts from foreign ones. */
+export function detectDuplicateBranchCheckouts(porcelain: string): DuplicateBranchCheckout[] {
+  const byBranch = new Map<string, string[]>();
+  for (const entry of parseWorktreeListPorcelain(porcelain)) {
+    if (entry.branch === null) continue;
+    const paths = byBranch.get(entry.branch) ?? [];
+    paths.push(entry.path);
+    byBranch.set(entry.branch, paths);
+  }
+  return [...byBranch]
+    .filter(([, paths]) => paths.length > 1)
+    .map(([branch, paths]) => ({ branch, paths: [...paths].sort() }))
+    .sort((left, right) => left.branch.localeCompare(right.branch));
+}
+
+/** Doctor's reading of the branch lock: a duplicated checkout blocks switching back, so it fails. */
+export function branchLockDoctorResult(porcelain: string): {
+  readonly status: "FAIL" | "PASS";
+  readonly message: string;
+  readonly code?: string;
+  readonly remediation?: string;
+} {
+  const duplicates = detectDuplicateBranchCheckouts(porcelain);
+  if (duplicates.length === 0) {
+    return { status: "PASS", message: "No branch is checked out in more than one worktree." };
+  }
+  const detail = duplicates.map(({ branch, paths }) => `${branch} (${paths.join(", ")})`).join("; ");
+  return {
+    status: "FAIL",
+    message: `Branch checked out more than once: ${detail}.`,
+    code: "WORKTREE_BRANCH_LOCKED",
+    remediation: "Run git worktree list; switch the extra checkout to another branch, or remove it (agent-ops worktree remove <name> --force discards that work)."
+  };
 }
 
 async function requireRecord(mainRoot: string, name: string): Promise<WorktreeRecord> {

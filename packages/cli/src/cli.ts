@@ -214,10 +214,15 @@ Options:
 Give one writing session its own Git worktree, so parallel sessions stop
 voiding each other's verification and review. Run it from the main checkout.
 
-  add <name>   Create .worktrees/<name> on branch agent-ops/<name> from HEAD,
-               copy the ignored agent-ops files and .worktreeinclude matches,
-               inherit trust for an identical config, run worktree.setup, and
-               point the session's completion gate at the new worktree.
+  add <name>   Create .worktrees/<name> on branch agent-ops/<name> from HEAD
+               (or --from <commit|branch|tag>), copy the ignored agent-ops
+               files and .worktreeinclude matches, inherit trust for an
+               identical config, run worktree.setup, and point the session's
+               completion gate at the new worktree. When the main checkout is
+               detached, --target-branch <branch> is required and names the
+               branch finish merges back into.
+               A branch already checked out in another worktree is rejected
+               before Git runs; see agent-ops worktree list.
   finish <name>
                Once its task is complete, fast-forward the main checkout's
                branch to the worktree's (after a clean rebase and
@@ -234,6 +239,10 @@ voiding each other's verification and review. Run it from the main checkout.
 
 Options:
   --session <id>   add, resume: the conversation that will work there (required)
+  --from <ref>     add: branch the new worktree from this commit, branch or tag (default HEAD)
+  --target-branch <branch>
+                   add: branch finish merges back into (defaults to the current
+                   branch; required when the main checkout is detached)
   --force          remove: discard uncommitted or unmerged work
   --json
 `

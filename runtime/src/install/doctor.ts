@@ -62,7 +62,9 @@ export type DoctorCheckId =
   | "host-sandbox"
   | "verification-commands"
   | "smoke-availability"
-  | "worktrees";
+  | "worktrees"
+  | "worktree-branch-lock"
+  | "root-ghost-files";
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -104,6 +106,10 @@ export interface DoctorProbes {
   readonly reviewTarget?: DoctorReviewTargetProbe;
   /** Agent-ops worktrees left idle; absent outside a Git checkout. */
   readonly worktrees?: DoctorProbe;
+  /** Same branch checked out in more than one worktree; absent outside a Git checkout. */
+  readonly worktreeBranchLock?: DoctorProbe;
+  /** Untracked 0-byte or unparseably named files at the repository root. */
+  readonly rootGhostFiles?: DoctorProbe;
 }
 
 export interface DoctorInstallationOptions {
@@ -550,7 +556,9 @@ async function checkProbe(
     | "hook-registration"
     | "repository-trust"
     | "smoke-availability"
-    | "worktrees",
+    | "worktrees"
+    | "worktree-branch-lock"
+    | "root-ghost-files",
   probe: DoctorProbe | undefined
 ): Promise<DoctorCheck> {
   if (probe === undefined) {
@@ -852,6 +860,46 @@ function checkVerificationCommands(
   );
 }
 
+const GHOST_NAME_PATTERN = /[\s\x00-\x1f\x7f\u2000-\u206f\ufeff]/u;
+
+/** Names doctor treats as unparseable pollution rather than user files. Contentful tracked files never reach this predicate. */
+export function isGhostFileName(name: string): boolean {
+  return name.length === 0 || GHOST_NAME_PATTERN.test(name);
+}
+
+export interface GhostFileCandidate {
+  readonly name: string;
+  readonly size: number;
+  readonly isFile: boolean;
+  readonly tracked: boolean;
+}
+
+/** Root entries worth flagging: untracked regular files that are empty or unparseably named. Warns, never blocks. */
+export function detectGhostFiles(entries: readonly GhostFileCandidate[]): string[] {
+  return entries
+    .filter((entry) => entry.isFile && !entry.tracked && (entry.size === 0 || isGhostFileName(entry.name)))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/** Doctor's reading of the repository root: stray pollution is worth a look, not a failure. */
+export function ghostFilesDoctorResult(names: readonly string[]): {
+  readonly status: "DEGRADED" | "PASS";
+  readonly message: string;
+  readonly code?: string;
+  readonly remediation?: string;
+} {
+  if (names.length === 0) {
+    return { status: "PASS", message: "No stray files at the repository root." };
+  }
+  return {
+    status: "DEGRADED",
+    message: `Unexpected file(s) at the repository root: ${names.join(", ")}.`,
+    code: "ROOT_GHOST_FILE",
+    remediation: `Inspect and remove them: ${names.map((name) => `rm ${JSON.stringify(name)}`).join("; ")}.`
+  };
+}
+
 /**
  * What the surrounding host withholds from a reviewer. Reported separately
  * from `review-targets` on purpose: a sandbox that blocks the network makes an
@@ -1060,7 +1108,13 @@ export async function doctorInstallation(
     checkVerificationCommands(config.config),
     ...(options.probes?.worktrees === undefined
       ? []
-      : [await checkProbe("worktrees", options.probes.worktrees)])
+      : [await checkProbe("worktrees", options.probes.worktrees)]),
+    ...(options.probes?.worktreeBranchLock === undefined
+      ? []
+      : [await checkProbe("worktree-branch-lock", options.probes.worktreeBranchLock)]),
+    ...(options.probes?.rootGhostFiles === undefined
+      ? []
+      : [await checkProbe("root-ghost-files", options.probes.rootGhostFiles)])
   ];
   return {
     checks,

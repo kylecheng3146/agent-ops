@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -83,8 +83,13 @@ import {
 } from "../../../runtime/src/parallel/service.js";
 import {
   listWorktrees,
+  branchLockDoctorResult,
   worktreeDoctorResult
 } from "../../../runtime/src/parallel/manage.js";
+import {
+  detectGhostFiles,
+  ghostFilesDoctorResult
+} from "../../../runtime/src/install/doctor.js";
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
@@ -180,6 +185,48 @@ async function worktreeDoctorProbe(root: string) {
     return { status: "PASS" as const, message: "No agent-ops worktrees to inspect." };
   }
   return worktreeDoctorResult(statuses, Date.now());
+}
+
+const GHOST_SCAN_ALLOWLIST = new Set([
+  ".git", ".worktrees", ".agent-ops", ".tmp", "node_modules", "dist"
+]);
+
+async function worktreeBranchLockProbe(root: string) {
+  try {
+    const result = await worktreeDependencies().git(root, ["worktree", "list", "--porcelain"]);
+    if (result.exitCode !== 0) {
+      return { status: "UNKNOWN" as const, message: "Git could not list worktrees." };
+    }
+    return branchLockDoctorResult(result.stdout);
+  } catch {
+    return { status: "UNKNOWN" as const, message: "Git could not list worktrees." };
+  }
+}
+
+async function rootGhostFilesProbe(root: string) {
+  try {
+    const listing = await worktreeDependencies().git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
+    const untracked = listing.exitCode === 0
+      ? new Set(listing.stdout.split("\0").filter((entry) => entry.length > 0 && !entry.includes("/")))
+      : new Set<string>();
+    const names = (await readdir(root)).filter((name) => !GHOST_SCAN_ALLOWLIST.has(name)).slice(0, 512);
+    const candidates = await Promise.all(names.map(async (name) => {
+      try {
+        const info = await stat(join(root, name));
+        return {
+          name,
+          size: info.size,
+          isFile: info.isFile(),
+          tracked: !untracked.has(name)
+        };
+      } catch {
+        return { name, size: -1, isFile: false, tracked: true };
+      }
+    }));
+    return ghostFilesDoctorResult(detectGhostFiles(candidates.filter((candidate) => candidate.size >= 0)));
+  } catch {
+    return { status: "UNKNOWN" as const, message: "The repository root could not be scanned." };
+  }
 }
 
 const argv = process.argv.slice(2);
@@ -410,7 +457,9 @@ process.exitCode = await runCli(
                 },
                 reviewTarget: async (target, deep) =>
                   await probeReviewTarget(target, { cwd: root, deep }),
-                worktrees: async () => await worktreeDoctorProbe(root)
+                worktrees: async () => await worktreeDoctorProbe(root),
+                worktreeBranchLock: async () => await worktreeBranchLockProbe(root),
+                rootGhostFiles: async () => await rootGhostFilesProbe(root)
               },
               ...(args.checkAuth === true
                 ? { checkReviewTargetAuth: true }

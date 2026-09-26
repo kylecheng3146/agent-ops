@@ -12,6 +12,8 @@ import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
 import type { FinishDependencies } from "../../runtime/src/parallel/finish.js";
 import {
+  branchLockDoctorResult,
+  detectDuplicateBranchCheckouts,
   idleWorktrees,
   listWorktrees,
   removeWorktree,
@@ -181,6 +183,51 @@ test("doctor names worktrees idle for more than seven days", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("branch lock flags a branch checked out twice and passes otherwise", async () => {
+  const duplicated = [
+    "worktree /r",
+    "HEAD abc123",
+    "branch refs/heads/main",
+    "",
+    "worktree /r/.worktrees/alpha",
+    "HEAD def456",
+    "branch refs/heads/main",
+    ""
+  ].join("\n");
+  const found = detectDuplicateBranchCheckouts(duplicated);
+  assert.deepEqual(found, [{ branch: "main", paths: ["/r", "/r/.worktrees/alpha"] }]);
+  const failed = branchLockDoctorResult(duplicated);
+  assert.equal(failed.status, "FAIL");
+  assert.equal(failed.code, "WORKTREE_BRANCH_LOCKED");
+  assert.match(failed.message, /main/u);
+
+  const clean = [
+    "worktree /r",
+    "HEAD abc123",
+    "branch refs/heads/main",
+    "",
+    "worktree /r/.worktrees/alpha",
+    "HEAD def456",
+    "branch refs/heads/agent-ops/alpha",
+    "",
+    "worktree /r/.worktrees/detached",
+    "HEAD def456",
+    "detached",
+    ""
+  ].join("\n");
+  assert.deepEqual(detectDuplicateBranchCheckouts(clean), []);
+  assert.equal(branchLockDoctorResult(clean).status, "PASS");
+
+  const root = await repository();
+  try {
+    const report = await doctorInstallation({ root, probes: { worktreeBranchLock: () => failed } });
+    assert.equal(report.checks.find(({ id }) => id === "worktree-branch-lock")?.status, "FAIL");
+    assert.equal((await doctorInstallation({ root })).checks.some(({ id }) => id === "worktree-branch-lock"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}); 
 
 test("worktree list, resume and remove parse their own options", () => {
   assert.equal(parseArgs(["worktree", "list"]).action, "list");

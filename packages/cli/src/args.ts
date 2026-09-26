@@ -83,6 +83,10 @@ export interface ParsedArgs {
   worktreeName?: string;
   /** worktree remove: discard uncommitted or unmerged work. */
   force?: boolean;
+  /** worktree add: commit, branch or tag to branch the new worktree from (default HEAD). */
+  worktreeFrom?: string;
+  /** worktree add: branch finish merges back into (defaults to the current branch; required when detached). */
+  worktreeTargetBranch?: string;
   /** Worktree mode: auto isolates sessions into git worktrees, off disables. */
   worktree?: "auto" | "off";
 }
@@ -185,6 +189,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let versionSeen = false;
   let worktreeName: string | undefined;
   let force = false;
+  let worktreeFrom: string | undefined;
+  let worktreeTargetBranch: string | undefined;
   let worktree: "auto" | "off" | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -371,6 +377,22 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         force = true;
         break;
+      case "--from": {
+        if (worktreeFrom !== undefined) {
+          duplicate(token);
+        }
+        worktreeFrom = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--target-branch": {
+        if (worktreeTargetBranch !== undefined) {
+          duplicate(token);
+        }
+        worktreeTargetBranch = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
       case "--rerun":
         if (rerun) {
           duplicate(token);
@@ -514,6 +536,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       yes ||
       rerun ||
       worktree !== undefined ||
+      worktreeFrom !== undefined ||
+      worktreeTargetBranch !== undefined ||
       force
     ) {
       throw new CliArgumentError(
@@ -768,7 +792,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   ) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "worktree accepts only a name, --session and --json."
+      "worktree accepts only a name, --session, --from, --target-branch and --json."
     );
   }
   if (force && !(command === "worktree" && action === "remove")) {
@@ -776,6 +800,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "CLI_OPTION_NOT_ALLOWED",
       "--force may be used only with worktree remove."
     );
+  }
+  if ((worktreeFrom !== undefined || worktreeTargetBranch !== undefined) &&
+    !(command === "worktree" && action === "add")) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--from and --target-branch may be used only with worktree add."
+    );
+  }
+  if (worktreeFrom !== undefined && worktreeFrom.trim() === "") {
+    throw new CliArgumentError("CLI_INVALID_VALUE", "Invalid value for --from.", "--from");
+  }
+  if (worktreeTargetBranch !== undefined &&
+    !/^[A-Za-z0-9._/-]{1,128}$/u.test(worktreeTargetBranch)) {
+    throw new CliArgumentError("CLI_INVALID_VALUE", `Invalid value for --target-branch: ${worktreeTargetBranch}`, "--target-branch");
   }
   if (command === "worktree" && action !== "add" && action !== "resume" && sessionId !== undefined) {
     throw new CliArgumentError(
@@ -803,6 +841,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(evidence.length === 0 ? {} : { evidence }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(base === undefined ? {} : { base }),
+    ...(worktreeFrom === undefined ? {} : { worktreeFrom }),
+    ...(worktreeTargetBranch === undefined ? {} : { worktreeTargetBranch }),
     ...(checkAuth ? { checkAuth } : {}),
     ...(checkAuthTargets.length === 0 ? {} : { checkAuthTargets }),
     rerun,

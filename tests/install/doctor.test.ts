@@ -23,7 +23,10 @@ import { formatInstallManifest } from "../../runtime/src/fs/manifest.js";
 import { applyInstallPlan } from "../../runtime/src/install/apply.js";
 import { commonHarnessAdapters } from "../../runtime/src/install/harness.js";
 import {
+  detectGhostFiles,
   doctorInstallation,
+  ghostFilesDoctorResult,
+  isGhostFileName,
   type DoctorCheckId,
   type DoctorProbes,
   type DoctorReport
@@ -1053,6 +1056,40 @@ test("doctor names an installation that has no way to verify anything", async ()
     // Codeless: the remedy is a configuration edit, not an agent-ops command,
     // so this must not force a non-zero exit.
     assert.equal(empty.code, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("root ghost files flag untracked empties and odd names, never tracked content", async () => {
+  assert.equal(isGhostFileName("My Notes.md"), true);
+  assert.equal(isGhostFileName("notes.md"), false);
+  const flagged = detectGhostFiles([
+    { name: "ghost", size: 0, isFile: true, tracked: false },
+    { name: "weird name", size: 0, isFile: true, tracked: false },
+    { name: "My Notes.md", size: 120, isFile: true, tracked: false },
+    { name: "tracked-empty", size: 0, isFile: true, tracked: true },
+    { name: "tracked spaced.md", size: 40, isFile: true, tracked: true },
+    { name: "notes.md", size: 40, isFile: true, tracked: false },
+    { name: "subdir", size: 0, isFile: false, tracked: false }
+  ]);
+  assert.deepEqual(flagged, ["My Notes.md", "ghost", "weird name"]);
+  const degraded = ghostFilesDoctorResult(flagged);
+  assert.equal(degraded.status, "DEGRADED");
+  assert.equal(degraded.code, "ROOT_GHOST_FILE");
+  assert.match(degraded.remediation ?? "", /rm/u);
+  assert.equal(ghostFilesDoctorResult([]).status, "PASS");
+
+  const root = await createFreshInstallation();
+  try {
+    const report = await doctorInstallation({
+      root,
+      nodeVersion: "22.14.0",
+      toolkitVersion: TEST_TOOLKIT_VERSION,
+      probes: { ...passingProbes(), rootGhostFiles: () => degraded }
+    });
+    assert.equal(report.checks.find(({ id }) => id === "root-ghost-files")?.status, "DEGRADED");
+    assert.equal((await doctorInstallation({ root })).checks.some(({ id }) => id === "root-ghost-files"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
