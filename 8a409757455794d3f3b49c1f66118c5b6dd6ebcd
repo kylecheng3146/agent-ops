@@ -1,0 +1,7 @@
+worktree: session-sesf24cc (agent-ops/session-sesf24cc)
+agent-ops task task-ce6e1312-e61c-49ed-b649-bb875218c507: P1 worktree detached-head＋互鎖＋幽靈檔修復
+criteria:
+- detached-target: detached HEAD 有 --target-branch 可建 worktree，無則擋 WORKTREE_TARGET_REQUIRED
+- from-interlock: --from 指定 base 生效，同分支多重簽出擋 WORKTREE_BRANCH_CHECKED_OUT
+- cli-flags: --from/--target-branch 僅 worktree add 可用，非法值拒絕
+- doctor-checks: doctor 回報 worktree-branch-lock FAIL 與 root-ghost-files DEGRADED
