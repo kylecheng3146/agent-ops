@@ -1,0 +1,13 @@
+worktree: session-sesf24b1 (agent-ops/session-sesf24b1)
+agent-ops task task-de4c95db-ab62-47b0-8e1e-2407e7474ae4: Phase-1 quick wins: harness routing, AGY check, cleanup (reviewable)
+criteria:
+- ac-gemini-routing: GEMINI.md routes to docs/harness/10-session-protocol.md with Load syntax
+- ac-harness-test: tracked harness-routing test passes, entry references resolve
+- ac-agy-unchanged: AGY PreToolUse stays run_command-only, no matcher change
+- ac-auto-loop: CONTRIBUTING.md definition of done mandates automatic task-verify-review-finish
+agent-ops task task-d866bebf-a39f-4be2-8fa9-b037ff6a24d0: Phase-1 quick wins final: GEMINI routing + auto-loop DoD
+criteria:
+- ac-gemini-routing: GEMINI.md routes to docs/harness/10-session-protocol.md with Load syntax
+- ac-harness-test: tracked harness-routing test passes, entry references resolve
+- ac-agy-unchanged: AGY PreToolUse stays run_command-only, no matcher change
+- ac-auto-loop: CONTRIBUTING.md definition of done mandates automatic task-verify-review-finish
