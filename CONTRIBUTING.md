@@ -25,8 +25,8 @@ after implementing and ask; finish the chain.
 
 ## Local verification
 
-The repository is not published to npm yet. From a source checkout, install the
-locked development dependencies and run the same checks used by CI:
+From a source checkout, install the locked development dependencies and run the
+same checks used by CI:
 
 ```bash
 npm ci
