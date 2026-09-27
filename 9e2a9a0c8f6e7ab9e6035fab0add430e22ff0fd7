@@ -1,0 +1,6 @@
+worktree: session-01a0de91 (agent-ops/session-01a0de91)
+agent-ops task task-93020728-50b7-4a0e-8d47-8ea06c1aa664: Prepare agent-ops v0.3.4 release PR
+criteria:
+- version: package.json and package-lock.json identify version 0.3.4 consistently.
+- changelog: The 0.3.4 changelog explains the verification and completed-task changes with their migration impact.
+- release-checks: Tests, typecheck, build, package check, and source scan pass without publishing.
