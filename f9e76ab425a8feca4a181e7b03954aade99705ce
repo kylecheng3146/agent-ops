@@ -1,0 +1,5 @@
+worktree: session-01a0de91 (agent-ops/session-01a0de91)
+agent-ops task task-e7e7f47e-f960-4757-b2bf-982c97274ecb: Make review probe deadline test deterministic
+criteria:
+- deterministic-deadline: The capability-probe deadline test uses an injected clock so it deterministically returns timeout rather than capability-unavailable without relying on a 200ms scheduling race.
+- loopback-suite: The complete Node test suite passes with the loopback-dependent interruption test enabled and no skipped tests on this host.
