@@ -40,6 +40,7 @@ export async function checkTaskCompletionEvidence(
         const validation = validateEvidence(await evidenceStore.load(reference));
         if (!validation.ok) continue;
         const evidence = validation.value;
+        if (command.evidence.kind === "test-count" && evidence.schemaVersion === 2) continue;
         if (evidence.taskId === stored.task.id && evidence.criterionId === criterion.id &&
           evidence.commandId === command.id && evidence.configHash === configHash &&
           evidence.sourceFingerprint === sourceFingerprint &&

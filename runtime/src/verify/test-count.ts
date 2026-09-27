@@ -15,7 +15,7 @@ export interface TestCountEvaluation {
 }
 
 const MAX_SUMMARY_BYTES = 1024 * 1024;
-const NUMBER_SOURCE = String.raw`\d{1,16}`;
+const NUMBER_SOURCE = String.raw`\d+`;
 
 function safeCount(value: string): number | null {
   const parsed = Number(value);
@@ -24,131 +24,95 @@ function safeCount(value: string): number | null {
     : null;
 }
 
-function addCandidate(candidates: number[], source: string): void {
-  const parsed = safeCount(source);
-  if (parsed !== null) {
-    candidates.push(parsed);
-  }
+export interface TestSummary {
+  readonly passed: number | null;
+  readonly failed: number;
 }
 
-function parsePytestSummary(line: string): number | null {
-  if (!/\bin \d+(?:\.\d+)?s(?:\s|$)/u.test(line)) {
-    return null;
+/** Counts outcomes, never discovery totals. Conflicting summaries fail closed. */
+export function parseTestSummary(output: string): TestSummary {
+  if (output.includes("\0") || Buffer.byteLength(output, "utf8") > MAX_SUMMARY_BYTES) {
+    return { passed: null, failed: 0 };
   }
-  const statusPattern = new RegExp(
-    `(${NUMBER_SOURCE}) (passed|failed|skipped|error|errors|xfailed|xpassed|deselected)`,
-    "gu"
-  );
-  let total = 0;
-  let matched = false;
-  for (const match of line.matchAll(statusPattern)) {
-    const source = match[1];
-    const status = match[2];
-    if (source === undefined || status === undefined) {
-      return null;
+  const summaries: TestSummary[] = [];
+  let nodePassed: number | null = null;
+  let nodeFailed = 0;
+  let nodeSeen = false;
+  let invalid = false;
+  const nodeCounts = new Map<string, number>();
+  for (const raw of output.replace(/\u001b\[[0-9;]*m/gu, "").split(/\r?\n/u)) {
+    const line = raw.trim();
+    const node = new RegExp(`^(?:#|ℹ) (tests|pass|fail|cancelled|skipped|todo) (${NUMBER_SOURCE})$`, "u").exec(line);
+    if (node !== null) {
+      nodeSeen = true;
+      const count = safeCount(node[2]!);
+      if (count === null || (nodeCounts.has(node[1]!) && nodeCounts.get(node[1]!) !== count)) invalid = true;
+      else nodeCounts.set(node[1]!, count);
+      continue;
     }
-    const count = safeCount(source);
-    if (
-      count === null ||
-      (status !== "deselected" &&
-        total > Number.MAX_SAFE_INTEGER - count)
-    ) {
-      return null;
+    if (/^(?:#|ℹ) (?:tests|pass|fail|cancelled|skipped|todo)\b/u.test(line)) {
+      invalid = true;
+      continue;
     }
-    if (status !== "deselected") {
-      total += count;
+    const rust = new RegExp(`^test result: (ok|FAILED)\\. (${NUMBER_SOURCE}) passed; (${NUMBER_SOURCE}) failed;`, "u").exec(line);
+    if (rust !== null) {
+      const passed = safeCount(rust[2]!);
+      const failed = safeCount(rust[3]!);
+      if (passed === null || failed === null) invalid = true;
+      summaries.push({ passed, failed: Math.max(failed ?? 0, rust[1] === "FAILED" ? 1 : 0) });
+      continue;
     }
-    matched = true;
+    const isJest = /^Tests:/u.test(line);
+    const isVitest = /^Tests\s+/u.test(line) && /\(\d+\)\s*$/u.test(line);
+    const isPytest = /\bin \d+(?:\.\d+)?s(?:\s|=|$)/u.test(line);
+    if (isJest || isVitest || isPytest) {
+      let passed = 0;
+      let failed = 0;
+      let matched = false;
+      let total = 0;
+      const seen = new Set<string>();
+      for (const match of line.matchAll(new RegExp(`(${NUMBER_SOURCE}) (passed|failed|skipped|todo|error|errors|cancelled|xfailed|xpassed|deselected)\\b`, "gu"))) {
+        matched = true;
+        const count = safeCount(match[1]!);
+        const status = match[2]!;
+        if (count === null || seen.has(status)) { invalid = true; continue; }
+        seen.add(status);
+        if (status !== "deselected") total += count;
+        if (!Number.isSafeInteger(total)) invalid = true;
+        if (status === "passed") passed = count;
+        if (["failed", "error", "errors", "cancelled"].includes(status)) {
+          failed += count;
+          if (!Number.isSafeInteger(failed)) invalid = true;
+        }
+      }
+      const totalMatch = isJest ? /\b(\d+) total(?:\s|$)/u.exec(line) : isVitest ? /\((\d+)\)\s*$/u.exec(line) : null;
+      if (matched && totalMatch !== null && safeCount(totalMatch[1]!) !== total) invalid = true;
+      // Missing passed in a recognized outcome summary means zero passes;
+      // a discovery/total-only line gives no outcome evidence.
+      summaries.push({ passed: matched ? passed : null, failed });
+      continue;
+    }
+    if (/^collected 0 items?$/u.test(line)) summaries.push({ passed: 0, failed: 0 });
   }
-  return matched ? total : null;
-}
-
-function parseRustSummary(line: string): number | null {
-  const match = new RegExp(
-    `^test result: (?:ok|FAILED)\\. (${NUMBER_SOURCE}) passed; (${NUMBER_SOURCE}) failed; ${NUMBER_SOURCE} ignored; ${NUMBER_SOURCE} measured; ${NUMBER_SOURCE} filtered out$`,
-    "u"
-  ).exec(line);
-  if (match === null) {
-    return null;
+  if (nodeSeen) {
+    nodePassed = nodeCounts.get("pass") ?? (nodeCounts.get("tests") === 0 ? 0 : null);
+    nodeFailed = (nodeCounts.get("fail") ?? 0) + (nodeCounts.get("cancelled") ?? 0);
+    if (!Number.isSafeInteger(nodeFailed)) invalid = true;
+    const total = nodeCounts.get("tests");
+    const outcomes = (nodePassed ?? 0) + nodeFailed + (nodeCounts.get("skipped") ?? 0) + (nodeCounts.get("todo") ?? 0);
+    if (!Number.isSafeInteger(outcomes) || (total !== undefined && outcomes > total)) invalid = true;
+    summaries.push({ passed: nodePassed, failed: nodeFailed });
   }
-  const passedSource = match[1];
-  const failedSource = match[2];
-  if (passedSource === undefined || failedSource === undefined) {
-    return null;
+  const first = summaries[0];
+  const failed = summaries.some((summary) => summary.failed > 0) ? 1 : 0;
+  if (invalid || first === undefined || summaries.some((summary) => summary.passed !== first.passed || summary.failed !== first.failed)) {
+    return { passed: null, failed };
   }
-  const passed = safeCount(passedSource);
-  const failed = safeCount(failedSource);
-  if (
-    passed === null ||
-    failed === null ||
-    passed > Number.MAX_SAFE_INTEGER - failed
-  ) {
-    return null;
-  }
-  return passed + failed;
+  return { passed: first.passed, failed: first.failed };
 }
 
 export function parseTestCount(output: string): number | null {
-  if (
-    output.includes("\0") ||
-    Buffer.byteLength(output, "utf8") > MAX_SUMMARY_BYTES
-  ) {
-    return null;
-  }
-  const candidates: number[] = [];
-  const nodePattern = new RegExp(`^# tests (${NUMBER_SOURCE})$`, "u");
-  const collectedPattern = new RegExp(
-    `^collected (${NUMBER_SOURCE}) items?$`,
-    "u"
-  );
-  const jestPattern = new RegExp(
-    `^Tests:\\s+.*\\b(${NUMBER_SOURCE}) total(?:\\s|$)`,
-    "u"
-  );
-  const vitestPattern = new RegExp(
-    `^Tests\\s+.*\\((${NUMBER_SOURCE})\\)\\s*$`,
-    "u"
-  );
-
-  for (const rawLine of output.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (line.length === 0) {
-      continue;
-    }
-    const node = nodePattern.exec(line);
-    if (node?.[1] !== undefined) {
-      addCandidate(candidates, node[1]);
-    }
-    const collected = collectedPattern.exec(line);
-    if (collected?.[1] !== undefined) {
-      addCandidate(candidates, collected[1]);
-    }
-    const jest = jestPattern.exec(line);
-    if (jest?.[1] !== undefined) {
-      addCandidate(candidates, jest[1]);
-    }
-    const vitest = vitestPattern.exec(line);
-    if (vitest?.[1] !== undefined) {
-      addCandidate(candidates, vitest[1]);
-    }
-    const pytest = parsePytestSummary(line);
-    if (pytest !== null) {
-      candidates.push(pytest);
-    }
-    const rust = parseRustSummary(line);
-    if (rust !== null) {
-      candidates.push(rust);
-    }
-  }
-
-  const first = candidates[0];
-  if (
-    first === undefined ||
-    candidates.some((candidate) => candidate !== first)
-  ) {
-    return null;
-  }
-  return first;
+  return parseTestSummary(output).passed;
 }
 
 export function evaluateTestCount(

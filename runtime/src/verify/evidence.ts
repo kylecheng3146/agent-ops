@@ -103,7 +103,8 @@ export function isPassingVerificationEvidence(
     return false;
   }
   return command.evidence.kind !== "test-count" ||
-    evaluateTestCount(evidence.testCount, command.evidence.minimum).status === "PASS";
+    (evidence.schemaVersion === EVIDENCE_SCHEMA_VERSION &&
+      evaluateTestCount(evidence.testCount, command.evidence.minimum).status === "PASS");
 }
 
 export class FileEvidenceStore {

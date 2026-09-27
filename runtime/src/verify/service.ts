@@ -240,6 +240,17 @@ export class VerificationService {
       );
     }
 
+    const missingCriteria = validation.value.criteria.filter((criterion) =>
+      !this.#options.config.verification.commands.some(({ id, required }) =>
+        required && criterion.verifierIds.includes(id))
+    );
+    if (missingCriteria.length > 0) {
+      throw verificationError(
+        "VERIFICATION_UNKNOWN",
+        `Criteria without required coverage: ${missingCriteria.map(({ id }) => id).join(", ")}. Configure at least one required verifier for each criterion and recreate the task; no verifier commands were run.`
+      );
+    }
+
     const reviewScope = await resolveReviewScope({
       root: this.#options.root,
       runner: this.#options.gitRunner,
@@ -323,9 +334,8 @@ export class VerificationService {
         }
       }
       if (Object.keys(taskEvidence).length > 0) {
-        await this.#options.taskService.recordEvidence(taskId, taskEvidence);
+        await this.#options.taskService.recordVerificationEvidence(stored, taskEvidence, sourceFingerprint);
       }
-      await this.#options.taskService.clearFailure(taskId);
     } else {
       const required = results.filter((result) => result.required);
       const gating = required;

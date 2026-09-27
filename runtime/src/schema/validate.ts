@@ -1002,7 +1002,7 @@ export function validateEvidence(
     "taskId",
     "testCount",
     "toolVersions"
-  ], EVIDENCE_SCHEMA_VERSION);
+  ], isRecord(value) && value.schemaVersion === 2 ? 2 : EVIDENCE_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
   }

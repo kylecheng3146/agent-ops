@@ -62,7 +62,7 @@ function command(
 test("executes and classifies a configured test-count command", async () => {
   const runner = new FixtureRunner(
     { exitCode: 0, signal: null },
-    "# tests 2\n"
+    "# tests 2\n# pass 2\n"
   );
 
   const result = await executeConfiguredCommand(command(), {
@@ -162,4 +162,15 @@ test("required commands gate aggregate status while optional commands do not", (
     ]),
     "FAIL"
   );
+});
+
+
+test("test-count rejects failed summaries even with exit zero; exit-code keeps its contract", async () => {
+  for (const stdout of ["# pass 2\n# fail 1", "Tests: 2 passed, 1 failed, 3 total", "Tests 2 passed | 1 failed (3)", "2 passed, 1 error in 0.1s", "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out"]) {
+    const runner = new FixtureRunner({ exitCode: 0, signal: null }, stdout);
+    const result = await executeConfiguredCommand(command(), { cwd: "/workspace", trusted: true, runner });
+    assert.equal(result.status, "FAIL", stdout);
+    assert.equal(result.failureClass, "test-failures");
+    assert.equal((await executeConfiguredCommand(command({ evidence: { kind: "exit-code" } }), { cwd: "/workspace", trusted: true, runner })).status, "PASS");
+  }
 });
