@@ -1,0 +1,8 @@
+worktree: session-01a0de91 (agent-ops/session-01a0de91)
+agent-ops task task-1d3c95ea-7e62-4be4-a987-390e02cb3cb4: Correct verification PASS semantics and preserve review reuse
+criteria:
+- passed-count: Node, Jest, Vitest, pytest and Rust test-count verification requires passed minimum and no explicit failures; skipped, todo and xfail do not count; missing passed is UNKNOWN.
+- required-coverage: Task verify returns UNKNOWN naming uncovered criteria before commands execute; valid exit-code criteria and optional verifier semantics are preserved.
+- evidence-compatibility: Legacy test-count evidence remains readable but cannot complete or preflight review without fresh passed-count verification; legacy exit-code evidence remains usable.
+- completed-reverification: Completed tasks can append fresh verification only for matching source criteria and config; FAIL or UNKNOWN blocks completion; matching prior review and historical completion time remain reusable.
+- shared-contracts: Stop verification and worktree reverification use corrected counts while Stop stays report-only; public schemas docs and regression tests agree.
