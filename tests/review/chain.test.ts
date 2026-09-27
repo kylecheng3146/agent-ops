@@ -1268,13 +1268,16 @@ test("budget spent during a stage stops the round naming the deadline", async ()
 
 test("a probe cut short by the deadline is reported as time, not as a bad CLI", async () => {
   // The help probe hangs with no output. Its timeout is the chain's remaining
-  // budget, so it fails exactly like a CLI whose flags are missing — the only
-  // thing that distinguishes them is the deadline check.
+  // budget. Advance the injected clock when it starts so the result does not
+  // depend on whether a real timer fires just before or after the deadline.
+  let now = 0;
+  const chainTimeoutMs = 200;
   const execute = createReviewExecutor({
     targets: ["agy", "codex"],
     cwd: process.cwd(),
     runner: {
       start(): RunningVerificationProcess {
+        now = chainTimeoutMs;
         let finish: ((value: {
           exitCode: number | null;
           signal: string | null;
@@ -1295,7 +1298,8 @@ test("a probe cut short by the deadline is reported as time, not as a bad CLI", 
     env: {},
     probeBind: async () => true,
     timeoutMs: 900_000,
-    chainTimeoutMs: 200
+    chainTimeoutMs,
+    now: () => now
   });
 
   const result = await execute(request());
