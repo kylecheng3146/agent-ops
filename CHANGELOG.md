@@ -1,8 +1,24 @@
 # Changelog
 
-All notable changes to this unreleased project are documented here.
+All notable changes to the project are documented here.
 
 ## [Unreleased]
+
+## [0.3.4] - 2026-09-27
+
+- Test-count verification now records only explicitly passed tests. Skipped,
+  todo, expected failures, and discovery totals do not count; zero passed tests
+  fail, and explicit failed outcomes fail even when the command exits zero.
+- Formal task verification and review preflight require required-verifier
+  coverage for every criterion. Missing coverage returns UNKNOWN before
+  verification commands run.
+- New evidence uses schema 3. Schema 2 remains readable and legacy exit-code
+  evidence remains valid; legacy test-count evidence needs fresh verification.
+- Completed tasks can append fresh verification for the same source, criteria,
+  and config while retaining their completion time and matching review. Source
+  or config changes require a new task.
+- Route Gemini sessions through the session protocol and document the automatic
+  completion loop for contributors.
 
 ## [0.3.3] - 2026-09-26
 

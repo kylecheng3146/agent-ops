@@ -10,7 +10,7 @@ import { AgentOpsError } from "../fs/paths.js";
 import { validateEvidence, validateTask } from "../schema/validate.js";
 import { renderTaskMarkdown } from "./render.js";
 import { checkTaskCompletionEvidence, findIncompleteSubtask } from "./completion.js";
-import { calculateConfigHash, FileEvidenceStore } from "../verify/evidence.js";
+import { calculateConfigHash, FileEvidenceStore, isPassingVerificationEvidence } from "../verify/evidence.js";
 import type { GitRunner } from "../verify/change-surface.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
@@ -546,6 +546,82 @@ export class TaskService {
         updatedAt: now,
         ...(base === undefined ? {} : { reviewBase: base })
       };
+      replaceTask(state, updated);
+      return cloneRecord(updated);
+    });
+  }
+
+  /** Append a fresh verification to a completed task without reopening it. */
+  async recordVerificationEvidence(
+    snapshot: StoredTaskRecord,
+    evidenceInput: CriterionEvidenceInput,
+    sourceFingerprint: string
+  ): Promise<StoredTaskRecord> {
+    if (snapshot.status === "active") {
+      const result = await this.recordEvidence(snapshot.task.id, evidenceInput);
+      await this.clearFailure(snapshot.task.id);
+      return result;
+    }
+    const completion = this.#completion;
+    if (snapshot.status !== "complete" || completion === undefined) {
+      throw taskError("TASK_NOT_ACTIVE", "Completed reverification requires repository context; archived tasks are immutable.");
+    }
+    const config = await completion.loadConfig();
+    const configHash = calculateConfigHash(config);
+    if (snapshot.policyConfigHash !== configHash) {
+      throw taskError("TASK_REVERIFICATION_CHANGED", "Completed task config changed; create a new task for the new scope.");
+    }
+    const store = new FileEvidenceStore(completion.root, completion.root);
+    const matches = (value: unknown, criterionId: string, commandId: string) => {
+      const validation = validateEvidence(value);
+      return validation.ok && validation.value.taskId === snapshot.task.id &&
+        validation.value.criterionId === criterionId && validation.value.commandId === commandId &&
+        validation.value.configHash === configHash && validation.value.sourceFingerprint === sourceFingerprint
+        ? validation.value : null;
+    };
+    for (const criterion of snapshot.task.criteria) {
+      const commands = config.verification.commands.filter(({ id, required }) => required && criterion.verifierIds.includes(id));
+      if (commands.length === 0) throw taskError("TASK_REVERIFICATION_CHANGED", "Completed task criteria lack required coverage.");
+      for (const command of commands) {
+        let original = false;
+        let fresh = false;
+        for (const reference of snapshot.evidence[criterion.id] ?? []) {
+          if (reference.startsWith("review:")) continue;
+          const evidence = matches(await store.load(reference), criterion.id, command.id);
+          // Legacy counts identify the original scope only; they do not prove fresh PASS.
+          if (evidence !== null && isPassingVerificationEvidence({ ...command, evidence: { kind: "exit-code" } }, evidence)) original = true;
+        }
+        for (const reference of evidenceInput[criterion.id] ?? []) {
+          const evidence = matches(await store.load(reference), criterion.id, command.id);
+          if (evidence !== null && evidence.schemaVersion === 3 &&
+            !snapshot.evidence[criterion.id]?.includes(reference) && isPassingVerificationEvidence(command, evidence)) fresh = true;
+        }
+        if (!original || !fresh) throw taskError("TASK_REVERIFICATION_CHANGED", "Completed task source or evidence changed; fresh PASS must cover the original scope and every required verifier.");
+      }
+    }
+    const appended = normalizeEvidence(snapshot.task, evidenceInput);
+    for (const [criterionId, references] of Object.entries(appended)) {
+      for (const reference of references) {
+        const validation = validateEvidence(await store.load(reference));
+        if (!validation.ok || !snapshot.task.criteria.find(({ id }) => id === criterionId)?.verifierIds.includes(validation.value.commandId) || matches(validation.value, criterionId, validation.value.commandId) === null) {
+          throw taskError("TASK_EVIDENCE_INVALID", "Fresh verification references must belong to this task, criterion, source and config.");
+        }
+      }
+    }
+    const scope = await resolveReviewScope({ root: completion.root, runner: completion.gitRunner,
+      ...(completion.base === undefined ? {} : { base: completion.base }) });
+    if (sourceFingerprint !== await calculateSourceFingerprint(completion.root, scope, completion.gitRunner) ||
+      configHash !== calculateConfigHash(await completion.loadConfig())) {
+      throw taskError("TASK_REVERIFICATION_CHANGED", "Source or config changed during reverification.");
+    }
+    const now = assertTimestamp(this.#now());
+    return await this.#store.mutate((state) => {
+      if (JSON.stringify(findTask(state, snapshot.task.id)) !== JSON.stringify(snapshot)) {
+        throw taskError("TASK_REVERIFICATION_STATE_CHANGED", "Task changed during reverification; retry without discarding the concurrent state.");
+      }
+      const updated = { ...snapshot, updatedAt: now, failureFingerprint: null,
+        evidence: Object.fromEntries(snapshot.task.criteria.map(({ id }) => [id,
+          [...new Set([...(snapshot.evidence[id] ?? []), ...appended[id]!])]])) };
       replaceTask(state, updated);
       return cloneRecord(updated);
     });

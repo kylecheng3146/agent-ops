@@ -125,11 +125,11 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
     const config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
     config.verification = {
       commands: [{
-        id: "optional",
+        id: "node-version",
         command: process.execPath,
         args: ["--version"],
         cwd: ".",
-        required: false,
+        required: true,
         evidence: { kind: "exit-code" }
       }]
     };
@@ -139,12 +139,12 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       "--criterion", JSON.stringify({
         id: "first",
         description: "First criterion.",
-        verifierIds: ["optional"]
+        verifierIds: ["node-version"]
       }),
       "--criterion", JSON.stringify({
         id: "second",
         description: "Second criterion.",
-        verifierIds: ["optional"]
+        verifierIds: ["node-version"]
       })
     ], root).result;
     assert.equal(created.status, 0, created.stdout);
@@ -177,6 +177,11 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
     ].join("\n"));
     chmodSync(fakeCodex, 0o755);
 
+    const trusted = runBuiltCli(["trust", "grant", "--yes", "--json"], root).result;
+    assert.equal(trusted.status, 0, trusted.stdout);
+    const verified = runBuiltCli(["verify", "--task", taskId, "--json"], root).result;
+    assert.equal(verified.status, 0, verified.stdout);
+
     const interrupt = async (
       signal: "SIGINT" | "SIGTERM",
       expectedExitCode: number
@@ -199,13 +204,26 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       let stderr = "";
       child.stdout.on("data", (value) => { stdout += String(value); });
       const started = new Promise<void>((resolve, reject) => {
+        let reviewStarted = false;
         const timer = setTimeout(
-          () => reject(new Error(`review did not start: ${stderr}`)),
+          () => reject(new Error(
+            `review did not start (exit ${child.exitCode}, signal ${child.signalCode}): stdout=${stdout}; stderr=${stderr}`
+          )),
           5_000
         );
+        child.once("error", reject);
+        child.once("close", (code, signal) => {
+          if (!reviewStarted) {
+            clearTimeout(timer);
+            reject(new Error(
+              `review exited before start (code ${code}, signal ${signal}): stdout=${stdout}; stderr=${stderr}`
+            ));
+          }
+        });
         child.stderr.on("data", (value) => {
           stderr += String(value);
           if (stderr.includes("codex: review started")) {
+            reviewStarted = true;
             clearTimeout(timer);
             resolve();
           }

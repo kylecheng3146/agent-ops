@@ -116,7 +116,7 @@ function formatResult(
   result: PublicVerificationCommandReport
 ): string[] {
   const testCount =
-    result.testCount === null ? "" : ` (tests: ${result.testCount})`;
+    result.testCount === null ? "" : ` (passed tests: ${result.testCount})`;
   const lines = [
     `- ${result.status} ${safe(result.commandId)}${testCount}`
   ];

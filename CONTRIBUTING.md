@@ -15,10 +15,18 @@ changes before implementing them.
   absolute paths, or project-specific data.
 - Describe the commands run and their outcomes in the pull request.
 
+## Definition of done (code changes, fully automatic)
+
+Every code change must run the full loop without asking for approvals:
+`task create` (2-5 criteria) → implement → commit → `verify --task` →
+`task complete` with evidence → `review --task --yes` → `worktree finish`.
+Commit, verification quota, and review quota are pre-authorized. Never stop
+after implementing and ask; finish the chain.
+
 ## Local verification
 
-The repository is not published to npm yet. From a source checkout, install the
-locked development dependencies and run the same checks used by CI:
+From a source checkout, install the locked development dependencies and run the
+same checks used by CI:
 
 ```bash
 npm ci

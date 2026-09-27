@@ -232,7 +232,6 @@ async function currentEvidence(
     }
     const evidence = validation.value;
     if (
-      evidence.schemaVersion !== 2 ||
       evidence.taskId !== context.taskId ||
       evidence.criterionId !== criterionId ||
       evidence.commandId !== commandId ||
@@ -266,6 +265,10 @@ async function preflightReview(
   ) {
     return { ok: false, reason: "stale-verification" };
   }
+  if (context.criteria.some((criterion) => !options.config!.verification.commands.some(
+    ({ id, required }) => required && (criterion.verifierIds ?? []).includes(id)))) {
+    return { ok: false, reason: "missing-verification-evidence" };
+  }
   const configHash = calculateConfigHash(options.config);
   const commands: ReviewVerificationCommandSummary[] = [];
   for (const criterion of context.criteria) {
@@ -284,7 +287,13 @@ async function preflightReview(
         configHash,
         sourceFingerprint
       );
-      const selected = newestEvidence(found.current);
+      const compatible = command.evidence.kind === "test-count"
+        ? found.current.filter(({ evidence }) => evidence.schemaVersion === 3)
+        : found.current;
+      if (command.required && found.current.length > 0 && compatible.length === 0) {
+        return { ok: false, reason: "stale-verification" };
+      }
+      const selected = newestEvidence(compatible);
       if (command.required !== true) {
         if (selected !== undefined) {
           commands.push({

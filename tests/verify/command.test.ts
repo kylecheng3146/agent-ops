@@ -94,7 +94,7 @@ test("verify command resolves a task directly and renders safe PASS output", asy
   assert.equal(result.code, "VERIFICATION_PASSED");
   assert.equal(result.status, "ok");
   assert.deepEqual(service.taskIds, ["task-one"]);
-  assert.match(result.data?.text ?? "", /PASS unit \(tests: 2\)/);
+  assert.match(result.data?.text ?? "", /PASS unit \(passed tests: 2\)/);
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET));
   assert.equal(
     "diagnostic" in (result.data?.report.results[0] ?? {}),

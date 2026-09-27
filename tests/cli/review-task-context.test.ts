@@ -801,3 +801,23 @@ test("the task's latest failed review is carried into the next one", async () =>
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("optional-only criteria cannot establish review verification PASS", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-review-coverage-"));
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "reviewed.ts"), "export {}\n");
+    const tasks = service(root);
+    const record = await tasks.create({ title: "Uncovered criteria", policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      criteria: [{ id: "one", description: "One criterion", verifierIds: ["optional"] }, { id: "two", description: "Two criterion", verifierIds: ["optional"] }] });
+    let calls = 0;
+    const result = await runReviewCommand({ args: parseArgs(["review", "--task", record.task.id, "--yes"]), authorized: true, taskId: record.task.id,
+      tasks, root, gitRunner: reviewGitRunner(), config: REVIEW_CONFIG, policyConfigHash: calculateConfigHash(REVIEW_CONFIG),
+      evidenceStore: new FileEvidenceStore(root, root), targets: ["codex"],
+      execute: async (request) => { calls++; return completePassing(request, ["src/reviewed.ts"]); } });
+    assert.equal(result.data?.result.status, "NOT_RUN");
+    assert.equal(result.data?.result.reason, "missing-verification-evidence");
+    assert.equal(calls, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

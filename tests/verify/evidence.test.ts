@@ -92,6 +92,9 @@ test("builds validated evidence without retaining secret-bearing argv", () => {
     config: CONFIG
   });
 
+  assert.equal(evidence.schemaVersion, 3);
+  assert.equal(isPassingVerificationEvidence(command(), { ...evidence, schemaVersion: 2 }), false);
+  assert.equal(isPassingVerificationEvidence({ ...command(), evidence: { kind: "exit-code" } }, { ...evidence, schemaVersion: 2 }), true);
   assert.equal(evidence.argv[0], "node");
   assert.equal(isPassingVerificationEvidence(command(), evidence), true);
   assert.equal(isPassingVerificationEvidence(command(), { ...evidence, argv: ["true"] }), false);

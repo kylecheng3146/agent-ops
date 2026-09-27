@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -213,6 +213,70 @@ test("mapped verification also runs task-required commands so completion remains
       completion: { root, gitRunner: new SurfaceRunner("src/example.ts"), loadConfig: async () => config() }
     });
     assert.equal((await completing.complete(task.taskId, stored.evidence)).status, "complete");
+    const evidenceStore = new FileEvidenceStore(root, root);
+    const currentEvidence = await evidenceStore.load(stored.evidence["criterion-unit"]![0]!) as import("../../runtime/src/contracts.js").VerificationEvidence;
+    const legacyReference = await evidenceStore.save({ ...currentEvidence, schemaVersion: 2 });
+    await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).mutate((state) => {
+      const index = state.tasks.findIndex(({ task: item }) => item.id === task.taskId);
+      state.tasks[index] = { ...state.tasks[index]!, evidence: { ...state.tasks[index]!.evidence, "criterion-unit": [legacyReference] } };
+    });
+    assert.ok(await evidenceStore.load(legacyReference), "legacy evidence remains readable");
+    await assert.rejects(completing.complete(task.taskId, {}), /current PASS evidence/);
+    const completed = await completing.status({ taskId: task.taskId });
+    const fresh = new VerificationService({ root, scope: "project", config: config(),
+      gitRunner: new SurfaceRunner("src/example.ts"), processRunner: runner, taskService: completing,
+      evidenceStore: new FileEvidenceStore(root, root), trusted: true,
+      now: (() => { let second = 0; return () => `2026-07-23T12:01:${String(second++).padStart(2, "0")}.000Z`; })() });
+    assert.equal((await fresh.verify(task.taskId)).status, "PASS");
+    const refreshed = await completing.status({ taskId: task.taskId });
+    assert.equal(refreshed.status, "complete");
+    assert.equal(refreshed.completedAt, completed.completedAt);
+    assert.ok(completed.evidence["criterion-unit"]!.every((ref) => refreshed.evidence["criterion-unit"]!.includes(ref)));
+    assert.equal((await completing.complete(task.taskId, {})).status, "complete", "fresh verify reuses the original review attestation");
+    const failed = new VerificationService({ root, scope: "project", config: config(),
+      gitRunner: new SurfaceRunner("src/example.ts"), processRunner: new FixtureProcessRunner({}), taskService: completing,
+      evidenceStore: new FileEvidenceStore(root, root), trusted: true });
+    assert.equal((await failed.verify(task.taskId)).status, "UNKNOWN");
+    await assert.rejects(completing.complete(task.taskId, {}), /latest verification failure/);
+    const failedSnapshot = await completing.status({ taskId: task.taskId });
+    await assert.rejects(completing.recordVerificationEvidence(failedSnapshot, failedSnapshot.evidence, report.sourceFingerprint),
+      (error: unknown) => error instanceof AgentOpsError && error.code === "TASK_REVERIFICATION_CHANGED");
+    assert.deepEqual(await completing.status({ taskId: task.taskId }), failedSnapshot, "reusing old refs must not clear failure");
+    assert.equal((await fresh.verify(task.taskId)).status, "PASS");
+    assert.equal((await completing.complete(task.taskId, {})).status, "complete");
+    let raced = false;
+    const racingRunner: VerificationProcessRunner = { start(request) {
+      const process = runner.start(request);
+      return { ...process, completion: (async () => {
+        if (!raced) {
+          raced = true;
+          await completing.recordFailure(task.taskId, { value: "f".repeat(64), commandId: "unit", failureClass: "concurrent-failure", exitCategory: "nonzero", diagnostics: "concurrent failure must survive" });
+        }
+        return await process.completion;
+      })() };
+    } };
+    const racing = new VerificationService({ root, scope: "project", config: config(),
+      gitRunner: new SurfaceRunner("src/example.ts"), processRunner: racingRunner, taskService: completing,
+      evidenceStore, trusted: true, now: () => "2026-07-23T12:02:00.000Z" });
+    await assert.rejects(racing.verify(task.taskId), (error: unknown) => error instanceof AgentOpsError && error.code === "TASK_REVERIFICATION_STATE_CHANGED");
+    assert.equal((await completing.status({ taskId: task.taskId })).failureFingerprint?.failureClass, "concurrent-failure");
+    assert.equal((await fresh.verify(task.taskId)).status, "PASS");
+    const changedConfig = config();
+    changedConfig.features.completionGate.enabled = true;
+    const changedTasks = new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root), {
+      completion: { root, gitRunner: new SurfaceRunner("src/example.ts"), loadConfig: async () => changedConfig }
+    });
+    const changedVerifier = new VerificationService({ root, scope: "project", config: changedConfig,
+      gitRunner: new SurfaceRunner("src/example.ts"), processRunner: runner, taskService: changedTasks, evidenceStore, trusted: true });
+    const beforeConfigChange = await completing.status({ taskId: task.taskId });
+    await assert.rejects(changedVerifier.verify(task.taskId), (error: unknown) => error instanceof AgentOpsError && error.code === "TASK_REVERIFICATION_CHANGED");
+    assert.deepEqual(await completing.status({ taskId: task.taskId }), beforeConfigChange);
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "example.ts"), "export const changed = true;\n");
+    const beforeChanged = await completing.status({ taskId: task.taskId });
+    await assert.rejects(fresh.verify(task.taskId), (error: unknown) => error instanceof AgentOpsError && error.code === "TASK_REVERIFICATION_CHANGED");
+    assert.deepEqual(await completing.status({ taskId: task.taskId }), beforeChanged);
+
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -408,4 +472,48 @@ test("an archived task is rejected before any configured process starts", async 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+
+test("missing required coverage returns UNKNOWN before Git or any verifier runs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-coverage-"));
+  try {
+    const task = await taskService(root);
+    const runner = new FixtureProcessRunner({});
+    for (const optionalOnly of [false, true]) {
+      const cfg = config();
+      cfg.verification.commands.forEach((command) => { if (optionalOnly || command.id === "unit") command.required = false; });
+      const service = new VerificationService({ root, scope: "project", config: cfg,
+        gitRunner: { run: async () => { throw new Error("Git must not run"); } },
+        processRunner: runner, taskService: task.service, evidenceStore: new FileEvidenceStore(root, root), trusted: true });
+      await assert.rejects(service.verify(task.taskId), (error: unknown) => error instanceof AgentOpsError &&
+        error.code === "VERIFICATION_UNKNOWN" && /criterion-unit/.test(error.message) && /no verifier commands/.test(error.message));
+    }
+    assert.equal(runner.calls.length, 0);
+    assert.deepEqual((await task.service.status({ taskId: task.taskId })).evidence, {});
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("empty required coverage is UNKNOWN while pure exit-code verification remains valid", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-empty-coverage-"));
+  try {
+    const service = new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root));
+    const empty = await service.create({ title: "No required verifiers", criteria: [
+      { id: "one", description: "One criterion", verifierIds: ["unit"] }, { id: "two", description: "Two criterion", verifierIds: ["unit"] }] });
+    const cfg = config(); cfg.verification.commands.forEach((command) => { command.required = false; });
+    const runner = new FixtureProcessRunner({});
+    const verification = new VerificationService({ root, scope: "project", config: cfg,
+      gitRunner: new SurfaceRunner("src/example.ts"), processRunner: runner, taskService: service,
+      evidenceStore: new FileEvidenceStore(root, root), trusted: true });
+    await assert.rejects(verification.verify(empty.task.id), (error: unknown) => error instanceof AgentOpsError && error.code === "VERIFICATION_UNKNOWN");
+    assert.equal(runner.calls.length, 0);
+    const task = await taskService(root);
+    const exitConfig = config(); exitConfig.verification.commands[0]!.evidence = { kind: "exit-code" };
+    const passing = new VerificationService({ root, scope: "project", config: exitConfig,
+      gitRunner: new SurfaceRunner("src/example.ts"), processRunner: new FixtureProcessRunner({
+        "unit-tool": { completion: { exitCode: 0, signal: null } }, "lint-tool": { completion: { exitCode: 0, signal: null } } }),
+      taskService: task.service, evidenceStore: new FileEvidenceStore(root, root), trusted: true });
+    assert.equal((await passing.verify(task.taskId)).status, "PASS");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -8,7 +8,7 @@ import {
 } from "./spawn.js";
 import {
   evaluateTestCount,
-  parseTestCount,
+  parseTestSummary,
   type TestCountCode
 } from "./test-count.js";
 
@@ -99,15 +99,19 @@ function classifyCommand(
       testCount: null
     };
   }
-  const testCount = parseTestCount(
+  const summary = parseTestSummary(
     `${spawned.stdout}\n${spawned.stderr}`
   );
+  const testCount = summary.passed;
   if (spawned.status !== "PASS") {
     return {
       status: spawned.status,
       failureClass: spawned.failureClass,
       testCount
     };
+  }
+  if (summary.failed > 0) {
+    return { status: "FAIL", failureClass: "test-failures", testCount };
   }
   const evaluation = evaluateTestCount(
     testCount,
