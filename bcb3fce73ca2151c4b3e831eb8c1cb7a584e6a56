@@ -1,0 +1,5 @@
+worktree: session-01a0de91 (agent-ops/session-01a0de91)
+agent-ops task task-cac1014f-ee0a-4b71-bd0f-3773f7739644: Stabilize reviewer interruption CI startup
+criteria:
+- startup-wait: The POSIX reviewer interruption test tolerates normal full-suite startup load while retaining its SIGINT/SIGTERM and process-tree assertions.
+- loopback-suite: The complete Node test suite passes with the loopback-dependent interruption test enabled.
