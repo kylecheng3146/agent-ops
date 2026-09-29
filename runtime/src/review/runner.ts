@@ -109,6 +109,7 @@ export interface ReviewAdversarialOutcome {
 export type ReviewUnavailableReason =
   | "missing-cli"
   | "login-required"
+  | "network-unreachable"
   | "no-task-context"
   | "quota-exhausted"
   | "unparseable-output"

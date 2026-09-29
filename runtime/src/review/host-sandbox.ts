@@ -1,4 +1,6 @@
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
+
+import type { ReviewTargetId } from "../contracts.js";
 
 /**
  * What the host this process runs inside reports or proves it may not let a
@@ -20,6 +22,50 @@ export interface HostRestrictionOptions {
 export const BIND_DEPENDENT_TARGETS: readonly string[] = ["agy"];
 
 const BIND_PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * A reviewer that cannot reach its API host says so in its own words. Reading
+ * that as "not logged in" sent users to re-login an authenticated CLI when the
+ * host sandbox was what withheld the network.
+ */
+const NETWORK_FAILURE =
+  /\b(?:ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH)\b|getaddrinfo|fetch failed|network is unreachable|could not resolve host|no such host|dial tcp/iu;
+
+export function isNetworkFailure(output: string): boolean {
+  return NETWORK_FAILURE.test(output);
+}
+
+/** The host each reviewer talks to, so a reachability check tests its real path. */
+export const TARGET_API_HOST: Readonly<Record<ReviewTargetId, string>> = {
+  agy: "cloudcode-pa.googleapis.com",
+  codex: "api.openai.com",
+  claude: "api.anthropic.com"
+};
+
+export const REACH_TIMEOUT_MS = 2_000;
+
+/**
+ * DNS plus a TCP connect to `host:443`, nothing sent. Diagnostic only: it
+ * refines a failed probe's reason and never gates a review, so a proxy-only
+ * network that fails it still gets the review attempted.
+ */
+export async function probeHostReachable(
+  host: string,
+  port = 443
+): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const socket = connect({ host, port });
+    const finish = (value: boolean): void => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(false), REACH_TIMEOUT_MS);
+    timer.unref();
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
 
 /**
  * Opens and immediately closes a loopback listener on an ephemeral port.

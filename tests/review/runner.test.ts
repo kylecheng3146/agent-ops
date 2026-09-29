@@ -175,6 +175,7 @@ test("an attempt diagnostic reaches the rendered report, redacted", async () => 
 test("authentication advice is shown only for an authentication failure", async () => {
   for (const [reason, expected] of [
     ["login-required", true],
+    ["network-unreachable", false],
     ["capability-unavailable", false]
   ] as const) {
     const result = await runIndependentReview({
@@ -201,6 +202,17 @@ test("authentication advice is shown only for an authentication failure", async 
     })
   });
   assert.match(renderReviewResult(mixed), /doctor --check-auth/);
+});
+
+test("network-unreachable advice names the sandbox, not a login", async () => {
+  const result = await runIndependentReview({
+    invocation,
+    authorized: true,
+    execute: async () => ({ status: "NOT_RUN", reason: "network-unreachable" })
+  });
+  const rendered = renderReviewResult(result);
+  assert.match(rendered, /outside the sandbox/);
+  assert.match(rendered, /not a login problem/);
 });
 
 test("every verification-evidence reason names the verifier to re-run", () => {

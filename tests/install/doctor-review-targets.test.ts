@@ -123,6 +123,17 @@ test("--check-auth turns an unauthenticated target into a FAIL with the login co
   assert.deepEqual(recorded.probed, ["agy"]);
 });
 
+test("a target that cannot reach the network is not told to log in", async () => {
+  const check = await reviewCheck(["agy"], {
+    checkAuth: true,
+    results: { agy: "network-unreachable" }
+  });
+  assert.equal(check.status, "FAIL");
+  assert.match(check.message, /agy could not reach the network/);
+  assert.match(check.remediation ?? "", /outside the sandbox/);
+  assert.doesNotMatch(check.remediation ?? "", /agy login/);
+});
+
 test("--check-auth probes each configured target exactly once", async () => {
   const recorded: Recorded = { probed: [] };
   const check = await reviewCheck(["codex", "agy", "claude"], {

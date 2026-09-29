@@ -130,10 +130,17 @@ never rewritten.
 targets are permitted, `--yes` decides whether to spend money now.
 
 Reviewer failures are classified conservatively from their output: recognizable
-authentication messages become `login-required`, quota messages become
-`quota-exhausted`, and other non-zero exits become `capability-unavailable`.
-The review suggests `doctor --check-auth` only when an authentication failure
-was detected. Confirm target authentication with:
+network errors (`ENOTFOUND`, `fetch failed`, `getaddrinfo` and similar) become
+`network-unreachable`, authentication messages become `login-required`, quota
+messages become `quota-exhausted`, and other non-zero exits become
+`capability-unavailable`. A sandbox that withholds the network therefore is not
+reported as a logged-out CLI: `network-unreachable` tells you to run outside the
+sandbox instead of running `<target> login`. When a `--check-auth` probe or the
+review preflight finds a target unauthenticated, a 2-second TCP connection to
+that target's API host on port 443 (`cloudcode-pa.googleapis.com` for agy,
+`api.openai.com` for codex, `api.anthropic.com` for claude) decides between the
+two; it only refines the reported reason and never blocks a review. The review suggests
+`doctor --check-auth` only when an authentication failure was detected. Confirm target authentication with:
 
 ```bash
 agent-ops doctor              # presence only: no tokens, no network
