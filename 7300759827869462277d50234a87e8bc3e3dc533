@@ -1,0 +1,7 @@
+worktree: session-905c9996 (agent-ops/session-905c9996)
+agent-ops task task-ded53738-5203-46a0-bdc7-4dee2288d39e: Fix finish-then-Stop gate trap for single-session worktree flow
+criteria:
+- finish-reseeds-session: After worktree finish, the finishing session baseline is reseeded to the post-merge fingerprint even when main HEAD moved between worktree add and finish
+- note-carries-session: The finish git note records the full session id so a later gate can match it
+- gate-accepts-finished-session: An unattached session with a clean tree and a finish note for its session id on a commit reachable from HEAD passes the Stop gate; without such a note or with a dirty tree it still blocks
+- docs-updated: Troubleshooting spec (en and zh-TW) documents the finished-session behaviour
