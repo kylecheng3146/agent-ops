@@ -176,9 +176,15 @@ evidence. Give each editing conversation its own worktree instead:
   fails, the denial says why and falls back to the manual `worktree add`.
   Run `agent-ops update` once so the PreToolUse hook gets the 600-second
   timeout setup needs.
-- `add` creates `.worktrees/<name>` on branch `agent-ops/<name>` from the main
-  checkout's HEAD and excludes `/.worktrees/` through `.git/info/exclude`,
-  never `.gitignore`. It copies the ignored files agent-ops installed and any
+- `add` creates `.worktrees/<name>` on branch `agent-ops/<name>` and excludes
+  `/.worktrees/` through `.git/info/exclude`, never `.gitignore`. Its base and
+  its merge target are the branch the main checkout was on when the session
+  began: SessionStart records that branch once per session (resume, compact and
+  clear never overwrite it; nothing is recorded on a detached HEAD or from
+  inside a worktree), so switching branches mid-session does not retarget the
+  work. Without a record it reads the main checkout's HEAD at add time, an
+  explicit `--target-branch` or `--from` outranks the record, and a recorded
+  branch that no longer exists is an error naming `--target-branch`. It copies the ignored files agent-ops installed and any
   file matched by a root `.worktreeinclude` (gitignore syntax, for example
   `.env` or `local.properties`); a file Git already checked out is never
   overwritten. Trust is inherited only when the main checkout is trusted and
@@ -200,7 +206,11 @@ evidence. Give each editing conversation its own worktree instead:
   each task keeps its own review record, so a parent and a subtask reviewed
   on the same source do not overwrite each other.
 - `agent-ops worktree finish <name>` merges by fast-forward only, one finish
-  at a time. If the target moved, it rebases; a clean rebase whose own patch
+  at a time. When the main checkout is on the target branch the merge updates
+  its files, so uncommitted changes there block it. When the main checkout is
+  on another branch or detached, only the target's ref moves: the checkout, its
+  files and its uncommitted changes are left alone. A target checked out in
+  another worktree is refused, naming that path. If the target moved, it rebases; a clean rebase whose own patch
   is unchanged is re-verified before merging, and a conflict is reported with
   the `refs/notes/agent-ops` intent of the work that landed first. The note
   records every task of the worktree, subtasks indented under their parent.

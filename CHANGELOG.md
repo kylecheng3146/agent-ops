@@ -4,6 +4,14 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Worktree sessions now pin the branch the main checkout was on when the
+  session began (recorded once by SessionStart), so switching branches
+  mid-session no longer retargets the worktree's base or merge target.
+- `worktree finish` no longer requires the main checkout to sit on the target
+  branch: on another branch or a detached HEAD it fast-forwards only the
+  target's ref and leaves the checkout and its uncommitted changes alone. A
+  target checked out in another worktree is still refused.
+
 ## [0.3.4] - 2026-09-27
 
 - Test-count verification now records only explicitly passed tests. Skipped,

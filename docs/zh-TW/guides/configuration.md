@@ -154,9 +154,13 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   則作為每條命令的工作目錄）；同一 session 之後被拒絕時會重用它。
   建立失敗時，拒絕訊息會說明原因並退回手動 `worktree add`。需先執行一次
   `agent-ops update`，讓 PreToolUse hook 取得 setup 所需的 600 秒逾時。
-- `add` 從主 checkout 的 HEAD 建立 `.worktrees/<name>` 與 branch
-  `agent-ops/<name>`，並透過 `.git/info/exclude`（而非 `.gitignore`）排除
-  `/.worktrees/`。它會複製 agent-ops 安裝的 ignored 檔案，以及根目錄
+- `add` 建立 `.worktrees/<name>` 與 branch `agent-ops/<name>`，並透過
+  `.git/info/exclude`（而非 `.gitignore`）排除 `/.worktrees/`。它的 base 與合併
+  目標是 session 開始時主 checkout 所在的 branch：SessionStart 會為每個 session
+  記錄該 branch 一次（resume、compact、clear 都不會覆寫；detached HEAD 或在
+  worktree 內觸發時不記錄），所以中途切換 branch 不會改變工作的目標。沒有記錄時
+  會在 add 當下讀取主 checkout 的 HEAD；明確的 `--target-branch` 或 `--from`
+  優先於記錄；記錄的 branch 已不存在時會報錯，並提示使用 `--target-branch`。它會複製 agent-ops 安裝的 ignored 檔案，以及根目錄
   `.worktreeinclude`（gitignore 語法，例如 `.env` 或 `local.properties`）比對到
   的檔案；Git 已 checkout 的檔案一律不覆寫。只有主 checkout 已 trusted 且
   worktree 的 effective config 完全相同時才繼承 trust。
@@ -174,7 +178,10 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   維持附著在 task 樹最上層，且每個 task 各自保留 review 紀錄，所以在同一份原始碼上
   review 的 parent 與 subtask 不會互相覆蓋。
 - `agent-ops worktree finish <name>` 只以 fast-forward 合併，一次只執行一個
-  finish。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
+  finish。主 checkout 就在 target branch 上時，合併會更新它的檔案，所以那裡有未
+  commit 的變更會擋住合併；主 checkout 在其他 branch 或 detached 時，只移動
+  target 的 ref，checkout、檔案與未 commit 的變更都不會被動到。Target 若被其他
+  worktree checkout 則拒絕，並指出該路徑。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
   重新驗證再合併；衝突則連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
   回報。Note 會記錄 worktree 的每個 task，subtask 縮排在其 parent 之下。
 - `worktree list`、`resume <name> --session <id>` 與 `remove <name>` 管理剩下的
