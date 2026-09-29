@@ -1,0 +1,6 @@
+worktree: session-9927f4f2 (agent-ops/session-9927f4f2)
+agent-ops task task-fe53e3ec-1904-4d13-aa8a-5e724b3fca54: review: agy 空回應重試一次
+criteria:
+- retry-empty-agy: agy 回 SUCCESS 但無 structured_output 且 response 為空時，在新 session 重試一次，重試給出有效報告則審查繼續
+- retry-once-only: agy 連續兩次空回應時以 unparseable-output 停止，不發第三次
+- no-broad-retry: 非空但不合契約的輸出、以及非 agy 的空輸出不重試，既有 unparseable-output 測試維持通過
