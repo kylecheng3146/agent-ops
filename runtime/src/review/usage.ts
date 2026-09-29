@@ -95,3 +95,26 @@ export function extractUsage(
     ...defined("costUsd", count(envelope?.total_cost_usd))
   });
 }
+
+/** Two rounds of one attempt add up; a field only one round reported stays. */
+export function sumUsage(
+  first: ReviewUsage | undefined,
+  second: ReviewUsage | undefined
+): ReviewUsage | undefined {
+  if (first === undefined || second === undefined) {
+    return first ?? second;
+  }
+  const add = (key: keyof ReviewUsage): Record<string, number> => {
+    const a = first[key];
+    const b = second[key];
+    return a === undefined && b === undefined ? {} : { [key]: (a ?? 0) + (b ?? 0) };
+  };
+  return {
+    ...add("inputTokens"),
+    ...add("outputTokens"),
+    ...add("cacheReadTokens"),
+    ...add("cacheWriteTokens"),
+    ...add("totalTokens"),
+    ...add("costUsd")
+  };
+}

@@ -994,6 +994,122 @@ test("nothing is kept for a pass, another failure, or another target", async () 
   }
 });
 
+const lostTurnInConversation = JSON.stringify({
+  conversation_id: "conv-1",
+  status: "SUCCESS",
+  response: "",
+  num_turns: 1,
+  usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 },
+  denied_actions: [{ action: "mcp", display_name: "CallMcpTool" }]
+});
+
+const passingWithUsage = JSON.stringify({
+  ...(JSON.parse(passing()) as Record<string, unknown>),
+  usage: { input_tokens: 50, output_tokens: 5, total_tokens: 55 }
+});
+
+test("a lost agy turn is resumed in its own conversation before any fresh retry", async () => {
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: passingWithUsage },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  const [, lost, nudge] = attempts;
+  const args = nudge?.args ?? [];
+  assert.equal(args[args.indexOf("--conversation") + 1], "conv-1");
+  for (const flag of ["--sandbox", "--mode", "plan", "--json-schema", "--output-format"]) {
+    assert.ok(args.includes(flag), `the nudge keeps ${flag}`);
+  }
+  assert.equal(nudge?.cwd, lost?.cwd);
+  assert.ok(!(lost?.args ?? []).includes("--conversation"));
+  assert.ok(progress.some((line) => /denied CallMcpTool.* → resuming the conversation once/.test(line)));
+});
+
+test("the resumed turn's cost is added to the attempt", async () => {
+  const { result } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurnInConversation }, { stdout: passingWithUsage }]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(result.attempts?.[1]?.metrics?.usage?.totalTokens, 165);
+  assert.equal(result.attempts?.[1]?.metrics?.usage?.inputTokens, 150);
+});
+
+test("a nudge that answers nothing falls back to one fresh retry without a second nudge", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: lostTurnInConversation },
+      { stdout: lostTurnInConversation },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "unparseable-output");
+  // primary, lost adversarial turn, its nudge, one fresh retry that is not nudged.
+  assert.equal(attempts.length, 4);
+  assert.ok(!(attempts[3]?.args ?? []).includes("--conversation"));
+  const diagnostic = result.attempts?.[1]?.diagnostic ?? "";
+  assert.match(diagnostic, /denied CallMcpTool/);
+});
+
+// A resumed agy turn answers in `response`; it carries no structured_output.
+function answeredInResponse(text: string): string {
+  return JSON.stringify({ conversation_id: "conv-1", status: "SUCCESS", response: text });
+}
+
+test("a resumed turn that answers in response is accepted after full validation", async () => {
+  const report = (JSON.parse(passing()) as { structured_output: unknown }).structured_output;
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: answeredInResponse(`${JSON.stringify(report)}\n`) },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+});
+
+test("a resumed answer that breaks the report contract is not trusted", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: answeredInResponse(JSON.stringify({ answer: "DONE" })) },
+      { stdout: passing() }
+    ]
+  );
+  // The nudge is discarded and the fresh retry decides.
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 4);
+});
+
+test("a failed nudge still lets the fresh retry recover the review", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: "" },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 4);
+});
+
 test("a silent necessary reviewer stops the review as stalled", async () => {
   const { result, attempts, progress } = await run(
     ["agy", "claude"],

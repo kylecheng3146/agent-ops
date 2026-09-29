@@ -80,6 +80,36 @@ export function answeredNothing(target: ReviewTargetId, stdout: string): boolean
     (typeof response === "string" && response.trim().length === 0);
 }
 
+/** The conversation a lost agy turn can be resumed in; agy alone reports one. */
+export function conversationIdOf(
+  target: ReviewTargetId,
+  stdout: string
+): string | undefined {
+  const id = target === "agy" ? parseObject(stdout)?.conversation_id : undefined;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+/**
+ * The tools agy's print mode refused because nobody could confirm them. A turn
+ * that calls one ends there, which is what a lost turn is.
+ */
+export function deniedToolsOf(
+  target: ReviewTargetId,
+  stdout: string
+): readonly string[] {
+  const denied = target === "agy" ? parseObject(stdout)?.denied_actions : undefined;
+  if (!Array.isArray(denied)) {
+    return [];
+  }
+  return denied.flatMap((action: unknown) => {
+    if (!isRecord(action)) {
+      return [];
+    }
+    const name = action.display_name ?? action.action;
+    return typeof name === "string" && name.length > 0 ? [name] : [];
+  });
+}
+
 /**
  * Review results use a strict native structured-output transport. Unlike the
  * legacy probe parser above, this path neither recovers fenced JSON nor accepts

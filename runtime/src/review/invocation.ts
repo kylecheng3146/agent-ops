@@ -10,6 +10,8 @@ export interface TargetInvocationRequest {
   readonly effort?: string;
   readonly repositoryRoot?: string;
   readonly logFile?: string;
+  /** agy only: resume this conversation instead of starting a new one. */
+  readonly conversationId?: string;
 }
 
 export interface TargetInvocation {
@@ -195,6 +197,9 @@ export function buildTargetInvocation(
         ? []
         : ["--add-dir", request.repositoryRoot]),
       ...logArgs(request.target, request.logFile),
+      ...(request.target === "agy" && request.conversationId !== undefined
+        ? ["--conversation", request.conversationId]
+        : []),
       ...isolationArgs(request.target),
       ...shared
     ],

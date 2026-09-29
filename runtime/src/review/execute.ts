@@ -11,7 +11,10 @@ import {
   type VerificationProcessRunner
 } from "../verify/spawn.js";
 import { redactSecrets } from "../security/redact.js";
-import { answeredNothing, extractReviewObject } from "./extract.js";
+import {
+  answeredNothing, conversationIdOf, deniedToolsOf, extractFinalMessage, extractJsonObject,
+  extractReviewObject
+} from "./extract.js";
 import { buildTargetInvocation } from "./invocation.js";
 import {
   reviewReportResults,
@@ -32,7 +35,7 @@ import {
   type ReviewUnavailableReason
 } from "./runner.js";
 import { MAX_ADVERSARIAL_PROMPT_BYTES } from "./runner.js";
-import { extractUsage, type ReviewUsage } from "./usage.js";
+import { extractUsage, sumUsage, type ReviewUsage } from "./usage.js";
 
 export type ReviewTargetPreflightResult =
   | "ok"
@@ -403,6 +406,8 @@ interface TargetAttemptRequest {
   readonly label: string;
   readonly prompt: string;
   readonly repositoryRoot: string;
+  /** False on the fresh retry: one conversation nudge per lost turn, not two. */
+  readonly resumeLostTurn?: boolean;
   readonly expectedCriterionIds: readonly string[];
   readonly changedFiles?: readonly string[];
   /**
@@ -486,6 +491,19 @@ async function snapshotRepository(
 }
 
 /**
+ * What a lost turn is asked once, in its own conversation. The turn ended
+ * because a tool call was refused, and the reviewer already holds everything
+ * it inspected, so the cheapest recovery is to ask for the answer.
+ */
+/** A resumed turn only has to state an answer it already holds. */
+const NUDGE_TIMEOUT_MS = 300_000;
+
+const NUDGE_PROMPT =
+  "Your previous turn ended without an answer because a tool call was refused. " +
+  "Do not call any tool. Using only what you have already inspected, reply now " +
+  "with the JSON object the schema requires and nothing else.";
+
+/**
  * Keeps what a lost turn left behind. The attempt directory is removed on the
  * way out and its log is the only record of what the turn spent its tokens on,
  * so without this a lost turn cannot be diagnosed. Best effort: it returns the
@@ -495,7 +513,8 @@ async function keepLostTurn(
   repositoryRoot: string,
   sessionId: string,
   log: string | undefined,
-  stdout: string
+  stdout: string,
+  nudge?: { readonly log: string; readonly stdout: string }
 ): Promise<string | undefined> {
   const relative = join(".agent-ops", "reviews", "lost-turns", sessionId);
   try {
@@ -504,6 +523,10 @@ async function keepLostTurn(
     await writeFile(join(directory, "stdout.json"), stdout);
     if (log !== undefined) {
       await copyFile(log, join(directory, "agy.log"));
+    }
+    if (nudge !== undefined) {
+      await writeFile(join(directory, "nudge-stdout.json"), nudge.stdout);
+      await copyFile(nudge.log, join(directory, "agy-nudge.log")).catch(() => {});
     }
     return relative;
   } catch {
@@ -792,14 +815,92 @@ async function attemptTarget(
         ? ` (fields: ${Object.keys(payload).sort().join(", ")})`
         : "";
       const lostTurn = payload === undefined && answeredNothing(target, spawned.stdout);
+      const denied = lostTurn ? deniedToolsOf(target, spawned.stdout) : [];
+      const conversationId = lostTurn ? conversationIdOf(target, spawned.stdout) : undefined;
+      let nudged: { readonly log: string; readonly stdout: string } | undefined;
+      let recovered: ReviewReport | undefined;
+      if (conversationId !== undefined && request.resumeLostTurn !== false &&
+          !budgetSpent(options)) {
+        const nudgeLog = join(attemptDirectory, "agy-nudge.log");
+        const nudge = buildTargetInvocation({
+          ...invocationRequest,
+          prompt: NUDGE_PROMPT,
+          conversationId,
+          logFile: nudgeLog,
+          repositoryRoot: snapshotRoot
+        });
+        if (nudge !== undefined) {
+          options.onProgress?.(
+            `${target}: turn ended without answering${denied.length > 0 ? ` (denied ${denied.join(", ")})` : ""} → resuming the conversation once`
+          );
+          const nudgeWatch = watchForStall(nudgeLog, options.signal, stallIdleMs);
+          let second;
+          try {
+            second = await runVerificationCommand(
+              {
+                id: `review-${request.label}-nudge`,
+                command: nudge.command,
+                args: [...nudge.args],
+                cwd: executionDirectory,
+                required: true,
+                evidence: { kind: "exit-code" },
+                timeoutMs: stageTimeout(options, NUDGE_TIMEOUT_MS)
+              },
+              {
+                cwd: executionDirectory,
+                ...(options.runner === undefined ? {} : { runner: options.runner }),
+                ...(options.outputLimitBytes === undefined
+                  ? {}
+                  : { outputLimitBytes: options.outputLimitBytes }),
+                stdin: nudge.stdin,
+                env: environment,
+                replaceEnv: true,
+                signal: nudgeWatch.signal,
+                onActivity: nudgeWatch.beat
+              }
+            );
+          } finally {
+            nudgeWatch.stop();
+          }
+          usage = sumUsage(usage, extractUsage(target, second.stdout, second.stderr));
+          throwIfInterrupted(target, options, second.failureClass);
+          nudged = { log: nudgeLog, stdout: second.stdout };
+          if (!nudgeWatch.stalled() && second.failureClass === "none" &&
+              !second.stdoutTruncated) {
+            // A resumed agy turn states its answer in `response` and carries no
+            // `structured_output`; validateReviewReport stays the authority.
+            const finalMessage = extractFinalMessage(target, second.stdout);
+            const answer = extractReviewObject(target, second.stdout) ??
+              (finalMessage === undefined ? undefined : extractJsonObject(finalMessage));
+            const checked = answer === undefined
+              ? undefined
+              : validateReviewReport(
+                  answer,
+                  request.expectedCriterionIds,
+                  request.changedFiles
+                );
+            if (checked?.ok) {
+              recovered = checked.value;
+            }
+          }
+        }
+      }
       const kept = lostTurn
-        ? await keepLostTurn(request.repositoryRoot, sessionId, agyLog, spawned.stdout)
+        ? await keepLostTurn(request.repositoryRoot, sessionId, agyLog, spawned.stdout, nudged)
         : undefined;
+      if (recovered !== undefined) {
+        options.onProgress?.(
+          `${target}: the resumed conversation answered${kept === undefined ? "" : `; lost turn kept at ${kept}`}`
+        );
+        return { kind: "verdict", report: recovered, sessionId, metrics: metrics() };
+      }
       return {
         ...skip(
           reason,
           lostTurn
-            ? "the reviewer ended its turn without answering (empty response, no structured output)" +
+            ? "the reviewer ended its turn without answering (empty response, no structured output" +
+              (denied.length > 0 ? `; denied ${denied.join(", ")}` : "") +
+              ")" +
               (kept === undefined ? "" : `; kept ${kept}`)
             : errors.length > 0
               ? `${errors}${fields}`
@@ -834,7 +935,7 @@ async function attemptTargetWithRetry(
     return first;
   }
   options.onProgress?.(`${request.target}: ${first.diagnostic} → retrying once`);
-  return attemptTarget(request, options);
+  return attemptTarget({ ...request, resumeLostTurn: false }, options);
 }
 
 /** Builds the `execute` callback with one necessary and one adversarial review. */

@@ -92,6 +92,18 @@ would consume the following flag instead. It deliberately does not pass
 `--dangerously-skip-permissions`, which overrides the permission boundary, or
 `--disable-slash-commands`, which disables plan-mode behavior.
 
+Agy can end its one `--print` turn without answering: print mode has nobody to
+confirm a tool call, so it refuses the call and the turn stops with an empty
+`response` and no `structured_output`. The refused tools are listed in the
+envelope's `denied_actions` and named in the diagnostic. agent-ops first resumes
+that same conversation once (`--conversation`) and asks for the answer without
+tools, then falls back to one fresh session. The lost turn's `agy.log` and
+`stdout.json` are kept under `.agent-ops/reviews/lost-turns/<sessionId>/`
+(local, git-ignored, never cleaned up automatically). If the denied tool is an
+MCP tool from your own agy configuration, disabling that server for agy
+(`agy mcp disable <name>`) removes the trigger; agent-ops does not change your
+agy configuration.
+
 Host network or loopback restrictions return `REVIEW_NOT_RUN` before any
 reviewer is started. The managed instructions require a trusted outer host
 runner to start the exact same command with both capabilities on its first
