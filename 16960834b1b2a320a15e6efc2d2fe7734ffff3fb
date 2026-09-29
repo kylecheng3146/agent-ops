@@ -1,0 +1,8 @@
+worktree: session-3062b180 (agent-ops/session-3062b180)
+agent-ops task task-58fcd32b-9133-4161-9698-03ab3702954b: Pin session origin branch; finish merges into it
+criteria:
+- origin-record: SessionStart in main checkout on a branch records that branch first-write-wins; re-fire, worktree cwd and detached HEAD do not write or overwrite
+- add-uses-origin: ensureSessionWorktree uses recorded branch as targetBranch and its tip as from after main switched away; no record keeps current behavior; missing branch errors naming --target-branch; explicit --target-branch wins
+- finish-ref-ff: finish with main on another branch or detached fast-forwards target ref without touching main HEAD/files or dirty check; target checked out in another worktree refuses naming path; main on target keeps merge --ff-only plus dirty check
+- docs-mirrored: docs/en and docs/zh-TW configuration guide and delegation spec describe pinned origin branch and ref fast-forward finish
+- tests-cover: automated tests cover origin-record, add-uses-origin and finish-ref-ff and npm test passes
