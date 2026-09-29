@@ -1,0 +1,6 @@
+worktree: session-9927f4f2 (agent-ops/session-9927f4f2)
+agent-ops task task-e95452e7-3cbd-4104-9ccc-3caf79328454: review: agy lost turn 時保留 log 供診斷
+criteria:
+- keep-lost-turn-log: agy lost turn 時把 agy log 與 stdout 保留在 .agent-ops/reviews/lost-turns/<sessionId>/，skip diagnostic 指出該路徑
+- keep-never-breaks-review: 保留 log 失敗（例如目錄不可寫）不改變審查結果與重試行為
+- nothing-kept-otherwise: 通過的審查、非 lost turn 的失敗、非 agy 目標不留下任何 log 檔
