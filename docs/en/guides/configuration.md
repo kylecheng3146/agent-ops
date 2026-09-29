@@ -213,7 +213,13 @@ evidence. Give each editing conversation its own worktree instead:
   another worktree is refused, naming that path. If the target moved, it rebases; a clean rebase whose own patch
   is unchanged is re-verified before merging, and a conflict is reported with
   the `refs/notes/agent-ops` intent of the work that landed first. The note
-  records every task of the worktree, subtasks indented under their parent.
+  records every task of the worktree, subtasks indented under their parent,
+  and a `session: <id>` line naming the session that finished it. Finish
+  also resets that session's gate baseline to the merged source, so the
+  session can stop although the task now lives only in the note. As a
+  fallback, the gate lets an unattached session stop when the checkout is
+  clean and a note with its `session:` line sits within the newest 500
+  commits of `HEAD`; older merges need a one-time `allow-stop`.
 - `worktree list`, `resume <name> --session <id>` and `remove <name>` manage
   what is left; `remove --force` discards work and asks the user first.
   `doctor` reports worktrees idle for more than seven days.

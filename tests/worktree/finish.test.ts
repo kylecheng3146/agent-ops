@@ -373,6 +373,33 @@ test("a moved target is rebased, re-verified and fast-forwarded", async () => {
     assert.equal(await readFile(join(root, "source.txt"), "utf8"), "alpha work\n");
     assert.equal(await readFile(join(root, "other.txt"), "utf8"), "landed first\n");
     assert.equal(await git(root, "rev-list", "--count", "HEAD"), "4");
+    // main moved after the session began, so its baseline never equalled the
+    // pre-merge fingerprint; finish must still leave the session clear to stop.
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a finished session with a stale baseline stops on its note; others and dirty trees do not", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await completeWork(record, "source.txt", "alpha work\n");
+    await finishWorktree(d, { cwd: root, name: "alpha" });
+    const head = await git(root, "rev-parse", "HEAD");
+    assert.match(await git(root, "notes", "--ref=agent-ops", "show", head), new RegExp(`^session: ${SESSION}$`, "mu"));
+
+    const stale = "a".repeat(64);
+    await gateFor(root, CONFIG).seed(SESSION, stale);
+    await gateFor(root, CONFIG).seed("other-session", stale);
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent("other-session")))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+
+    await gateFor(root, CONFIG).seed(SESSION, stale);
+    await write(root, "dirty.txt", "uncommitted\n");
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

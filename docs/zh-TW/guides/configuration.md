@@ -183,7 +183,12 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   target 的 ref，checkout、檔案與未 commit 的變更都不會被動到。Target 若被其他
   worktree checkout 則拒絕，並指出該路徑。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
   重新驗證再合併；衝突則連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
-  回報。Note 會記錄 worktree 的每個 task，subtask 縮排在其 parent 之下。
+  回報。Note 會記錄 worktree 的每個 task，subtask 縮排在其 parent 之下，並附上
+  一行 `session: <id>`，標明完成這次 finish 的 session。Finish 也會把該 session
+  的 gate baseline 重設為合併後的原始碼，所以即使 task 現在只存在於 note 裡，
+  session 仍可停止。作為後備，gate 在 checkout 乾淨、且 `HEAD` 最近 500 個 commit
+  內有帶該 `session:` 行的 note 時，會讓未附著 task 的 session 停止；更舊的合併需要
+  一次性的 `allow-stop`。
 - `worktree list`、`resume <name> --session <id>` 與 `remove <name>` 管理剩下的
   worktree；`remove --force` 會丟棄工作，執行前會先詢問使用者。`doctor` 會回報
   閒置超過七天的 worktree。

@@ -22,6 +22,10 @@ import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../secur
 export const WORKTREE_DIRECTORY = ".worktrees";
 export const WORKTREE_BRANCH_PREFIX = "agent-ops/";
 export const WORKTREE_RECORD_PATH = ".agent-ops/tasks/worktree.json";
+/** The notes ref `worktree finish` records a merge in. */
+export const NOTES_REF = "agent-ops";
+/** The note line binding a merge to the session that finished it. */
+export const noteSessionLine = (sessionId: string): string => `session: ${sessionId}`;
 const EXCLUDE_LINE = `/${WORKTREE_DIRECTORY}/`;
 const NAME = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/u;
 const SESSION = /^[^\0\r\n]{1,256}$/u;
