@@ -1,0 +1,5 @@
+worktree: session-3062b180 (agent-ops/session-3062b180)
+agent-ops task task-1e6c458a-8d28-448c-90f6-f3d0b5199d17: Fix lost-turn diagnostic path separator on Windows
+criteria:
+- posix-diagnostic-path: The lost-turn directory named in the review diagnostic uses / separators on every platform, while the files are still written under it
+- tests-pass: npm test passes, including the lost-turn diagnostic test
