@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { appendFileSync } from "node:fs";
-import { basename } from "node:path";
+import {
+  appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import test from "node:test";
 
 import type { ReviewTargetId } from "../../runtime/src/contracts.js";
@@ -237,6 +240,10 @@ function request(): ReviewExecutionRequest {
   };
 }
 
+// Lost turns are kept under the reviewed repository, so cases must not review
+// the real checkout.
+const scratchRoot = mkdtempSync(join(tmpdir(), "agent-ops-chain-"));
+
 async function run(
   targets: readonly ReviewTargetId[],
   script: readonly Scripted[],
@@ -244,6 +251,7 @@ async function run(
     readonly timeoutMs?: number;
     readonly stallIdleMs?: number;
     readonly chainTimeoutMs?: number;
+    readonly cwd?: string;
   } = {}
 ): Promise<{
   readonly result: Awaited<ReturnType<ReturnType<typeof createReviewExecutor>>>;
@@ -254,7 +262,7 @@ async function run(
   const progress: string[] = [];
   const execute = createReviewExecutor({
     targets,
-    cwd: process.cwd(),
+    cwd: options.cwd ?? scratchRoot,
     runner,
     env: targets.length >= 3 ? { AGENT_OPS_HOST: "claude" } : {},
     // These cases assert chain behavior, not the machine's loopback policy.
@@ -935,6 +943,54 @@ test("only an agy turn that said nothing is retried", async () => {
     const { result, attempts } = await run([target], [{ stdout }, { stdout: passing(target) }]);
     assert.equal(result.status, "NOT_RUN", stdout);
     assert.equal(attempts.length, 1, stdout);
+  }
+});
+
+test("a lost agy turn keeps its log and stdout where the diagnostic says", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "agent-ops-lost-"));
+  const { result, progress } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurn, beats: 1, beatMs: 5, beatVia: "log" },
+      { stdout: passing() }
+    ],
+    { cwd }
+  );
+  assert.equal(result.status, "PASS");
+  const root = join(cwd, ".agent-ops", "reviews", "lost-turns");
+  const [session, ...rest] = readdirSync(root);
+  assert.equal(rest.length, 0);
+  assert.equal(readFileSync(join(root, session ?? "", "stdout.json"), "utf8"), lostTurn);
+  assert.match(readFileSync(join(root, session ?? "", "agy.log"), "utf8"), /beat 1/);
+  assert.ok(progress.some((line) => line.includes(`kept .agent-ops/reviews/lost-turns/${session}`)));
+});
+
+test("failing to keep a lost turn never changes the review", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "agent-ops-lost-"));
+  // A file where the directory should go makes every mkdir under it fail.
+  writeFileSync(join(cwd, ".agent-ops"), "not a directory");
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurn }, { stdout: passing() }],
+    { cwd }
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  assert.ok(progress.some((line) => /without answering.* → retrying once/.test(line)));
+  assert.ok(!progress.some((line) => line.includes("kept ")));
+});
+
+test("nothing is kept for a pass, another failure, or another target", async () => {
+  const cases: readonly (readonly [ReviewTargetId, string])[] = [
+    ["agy", passing()],
+    ["agy", JSON.stringify({ response: "I could not comply." })],
+    ["claude", JSON.stringify({ result: "" })]
+  ];
+  for (const [target, stdout] of cases) {
+    const cwd = mkdtempSync(join(tmpdir(), "agent-ops-lost-"));
+    await run([target], [{ stdout }, { stdout: passing(target) }], { cwd });
+    assert.ok(!existsSync(join(cwd, ".agent-ops", "reviews", "lost-turns")), stdout);
   }
 });
 

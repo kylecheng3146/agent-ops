@@ -1,6 +1,8 @@
 import type { ReviewTargetId } from "../contracts.js";
 import { randomUUID } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import {
+  chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm, stat, writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -484,6 +486,32 @@ async function snapshotRepository(
 }
 
 /**
+ * Keeps what a lost turn left behind. The attempt directory is removed on the
+ * way out and its log is the only record of what the turn spent its tokens on,
+ * so without this a lost turn cannot be diagnosed. Best effort: it returns the
+ * repository-relative directory, or undefined, and never changes the outcome.
+ */
+async function keepLostTurn(
+  repositoryRoot: string,
+  sessionId: string,
+  log: string | undefined,
+  stdout: string
+): Promise<string | undefined> {
+  const relative = join(".agent-ops", "reviews", "lost-turns", sessionId);
+  try {
+    const directory = join(repositoryRoot, relative);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "stdout.json"), stdout);
+    if (log !== undefined) {
+      await copyFile(log, join(directory, "agy.log"));
+    }
+    return relative;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * One target's attempt at one prompt, in a throwaway home directory. Returns a
  * validated report or the reason this target produced no usable verdict; the
  * caller decides whether that reason is worth advancing past.
@@ -764,11 +792,15 @@ async function attemptTarget(
         ? ` (fields: ${Object.keys(payload).sort().join(", ")})`
         : "";
       const lostTurn = payload === undefined && answeredNothing(target, spawned.stdout);
+      const kept = lostTurn
+        ? await keepLostTurn(request.repositoryRoot, sessionId, agyLog, spawned.stdout)
+        : undefined;
       return {
         ...skip(
           reason,
           lostTurn
-            ? "the reviewer ended its turn without answering (empty response, no structured output)"
+            ? "the reviewer ended its turn without answering (empty response, no structured output)" +
+              (kept === undefined ? "" : `; kept ${kept}`)
             : errors.length > 0
               ? `${errors}${fields}`
               : firstComplaint(spawned.stdout, spawned.stderr) ??
