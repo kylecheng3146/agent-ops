@@ -62,6 +62,25 @@ export function extractJsonObject(
 }
 
 /**
+ * agy's plan mode can end its one `--print` turn without answering: a valid
+ * envelope with no `structured_output` and an empty `response`. That is a lost
+ * turn, not a verdict, so a fresh session is worth one retry. Anything the
+ * target did say, or any other target, is a real protocol failure instead.
+ */
+export function answeredNothing(target: ReviewTargetId, stdout: string): boolean {
+  if (target !== "agy") {
+    return false;
+  }
+  const envelope = parseObject(stdout);
+  if (envelope === undefined || envelope.structured_output !== undefined) {
+    return false;
+  }
+  const response = envelope.response;
+  return response === undefined ||
+    (typeof response === "string" && response.trim().length === 0);
+}
+
+/**
  * Review results use a strict native structured-output transport. Unlike the
  * legacy probe parser above, this path neither recovers fenced JSON nor accepts
  * a provider's generic text result field.

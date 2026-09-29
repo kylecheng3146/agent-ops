@@ -9,7 +9,7 @@ import {
   type VerificationProcessRunner
 } from "../verify/spawn.js";
 import { redactSecrets } from "../security/redact.js";
-import { extractReviewObject } from "./extract.js";
+import { answeredNothing, extractReviewObject } from "./extract.js";
 import { buildTargetInvocation } from "./invocation.js";
 import {
   reviewReportResults,
@@ -391,7 +391,7 @@ type TargetAttemptOutcome =
       readonly diagnostic: string;
       readonly message: string;
       readonly metrics: ReviewAttemptMetrics;
-      /** The service dropped the call; worth one fresh retry. */
+      /** The service dropped the call or the turn was lost; worth one fresh retry. */
       readonly transient?: boolean;
     };
 
@@ -763,13 +763,19 @@ async function attemptTarget(
         payload !== undefined
         ? ` (fields: ${Object.keys(payload).sort().join(", ")})`
         : "";
-      return skip(
-        reason,
-        errors.length > 0
-          ? `${errors}${fields}`
-          : firstComplaint(spawned.stdout, spawned.stderr) ??
-            "the answer carried no review report"
-      );
+      const lostTurn = payload === undefined && answeredNothing(target, spawned.stdout);
+      return {
+        ...skip(
+          reason,
+          lostTurn
+            ? "the reviewer ended its turn without answering (empty response, no structured output)"
+            : errors.length > 0
+              ? `${errors}${fields}`
+              : firstComplaint(spawned.stdout, spawned.stderr) ??
+                "the answer carried no review report"
+        ),
+        ...(lostTurn ? { transient: true } : {})
+      };
     }
     return {
       kind: "verdict",
@@ -784,7 +790,8 @@ async function attemptTarget(
 
 /**
  * `attemptTarget`, retried once in a fresh session when the service dropped
- * the call. Only once: a service that is down stays down.
+ * the call or agy ended its turn without answering. Only once: a service that
+ * is down stays down.
  */
 async function attemptTargetWithRetry(
   request: TargetAttemptRequest,

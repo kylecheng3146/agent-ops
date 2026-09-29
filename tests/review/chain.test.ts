@@ -899,6 +899,45 @@ test("a rejection that is not a dropped call is never retried", async () => {
   assert.equal(attempts.length, 1);
 });
 
+// agy's plan mode can end its one --print turn with a SUCCESS envelope that
+// carries no structured output and an empty response.
+const lostTurn = JSON.stringify({ status: "SUCCESS", response: "", num_turns: 1 });
+
+test("an agy turn that answered nothing is retried once in a fresh session", async () => {
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurn }, { stdout: passing() }]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  assert.equal(result.attempts?.length, 2);
+  assert.ok(progress.some((line) => /agy: .*without answering.* → retrying once/.test(line)));
+});
+
+test("a second agy turn that answers nothing stops the review without a third", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurn }, { stdout: lostTurn }, { stdout: passing() }]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "unparseable-output");
+  assert.equal(attempts.length, 3);
+});
+
+test("only an agy turn that said nothing is retried", async () => {
+  const cases: readonly (readonly [ReviewTargetId, string])[] = [
+    ["agy", JSON.stringify({ response: "I could not comply." })],
+    ["agy", JSON.stringify({ structured_output: { results: [] } })],
+    ["agy", ""],
+    ["claude", JSON.stringify({ result: "" })]
+  ];
+  for (const [target, stdout] of cases) {
+    const { result, attempts } = await run([target], [{ stdout }, { stdout: passing(target) }]);
+    assert.equal(result.status, "NOT_RUN", stdout);
+    assert.equal(attempts.length, 1, stdout);
+  }
+});
+
 test("a silent necessary reviewer stops the review as stalled", async () => {
   const { result, attempts, progress } = await run(
     ["agy", "claude"],
