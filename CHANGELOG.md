@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-09-29
+
 - Worktree sessions now pin the branch the main checkout was on when the
   session began (recorded once by SessionStart), so switching branches
   mid-session no longer retargets the worktree's base or merge target.
@@ -11,6 +13,15 @@ All notable changes to the project are documented here.
   branch: on another branch or a detached HEAD it fast-forwards only the
   target's ref and leaves the checkout and its uncommitted changes alone. A
   target checked out in another worktree is still refused.
+- Review: an agy turn that ends with an empty response (the refused-tool case
+  that returned NOT_RUN) is retried. It first resumes the same conversation
+  once, inside the same snapshot, and asks for the answer without tools; the
+  reply may carry its JSON in `response` and still goes through report
+  validation. Only then does the single fresh-session retry run. Non-empty
+  invalid answers and other targets are still reported as unparseable-output.
+- Review: the log and stdout envelope of a lost agy turn are kept under
+  `.agent-ops/reviews/lost-turns/<sessionId>/` and named in the diagnostic, on
+  a best-effort basis that never changes the outcome.
 
 ## [0.3.4] - 2026-09-27
 
