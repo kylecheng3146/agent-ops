@@ -62,6 +62,55 @@ export function extractJsonObject(
 }
 
 /**
+ * agy's plan mode can end its one `--print` turn without answering: a valid
+ * envelope with no `structured_output` and an empty `response`. That is a lost
+ * turn, not a verdict, so a fresh session is worth one retry. Anything the
+ * target did say, or any other target, is a real protocol failure instead.
+ */
+export function answeredNothing(target: ReviewTargetId, stdout: string): boolean {
+  if (target !== "agy") {
+    return false;
+  }
+  const envelope = parseObject(stdout);
+  if (envelope === undefined || envelope.structured_output !== undefined) {
+    return false;
+  }
+  const response = envelope.response;
+  return response === undefined ||
+    (typeof response === "string" && response.trim().length === 0);
+}
+
+/** The conversation a lost agy turn can be resumed in; agy alone reports one. */
+export function conversationIdOf(
+  target: ReviewTargetId,
+  stdout: string
+): string | undefined {
+  const id = target === "agy" ? parseObject(stdout)?.conversation_id : undefined;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+/**
+ * The tools agy's print mode refused because nobody could confirm them. A turn
+ * that calls one ends there, which is what a lost turn is.
+ */
+export function deniedToolsOf(
+  target: ReviewTargetId,
+  stdout: string
+): readonly string[] {
+  const denied = target === "agy" ? parseObject(stdout)?.denied_actions : undefined;
+  if (!Array.isArray(denied)) {
+    return [];
+  }
+  return denied.flatMap((action: unknown) => {
+    if (!isRecord(action)) {
+      return [];
+    }
+    const name = action.display_name ?? action.action;
+    return typeof name === "string" && name.length > 0 ? [name] : [];
+  });
+}
+
+/**
  * Review results use a strict native structured-output transport. Unlike the
  * legacy probe parser above, this path neither recovers fenced JSON nor accepts
  * a provider's generic text result field.

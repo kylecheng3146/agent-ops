@@ -14,6 +14,7 @@ import {
 import type { VerificationProcessRunner } from "../verify/spawn.js";
 import {
   assertWorktreeName,
+  parseWorktreeListPorcelain,
   readWorktreeRecord,
   removeCheckout,
   resolveCheckouts,
@@ -255,8 +256,9 @@ function noteText(record: WorktreeRecord, tasks: readonly { readonly task: Store
 }
 
 /**
- * Brings a worktree's reviewed work into the branch the main checkout is on,
- * by fast-forward only, then retires the worktree. Run from the main checkout.
+ * Brings a worktree's reviewed work into its target branch by fast-forward
+ * only, then retires the worktree. Run from the main checkout, which may be on
+ * another branch: then only the target's ref moves.
  */
 export async function finishWorktree(
   deps: FinishDependencies,
@@ -275,13 +277,24 @@ export async function finishWorktree(
   return await withFinishLock(deps, commonDir, async () => {
     const mainRunner = runner(deps, mainRoot);
     const worktreeRunner = runner(deps, record.path);
-    if ((await collectChangeSurface(mainRunner)).paths.length > 0) {
-      throw finishError("WORKTREE_MAIN_DIRTY", "The main checkout has uncommitted changes; a fast-forward would mix them in.");
-    }
     const onBranch = (await deps.git(mainRoot, ["symbolic-ref", "--short", "-q", "HEAD"])).stdout.trim();
-    if (onBranch !== record.targetBranch) {
-      throw finishError("WORKTREE_TARGET_MOVED",
-        `The main checkout is on ${onBranch || "a detached HEAD"}; switch it back to ${record.targetBranch} to finish.`);
+    // On the target, the merge rewrites the checkout's files, so its changes
+    // would mix in. Anywhere else only the target's ref moves and the checkout
+    // is never touched.
+    const onTarget = onBranch === record.targetBranch;
+    if (onTarget) {
+      if ((await collectChangeSurface(mainRunner)).paths.length > 0) {
+        throw finishError("WORKTREE_MAIN_DIRTY", "The main checkout has uncommitted changes; a fast-forward would mix them in.");
+      }
+    } else {
+      const listing = await deps.git(mainRoot, ["worktree", "list", "--porcelain"]);
+      const holder = listing.exitCode === 0
+        ? parseWorktreeListPorcelain(listing.stdout).find(({ branch }) => branch === record.targetBranch)
+        : undefined;
+      if (holder !== undefined) {
+        throw finishError("WORKTREE_BRANCH_CHECKED_OUT",
+          `${record.targetBranch} is checked out at ${holder.path}; moving it would desync that checkout. Switch it away or finish from there.`);
+      }
     }
     if ((await collectChangeSurface(worktreeRunner)).paths.length > 0) {
       throw finishError("WORKTREE_DIRTY", `Commit or discard the uncommitted changes in ${record.path} first.`);
@@ -354,9 +367,20 @@ export async function finishWorktree(
     const mainConfig = await deps.loadConfig(mainRoot);
     const gateEnabled = mainConfig.features.completionGate.enabled;
     const before = gateEnabled ? await currentGateFingerprint(mainRoot, mainRunner) : "";
-    await git(deps, mainRoot, ["merge", "--ff-only", record.branch],
-      "WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}.`);
-    const mergedHead = await git(deps, mainRoot, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
+    let mergedHead: string;
+    if (onTarget) {
+      await git(deps, mainRoot, ["merge", "--ff-only", record.branch],
+        "WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}.`);
+      mergedHead = await git(deps, mainRoot, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
+    } else {
+      // Compare-and-swap on the target's value read above: a target that moved
+      // since fails here instead of being overwritten.
+      mergedHead = await git(deps, mainRoot, ["rev-parse", "--verify", `${record.branch}^{commit}`],
+        "WORKTREE_LOG_FAILED", `Git could not read ${record.branch}.`);
+      await git(deps, mainRoot,
+        ["update-ref", "-m", `agent-ops finish ${record.branch}`, `refs/heads/${record.targetBranch}`, mergedHead, target],
+        "WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}.`);
+    }
 
     // The merge happened; everything below is cleanup, reported, never undone.
     const warnings: string[] = [];

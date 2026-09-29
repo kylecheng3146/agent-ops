@@ -81,6 +81,15 @@ Agy 的 prompt 會直接作為 `--print` 的值；裸用 `-p` 會誤吞下一個
 agent-ops 刻意不傳會繞過權限邊界的 `--dangerously-skip-permissions`，也不傳會
 使 plan mode 失效的 `--disable-slash-commands`。
 
+Agy 可能在唯一一輪 `--print` 中沒有回答就結束：print mode 沒有人可以確認工具呼叫，
+會拒絕該次呼叫並停止，`response` 為空且沒有 `structured_output`。被拒的工具列在
+信封的 `denied_actions`，並寫進診斷訊息。agent-ops 會先在同一個對話續問一次
+（`--conversation`，要求不用工具直接回答），失敗才退回一個全新的 session。lost turn 的
+`agy.log` 與 `stdout.json` 會保留在 `.agent-ops/reviews/lost-turns/<sessionId>/`
+（僅本機、被 git 忽略、不會自動清理）。若被拒的是你自己 agy 設定的 MCP 工具，
+對 agy 停用該 server（`agy mcp disable <name>`）即可移除觸發原因；agent-ops 不會
+更動你的 agy 設定。
+
 Host 缺少 network 或 loopback 權限時，會在啟動任何 reviewer 前回傳
 `REVIEW_NOT_RUN`。Managed 規則要求可信任的外部 host runner 在第一次呼叫時
 就用兩項權限啟動同一個完整指令；不要先在原 sandbox 執行再重試，因為那不算
@@ -145,9 +154,13 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   則作為每條命令的工作目錄）；同一 session 之後被拒絕時會重用它。
   建立失敗時，拒絕訊息會說明原因並退回手動 `worktree add`。需先執行一次
   `agent-ops update`，讓 PreToolUse hook 取得 setup 所需的 600 秒逾時。
-- `add` 從主 checkout 的 HEAD 建立 `.worktrees/<name>` 與 branch
-  `agent-ops/<name>`，並透過 `.git/info/exclude`（而非 `.gitignore`）排除
-  `/.worktrees/`。它會複製 agent-ops 安裝的 ignored 檔案，以及根目錄
+- `add` 建立 `.worktrees/<name>` 與 branch `agent-ops/<name>`，並透過
+  `.git/info/exclude`（而非 `.gitignore`）排除 `/.worktrees/`。它的 base 與合併
+  目標是 session 開始時主 checkout 所在的 branch：SessionStart 會為每個 session
+  記錄該 branch 一次（resume、compact、clear 都不會覆寫；detached HEAD 或在
+  worktree 內觸發時不記錄），所以中途切換 branch 不會改變工作的目標。沒有記錄時
+  會在 add 當下讀取主 checkout 的 HEAD；明確的 `--target-branch` 或 `--from`
+  優先於記錄；記錄的 branch 已不存在時會報錯，並提示使用 `--target-branch`。它會複製 agent-ops 安裝的 ignored 檔案，以及根目錄
   `.worktreeinclude`（gitignore 語法，例如 `.env` 或 `local.properties`）比對到
   的檔案；Git 已 checkout 的檔案一律不覆寫。只有主 checkout 已 trusted 且
   worktree 的 effective config 完全相同時才繼承 trust。
@@ -165,7 +178,10 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   維持附著在 task 樹最上層，且每個 task 各自保留 review 紀錄，所以在同一份原始碼上
   review 的 parent 與 subtask 不會互相覆蓋。
 - `agent-ops worktree finish <name>` 只以 fast-forward 合併，一次只執行一個
-  finish。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
+  finish。主 checkout 就在 target branch 上時，合併會更新它的檔案，所以那裡有未
+  commit 的變更會擋住合併；主 checkout 在其他 branch 或 detached 時，只移動
+  target 的 ref，checkout、檔案與未 commit 的變更都不會被動到。Target 若被其他
+  worktree checkout 則拒絕，並指出該路徑。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
   重新驗證再合併；衝突則連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
   回報。Note 會記錄 worktree 的每個 task，subtask 縮排在其 parent 之下。
 - `worktree list`、`resume <name> --session <id>` 與 `remove <name>` 管理剩下的

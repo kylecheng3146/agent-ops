@@ -37,7 +37,7 @@ English source version: 2026-09-24. Revalidate: when the English specification c
 同一個 repository 中並行修改檔案的對話 MUST 各自在自己的 agent-ops worktree 中工作。
 
 - Trigger: `worktree.mode` 為 `auto`，或另一個對話仍開著時，第二個對話也要修改這個 repository。
-- Action: 第一次修改前，在主 checkout 執行 `agent-ops worktree add <name> --session <id>`，只在印出的路徑中工作；task 以印出的 `--base` 完成後，用 `agent-ops worktree finish <name>` 合併。
+- Action: 第一次修改前，在主 checkout 執行 `agent-ops worktree add <name> --session <id>`，只在印出的路徑中工作；task 以印出的 `--base` 完成後，用 `agent-ops worktree finish <name>` 合併。合併目標是 session 開始時主 checkout 所在的 branch，不論該 checkout 現在在哪裡。
 - Evidence: `agent-ops worktree list` 顯示每個修改中的 session 各有一個 worktree，且每次 finish 都回報 fast-forward 合併。
 - Positive: `兩個對話分別修改 .worktrees/login 與 .worktrees/cart；各自驗證、review 並 finish。`
 - Negative: `兩個對話同時修改主 checkout，彼此的寫入讓對方的驗證與 review 全部作廢。`

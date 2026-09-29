@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { appendFileSync } from "node:fs";
-import { basename } from "node:path";
+import {
+  appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import test from "node:test";
 
 import type { ReviewTargetId } from "../../runtime/src/contracts.js";
@@ -237,6 +240,10 @@ function request(): ReviewExecutionRequest {
   };
 }
 
+// Lost turns are kept under the reviewed repository, so cases must not review
+// the real checkout.
+const scratchRoot = mkdtempSync(join(tmpdir(), "agent-ops-chain-"));
+
 async function run(
   targets: readonly ReviewTargetId[],
   script: readonly Scripted[],
@@ -244,6 +251,7 @@ async function run(
     readonly timeoutMs?: number;
     readonly stallIdleMs?: number;
     readonly chainTimeoutMs?: number;
+    readonly cwd?: string;
   } = {}
 ): Promise<{
   readonly result: Awaited<ReturnType<ReturnType<typeof createReviewExecutor>>>;
@@ -254,7 +262,7 @@ async function run(
   const progress: string[] = [];
   const execute = createReviewExecutor({
     targets,
-    cwd: process.cwd(),
+    cwd: options.cwd ?? scratchRoot,
     runner,
     env: targets.length >= 3 ? { AGENT_OPS_HOST: "claude" } : {},
     // These cases assert chain behavior, not the machine's loopback policy.
@@ -897,6 +905,209 @@ test("a rejection that is not a dropped call is never retried", async () => {
   );
   assert.equal(result.status, "NOT_RUN");
   assert.equal(attempts.length, 1);
+});
+
+// agy's plan mode can end its one --print turn with a SUCCESS envelope that
+// carries no structured output and an empty response.
+const lostTurn = JSON.stringify({ status: "SUCCESS", response: "", num_turns: 1 });
+
+test("an agy turn that answered nothing is retried once in a fresh session", async () => {
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurn }, { stdout: passing() }]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  assert.equal(result.attempts?.length, 2);
+  assert.ok(progress.some((line) => /agy: .*without answering.* → retrying once/.test(line)));
+});
+
+test("a second agy turn that answers nothing stops the review without a third", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurn }, { stdout: lostTurn }, { stdout: passing() }]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "unparseable-output");
+  assert.equal(attempts.length, 3);
+});
+
+test("only an agy turn that said nothing is retried", async () => {
+  const cases: readonly (readonly [ReviewTargetId, string])[] = [
+    ["agy", JSON.stringify({ response: "I could not comply." })],
+    ["agy", JSON.stringify({ structured_output: { results: [] } })],
+    ["agy", ""],
+    ["claude", JSON.stringify({ result: "" })]
+  ];
+  for (const [target, stdout] of cases) {
+    const { result, attempts } = await run([target], [{ stdout }, { stdout: passing(target) }]);
+    assert.equal(result.status, "NOT_RUN", stdout);
+    assert.equal(attempts.length, 1, stdout);
+  }
+});
+
+test("a lost agy turn keeps its log and stdout where the diagnostic says", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "agent-ops-lost-"));
+  const { result, progress } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurn, beats: 1, beatMs: 5, beatVia: "log" },
+      { stdout: passing() }
+    ],
+    { cwd }
+  );
+  assert.equal(result.status, "PASS");
+  const root = join(cwd, ".agent-ops", "reviews", "lost-turns");
+  const [session, ...rest] = readdirSync(root);
+  assert.equal(rest.length, 0);
+  assert.equal(readFileSync(join(root, session ?? "", "stdout.json"), "utf8"), lostTurn);
+  assert.match(readFileSync(join(root, session ?? "", "agy.log"), "utf8"), /beat 1/);
+  assert.ok(progress.some((line) => line.includes(`kept .agent-ops/reviews/lost-turns/${session}`)));
+});
+
+test("failing to keep a lost turn never changes the review", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "agent-ops-lost-"));
+  // A file where the directory should go makes every mkdir under it fail.
+  writeFileSync(join(cwd, ".agent-ops"), "not a directory");
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurn }, { stdout: passing() }],
+    { cwd }
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  assert.ok(progress.some((line) => /without answering.* → retrying once/.test(line)));
+  assert.ok(!progress.some((line) => line.includes("kept ")));
+});
+
+test("nothing is kept for a pass, another failure, or another target", async () => {
+  const cases: readonly (readonly [ReviewTargetId, string])[] = [
+    ["agy", passing()],
+    ["agy", JSON.stringify({ response: "I could not comply." })],
+    ["claude", JSON.stringify({ result: "" })]
+  ];
+  for (const [target, stdout] of cases) {
+    const cwd = mkdtempSync(join(tmpdir(), "agent-ops-lost-"));
+    await run([target], [{ stdout }, { stdout: passing(target) }], { cwd });
+    assert.ok(!existsSync(join(cwd, ".agent-ops", "reviews", "lost-turns")), stdout);
+  }
+});
+
+const lostTurnInConversation = JSON.stringify({
+  conversation_id: "conv-1",
+  status: "SUCCESS",
+  response: "",
+  num_turns: 1,
+  usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 },
+  denied_actions: [{ action: "mcp", display_name: "CallMcpTool" }]
+});
+
+const passingWithUsage = JSON.stringify({
+  ...(JSON.parse(passing()) as Record<string, unknown>),
+  usage: { input_tokens: 50, output_tokens: 5, total_tokens: 55 }
+});
+
+test("a lost agy turn is resumed in its own conversation before any fresh retry", async () => {
+  const { result, attempts, progress } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: passingWithUsage },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+  const [, lost, nudge] = attempts;
+  const args = nudge?.args ?? [];
+  assert.equal(args[args.indexOf("--conversation") + 1], "conv-1");
+  for (const flag of ["--sandbox", "--mode", "plan", "--json-schema", "--output-format"]) {
+    assert.ok(args.includes(flag), `the nudge keeps ${flag}`);
+  }
+  assert.equal(nudge?.cwd, lost?.cwd);
+  assert.ok(!(lost?.args ?? []).includes("--conversation"));
+  assert.ok(progress.some((line) => /denied CallMcpTool.* → resuming the conversation once/.test(line)));
+});
+
+test("the resumed turn's cost is added to the attempt", async () => {
+  const { result } = await run(
+    ["agy"],
+    [{ stdout: passing() }, { stdout: lostTurnInConversation }, { stdout: passingWithUsage }]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(result.attempts?.[1]?.metrics?.usage?.totalTokens, 165);
+  assert.equal(result.attempts?.[1]?.metrics?.usage?.inputTokens, 150);
+});
+
+test("a nudge that answers nothing falls back to one fresh retry without a second nudge", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: lostTurnInConversation },
+      { stdout: lostTurnInConversation },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "unparseable-output");
+  // primary, lost adversarial turn, its nudge, one fresh retry that is not nudged.
+  assert.equal(attempts.length, 4);
+  assert.ok(!(attempts[3]?.args ?? []).includes("--conversation"));
+  const diagnostic = result.attempts?.[1]?.diagnostic ?? "";
+  assert.match(diagnostic, /denied CallMcpTool/);
+});
+
+// A resumed agy turn answers in `response`; it carries no structured_output.
+function answeredInResponse(text: string): string {
+  return JSON.stringify({ conversation_id: "conv-1", status: "SUCCESS", response: text });
+}
+
+test("a resumed turn that answers in response is accepted after full validation", async () => {
+  const report = (JSON.parse(passing()) as { structured_output: unknown }).structured_output;
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: answeredInResponse(`${JSON.stringify(report)}\n`) },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 3);
+});
+
+test("a resumed answer that breaks the report contract is not trusted", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: answeredInResponse(JSON.stringify({ answer: "DONE" })) },
+      { stdout: passing() }
+    ]
+  );
+  // The nudge is discarded and the fresh retry decides.
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 4);
+});
+
+test("a failed nudge still lets the fresh retry recover the review", async () => {
+  const { result, attempts } = await run(
+    ["agy"],
+    [
+      { stdout: passing() },
+      { stdout: lostTurnInConversation },
+      { stdout: "" },
+      { stdout: passing() }
+    ]
+  );
+  assert.equal(result.status, "PASS");
+  assert.equal(attempts.length, 4);
 });
 
 test("a silent necessary reviewer stops the review as stalled", async () => {

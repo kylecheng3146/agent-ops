@@ -31,6 +31,7 @@ import {
 } from "../../../runtime/src/parallel/guard.js";
 import {
   ensureSessionWorktree,
+  recordSessionOrigin,
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
@@ -537,6 +538,15 @@ export async function runHookProcess(
               );
         }
       : undefined;
+    if (hookEvent === "SessionStart" && config.worktree?.mode === "auto" &&
+      dependencies.worktree !== undefined && typeof parsedInput === "object" && parsedInput !== null) {
+      const fields = parsedInput as { session_id?: unknown; conversationId?: unknown };
+      const sessionId = harnessId === "agy" ? fields.conversationId : fields.session_id;
+      if (typeof sessionId === "string") {
+        // Advisory: a session that records nothing falls back to HEAD at add time.
+        await recordSessionOrigin(dependencies.worktree, { cwd: root, sessionId }).catch(() => undefined);
+      }
+    }
     const output = await runHookCommand({
       harness: harness as HarnessId,
       event: hookEvent,

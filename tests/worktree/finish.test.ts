@@ -290,10 +290,6 @@ test("finish changes nothing unless the main checkout, worktree and task are all
     await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), rejectsWith("WORKTREE_MAIN_DIRTY"));
     await rm(join(root, "stray.txt"));
 
-    await git(root, "checkout", "-qb", "elsewhere");
-    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), rejectsWith("WORKTREE_TARGET_MOVED"));
-    await git(root, "checkout", "-q", "main");
-
     await assert.rejects(finishWorktree(d, { cwd: record.path, name: "alpha" }), rejectsWith("WORKTREE_NESTED"));
     await assert.rejects(finishWorktree(d, { cwd: root, name: "missing" }), rejectsWith("WORKTREE_NOT_FOUND"));
     assert.equal(await git(root, "rev-parse", "main"), mainHead);
@@ -302,6 +298,59 @@ test("finish changes nothing unless the main checkout, worktree and task are all
     await finishWorktree(d, { cwd: root, name: "alpha" });
     assert.equal(await readFile(join(root, "source.txt"), "utf8"), "reviewed\n");
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finish fast-forwards the target ref and leaves a checkout on another branch alone", async () => {
+  for (const away of ["develop", "detached"]) {
+    const root = await repository();
+    try {
+      const d = finishDeps();
+      const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+      await completeWork(record, "source.txt", "alpha work\n");
+      const before = await readFile(join(root, "source.txt"), "utf8");
+      const mainBefore = await git(root, "rev-parse", "main");
+      if (away === "develop") await git(root, "checkout", "-qb", "develop");
+      else await git(root, "checkout", "-q", "--detach");
+      await write(root, "stray.txt", "uncommitted, not part of the merge\n");
+      const headBefore = await git(root, "rev-parse", "HEAD");
+      const branchBefore = await git(root, "rev-parse", "--abbrev-ref", "HEAD");
+
+      const result = await finishWorktree(d, { cwd: root, name: "alpha" });
+
+      assert.equal(await git(root, "rev-parse", "main"), result.mergedHead, away);
+      assert.notEqual(result.mergedHead, mainBefore, away);
+      assert.equal(await git(root, "rev-parse", "HEAD"), headBefore, away);
+      assert.equal(await git(root, "rev-parse", "--abbrev-ref", "HEAD"), branchBefore, away);
+      assert.equal(await readFile(join(root, "source.txt"), "utf8"), before, away);
+      assert.equal(await readFile(join(root, "stray.txt"), "utf8"), "uncommitted, not part of the merge\n", away);
+      assert.equal(await exists(record.path), false, away);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("finish refuses to move a target that another worktree has checked out", async () => {
+  const root = await repository();
+  const other = `${root}-holder`;
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await completeWork(record, "source.txt", "alpha work\n");
+    const mainBefore = await git(root, "rev-parse", "main");
+    await git(root, "checkout", "-qb", "develop");
+    await git(root, "worktree", "add", "-q", other, "main");
+
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), (error: unknown) =>
+      error instanceof AgentOpsError && error.code === "WORKTREE_BRANCH_CHECKED_OUT" &&
+      error.message.includes("-holder"));
+
+    assert.equal(await git(root, "rev-parse", "main"), mainBefore);
+    assert.equal(await exists(record.path), true);
+  } finally {
+    await rm(other, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
 });

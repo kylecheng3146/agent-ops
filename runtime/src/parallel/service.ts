@@ -6,11 +6,12 @@ import type {
   WorktreeSetupCommand
 } from "../contracts.js";
 import { calculateConfigHash } from "../config/hash.js";
+import { sha256 } from "../fs/hash.js";
 import { parseInstallManifest } from "../fs/manifest.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { CompletionGateService } from "../hooks/completion-gate.js";
 import { writeSessionMarker } from "../hooks/codex-loop.js";
-import { readPrivateFile, writePrivateFile } from "../security/permissions.js";
+import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
 
 /**
  * One Git worktree per writing session, so parallel sessions stop sharing the
@@ -317,9 +318,11 @@ export async function removeCheckout(deps: WorktreeDependencies, record: Worktre
 }
 
 /**
- * Creates `.worktrees/<name>` on `agent-ops/<name>` from `from` (default HEAD)
- * and makes it a working agent-ops checkout for `sessionId`. When the main
- * checkout is detached, `targetBranch` names the branch `finish` merges back
+ * Creates `.worktrees/<name>` on `agent-ops/<name>` from `from` and makes it a
+ * working agent-ops checkout for `sessionId`. With neither `from` nor
+ * `targetBranch`, the branch recorded when the session began is both; without
+ * a record, HEAD and its branch. When the main checkout is detached and
+ * nothing is recorded, `targetBranch` names the branch `finish` merges back
  * into. A branch already checked out in another worktree is rejected before
  * Git runs, so the failure names the conflicting path.
  */
@@ -347,8 +350,18 @@ export async function addWorktree(
     throw worktreeError("WORKTREE_NESTED",
       `Run worktree commands from the main checkout (${mainRoot}), not from inside a worktree.`);
   }
+  // Without an explicit target or base, the branch the main checkout was on
+  // when the session began, not the one it is on now: the user may have
+  // switched since.
+  const origin = options.targetBranch === undefined && options.from === undefined
+    ? await readSessionOrigin(mainRoot, sessionId) : null;
+  if (origin !== null &&
+    (await deps.git(mainRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${origin}`])).exitCode !== 0) {
+    throw worktreeError("WORKTREE_ORIGIN_MISSING",
+      `The session began on ${origin}, which no longer exists; pass --target-branch to agent-ops worktree add.`);
+  }
   const headRef = await deps.git(mainRoot, ["symbolic-ref", "--short", "-q", "HEAD"]);
-  const targetBranch = options.targetBranch ?? headRef.stdout.trim();
+  const targetBranch = options.targetBranch ?? origin ?? headRef.stdout.trim();
   if (targetBranch === "") {
     throw worktreeError("WORKTREE_TARGET_REQUIRED",
       "The main checkout is detached; pass --target-branch <branch> naming the branch finish merges back into.");
@@ -357,7 +370,7 @@ export async function addWorktree(
     throw worktreeError("WORKTREE_TARGET_INVALID",
       `Invalid target branch ${targetBranch}; use 1-128 letters, digits, '.', '_', '/' or '-'.`);
   }
-  const fromRef = options.from ?? "HEAD";
+  const fromRef = options.from ?? (origin === null ? "HEAD" : `refs/heads/${origin}`);
   const base = await git(deps, mainRoot, ["rev-parse", "--verify", `${fromRef}^{commit}`],
     options.from === undefined ? "WORKTREE_NO_COMMIT" : "WORKTREE_BASE_INVALID",
     options.from === undefined
@@ -459,4 +472,35 @@ export async function ensureSessionWorktree(
   const existing = await readWorktreeRecord(worktreePath(mainRoot, name));
   if (existing?.sessionId === options.sessionId) return existing;
   return (await addWorktree(deps, { cwd: mainRoot, name, sessionId: options.sessionId })).record;
+}
+
+function sessionOriginPath(mainRoot: string, sessionId: string): string {
+  return join(mainRoot, ".agent-ops", "tasks", "session-origin", sha256(sessionId));
+}
+
+/** The branch recorded when `sessionId` began, or null. */
+export async function readSessionOrigin(mainRoot: string, sessionId: string): Promise<string | null> {
+  const value = (await readPrivateFile(sessionOriginPath(mainRoot, sessionId), mainRoot).catch(() => null))?.trim();
+  return value !== undefined && TARGET_BRANCH.test(value) ? value : null;
+}
+
+/**
+ * Pins the branch the main checkout is on to `sessionId`, first write wins:
+ * SessionStart fires again on resume, compact and clear, by which time the
+ * user may have moved. Nothing is recorded from inside a worktree or on a
+ * detached HEAD, so a later add falls back to reading HEAD itself.
+ */
+export async function recordSessionOrigin(
+  deps: WorktreeDependencies,
+  options: { readonly cwd: string; readonly sessionId: string }
+): Promise<void> {
+  if (!SESSION.test(options.sessionId)) return;
+  const { mainRoot, currentRoot } = await resolveCheckouts(deps, options.cwd);
+  if (currentRoot !== mainRoot) return;
+  const branch = (await deps.git(mainRoot, ["symbolic-ref", "--short", "-q", "HEAD"])).stdout.trim();
+  if (!TARGET_BRANCH.test(branch)) return;
+  const path = sessionOriginPath(mainRoot, options.sessionId);
+  await withPrivateFileLock(path, mainRoot, async () => {
+    if (await readPrivateFile(path, mainRoot) === null) await writePrivateFile(path, `${branch}\n`, mainRoot);
+  });
 }
