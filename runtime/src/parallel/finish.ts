@@ -14,6 +14,8 @@ import {
 import type { VerificationProcessRunner } from "../verify/spawn.js";
 import {
   assertWorktreeName,
+  NOTES_REF,
+  noteSessionLine,
   parseWorktreeListPorcelain,
   readWorktreeRecord,
   removeCheckout,
@@ -23,7 +25,6 @@ import {
   type WorktreeRecord
 } from "./service.js";
 
-export const NOTES_REF = "agent-ops";
 const LOCK_NAME = "agent-ops-finish.lock";
 const LOCK_POLL_MS = 2_000;
 const LOCK_WAIT_MS = 30 * 60 * 1000;
@@ -244,6 +245,7 @@ function taskTree(tasks: readonly StoredTask[]): { readonly task: StoredTask; re
 function noteText(record: WorktreeRecord, tasks: readonly { readonly task: StoredTask; readonly depth: number }[]): string {
   return [
     `worktree: ${record.name} (${record.branch})`,
+    noteSessionLine(record.sessionId),
     ...tasks.flatMap(({ task, depth }) => {
       const indent = "  ".repeat(depth);
       return [
@@ -397,8 +399,11 @@ export async function finishWorktree(
     if (gateEnabled) {
       await attempt("gate", async () => {
         const mainGate = await deps.gate(mainRoot, mainConfig);
-        await mainGate.redirect(record.sessionId, null);
-        await mainGate.rebase(before, await currentGateFingerprint(mainRoot, mainRunner));
+        const after = await currentGateFingerprint(mainRoot, mainRunner);
+        await mainGate.rebase(before, after);
+        // rebase only moves baselines equal to `before`; a main that moved since
+        // this session began would leave it reading the merge as its own change.
+        await mainGate.seed(record.sessionId, after);
       });
     }
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));

@@ -19,7 +19,7 @@ import {
 } from "../verify/change-surface.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
-import { readWorktreeRecord } from "../parallel/service.js";
+import { NOTES_REF, noteSessionLine, readWorktreeRecord } from "../parallel/service.js";
 
 const FINGERPRINT = /^[a-f0-9]{64}$/u;
 const SESSION = /^[^\0\r\n]{1,256}$/u;
@@ -343,11 +343,30 @@ export class CompletionGateService {
     return commands.some(({ command, args }) => [command, ...args].includes("allow-stop"));
   }
 
+  /**
+   * Whether `worktree finish` merged this session's reviewed work: a note
+   * naming the session on a commit HEAD contains, and nothing uncommitted on
+   * top. finish moves the task into that note, so the checkout has none left.
+   */
+  async #finishedByWorktree(sessionId: string): Promise<boolean> {
+    const runner = this.#options.gitRunner;
+    if ((await collectChangeSurface(runner)).paths.length > 0) return false;
+    // ponytail: newest 500 commits only; older merges need a one-time allow-stop
+    const log = await runner.run(["log", `--notes=${NOTES_REF}`, "--format=%N%x00", "-n", "500", "HEAD"]);
+    if (log.exitCode !== 0) return false;
+    const line = noteSessionLine(sessionId);
+    return new TextDecoder().decode(log.stdout).split("\0").some((note) => note.split("\n").includes(line));
+  }
+
   async #validateTask(sessionId: string): Promise<HookResult | null> {
     let stored;
     try {
       stored = await this.#options.taskService.status({ sessionId });
     } catch (error) {
+      if (error instanceof AgentOpsError && error.code === "TASK_SESSION_UNATTACHED" &&
+        await this.#finishedByWorktree(sessionId)) {
+        return null;
+      }
       return error instanceof AgentOpsError && error.code === "TASK_SESSION_UNATTACHED"
         ? gateResult(
           "block",
