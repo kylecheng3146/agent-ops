@@ -1015,6 +1015,16 @@ async function checkReviewTargets(
       ));
       continue;
     }
+    if (result === "network-unreachable") {
+      failures.push(check(
+        "review-targets",
+        "FAIL",
+        `${target} could not reach the network, so its login state is unknown.`,
+        undefined,
+        "Run agent-ops outside the sandbox, or grant it escalated execution, then re-run: agent-ops doctor --check-auth"
+      ));
+      continue;
+    }
     if (result === "capability-unavailable") {
       failures.push(check(
         "review-targets",

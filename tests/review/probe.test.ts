@@ -139,6 +139,109 @@ test("deep Agy probe clones the repo so the sandbox answers", async () => {
   await assert.rejects(lstat(invocation?.cwd ?? "/project"));
 });
 
+function failingRunner(stderr: string): VerificationProcessRunner {
+  return {
+    start(): RunningVerificationProcess {
+      return {
+        pid: 1,
+        stdout: bytes(""),
+        stderr: bytes(stderr),
+        completion: Promise.resolve({ exitCode: 1, signal: null }),
+        terminateTree: async () => {}
+      };
+    }
+  };
+}
+
+test("a deep probe that fails on the network is not called unauthenticated", async () => {
+  for (const stderr of [
+    "Error: getaddrinfo ENOTFOUND cloudcode-pa.googleapis.com",
+    "TypeError: fetch failed",
+    "dial tcp: lookup cloudcode-pa.googleapis.com: no such host"
+  ]) {
+    assert.equal(
+      await probeReviewTarget("claude", {
+        cwd: "/project",
+        deep: true,
+        runner: failingRunner(stderr)
+      }),
+      "network-unreachable",
+      stderr
+    );
+  }
+});
+
+test("a deep probe that fails on login or unknown output stays unauthenticated when the host is reachable", async () => {
+  for (const stderr of ["Error: not logged in", "something odd happened", ""]) {
+    assert.equal(
+      await probeReviewTarget("claude", {
+        cwd: "/project",
+        deep: true,
+        runner: failingRunner(stderr),
+        reachable: async () => true
+      }),
+      "unauthenticated",
+      stderr
+    );
+  }
+});
+
+test("an unreachable API host turns a login-looking failure into network-unreachable", async () => {
+  const asked: string[] = [];
+  for (const target of ["agy", "codex", "claude"] as const) {
+    assert.equal(
+      await probeReviewTarget(target, {
+        cwd: "/project",
+        deep: true,
+        runner: failingRunner("Error: not logged in"),
+        reachable: async (host) => {
+          asked.push(host);
+          return false;
+        }
+      }),
+      "network-unreachable",
+      target
+    );
+  }
+  assert.deepEqual(asked, [
+    "cloudcode-pa.googleapis.com",
+    "api.openai.com",
+    "api.anthropic.com"
+  ]);
+});
+
+test("reachability is never checked when the probe succeeded or is not deep", async () => {
+  let asked = 0;
+  const reachable = async (): Promise<boolean> => {
+    asked += 1;
+    return false;
+  };
+  const passing: VerificationProcessRunner = {
+    start(): RunningVerificationProcess {
+      return {
+        pid: 1,
+        stdout: bytes('{"result":"OK"}'),
+        stderr: bytes(""),
+        completion: Promise.resolve({ exitCode: 0, signal: null }),
+        terminateTree: async () => {}
+      };
+    }
+  };
+  assert.equal(
+    await probeReviewTarget("claude", { cwd: "/project", deep: true, runner: passing, reachable }),
+    "ok"
+  );
+  assert.equal(
+    await probeReviewTarget("claude", {
+      cwd: "/project",
+      runner: failingRunner("boom"),
+      reachable
+    }),
+    "unauthenticated"
+  );
+  assert.equal(asked, 0);
+});
+
 test("deep Agy probe falls back to plain temp when cloning fails", async () => {
   const requests: ProcessRequest[] = [];
   const runner: VerificationProcessRunner = {

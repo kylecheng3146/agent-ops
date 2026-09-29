@@ -4,6 +4,20 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-09-30
+
+- Fix: a host sandbox that withholds the network made an authenticated review
+  target look logged out, so `agent-ops review` and `doctor --check-auth`
+  reported `login-required` and told users to run `<target> login` again.
+  Network errors in probe and reviewer output (`ENOTFOUND`, `fetch failed`,
+  `getaddrinfo` and similar) now report the new `network-unreachable` reason,
+  which points at running outside the sandbox instead.
+- When a deep auth probe fails without a recognisable network error, a
+  2-second TCP connection to the target's API host on port 443
+  (`cloudcode-pa.googleapis.com`, `api.openai.com`, `api.anthropic.com`)
+  decides between `network-unreachable` and `login-required`. It only refines
+  the reported reason and never blocks a review.
+
 ## [0.3.6] - 2026-09-29
 
 - Fix: a session that ran `worktree add` → work → `worktree finish` could not

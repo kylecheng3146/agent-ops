@@ -102,6 +102,15 @@ export function renderReviewResult(result: ReviewRunResult): string {
     ) {
       lines.push("Run: agent-ops doctor --check-auth to verify target authentication.");
     }
+    if (
+      result.reason === "network-unreachable" ||
+      result.attempts?.some((attempt) => attempt.reason === "network-unreachable")
+    ) {
+      lines.push(
+        "The reviewer could not reach the network. This is not a login " +
+        "problem: run agent-ops outside the sandbox, or grant it escalated execution."
+      );
+    }
     // Evidence is pinned to the source it was produced from, so any edit to a
     // changed file after the verifier ran — a doc rewritten by a later step
     // counts — voids it. Without the next command the caller reads

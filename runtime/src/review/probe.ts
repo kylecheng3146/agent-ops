@@ -10,6 +10,11 @@ import { extractFinalMessage } from "./extract.js";
 import {
   isolatedReviewEnvironment
 } from "./execute.js";
+import {
+  isNetworkFailure,
+  probeHostReachable,
+  TARGET_API_HOST
+} from "./host-sandbox.js";
 import { buildProbeInvocation } from "./invocation.js";
 
 export type ReviewTargetProbeResult =
@@ -18,6 +23,7 @@ export type ReviewTargetProbeResult =
   | "ok"
   | "timeout"
   | "unauthenticated"
+  | "network-unreachable"
   | "capability-unavailable";
 
 export interface ReviewTargetProbeOptions {
@@ -30,6 +36,8 @@ export interface ReviewTargetProbeOptions {
    * that cheaply, so `ok` here means "present", not "usable".
    */
   readonly deep?: boolean;
+  /** Resolves true when the target's API host accepts a TCP connection. */
+  readonly reachable?: (host: string) => Promise<boolean>;
 }
 
 const PROBE_PROMPT = "Reply with the single word OK and nothing else.";
@@ -141,10 +149,20 @@ export async function probeReviewTarget(
   if (!deep) {
     return spawned.status === "PASS" ? "ok" : "unauthenticated";
   }
-  return spawned.status === "PASS" &&
+  if (
+    spawned.status === "PASS" &&
     extractFinalMessage(target, spawned.stdout) !== undefined
-    ? "ok"
-    : "unauthenticated";
+  ) {
+    return "ok";
+  }
+  // An unreachable API host outranks whatever the CLI printed: a sandbox that
+  // withholds the network makes an authenticated CLI say "not logged in".
+  if (isNetworkFailure(`${spawned.stderr}\n${spawned.stdout}`)) {
+    return "network-unreachable";
+  }
+  return (await (options.reachable ?? probeHostReachable)(TARGET_API_HOST[target]))
+    ? "unauthenticated"
+    : "network-unreachable";
   } finally {
     if (deep) {
       await rm(directory, { recursive: true, force: true });

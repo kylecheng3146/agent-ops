@@ -23,7 +23,7 @@ import {
   type ReviewReport
 } from "./report.js";
 import { detectHostTarget, planReviewTargets } from "./roles.js";
-import { detectHostRestriction } from "./host-sandbox.js";
+import { detectHostRestriction, isNetworkFailure } from "./host-sandbox.js";
 import {
   buildAdversarialPrompt,
   buildReviewPrompt,
@@ -43,6 +43,7 @@ export type ReviewTargetPreflightResult =
   | "missing-executable"
   | "timeout"
   | "unauthenticated"
+  | "network-unreachable"
   | "capability-unavailable";
 
 /**
@@ -245,6 +246,8 @@ function preflightUnavailableReason(
       return "timeout";
     case "unauthenticated":
       return "login-required";
+    case "network-unreachable":
+      return "network-unreachable";
     case "ineligible":
       return "capability-unavailable";
     case "capability-unavailable":
@@ -274,6 +277,9 @@ function firstComplaint(...streams: readonly string[]): string | undefined {
 function rejectedCallReason(output: string): ReviewUnavailableReason {
   if (/\b(?:quota|rate limit|usage limit|too many requests)\b/iu.test(output)) {
     return "quota-exhausted";
+  }
+  if (isNetworkFailure(output)) {
+    return "network-unreachable";
   }
   if (
     /\b(?:not logged in|login required|log in to|authentication required|unauthenticated|unauthorized)\b/iu.test(output) ||

@@ -111,8 +111,15 @@ task ID 必須明確指定，且永遠使用該 task 的原始 criteria；不能
 每次執行 review 仍需 `--yes`：init 的勾選決定「允許哪些目標」，
 `--yes` 決定「現在是否要花錢」。
 
-Reviewer 失敗會依輸出採保守分類：可辨識的認證訊息為 `login-required`，
+Reviewer 失敗會依輸出採保守分類：網路錯誤（`ENOTFOUND`、`fetch failed`、
+`getaddrinfo` 等）為 `network-unreachable`，可辨識的認證訊息為 `login-required`，
 quota 訊息為 `quota-exhausted`，其他非零退出則為 `capability-unavailable`。
+因此沙盒擋住網路時不會被誤報成 CLI 未登入：`network-unreachable` 會提示改在
+沙盒外執行，而不是執行 `<target> login`。當 `--check-auth` 探測或 review
+preflight 判定目標未認證時，會再對該目標的 API 主機（agy 為
+`cloudcode-pa.googleapis.com`、codex 為 `api.openai.com`、claude 為
+`api.anthropic.com`）的 443 埠做 2 秒 TCP 連線測試，據此在兩種原因間擇一；
+它只修正回報的原因，不會阻擋 review。
 只有偵測到認證失敗時，review 才會建議執行 `doctor --check-auth`。
 可用以下指令確認目標的認證狀態：
 

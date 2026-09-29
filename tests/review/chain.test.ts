@@ -1523,3 +1523,29 @@ test("a probe cut short by the deadline is reported as time, not as a bad CLI", 
     "an exhausted budget must not be reported as a capability problem"
   );
 });
+
+test("a reviewer that cannot reach the network is not reported as logged out", async () => {
+  const { result } = await run(
+    ["claude", "codex"],
+    [{ exitCode: 1, stderr: "Error: getaddrinfo ENOTFOUND api.anthropic.com" }]
+  );
+  assert.equal(result.status, "NOT_RUN");
+  const [rejected] = result.attempts ?? [];
+  assert.equal(rejected?.reason, "network-unreachable");
+});
+
+test("a network-unreachable preflight stops as network-unreachable", async () => {
+  const { runner } = fakeRunner([]);
+  const execute = createReviewExecutor({
+    targets: ["agy"],
+    cwd: process.cwd(),
+    runner,
+    env: {},
+    probeBind: async () => true,
+    preflightTarget: async () => "network-unreachable"
+  });
+  const result = await execute(request());
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "network-unreachable");
+  assert.equal(result.preflight?.[0]?.reason, "network-unreachable");
+});
