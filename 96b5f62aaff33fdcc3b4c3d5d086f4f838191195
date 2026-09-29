@@ -1,0 +1,6 @@
+worktree: session-01a0edfd (agent-ops/session-01a0edfd)
+session: 01a0edfd-1798-7383-af55-cd4d81a811df
+agent-ops task task-0eb59338-a63c-4b91-941e-d1a0a2cbe53a: Prepare release 0.3.7
+criteria:
+- version-bumped: package.json and package-lock.json both carry version 0.3.7
+- changelog-entry: CHANGELOG.md has a dated [0.3.7] - 2026-09-30 section describing the network-unreachable fix, placed under [Unreleased]
