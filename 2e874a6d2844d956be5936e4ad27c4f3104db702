@@ -1,0 +1,6 @@
+worktree: session-905c9996 (agent-ops/session-905c9996)
+agent-ops task task-7a934b4e-6771-4862-ad0f-9a3475ebd2d8: Prepare 0.3.6 release
+criteria:
+- version-bumped: package.json and package-lock.json are at 0.3.6
+- changelog-dated: CHANGELOG has a dated 0.3.6 section describing the finish reseed and finish-note gate fix
+- tests-green: The full test suite passes on the release commit
