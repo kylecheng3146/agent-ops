@@ -516,7 +516,9 @@ async function keepLostTurn(
   stdout: string,
   nudge?: { readonly log: string; readonly stdout: string }
 ): Promise<string | undefined> {
-  const relative = join(".agent-ops", "reviews", "lost-turns", sessionId);
+  // Named in the diagnostic, so it keeps `/` on every platform; `join` below
+  // turns it into the native path.
+  const relative = `.agent-ops/reviews/lost-turns/${sessionId}`;
   try {
     const directory = join(repositoryRoot, relative);
     await mkdir(directory, { recursive: true });
