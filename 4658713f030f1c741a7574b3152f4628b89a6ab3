@@ -1,0 +1,8 @@
+worktree: session-9927f4f2 (agent-ops/session-9927f4f2)
+agent-ops task task-0576699f-acf6-4e1d-a359-9ba5719f8442: review: agy lost turn 先在同對話補話再退回整輪重試
+criteria:
+- nudge-resumes-conversation: agy lost turn 且信封有 conversation_id 時，同一 attempt 內以 --conversation 補一次話（同 snapshot、保留 --sandbox --mode plan --json-schema），補話得到有效報告即為 verdict，不再啟動第三個 session
+- nudge-falls-back: 補話仍無有效報告時退回既有的整輪重試一次，且總共不超過一次補話加一次重試
+- nudge-only-when-lost: 沒有 conversation_id、非 agy、或非 lost turn 的失敗不補話
+- denied-actions-diagnosed: lost turn 的診斷訊息列出信封 denied_actions 的工具名稱
+- nudge-cost-counted: 補話花費的 token 計入該 attempt 的 usage，不低報審查成本
