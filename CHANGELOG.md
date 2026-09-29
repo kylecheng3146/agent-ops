@@ -4,6 +4,19 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-09-29
+
+- Fix: a session that ran `worktree add` → work → `worktree finish` could not
+  stop afterwards (`COMPLETION_GATE_TASK_REQUIRED`) whenever the main checkout
+  moved after the session began, because finish only moved gate baselines that
+  exactly equalled the pre-merge fingerprint. `worktree finish` now reseeds the
+  finishing session's baseline to the merged source.
+- The finish note in `refs/notes/agent-ops` gains a `session: <id>` line. As a
+  fallback, the completion gate lets an unattached session stop when the
+  checkout is clean and such a note sits within the newest 500 commits of
+  `HEAD`. Notes written before 0.3.6 carry no session line; a session stuck on
+  one still needs a one-time `agent-ops allow-stop`.
+
 ## [0.3.5] - 2026-09-29
 
 - Worktree sessions now pin the branch the main checkout was on when the
