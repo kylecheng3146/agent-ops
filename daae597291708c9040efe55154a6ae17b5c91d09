@@ -1,0 +1,19 @@
+worktree: session-23447bc5 (agent-ops/session-23447bc5)
+session: 23447bc5-edca-40ca-a0be-36c8477fbc46
+agent-ops task task-d62594da-74e4-48fa-8388-64179be187b4: Report blocked network as network-unreachable, not login-required
+criteria:
+- network-not-login: A review preflight, doctor auth probe, or review attempt that fails because the network is unreachable reports network-unreachable and points at running outside the sandbox, never at `<target> login`
+- login-preserved: A genuine authentication failure still reports login-required with the doctor --check-auth hint, and quota, timeout and missing-cli reporting are unchanged
+- reachability-decides: When a deep probe finds a target unauthenticated, a TCP:443 reachability check of that target API host decides between network-unreachable and login-required, and it never runs or blocks when the probe succeeded
+  agent-ops task task-20aa513c-42a7-476d-92f3-9c5ab66db7bb: A: classify network errors as network-unreachable
+  criteria:
+  - probe-classifies: probeReviewTarget deep returns network-unreachable when the target output shows a network error (ENOTFOUND, ECONNREFUSED, ECONNRESET, getaddrinfo, fetch failed, network is unreachable) and still returns unauthenticated for auth or unrecognised output
+  - attempt-classifies: rejectedCallReason maps network error output to network-unreachable while login, quota and unrecognised output keep login-required, quota-exhausted and capability-unavailable
+  - preflight-maps: A network-unreachable preflight result yields a NOT_RUN review with reason network-unreachable, and network-unreachable is part of ReviewUnavailableReason
+  - messages-guide: renderReviewResult shows a run-outside-the-sandbox hint and not the doctor --check-auth hint for network-unreachable, and doctor --check-auth reports the network problem instead of `<target> login`
+  agent-ops task task-8d559f35-b902-4b73-ae7e-44a7bc259ade: B: TCP:443 reachability decides network vs login
+  criteria:
+  - host-map: Each review target maps to its API host: agy cloudcode-pa.googleapis.com, codex api.openai.com, claude api.anthropic.com
+  - unauth-unreachable: A deep probe that finds a target unauthenticated returns network-unreachable when the injected TCP:443 reachability check of its API host fails
+  - unauth-reachable: A deep probe that finds a target unauthenticated still returns unauthenticated when the API host is reachable
+  - probe-never-blocks: The reachability check never runs when the probe succeeded or is non-deep, and has a 2 second timeout so a hung connect cannot stall review
