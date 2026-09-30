@@ -1,0 +1,8 @@
+worktree: batch-docs (agent-ops/batch-docs)
+session: 0305b7d5-c1ea-4f91-a53a-d7f0b8af5cd4
+agent-ops task task-511fe2d0-a5c1-4972-a265-7fd6fa0d0a47: batch: specification, README and changelog
+criteria:
+- spec-rules: docs/en/spec/review.md defines REVIEW-BATCH-001 to REVIEW-BATCH-007, each with a normative keyword and Trigger, Action, Evidence, Positive and Negative lines, covering selection, base precedence, serial verify with pipelined reviews, degrade and single retry, abort on a changed source, the shared preflight, and the envelope and exit codes
+- zh-tw-mirror: docs/zh-TW/spec/review.md mirrors the same rule ids in the same order and records the English source version
+- spec-matches-code: a test reads the spec and fails when it disagrees with the code: every TRANSIENT_REVIEW_REASONS member appears in the degrade rule, and the default width 2 and the exit codes 0, 1 and 2 appear in their rules
+- readme-changelog: README documents agent-ops batch with --parent, --base, --parent-base, --width and --output, and the Unreleased section of CHANGELOG.md announces the command
