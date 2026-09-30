@@ -41,7 +41,7 @@ import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { calculateSourceFingerprint } from "../../../runtime/src/verify/source-fingerprint.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
 import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
-import { parseArgs, type ParsedArgs } from "./args.js";
+import { COMMAND_NAMES, parseArgs, type ParsedArgs } from "./args.js";
 import { runCli } from "./cli.js";
 import {
   loadEffectiveConfig,
@@ -317,19 +317,9 @@ process.exitCode = await runCli(
     version: CLI_VERSION,
     registry: createCommandRegistry(
       Object.fromEntries(
-        [
-          "init",
-          "config",
-          "trust",
-          "doctor",
-          "update",
-          "uninstall",
-          "task",
-          "verify",
-          "review",
-          "allow-stop",
-          "worktree"
-        ].map((command) => [command, async (args: Parameters<NonNullable<import("./commands/index.js").CommandHandler>>[0]) => {
+        // Every command the parser knows is registered: a hand-kept list here
+        // once left a parsed command answering CLI_COMMAND_UNAVAILABLE.
+        COMMAND_NAMES.map((command) => [command, async (args: Parameters<NonNullable<import("./commands/index.js").CommandHandler>>[0]) => {
           const root = args.scope === "user"
             ? process.env.AGENT_OPS_HOME ?? homedir()
             : process.cwd();
