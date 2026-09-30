@@ -79,6 +79,11 @@ export async function dispatchHookEvent(
       ? continueWith("PASS", "HOOK_NOOP")
       : await options.worktreeGuard(event);
   }
+  if (event.event === "enter-worktree") {
+    return options.worktreeEnter === undefined
+      ? continueWith("PASS", "HOOK_NOOP")
+      : await options.worktreeEnter(event);
+  }
   if (
     event.event === "session-start" &&
     options.capabilities.includes("lifecycle-summary") &&

@@ -202,6 +202,56 @@ export async function resumeWorktree(
 }
 
 /**
+ * Commits everything in the calling session's own worktree. Git runs from
+ * here rather than the shell, where a host cannot prove a command stays inside
+ * the worktree; that is also why it refuses anything that is not the caller's.
+ *
+ * ponytail: stages all changes, so an untracked file Git does not ignore goes
+ * in too; narrow it with a path list if that ever commits something unwanted.
+ */
+export async function commitWorktree(
+  deps: FinishDependencies,
+  options: {
+    readonly cwd: string;
+    readonly sessionId: string | undefined;
+    readonly message: string;
+  }
+): Promise<{ readonly record: WorktreeRecord; readonly commit: string }> {
+  const { mainRoot, currentRoot } = await resolveCheckouts(deps, options.cwd);
+  if (currentRoot === mainRoot) {
+    throw manageError("WORKTREE_COMMIT_MAIN",
+      `worktree commit works only inside an agent-ops worktree; this is the main checkout (${mainRoot}).`);
+  }
+  const record = await readWorktreeRecord(currentRoot);
+  if (record === null) {
+    throw manageError("WORKTREE_COMMIT_UNRECORDED",
+      `${currentRoot} is not an agent-ops worktree; see agent-ops worktree list.`);
+  }
+  if (options.sessionId === undefined) {
+    throw manageError("WORKTREE_COMMIT_SESSION_REQUIRED",
+      "Cannot tell which session is committing; pass --session <id> or set AGENT_OPS_SESSION_ID.");
+  }
+  if (record.sessionId !== options.sessionId) {
+    throw manageError("WORKTREE_COMMIT_FOREIGN",
+      `${record.path} belongs to session ${record.sessionId}, not ${options.sessionId}.`);
+  }
+  const step = async (args: readonly string[], code: string, message: string) => {
+    const result = await deps.git(record.path, args);
+    if (result.exitCode !== 0) {
+      const detail = result.stderr.trim().split("\n")[0];
+      throw manageError(code, detail === undefined || detail === "" ? message : `${message} ${detail}`);
+    }
+    return result.stdout.trim();
+  };
+  await step(["add", "-A"], "WORKTREE_COMMIT_FAILED", "Git could not stage the worktree.");
+  if ((await deps.git(record.path, ["diff", "--cached", "--quiet"])).exitCode === 0) {
+    throw manageError("WORKTREE_COMMIT_NOTHING", `${record.path} has no changes to commit.`);
+  }
+  await step(["commit", "-m", options.message], "WORKTREE_COMMIT_FAILED", "Git refused the commit.");
+  return { record, commit: await step(["rev-parse", "HEAD"], "WORKTREE_COMMIT_FAILED", "Git could not read the new commit.") };
+}
+
+/**
  * Deletes a worktree and its branch. Work that exists nowhere else — an
  * uncommitted change or a commit the target lacks — needs `force`.
  */

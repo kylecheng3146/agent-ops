@@ -13,6 +13,7 @@ import { FileTaskStore } from "../../runtime/src/task/store.js";
 import type { FinishDependencies } from "../../runtime/src/parallel/finish.js";
 import {
   branchLockDoctorResult,
+  commitWorktree,
   detectDuplicateBranchCheckouts,
   idleWorktrees,
   listWorktrees,
@@ -151,6 +152,54 @@ test("remove keeps unmerged work unless forced, and the gate asks before forcing
       event: "command", projectRoot: root, sessionId: SESSION,
       command: "agent-ops", args: ["worktree", "remove", "dirty"], scope: "."
     }), null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("commit stages and commits everything in the caller's own worktree, message untouched by any shell", async () => {
+  const root = await repository();
+  try {
+    const d = manageDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "source.txt", "changed\n");
+    await write(record.path, "added/new.txt", "new\n");
+    const message = "feat: one\n\nbody with $(touch pwned) and `id` and 'quotes'\n\nCo-Authored-By: Someone <a@b.c>";
+
+    const result = await commitWorktree(d, { cwd: record.path, sessionId: SESSION, message });
+
+    assert.equal(result.commit, await git(record.path, "rev-parse", "HEAD"));
+    assert.equal(await git(record.path, "log", "-1", "--format=%B"), message);
+    assert.equal(await git(record.path, "status", "--porcelain"), "");
+    assert.equal(await git(record.path, "show", "--name-only", "--format=", "HEAD"), "added/new.txt\nsource.txt");
+    assert.equal(await exists(join(record.path, "pwned")), false);
+    assert.equal(await git(root, "rev-parse", "main"), record.base);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("commit refuses the main checkout, another session's worktree, an unknown caller and an empty change", async () => {
+  const root = await repository();
+  try {
+    const d = manageDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "source.txt", "changed\n");
+    await write(root, "stray.txt", "main edit\n");
+    const code = (error: unknown) => error instanceof AgentOpsError ? error.code : String(error);
+
+    await assert.rejects(commitWorktree(d, { cwd: root, sessionId: SESSION, message: "x" }),
+      (error) => code(error) === "WORKTREE_COMMIT_MAIN");
+    await assert.rejects(commitWorktree(d, { cwd: record.path, sessionId: "session-two", message: "x" }),
+      (error) => code(error) === "WORKTREE_COMMIT_FOREIGN");
+    await assert.rejects(commitWorktree(d, { cwd: record.path, sessionId: undefined, message: "x" }),
+      (error) => code(error) === "WORKTREE_COMMIT_SESSION_REQUIRED");
+    assert.equal(await git(record.path, "status", "--porcelain"), "M source.txt");
+    assert.equal(await git(root, "status", "--porcelain"), "?? stray.txt");
+
+    await commitWorktree(d, { cwd: record.path, sessionId: SESSION, message: "first" });
+    await assert.rejects(commitWorktree(d, { cwd: record.path, sessionId: SESSION, message: "again" }),
+      (error) => code(error) === "WORKTREE_COMMIT_NOTHING");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

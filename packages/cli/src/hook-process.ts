@@ -20,11 +20,13 @@ import {
   type HookProcessOutput
 } from "../../../runtime/src/install/harness.js";
 import type {
+  EnterWorktreeHookEvent,
   FileWriteHookEvent,
   HookDispatchOptions,
   HookResult,
   StopVerificationOptions
 } from "../../../runtime/src/hooks/events.js";
+import { evaluateWorktreeEnter } from "../../../runtime/src/parallel/enter.js";
 import {
   evaluateWorktreeWrite,
   resolveMainRoot
@@ -540,6 +542,14 @@ export async function runHookProcess(
               );
         }
       : undefined;
+    const worktreeEnter = config.worktree?.mode === "auto"
+      ? async (enter: EnterWorktreeHookEvent): Promise<HookResult> => {
+          const mainRoot = await resolveMainRoot(gitRunner);
+          return mainRoot === null
+            ? { action: "continue", status: "UNKNOWN", code: "WORKTREE_GUARD_UNAVAILABLE" }
+            : await evaluateWorktreeEnter(mainRoot, enter.path, enter.sessionId);
+        }
+      : undefined;
     if (hookEvent === "SessionStart" && config.worktree?.mode === "auto" &&
       dependencies.worktree !== undefined && typeof parsedInput === "object" && parsedInput !== null) {
       const fields = parsedInput as { session_id?: unknown; conversationId?: unknown };
@@ -556,6 +566,7 @@ export async function runHookProcess(
       config,
       trusted,
       ...(worktreeGuard === undefined ? {} : { worktreeGuard }),
+      ...(worktreeEnter === undefined ? {} : { worktreeEnter }),
       ...(dependencies.advisory === undefined
         ? {}
         : { advisory: dependencies.advisory }),

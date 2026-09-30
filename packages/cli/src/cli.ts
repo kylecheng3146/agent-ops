@@ -209,6 +209,7 @@ Options:
   --json
 `,
   worktree: `Usage: agent-ops worktree <add|finish|resume|remove> <name> [options]
+       agent-ops worktree commit --message <text> [--json]
        agent-ops worktree list [--json]
 
 Give one writing session its own Git worktree, so parallel sessions stop
@@ -228,6 +229,9 @@ voiding each other's verification and review. Run it from the main checkout.
                branch to the worktree's (after a clean rebase and
                re-verification if the branch moved), record the task in
                git notes, and remove the worktree. One finish runs at a time.
+  commit       Stage every change in the current worktree and commit it with
+               --message. Refuses the main checkout and a worktree another
+               session owns, and needs no Git in the shell.
   list         Every agent-ops worktree: session, commits ahead, uncommitted
                changes, task status and last activity.
   resume <name>
@@ -244,6 +248,7 @@ Options:
                    add: branch finish merges back into (defaults to the current
                    branch; required when the main checkout is detached)
   --force          remove: discard uncommitted or unmerged work
+  --message <text> commit: the commit message (also -m)
   --json
 `
 };

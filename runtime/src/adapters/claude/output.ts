@@ -50,6 +50,15 @@ export function claudeHookOutput(
       }
     });
   }
+  if (event === "PreToolUse" && result.decision === "allow") {
+    return json({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: denialReason
+      }
+    });
+  }
   if (event === "Stop" && result.evidence !== undefined) {
     if (result.status === "FAIL") {
       const failed = result.evidence.commandResults

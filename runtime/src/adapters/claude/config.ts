@@ -40,7 +40,7 @@ const CLAUDE_LOOP_EVENTS: readonly ClaudeSupportedEvent[] = [
   "SubagentStop"
 ];
 const CLAUDE_HOOK_MARKER = "--managed-by=agent-ops";
-export const CLAUDE_PRE_TOOL_MATCHER = "Bash|Edit|MultiEdit|NotebookEdit|Write";
+export const CLAUDE_PRE_TOOL_MATCHER = "Bash|Edit|MultiEdit|NotebookEdit|Write|EnterWorktree";
 const CLAUDE_LOOP_LAUNCHER =
   "${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-ops-loop.sh";
 const CLAUDE_WINDOWS_LOOP_LAUNCHER =
