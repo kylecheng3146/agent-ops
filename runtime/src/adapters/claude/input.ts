@@ -77,6 +77,25 @@ export function normalizeClaudeHookInput(
   }
   if (
     input.hook_event_name === "PreToolUse" &&
+    input.tool_name === "EnterWorktree" &&
+    isRecord(input.tool_input) &&
+    typeof projectRoot === "string" &&
+    projectRoot.length > 0
+  ) {
+    const target = input.tool_input.path;
+    // A `name` asks for a new worktree of Claude's own, which is not this
+    // hook's business.
+    if (typeof target === "string" && target.length > 0 && !target.includes("\0")) {
+      return {
+        event: "enter-worktree",
+        projectRoot,
+        path: resolve(projectRoot, target),
+        ...(sessionId === undefined ? {} : { sessionId })
+      };
+    }
+  }
+  if (
+    input.hook_event_name === "PreToolUse" &&
     input.tool_name === "Bash" &&
     isRecord(input.tool_input) &&
     typeof input.tool_input.command === "string"

@@ -128,7 +128,11 @@ test("setup runs in the new worktree, and a failing step rolls the worktree back
 
     await assert.rejects(
       addWorktree(deps({ trust: "UNTRUSTED" }), { cwd: untrusted, name: "alpha", sessionId: SESSION }),
-      rejectsWith("WORKTREE_SETUP_UNTRUSTED")
+      (error: unknown) => rejectsWith("WORKTREE_SETUP_UNTRUSTED")(error) &&
+        // Names the one place trust is granted and why it went missing, not an agent-run grant.
+        /run agent-ops update in the main checkout/u.test((error as Error).message) &&
+        /config hash/u.test((error as Error).message) &&
+        !/run agent-ops trust grant/u.test((error as Error).message)
     );
     assert.equal(await exists(join(untrusted, ".worktrees", "alpha")), false);
   } finally {

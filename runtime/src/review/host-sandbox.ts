@@ -35,6 +35,18 @@ export function isNetworkFailure(output: string): boolean {
   return NETWORK_FAILURE.test(output);
 }
 
+/**
+ * Only output that says so is a login problem. A CLI that dies for any other
+ * reason (a sandbox denying its state directory, a crash) used to be reported
+ * as "not logged in" too, which sent users to re-login a working install.
+ */
+const LOGIN_FAILURE =
+  /\b(?:not logged in|login required|log in to|authentication required|unauthenticated|unauthorized)\b|\b(?:invalid|expired)\s+(?:api key|token|credential)|\b401\b/iu;
+
+export function isLoginFailure(output: string): boolean {
+  return LOGIN_FAILURE.test(output);
+}
+
 /** The host each reviewer talks to, so a reachability check tests its real path. */
 export const TARGET_API_HOST: Readonly<Record<ReviewTargetId, string>> = {
   agy: "cloudcode-pa.googleapis.com",

@@ -3,7 +3,11 @@ import { basename, dirname, join, relative, sep } from "node:path";
 
 import type { HookResult } from "../hooks/events.js";
 import type { GitRunner } from "../verify/change-surface.js";
-import { insideWorktreeDirectory } from "./service.js";
+import {
+  insideWorktreeDirectory,
+  readWorktreeRecord,
+  WORKTREE_DIRECTORY
+} from "./service.js";
 
 /** The main checkout of the repository `runner` runs in, or null. */
 export async function resolveMainRoot(runner: GitRunner): Promise<string | null> {
@@ -53,6 +57,28 @@ export async function evaluateWorktreeWrite(
   for (const path of paths) {
     const target = await canonicalPath(path);
     const inMain = target === mainRoot || target.startsWith(`${mainRoot}${sep}`);
+    if (inMain && insideWorktreeDirectory(mainRoot, target) && sessionId !== undefined) {
+      // A worktree belongs to the session that made it: writing into another
+      // session's mixes two tasks' changes into one review and one merge.
+      const name = relative(join(mainRoot, WORKTREE_DIRECTORY), target).split(sep)[0] ?? "";
+      const owner = (await readWorktreeRecord(join(mainRoot, WORKTREE_DIRECTORY, name)))?.sessionId;
+      if (owner !== undefined && owner !== sessionId) {
+        let own = "";
+        if (ensureWorktree !== undefined) {
+          own = await ensureWorktree(sessionId).then(
+            (worktree) => ` Your own worktree is ${worktree}: edit there instead.`,
+            () => ""
+          );
+        }
+        return {
+          action: "block",
+          status: "FAIL",
+          code: "WORKTREE_OWNED_BY_OTHER_SESSION",
+          remedy: `${join(mainRoot, WORKTREE_DIRECTORY, name)} belongs to another session (${owner}); ` +
+            `this session is ${sessionId}.${own || " Run agent-ops worktree add <name> --session " + sessionId + " from " + mainRoot + " and edit in the printed path."}`
+        };
+      }
+    }
     if (inMain && !insideWorktreeDirectory(mainRoot, target)) {
       let failure = "";
       if (sessionId !== undefined && ensureWorktree !== undefined) {

@@ -403,7 +403,9 @@ export async function addWorktree(
   const setupSteps = mainConfig.worktree?.setup ?? [];
   if (setupSteps.length > 0 && mainTrust !== "TRUSTED") {
     throw worktreeError("WORKTREE_SETUP_UNTRUSTED",
-      "worktree.setup runs repository commands; run agent-ops trust grant in the main checkout first.");
+      "worktree.setup runs repository commands and the main checkout is not trusted: trust is bound to the config hash, " +
+      "so a hand edit of .agent-ops/config.json (adding worktree.setup, say) leaves it untrusted. " +
+      "Trust is the user's to grant, once: run agent-ops update in the main checkout, which lists the commands it will trust and asks.");
   }
 
   await ensureExcluded(deps, mainRoot, commonDir);

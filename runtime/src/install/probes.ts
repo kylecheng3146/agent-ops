@@ -155,3 +155,43 @@ export function repositoryTrustStatus(
       ? "FAIL"
       : "UNKNOWN";
 }
+
+/**
+ * Trust is bound to the config hash, so a hand edit of the config is what
+ * usually costs it. The fix is always the user's: `update` lists the commands
+ * it will trust and asks once, which is why nothing here tells an agent to
+ * grant it.
+ */
+const TRUST_REMEDY =
+  "The user grants it, once: run `agent-ops update`, which lists the commands it will trust and asks (or `agent-ops trust grant`).";
+
+export function repositoryTrustProbe(
+  trust: "TRUSTED" | "STALE" | "UNTRUSTED",
+  verificationConfigured: boolean
+): DoctorProbeResult {
+  const status = repositoryTrustStatus(trust);
+  if (trust === "STALE") {
+    return {
+      status,
+      message:
+        "Repository trust binding is stale: the config hash changed since trust was granted, as a hand edit of .agent-ops/config.json does.",
+      code: "TRUST_REQUIRED",
+      remediation: TRUST_REMEDY
+    };
+  }
+  if (trust === "UNTRUSTED") {
+    return {
+      status,
+      message: verificationConfigured
+        ? "Repository is not trusted; Stop verification will not run."
+        : "Repository is not trusted.",
+      ...(verificationConfigured
+        ? { code: "TRUST_REQUIRED", remediation: TRUST_REMEDY }
+        : {
+            remediation:
+              "No action needed; trust is only required once verification.commands is set."
+          })
+    };
+  }
+  return { status };
+}

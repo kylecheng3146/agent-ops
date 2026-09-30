@@ -617,6 +617,29 @@ test("parses --worktree for init and update", () => {
   );
 });
 
+test("parses worktree commit with a message, and refuses the message anywhere else", () => {
+  for (const flag of ["-m", "--message"]) {
+    const parsed = parseArgs(["worktree", "commit", flag, "feat: one\n\nbody $(id)"]);
+    assert.equal(parsed.command, "worktree");
+    assert.equal(parsed.action, "commit");
+    assert.equal(parsed.worktreeMessage, "feat: one\n\nbody $(id)");
+    assert.equal(parsed.worktreeName, undefined);
+  }
+  // commit refuses a worktree another session owns, so it must be able to be told which session it is.
+  assert.equal(parseArgs(["worktree", "commit", "-m", "x", "--session", "session-1"]).sessionId, "session-1");
+  assert.throws(() => parseArgs(["worktree", "finish", "alpha", "--session", "session-1"]), CliArgumentError);
+  for (const argv of [
+    ["worktree", "commit"],
+    ["worktree", "commit", "-m", "  "],
+    ["worktree", "commit", "alpha", "-m", "x"],
+    ["worktree", "finish", "alpha", "-m", "x"],
+    ["worktree", "commit", "-m", "a", "-m", "b"],
+    ["task", "status", "-m", "x"]
+  ]) {
+    assert.throws(() => parseArgs(argv), CliArgumentError, argv.join(" "));
+  }
+});
+
 test("parses --from and --target-branch for worktree add only", () => {
   const parsed = parseArgs(["worktree", "add", "alpha", "--session", "s-1", "--from", "abc123", "--target-branch", "main"]);
   assert.equal(parsed.worktreeFrom, "abc123");

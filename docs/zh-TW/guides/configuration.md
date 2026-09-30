@@ -121,6 +121,9 @@ preflight 判定目標未認證時，會再對該目標的 API 主機（agy 為
 `api.anthropic.com`）的 443 埠做 2 秒 TCP 連線測試，據此在兩種原因間擇一；
 它只修正回報的原因，不會阻擋 review。
 只有偵測到認證失敗時，review 才會建議執行 `doctor --check-auth`。
+探測失敗但輸出沒有網路或登入字樣時為 `probe-failed`，不會被當成
+`login-required`：preflight 紀錄與 `doctor` 會引述目標自己的第一行輸出
+（agy 在 stderr 為空時取其 log 檔最後一行），讓真正原因可見而非猜測。
 可用以下指令確認目標的認證狀態：
 
 ```bash
@@ -177,6 +180,44 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
 - Session 的 completion gate 會跟著它：Claude Code 以 EnterWorktree 進入
   worktree；無法移動 session 的 host（agy）則透過主 checkout 記錄的 redirect，
   由 worktree 的 gate 判定。
+- 指令依序以 `--session`、`AGENT_OPS_SESSION_ID`、`CODEX_THREAD_ID`、SessionStart
+  為該 checkout 記錄的 id 得知自己的 session。Claude Code 的 SessionStart 會把
+  `AGENT_OPS_SESSION_ID` 寫入 `CLAUDE_ENV_FILE`，之後每個 Bash 指令都帶有它。
+  十五分鐘內若有另一個 session 在同一 checkout 啟動，記錄的 id 視為有爭議：
+  `task create`、`attach`、`status` 會以 `SESSION_ID_AMBIGUOUS` 失敗，而不是以
+  錯誤的 session 行動。
+- Worktree 屬於建立它的 session：寫入別的 session 的 worktree 會被拒絕
+  （`WORKTREE_OWNED_BY_OTHER_SESSION`），並指出該 session 自己的 worktree。沒有
+  baseline 的 session（SessionStart 沒送達）會在第一次呼叫工具時補建，絕不會在
+  Stop 時補建。
+- 在 worktree 內，專案 config 一律取自主 checkout，因此分支無法在合併前改變判定
+  它自己的 gate、verifier 或 trust；主 checkout 沒有 config 時才使用 worktree 自己的。
+- `agent-ops worktree commit --message <text>` 會暫存並 commit 目前 worktree 的
+  所有變更。Git 由 agent-ops 自己執行而非經過 shell，因此即使 host 無法證明某條
+  shell 指令停留在 worktree 內，session 仍能 commit；它會拒絕主 checkout、別的
+  session 擁有的 worktree、無法辨識的呼叫者，以及沒有變更的情況。它會暫存所有
+  Git 未忽略的檔案，所以請不要把雜檔留在 worktree 裡。
+- 在 auto 模式下，Claude 的 PreToolUse hook 也處理 `EnterWorktree`：切入恰好是
+  為呼叫 session 記錄的 worktree 時，不必經過 Claude Code 自己的確認即放行；其他
+  任何路徑一律拒絕（`WORKTREE_ENTER_DENIED`，並列出該 session 的 worktree）。請
+  執行一次 `agent-ops update`，讓 hook 的 matcher 包含 `EnterWorktree`；`doctor`
+  會把較舊的 matcher 回報為註冊漂移。
+- 當 `worktree.mode` 為 auto，`init` 與 `update` 也會預先授權 session 自己會執行的
+  指令，並在你確認前先列在計畫裡：在 `.claude/settings.local.json` 寫入
+  `agent-ops task`、`verify`、`review`、`worktree`、`doctor` 的 `permissions.allow`，
+  以及 `agent-ops review` 的 `sandbox.excludedCommands`（你原有的項目會保留，計畫只
+  描述該檔案而不印出內容）；若 CLI 找得到 Codex 的 home（`CODEX_HOME`，否則
+  `~/.codex`），另寫入 `rules/agent-ops.rules`，內含 `agent-ops review` 與
+  `doctor --check-auth` 的 allow 規則（含與不含 `AGENT_OPS_HOST=`）。`trust`、
+  `allow-stop`、`init`、`update`、`uninstall` 永遠不會被預先授權。關閉 auto 模式或
+  `uninstall` 會精確移除這些項目；同名但不是 agent-ops 寫的規則檔不會被動到。
+- `review` 與 `doctor` 支援 `--output <file>`：JSON envelope 寫入該檔（權限 0600），
+  並只印出一行摘要。請用它取代 shell 重導向；Codex 會把重導向包成 `zsh -lc`，只能
+  以整串指令比對來放行。
+- Trust 綁定 config hash，因此手動編輯 `.agent-ops/config.json`（例如加入
+  `worktree.setup`）會讓 repository 變成未受信任，`WORKTREE_SETUP_UNTRUSTED` 會擋下
+  下一個 worktree。唯一的授權點屬於使用者：`agent-ops update` 會列出它將信任的指令並
+  詢問一次。
 - 在 worktree 裡對每個 task 執行 verify 與 review，但不要執行 `task complete`
   （Claude Code 在隔離的 worktree session 中會拒絕它）。`agent-ops worktree finish
   <name>` 會在任何 rebase 之前 complete worktree 內每個未封存的 task，先 subtask

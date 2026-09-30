@@ -12,6 +12,7 @@ import {
 import { FileTransaction } from "../fs/transaction.js";
 import { validateConfig } from "../schema/validate.js";
 import type { InstallPlan } from "./plan.js";
+import { applyPreauth } from "./preauth.js";
 
 const CONFIG_PATH = ".agent-ops/config.json";
 const MANIFEST_PATH = ".agent-ops/manifest.json";
@@ -128,4 +129,5 @@ export async function applyInstallPlan(
     { operations: plan.operations },
     async () => await validateAppliedPlan(root, plan)
   );
+  await applyPreauth(plan.preauthorization ?? []);
 }

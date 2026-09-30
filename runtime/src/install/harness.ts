@@ -201,9 +201,8 @@ function jsonHookRegistered(
   ) {
     return false;
   }
-  const events = Object.keys(
-    control.buildHooks(capabilities, "probe").hooks
-  );
+  const expected = control.buildHooks(capabilities, "probe").hooks;
+  const events = Object.keys(expected);
   if (events.length === 0) {
     return true;
   }
@@ -212,16 +211,24 @@ function jsonHookRegistered(
     return false;
   }
   const hooks = parsed.hooks;
+  const isManaged = control.isManagedHandler as (value: unknown) => boolean;
+  const ownsHandler = (group: unknown, matcher?: string): boolean =>
+    isRecord(group) &&
+    (matcher === undefined || group.matcher === matcher) &&
+    Array.isArray(group.hooks) &&
+    group.hooks.some(isManaged);
   return events.every((event) => {
     const groups = hooks[event];
+    // A matcher is part of the registration: one written before a tool was
+    // added to it still holds a managed handler, which never fires for that tool.
+    const matchers = [(expected as Record<string, unknown>)[event]]
+      .flat()
+      .filter(isRecord)
+      .flatMap((group) => typeof group.matcher === "string" ? [group.matcher] : []);
     return (
       Array.isArray(groups) &&
-      groups.some(
-        (group) =>
-          isRecord(group) &&
-          Array.isArray(group.hooks) &&
-          group.hooks.some(control.isManagedHandler as (value: unknown) => boolean)
-      )
+      groups.some((group) => ownsHandler(group)) &&
+      matchers.every((matcher) => groups.some((group) => ownsHandler(group, matcher)))
     );
   });
 }
@@ -621,6 +628,10 @@ export function managedRules(
       "   `CODEX_SANDBOX_NETWORK_DISABLED` and set `AGENT_OPS_HOST` when three",
       "   targets are configured. The Codex shell form is",
       "   `env -u CODEX_SANDBOX_NETWORK_DISABLED AGENT_OPS_HOST=<current-host> agent-ops review --task <task-id> --yes`.",
+      "   Keep it a plain command line: to keep the output add `--output <file>`",
+      "   (the JSON envelope is written there and one line is printed) instead of",
+      "   a shell redirect, which the host can only allow by matching the whole",
+      "   command string, task id included.",
       "   Do not run it once in the restricted sandbox and retry; changing the",
       "   variable inside that sandbox is not elevation.",
       "   Review runs exactly two fresh sessions: with three configured targets,",

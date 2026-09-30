@@ -111,6 +111,39 @@ test("the hook denies a main-checkout Edit only in auto mode", async () => {
   }
 });
 
+test("a session may not write into a worktree another session owns", async () => {
+  const root = await repository(AUTO);
+  try {
+    const { record } = await addWorktree(deps(), { cwd: root, name: "alpha", sessionId: SESSION });
+    const target = join(record.path, "source.txt");
+
+    const own = await evaluateWorktreeWrite(root, [target], SESSION);
+    assert.equal(own.action, "continue");
+
+    const foreign = await evaluateWorktreeWrite(root, [target], "session-two", async (session) => {
+      assert.equal(session, "session-two");
+      return join(root, ".worktrees", "session-two");
+    });
+    assert.equal(foreign.action, "block");
+    assert.equal(foreign.code, "WORKTREE_OWNED_BY_OTHER_SESSION");
+    assert.match(foreign.remedy ?? "", /belongs to another session \(session-one\)/u);
+    assert.ok((foreign.remedy ?? "").includes(join(root, ".worktrees", "session-two")), foreign.remedy ?? "");
+
+    const manual = await evaluateWorktreeWrite(root, [target], "session-two");
+    assert.equal(manual.code, "WORKTREE_OWNED_BY_OTHER_SESSION");
+    assert.match(manual.remedy ?? "", /agent-ops worktree add <name> --session session-two/u);
+
+    // A host that names no session cannot be judged, and a plain worktree has no owner.
+    assert.equal((await evaluateWorktreeWrite(root, [target], undefined)).action, "continue");
+    assert.equal(
+      (await evaluateWorktreeWrite(root, [join(root, ".worktrees", "unrecorded", "a.ts")], "session-two")).action,
+      "continue"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("the first blocked Edit creates the session's worktree, and later ones reuse it", async () => {
   const root = await repository(AUTO);
   try {

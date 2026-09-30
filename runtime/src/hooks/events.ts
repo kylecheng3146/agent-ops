@@ -42,6 +42,12 @@ export interface FileWriteHookEvent extends HookEventBase {
   readonly paths: readonly string[];
 }
 
+/** Claude's EnterWorktree tool asked to switch into an existing worktree. */
+export interface EnterWorktreeHookEvent extends HookEventBase {
+  readonly event: "enter-worktree";
+  readonly path: string;
+}
+
 export interface StopHookEvent extends HookEventBase {
   readonly event: "stop";
   readonly terminationReason?: string;
@@ -56,6 +62,7 @@ export type NormalizedHookEvent =
   | CommandBatchHookEvent
   | CommandHookEvent
   | ContentHookEvent
+  | EnterWorktreeHookEvent
   | FileWriteHookEvent
   | SessionStartHookEvent
   | StopHookEvent
@@ -80,6 +87,11 @@ export interface HookResult {
   readonly evidence?: HookVerificationEvidence;
   /** Human recovery guidance for an intentional denial. */
   readonly remedy?: string;
+  /**
+   * The host may skip its own confirmation. Only set where agent-ops itself
+   * proved the request is the one it would have made for the session.
+   */
+  readonly decision?: "allow";
 }
 
 export interface HookDispatchOptions {
@@ -90,6 +102,8 @@ export interface HookDispatchOptions {
   readonly completionGate?: CompletionGateOptions;
   /** Decides direct file writes; absent means they are not policed. */
   readonly worktreeGuard?: (event: FileWriteHookEvent) => Promise<HookResult>;
+  /** Decides switches into a worktree; absent means the host decides. */
+  readonly worktreeEnter?: (event: EnterWorktreeHookEvent) => Promise<HookResult>;
 }
 
 export interface CompletionGateOptions {

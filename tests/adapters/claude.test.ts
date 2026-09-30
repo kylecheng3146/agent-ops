@@ -346,6 +346,42 @@ test("preserves Claude event-specific JSON decisions", () => {
   );
 });
 
+test("EnterWorktree with a path becomes an enter-worktree event, and a name does not", () => {
+  const enter = (toolInput: Record<string, unknown>) => normalizeClaudeHookInput({
+    hook_event_name: "PreToolUse",
+    session_id: "session-one",
+    cwd: "/repo",
+    tool_name: "EnterWorktree",
+    tool_input: toolInput
+  });
+  assert.deepEqual(enter({ path: ".worktrees/alpha" }), {
+    event: "enter-worktree",
+    projectRoot: "/repo",
+    path: resolve("/repo", ".worktrees/alpha"),
+    sessionId: "session-one"
+  });
+  assert.equal(enter({ name: "fresh" }).event, "unsupported");
+  assert.equal(enter({ path: "bad\0path" }).event, "unsupported");
+});
+
+test("an allow decision reaches Claude as an allow, and only on PreToolUse", () => {
+  const result = {
+    action: "continue" as const,
+    status: "PASS" as const,
+    code: "WORKTREE_ENTER_ALLOWED",
+    remedy: "It is the session's own worktree.",
+    decision: "allow" as const
+  };
+  assert.deepEqual(JSON.parse(claudeHookOutput("PreToolUse", result).stdout), {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason: "WORKTREE_ENTER_ALLOWED: It is the session's own worktree."
+    }
+  });
+  assert.doesNotMatch(claudeHookOutput("SessionStart", result).stdout, /permissionDecision/u);
+});
+
 test("an advisory PreToolUse result says nothing to the user", () => {
   assert.deepEqual(
     claudeHookOutput("PreToolUse", {
@@ -631,7 +667,7 @@ test("a gated loop install reaches the gate on SessionStart and PreToolUse", () 
     "PreToolUse",
     "--managed-by=agent-ops"
   ]);
-  assert.equal(groups[1]?.matcher, "Bash|Edit|MultiEdit|NotebookEdit|Write");
+  assert.equal(groups[1]?.matcher, "Bash|Edit|MultiEdit|NotebookEdit|Write|EnterWorktree");
 
   // SessionStart for the same reason: the gate records its baseline there, and
   // without one every stop is refused as uninitialized.

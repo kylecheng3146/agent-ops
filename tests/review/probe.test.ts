@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { lstat } from "node:fs/promises";
+import { lstat, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import test from "node:test";
 
 import {
   probeReviewTarget,
+  probeReviewTargetDetailed,
   probeTimeoutMs
 } from "../../runtime/src/review/probe.js";
 import type {
@@ -171,8 +172,8 @@ test("a deep probe that fails on the network is not called unauthenticated", asy
   }
 });
 
-test("a deep probe that fails on login or unknown output stays unauthenticated when the host is reachable", async () => {
-  for (const stderr of ["Error: not logged in", "something odd happened", ""]) {
+test("a deep probe that fails with login wording is unauthenticated when the host is reachable", async () => {
+  for (const stderr of ["Error: not logged in", "401 Unauthorized", "token expired: invalid token"]) {
     assert.equal(
       await probeReviewTarget("claude", {
         cwd: "/project",
@@ -184,6 +185,78 @@ test("a deep probe that fails on login or unknown output stays unauthenticated w
       stderr
     );
   }
+});
+
+test("a deep probe that fails without login wording is probe-failed and quotes the target", async () => {
+  for (const [stderr, diagnostic] of [
+    ["something odd happened\nsecond line", "something odd happened"],
+    ["", undefined]
+  ] as const) {
+    assert.deepEqual(
+      await probeReviewTargetDetailed("claude", {
+        cwd: "/project",
+        deep: true,
+        runner: failingRunner(stderr),
+        reachable: async () => true
+      }),
+      { result: "probe-failed", diagnostic }
+    );
+  }
+});
+
+test("agy that fails silently is quoted from the last line of its own log", async () => {
+  const runner: VerificationProcessRunner = {
+    start(request): RunningVerificationProcess {
+      const flag = request.args.indexOf("--log-file");
+      const written = flag < 0
+        ? Promise.resolve()
+        : writeFile(
+            request.args[flag + 1] ?? "",
+            "starting\nERROR keychain access denied by sandbox\n"
+          );
+      return {
+        pid: 1,
+        stdout: bytes(""),
+        stderr: bytes(""),
+        completion: written.then(() => ({ exitCode: 1, signal: null })),
+        terminateTree: async () => {}
+      };
+    }
+  };
+  const outcome = await probeReviewTargetDetailed("agy", {
+    cwd: "/project",
+    deep: true,
+    runner,
+    reachable: async () => true
+  });
+  assert.deepEqual(outcome, {
+    result: "probe-failed",
+    diagnostic: "ERROR keychain access denied by sandbox"
+  });
+});
+
+test("a probe-failed diagnostic is redacted and clipped", async () => {
+  const outcome = await probeReviewTargetDetailed("claude", {
+    cwd: "/project",
+    deep: true,
+    runner: failingRunner(`crashed ${"x".repeat(500)}`),
+    reachable: async () => true
+  });
+  assert.equal(outcome.result, "probe-failed");
+  assert.equal(outcome.diagnostic?.length, 200);
+});
+
+test("a probe that could not run reports the network before any login guess", async () => {
+  const outcome = await probeReviewTargetDetailed("claude", {
+    cwd: "/project",
+    deep: true,
+    runner: failingRunner("Error: not logged in"),
+    reachable: async () => false
+  });
+  assert.deepEqual(outcome, {
+    result: "network-unreachable",
+    diagnostic: "Error: not logged in"
+  });
 });
 
 test("an unreachable API host turns a login-looking failure into network-unreachable", async () => {
@@ -237,7 +310,7 @@ test("reachability is never checked when the probe succeeded or is not deep", as
       runner: failingRunner("boom"),
       reachable
     }),
-    "unauthenticated"
+    "probe-failed"
   );
   assert.equal(asked, 0);
 });

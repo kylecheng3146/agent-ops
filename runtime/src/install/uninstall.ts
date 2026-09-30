@@ -25,6 +25,7 @@ import {
   type FileOperation
 } from "../fs/transaction.js";
 import { planHookRemoval } from "./hooks.js";
+import { applyPreauth, planPreauth, type PreauthChange } from "./preauth.js";
 import {
   assertExpectedManagedBlock,
   assertSupportedManifestOwnership,
@@ -53,6 +54,8 @@ export interface UninstallPlan {
   /** Present only when `uninstall --harness` keeps part of the installation. */
   readonly selectedHarnesses?: Harness;
   readonly resultingManifest?: InstallManifest;
+  /** The entries init or update wrote outside the manifest, to take back out. */
+  readonly preauthorization?: readonly PreauthChange[];
 }
 
 interface CurrentFile {
@@ -346,8 +349,14 @@ async function planArtifactRemoval(
   };
 }
 
+/** Where the Codex rules live; absent means agent-ops leaves Codex's home alone. */
+export interface UninstallPlanOptions {
+  readonly codexHome?: string;
+}
+
 async function createFullUninstallPlan(
-  root: string
+  root: string,
+  options: UninstallPlanOptions = {}
 ): Promise<UninstallPlan> {
   const currentManifest = await readCurrentFile(root, MANIFEST_PATH);
   if (currentManifest === null) {
@@ -420,11 +429,19 @@ async function createFullUninstallPlan(
     path: MANIFEST_PATH,
     expectedHash: currentManifest.hash
   });
+  const preauthorization = await planPreauth({
+    root,
+    scope: manifest.scope,
+    harness: manifest.harness,
+    desired: false,
+    ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome })
+  });
   return {
     installed: true,
     manifest,
     manifestHash: currentManifest.hash,
-    operations
+    operations,
+    ...(preauthorization.length === 0 ? {} : { preauthorization })
   };
 }
 
@@ -476,7 +493,8 @@ async function planSelectiveUninstall(
   currentManifest: CurrentFile,
   manifest: InstallManifest,
   expectedMarkers: ReadonlyMap<string, ExpectedManagedMarker>,
-  selectedHarnesses: Harness
+  selectedHarnesses: Harness,
+  planOptions: UninstallPlanOptions = {}
 ): Promise<UninstallPlan> {
   if (
     selectedHarnesses.length === 0 ||
@@ -492,7 +510,7 @@ async function planSelectiveUninstall(
   const selected = selectedSet(selectedHarnesses);
   const remaining = manifest.harness.filter((id) => !selected.has(id));
   if (remaining.length === 0) {
-    return await createFullUninstallPlan(root);
+    return await createFullUninstallPlan(root, planOptions);
   }
 
   const operations: FileOperation[] = [];
@@ -618,26 +636,35 @@ async function planSelectiveUninstall(
     content: formatInstallManifest(resultingManifest),
     expectedHash: currentManifest.hash
   });
+  const preauthorization = await planPreauth({
+    root,
+    scope: manifest.scope,
+    harness: selectedHarnesses,
+    desired: false,
+    ...(planOptions.codexHome === undefined ? {} : { codexHome: planOptions.codexHome })
+  });
   return {
     installed: true,
     manifest,
     manifestHash: currentManifest.hash,
     operations,
     selectedHarnesses,
-    resultingManifest
+    resultingManifest,
+    ...(preauthorization.length === 0 ? {} : { preauthorization })
   };
 }
 
 export async function createUninstallPlan(
   root: string,
-  selectedHarnesses?: Harness
+  selectedHarnesses?: Harness,
+  options: UninstallPlanOptions = {}
 ): Promise<UninstallPlan> {
   if (selectedHarnesses === undefined) {
-    return await createFullUninstallPlan(root);
+    return await createFullUninstallPlan(root, options);
   }
   const currentManifest = await readCurrentFile(root, MANIFEST_PATH);
   if (currentManifest === null) {
-    return await createFullUninstallPlan(root);
+    return await createFullUninstallPlan(root, options);
   }
   const manifest = parseInstallManifest(currentManifest.content);
   const expectedMarkers = assertSupportedManifestOwnership(manifest, root);
@@ -646,7 +673,8 @@ export async function createUninstallPlan(
     currentManifest,
     manifest,
     expectedMarkers,
-    selectedHarnesses
+    selectedHarnesses,
+    options
   );
 }
 
@@ -886,10 +914,11 @@ async function validateUninstalled(
 
 export async function applyUninstallPlan(
   root: string,
-  plan: UninstallPlan
+  plan: UninstallPlan,
+  options: UninstallPlanOptions = {}
 ): Promise<void> {
   assertUninstallPlan(plan);
-  const currentPlan = await createUninstallPlan(root, plan.selectedHarnesses);
+  const currentPlan = await createUninstallPlan(root, plan.selectedHarnesses, options);
   if (JSON.stringify(currentPlan) !== JSON.stringify(plan)) {
     throw new AgentOpsError(
       "INVALID_UNINSTALL_PLAN",
@@ -905,4 +934,5 @@ export async function applyUninstallPlan(
     { operations: plan.operations },
     async () => await validateUninstalled(root, manifest, plan.resultingManifest)
   );
+  await applyPreauth(plan.preauthorization ?? []);
 }

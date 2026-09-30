@@ -9,7 +9,10 @@ import {
   doctorInstallation,
   type DoctorCheck
 } from "../../runtime/src/install/doctor.js";
-import type { ReviewTargetProbeResult } from "../../runtime/src/review/probe.js";
+import type {
+  ReviewTargetProbeOutcome,
+  ReviewTargetProbeResult
+} from "../../runtime/src/review/probe.js";
 
 interface Recorded {
   readonly probed: ReviewTargetId[];
@@ -51,7 +54,9 @@ async function reviewCheck(
   targets: readonly ReviewTargetId[] | undefined,
   options: {
     readonly checkAuth?: boolean;
-    readonly results?: Readonly<Partial<Record<ReviewTargetId, ReviewTargetProbeResult>>>;
+    readonly results?: Readonly<
+      Partial<Record<ReviewTargetId, ReviewTargetProbeResult | ReviewTargetProbeOutcome>>
+    >;
     readonly recorded?: Recorded;
   } = {}
 ): Promise<DoctorCheck> {
@@ -121,6 +126,17 @@ test("--check-auth turns an unauthenticated target into a FAIL with the login co
   assert.match(check.message, /agy is installed but not authenticated/);
   assert.match(check.remediation ?? "", /agy login/);
   assert.deepEqual(recorded.probed, ["agy"]);
+});
+
+test("a probe that failed for its own reasons quotes them and is not told to log in", async () => {
+  const check = await reviewCheck(["agy"], {
+    checkAuth: true,
+    results: { agy: { result: "probe-failed", diagnostic: "keychain access denied" } }
+  });
+  assert.equal(check.status, "FAIL");
+  assert.match(check.message, /agy failed its probe: keychain access denied/);
+  assert.match(check.message, /not evidence of a missing login/);
+  assert.doesNotMatch(check.remediation ?? "", /agy login/);
 });
 
 test("a target that cannot reach the network is not told to log in", async () => {

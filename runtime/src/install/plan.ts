@@ -62,6 +62,7 @@ import {
   planHookRegistration,
   planHookRemoval
 } from "./hooks.js";
+import { planPreauth, type PreauthChange } from "./preauth.js";
 import {
   resolveCapabilities,
   resolveProfiles
@@ -103,6 +104,8 @@ export interface CreateInstallPlanOptions {
     readonly sourceHash: string;
   };
   readonly worktree?: WorktreeConfig | null;
+  /** Codex's home, where its rules live; defaults to CODEX_HOME or ~/.codex. */
+  readonly codexHome?: string;
 }
 
 export interface InstallPlan {
@@ -117,6 +120,12 @@ export interface InstallPlan {
   readonly config: AgentOpsConfig;
   readonly manifest: InstallManifest;
   readonly operations: FileOperation[];
+  /**
+   * Changes outside the manifest that let a worktree session run without
+   * prompts: the local Claude settings entries and the Codex rules file. Not
+   * in the manifest, so uninstall finds them by what they contain.
+   */
+  readonly preauthorization?: readonly PreauthChange[];
 }
 
 interface CurrentFile {
@@ -1061,6 +1070,14 @@ export async function createInstallPlan(
     expectedHash: existing?.hash ?? null
   });
 
+  const preauthorization = await planPreauth({
+    root: options.root,
+    scope: options.scope,
+    harness: options.harness,
+    desired: config.config.worktree?.mode === "auto",
+    ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome })
+  });
+
   return {
     scope: options.scope,
     harness: options.harness,
@@ -1069,6 +1086,7 @@ export async function createInstallPlan(
     config: config.config,
     manifest,
     operations,
+    ...(preauthorization.length === 0 ? {} : { preauthorization }),
     detectedVerification: config.detectedVerification,
     verificationBlockers: config.verificationBlockers
   };

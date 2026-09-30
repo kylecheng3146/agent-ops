@@ -23,11 +23,16 @@ import {
   agyRuntimeStatus,
   agyVersionSupported,
   hookRegistrationDrift,
-  repositoryTrustStatus,
+  repositoryTrustProbe,
   smokeAvailabilityStatus
 } from "../../../runtime/src/install/probes.js";
 import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
-import { readRecordedSessionId } from "../../../runtime/src/hooks/codex-loop.js";
+import {
+  readRecordedSessionId,
+  resolveCommandSessionId,
+  sessionIdFromEnvironment
+} from "../../../runtime/src/hooks/codex-loop.js";
+import { codexHomeDirectory } from "../../../runtime/src/install/preauth.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -63,7 +68,7 @@ import {
   createReviewExecutor,
   ReviewInterruptedError
 } from "../../../runtime/src/review/execute.js";
-import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
+import { probeReviewTargetDetailed } from "../../../runtime/src/review/probe.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
@@ -331,6 +336,7 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              codexHome: codexHomeDirectory(),
               agyWarning: () => {
                 try {
                   const output = runAgy(["--version"], { timeout: 5_000 });
@@ -413,36 +419,10 @@ process.exitCode = await runCli(
                       };
                 },
                 repositoryTrust: async () => {
-                  const trust = await repositoryTrust(root, config, CLI_VERSION);
-                  const status = repositoryTrustStatus(trust);
-                  if (trust === "STALE") {
-                    return {
-                      status,
-                      message: "Repository trust binding is stale.",
-                      code: "TRUST_REQUIRED",
-                      remediation: "Run `agent-ops trust grant`."
-                    };
-                  }
-                  if (trust === "UNTRUSTED") {
-                    const verificationConfigured =
-                      config.verification.commands.length > 0;
-                    return {
-                      status,
-                      message: verificationConfigured
-                        ? "Repository is not trusted; Stop verification will not run."
-                        : "Repository is not trusted.",
-                      ...(verificationConfigured
-                        ? {
-                            code: "TRUST_REQUIRED",
-                            remediation: "Run `agent-ops trust grant`."
-                          }
-                        : {
-                            remediation:
-                              "No action needed; trust is only required once verification.commands is set."
-                          })
-                    };
-                  }
-                  return { status };
+                  return repositoryTrustProbe(
+                    await repositoryTrust(root, config, CLI_VERSION),
+                    config.verification.commands.length > 0
+                  );
                 },
                 smokeAvailability: () => {
                   const status = smokeAvailabilityStatus(config);
@@ -456,7 +436,7 @@ process.exitCode = await runCli(
                     : { status };
                 },
                 reviewTarget: async (target, deep) =>
-                  await probeReviewTarget(target, { cwd: root, deep }),
+                  await probeReviewTargetDetailed(target, { cwd: root, deep }),
                 worktrees: async () => await worktreeDoctorProbe(root),
                 worktreeBranchLock: async () => await worktreeBranchLockProbe(root),
                 rootGhostFiles: async () => await rootGhostFilesProbe(root)
@@ -475,6 +455,7 @@ process.exitCode = await runCli(
               args,
               root,
               isTTY,
+              codexHome: codexHomeDirectory(),
               trustStore: store,
               calculateTrustBinding: async () =>
                 await plannedTrustBinding(root),
@@ -507,6 +488,7 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              codexHome: codexHomeDirectory(),
               ...(updateArgs.hookTargets === undefined
                 ? {}
                 : { hookTargets: updateArgs.hookTargets }),
@@ -557,8 +539,13 @@ process.exitCode = await runCli(
             // Explicit `--session` wins, then an injected identity, then the
             // id a SessionStart hook recorded for this checkout: a command
             // run inside a session is never told which session it is in.
-            const sessionId = process.env.AGENT_OPS_SESSION_ID ??
-              await readRecordedSessionId(root);
+            // Only create, attach and status act as a session; a contested
+            // record refuses those rather than guess, and leaves the rest.
+            const actsAsSession = args.action === "create" ||
+              args.action === "attach" || args.action === "status";
+            const sessionId = args.sessionId ?? (actsAsSession
+              ? await resolveCommandSessionId(root)
+              : sessionIdFromEnvironment() ?? await readRecordedSessionId(root));
             const createConfig = args.action === "create"
               ? (await loadEffectiveConfig(
                   root,
@@ -660,7 +647,7 @@ process.exitCode = await runCli(
                     ? {}
                     : { timeoutMs: reviewRole.timeoutMs }),
                   preflightTarget: async (target, budget) =>
-                    await probeReviewTarget(target, {
+                    await probeReviewTargetDetailed(target, {
                       cwd: root,
                       deep: true,
                       // The probe answers within the chain's remaining budget

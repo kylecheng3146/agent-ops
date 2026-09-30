@@ -110,6 +110,7 @@ export type ReviewUnavailableReason =
   | "missing-cli"
   | "login-required"
   | "network-unreachable"
+  | "probe-failed"
   | "no-task-context"
   | "quota-exhausted"
   | "unparseable-output"

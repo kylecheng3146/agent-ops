@@ -1,4 +1,7 @@
+import { join } from "node:path";
+
 import { redactSecrets } from "../../../runtime/src/security/redact.js";
+import type { PreauthChange } from "../../../runtime/src/install/preauth.js";
 import { sha256 } from "../../../runtime/src/fs/hash.js";
 import type {
   FileOperation,
@@ -124,6 +127,32 @@ export function toPublicOperations(
   return operations.map(toPublicOperation);
 }
 
+/**
+ * Pre-authorization changes join the ordinary operations, so every preview and
+ * confirmation shows them. A file in Codex's home is shown by absolute path;
+ * a file agent-ops does not wholly own is described, never printed.
+ */
+export function toPublicPreauthorization(
+  changes: readonly PreauthChange[] | undefined
+): readonly PublicFileOperation[] {
+  return (changes ?? []).map((change): PublicFileOperation => {
+    const path = publicPath(join(change.root, change.operation.path));
+    const operation = change.operation;
+    if (operation.kind === "remove") {
+      return { kind: "remove", path, expectedHash: operation.expectedHash };
+    }
+    return change.ownedContent
+      ? { kind: "write", path, expectedHash: operation.expectedHash, content: operation.content }
+      : {
+          kind: "write",
+          path,
+          expectedHash: operation.expectedHash,
+          contentHash: sha256(operation.content),
+          summary: redactSecrets(change.summary)
+        };
+  });
+}
+
 export function toPublicInstallPlan(
   plan: InstallPlan,
   trust?: PublicTrustChange
@@ -134,7 +163,10 @@ export function toPublicInstallPlan(
     profiles: plan.profiles,
     capabilities: plan.capabilities,
     manifest: plan.manifest,
-    operations: toPublicOperations(plan.operations),
+    operations: [
+      ...toPublicOperations(plan.operations),
+      ...toPublicPreauthorization(plan.preauthorization)
+    ],
     detectedVerification: plan.detectedVerification,
     ...(trust === undefined ? {} : { trust })
   };
@@ -159,7 +191,10 @@ export function toPublicUninstallPlan(
     installed: plan.installed,
     manifest: plan.manifest,
     manifestHash: plan.manifestHash,
-    operations: toPublicOperations(plan.operations),
+    operations: [
+      ...toPublicOperations(plan.operations),
+      ...toPublicPreauthorization(plan.preauthorization)
+    ],
     ...(trust === undefined ? {} : { trust })
   };
 }

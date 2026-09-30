@@ -30,6 +30,7 @@ export interface HookCommandOptions {
   readonly stopVerification?: StopVerificationOptions;
   readonly completionGate?: HookDispatchOptions["completionGate"];
   readonly worktreeGuard?: HookDispatchOptions["worktreeGuard"];
+  readonly worktreeEnter?: HookDispatchOptions["worktreeEnter"];
 }
 
 export interface HookCommandOutput {
@@ -90,7 +91,10 @@ export async function runHookCommand(
         : { completionGate: options.completionGate }),
       ...(options.worktreeGuard === undefined
         ? {}
-        : { worktreeGuard: options.worktreeGuard })
+        : { worktreeGuard: options.worktreeGuard }),
+      ...(options.worktreeEnter === undefined
+        ? {}
+        : { worktreeEnter: options.worktreeEnter })
     });
     return descriptor.runtime.formatOutput(options.event, result);
   } catch {

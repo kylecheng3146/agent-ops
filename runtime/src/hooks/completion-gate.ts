@@ -167,6 +167,8 @@ export interface CompletionGateServiceOptions {
   readonly stateStore?: FileCompletionGateStore;
   /** The gate of the worktree a redirected session works in. */
   readonly forRoot?: (root: string) => Promise<CompletionGateService>;
+  /** Names the host's own way to get a baseline in a recovery message. */
+  readonly harness?: "agy" | "claude" | "codex";
 }
 
 /** What the gate measures: the whole Git-visible change surface of `root`. */
@@ -327,6 +329,22 @@ export class CompletionGateService {
     );
   }
 
+  /** Best effort: no baseline only means Stop keeps blocking, as before. */
+  async #backfill(sessionId: string): Promise<void> {
+    try {
+      if (await this.#store.read(sessionId) !== null) return;
+      const baselineFingerprint = await this.#fingerprint();
+      await this.#store.mutate(sessionId, (current) => current ?? {
+        schemaVersion: 1,
+        sessionId,
+        baselineFingerprint,
+        permitFingerprint: null
+      });
+    } catch {
+      return;
+    }
+  }
+
   async grantPermit(sessionId: string): Promise<void> {
     const fingerprint = await this.#fingerprint();
     await this.#store.mutate(sessionId, (state) => {
@@ -420,7 +438,13 @@ export class CompletionGateService {
     if (event.event === "session-start") {
       return await this.initialize(sessionId);
     }
-    if (event.event !== "stop") return null;
+    if (event.event !== "stop") {
+      // A session whose SessionStart never reached this checkout has no
+      // baseline, and the first tool call is the earliest safe moment to take
+      // one. Stop never is: a baseline taken there would swallow the change.
+      if (event.event !== "unsupported") await this.#backfill(sessionId);
+      return null;
+    }
     if (event.terminationReason === undefined ||
       (event.terminationReason === "model_stop" && event.fullyIdle === undefined)) {
       return gateResult("block", "UNKNOWN", "COMPLETION_GATE_STOP_INPUT_INVALID", "Restore the Stop termination reason and fullyIdle metadata before stopping.");
@@ -432,7 +456,9 @@ export class CompletionGateService {
     const fingerprint = await this.#fingerprint();
     const state = await this.#store.read(sessionId);
     if (state === null) {
-      return gateResult("block", "UNKNOWN", "COMPLETION_GATE_NOT_INITIALIZED", "The session baseline is unavailable; continue once so PreInvocation can initialize it.");
+      return gateResult("block", "UNKNOWN", "COMPLETION_GATE_NOT_INITIALIZED", this.#options.harness === "agy"
+        ? "The session baseline is unavailable; continue once so PreInvocation can initialize it."
+        : "The session baseline is unavailable: its SessionStart never reached this checkout. The next tool call records one; if this repeats, run agent-ops doctor.");
     }
     const changed = state.baselineFingerprint !== fingerprint && state.permitFingerprint !== fingerprint;
     if (state.root !== undefined && state.root !== this.#options.root) {

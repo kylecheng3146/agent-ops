@@ -20,11 +20,13 @@ import {
   type HookProcessOutput
 } from "../../../runtime/src/install/harness.js";
 import type {
+  EnterWorktreeHookEvent,
   FileWriteHookEvent,
   HookDispatchOptions,
   HookResult,
   StopVerificationOptions
 } from "../../../runtime/src/hooks/events.js";
+import { evaluateWorktreeEnter } from "../../../runtime/src/parallel/enter.js";
 import {
   evaluateWorktreeWrite,
   resolveMainRoot
@@ -363,12 +365,14 @@ function shouldBuildStopVerification(
 function completionGateFor(
   root: string,
   config: AgentOpsConfig,
-  gitRunner: GitRunner
+  gitRunner: GitRunner,
+  harness?: "agy" | "claude" | "codex"
 ): CompletionGateService {
   return new CompletionGateService({
     root,
     config,
     gitRunner,
+    ...(harness === undefined ? {} : { harness }),
     taskService: new TaskService(
       new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
     ),
@@ -378,7 +382,7 @@ function completionGateFor(
       if (outcome.kind !== "loaded" || !outcome.config.features.completionGate.enabled) {
         throw new Error("The redirected worktree has no enabled completion gate.");
       }
-      return completionGateFor(worktree, outcome.config, defaultGitRunner(worktree));
+      return completionGateFor(worktree, outcome.config, defaultGitRunner(worktree), harness);
     }
   });
 }
@@ -517,7 +521,7 @@ export async function runHookProcess(
       config.features.completionGate.enabled
         ? dependencies.completionGate ?? {
             handle: async (normalized) =>
-              await completionGateFor(root, config, gitRunner).handle(normalized)
+              await completionGateFor(root, config, gitRunner, harnessId).handle(normalized)
           }
         : undefined;
     const worktreeGuard = config.worktree?.mode === "auto"
@@ -538,6 +542,14 @@ export async function runHookProcess(
               );
         }
       : undefined;
+    const worktreeEnter = config.worktree?.mode === "auto"
+      ? async (enter: EnterWorktreeHookEvent): Promise<HookResult> => {
+          const mainRoot = await resolveMainRoot(gitRunner);
+          return mainRoot === null
+            ? { action: "continue", status: "UNKNOWN", code: "WORKTREE_GUARD_UNAVAILABLE" }
+            : await evaluateWorktreeEnter(mainRoot, enter.path, enter.sessionId);
+        }
+      : undefined;
     if (hookEvent === "SessionStart" && config.worktree?.mode === "auto" &&
       dependencies.worktree !== undefined && typeof parsedInput === "object" && parsedInput !== null) {
       const fields = parsedInput as { session_id?: unknown; conversationId?: unknown };
@@ -554,6 +566,7 @@ export async function runHookProcess(
       config,
       trusted,
       ...(worktreeGuard === undefined ? {} : { worktreeGuard }),
+      ...(worktreeEnter === undefined ? {} : { worktreeEnter }),
       ...(dependencies.advisory === undefined
         ? {}
         : { advisory: dependencies.advisory }),

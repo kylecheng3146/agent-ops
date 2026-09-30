@@ -111,6 +111,12 @@ export function renderReviewResult(result: ReviewRunResult): string {
         "problem: run agent-ops outside the sandbox, or grant it escalated execution."
       );
     }
+    if (result.reason === "probe-failed") {
+      lines.push(
+        "The reviewer CLI failed its probe for the reason quoted above. This " +
+        "is not a login problem: fix that cause instead of logging in again."
+      );
+    }
     // Evidence is pinned to the source it was produced from, so any edit to a
     // changed file after the verifier ran — a doc rewritten by a later step
     // counts — voids it. Without the next command the caller reads

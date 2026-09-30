@@ -28,6 +28,8 @@ export interface UninstallCommandOptions {
   readonly root: string;
   readonly isTTY: boolean;
   readonly trustStore?: TrustStore;
+  /** Codex's home, so the rules agent-ops wrote there are taken back out. */
+  readonly codexHome?: string;
   calculateTrustBinding?(): Promise<TrustBinding | null>;
   confirm(plan: UninstallPlan, trust: PublicTrustChange): Promise<boolean>;
 }
@@ -113,7 +115,8 @@ async function trustChange(
 export async function runUninstallCommand(
   options: UninstallCommandOptions
 ): Promise<CliEnvelope<UninstallCommandData>> {
-  const plan = await createUninstallPlan(options.root, options.args.harness);
+  const planOptions = options.codexHome === undefined ? {} : { codexHome: options.codexHome };
+  const plan = await createUninstallPlan(options.root, options.args.harness, planOptions);
   if (!plan.installed) {
     return okEnvelope("UNINSTALL_NOT_INSTALLED", {
       applied: false,
@@ -149,7 +152,7 @@ export async function runUninstallCommand(
       trust
     );
   }
-  await applyUninstallPlan(options.root, plan);
+  await applyUninstallPlan(options.root, plan, planOptions);
   if (trust.action === "revoke") {
     try {
       if (

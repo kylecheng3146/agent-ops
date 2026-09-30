@@ -140,7 +140,11 @@ review preflight finds a target unauthenticated, a 2-second TCP connection to
 that target's API host on port 443 (`cloudcode-pa.googleapis.com` for agy,
 `api.openai.com` for codex, `api.anthropic.com` for claude) decides between the
 two; it only refines the reported reason and never blocks a review. The review suggests
-`doctor --check-auth` only when an authentication failure was detected. Confirm target authentication with:
+`doctor --check-auth` only when an authentication failure was detected. A probe
+that fails without network or login wording is `probe-failed`, never
+`login-required`: the preflight record and `doctor` quote the target's own first
+line (for agy, the last line of its log file when stderr is empty) so the real
+cause is visible instead of guessed. Confirm target authentication with:
 
 ```bash
 agent-ops doctor              # presence only: no tokens, no network
@@ -203,6 +207,52 @@ evidence. Give each editing conversation its own worktree instead:
 - The session's completion gate follows it: Claude Code enters the worktree
   with EnterWorktree, and a host that cannot move a session (agy) is judged by
   the worktree's gate through a redirect the main checkout records.
+- A command knows its session from `--session`, then `AGENT_OPS_SESSION_ID`,
+  then `CODEX_THREAD_ID`, then the id a SessionStart recorded for the
+  checkout. Claude Code's SessionStart appends `AGENT_OPS_SESSION_ID` to its
+  `CLAUDE_ENV_FILE`, so every later Bash command carries it. When a different
+  session started in the same checkout within fifteen minutes, the recorded id
+  is contested: `task create`, `attach` and `status` fail with
+  `SESSION_ID_AMBIGUOUS` instead of acting as the wrong session.
+- A worktree belongs to the session that created it: a file write into
+  another session's worktree is denied (`WORKTREE_OWNED_BY_OTHER_SESSION`),
+  naming the session's own worktree. A session with no baseline (its
+  SessionStart never arrived) gets one at its first tool call, never at Stop.
+- Inside a worktree the project config is the main checkout's, so a branch
+  cannot change the gate, verifiers or trust that judge it before merging; a
+  worktree of a repository whose main checkout has no config uses its own.
+- `agent-ops worktree commit --message <text>` stages and commits every change
+  in the current worktree. Git runs inside agent-ops, not the shell, so a host
+  that cannot prove a shell command stays inside the worktree still lets the
+  session commit; it refuses the main checkout, a worktree another session
+  owns, a caller it cannot identify and an empty change. It stages everything
+  Git does not ignore, so keep stray files out of the worktree.
+- In auto mode the Claude PreToolUse hook also handles `EnterWorktree`: a
+  switch into exactly a worktree recorded for the calling session is allowed
+  without Claude Code's own confirmation, and any other path is denied
+  (`WORKTREE_ENTER_DENIED`, naming the session's worktrees). Run `agent-ops
+  update` once so the hook's matcher includes `EnterWorktree`; `doctor`
+  reports an older matcher as registration drift.
+- With `worktree.mode` auto, `init` and `update` also pre-authorize what a
+  session runs itself, and the plan lists it before you confirm: in
+  `.claude/settings.local.json`, `permissions.allow` for `agent-ops task`,
+  `verify`, `review`, `worktree` and `doctor` and `sandbox.excludedCommands`
+  for `agent-ops review` (your other entries are kept, and the plan describes
+  the file instead of printing it); and, when the CLI can see Codex's home
+  (`CODEX_HOME`, else `~/.codex`), `rules/agent-ops.rules` with allow rules
+  for `agent-ops review` and `doctor --check-auth`, with and without
+  `AGENT_OPS_HOST=`. `trust`, `allow-stop`, `init`, `update` and `uninstall`
+  are never pre-authorized. Turning auto mode off, or `uninstall`, takes
+  exactly those entries back out; a rules file of that name agent-ops did not
+  write is left alone.
+- `review` and `doctor` take `--output <file>`: the JSON envelope is written
+  there (mode 0600) and one summary line is printed. Use it instead of a shell
+  redirect, which Codex wraps in `zsh -lc` and can only allow by matching the
+  whole command string.
+- Trust is bound to the config hash, so a hand edit of `.agent-ops/config.json`
+  (adding `worktree.setup`, say) leaves the repository untrusted and
+  `WORKTREE_SETUP_UNTRUSTED` stops the next worktree. The one grant is the
+  user's: `agent-ops update` lists the commands it will trust and asks once.
 - In a worktree, verify and review each task but do not run `task complete`
   (Claude Code refuses it inside an isolated worktree session). `agent-ops
   worktree finish <name>` completes every non-archived task in the worktree,
