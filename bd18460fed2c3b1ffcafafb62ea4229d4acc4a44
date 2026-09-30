@@ -1,0 +1,7 @@
+worktree: s3-worktree-commit (agent-ops/s3-worktree-commit)
+session: e70c29aa-a9be-413a-80a2-de2898eea865
+agent-ops task task-3850c958-1e94-4f46-93ac-dd9a2c2687a8: S3 worktree commit and EnterWorktree allow
+criteria:
+- worktree-commit: agent-ops worktree commit --message stages and commits all changes only in the calling session own worktree, from Node with no shell, and refuses the main checkout, an unrecorded checkout, another session worktree, an unknown caller and an empty change
+- enter-worktree-allow: The Claude PreToolUse matcher includes EnterWorktree; in auto mode the hook allows exactly a worktree recorded for the calling session and denies any other path
+- registration-and-docs: doctor reports a PreToolUse matcher lacking EnterWorktree as registration drift, and the en and zh-TW guides describe worktree commit and the EnterWorktree allow
