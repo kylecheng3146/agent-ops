@@ -1,0 +1,8 @@
+worktree: batch-install (agent-ops/batch-install)
+session: 0305b7d5-c1ea-4f91-a53a-d7f0b8af5cd4
+agent-ops task task-9fb6b307-4b58-483a-9e42-b5b25d7cba46: batch: pre-authorization and managed instructions
+criteria:
+- claude-allow: CLAUDE_PREAUTH_ALLOW lists Bash(agent-ops batch *) and CLAUDE_PREAUTH_UNSANDBOXED lists agent-ops batch and agent-ops batch *, both written to settings.local.json beside the user's own entries, with nothing that only the user may approve added
+- codex-rules: the Codex rules file has an allow prefix_rule for agent-ops batch with and without AGENT_OPS_HOST (six rules in all), the review and doctor rules are unchanged, and no rule matches trust, allow-stop or complete
+- managed-instruction: the managed instructions generated for every harness tell the agent to run agent-ops batch --parent <task-id> --yes as the first and only invocation through the trusted outer host runner, with the same Codex elevation and --output instead of a redirect, and not to commit or edit while it runs
+- update-adds-batch: an install that already holds the old review-only entries gains the batch entries on update without duplicating or altering the user's own entries, and a second update changes nothing
