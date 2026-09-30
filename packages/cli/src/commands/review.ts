@@ -336,6 +336,33 @@ async function preflightReview(
   };
 }
 
+/**
+ * Whether the task already holds current PASS verification evidence for the
+ * source a review of `base` (or the working tree) would measure. This is the
+ * same preflight `review` runs before it spawns, so a batch that skips verify
+ * on a true answer never reaches a review that then reports stale evidence.
+ */
+export async function hasFreshVerification(
+  options: ReviewCommandOptions,
+  taskId: string,
+  base?: string
+): Promise<boolean> {
+  if (options.root === undefined || options.gitRunner === undefined) {
+    return false;
+  }
+  const context = await taskContext({ ...options, taskId });
+  if (context === undefined) {
+    return false;
+  }
+  const scope = await resolveReviewScope({
+    root: options.root,
+    runner: options.gitRunner,
+    ...(base === undefined ? {} : { base })
+  });
+  const fingerprint = await calculateSourceFingerprint(options.root, scope, options.gitRunner);
+  return (await preflightReview(options, context, fingerprint)).ok;
+}
+
 function scopeReason(error: unknown): ReviewRunResult["reason"] | undefined {
   if (!(error instanceof AgentOpsError)) {
     return undefined;
