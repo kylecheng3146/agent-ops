@@ -625,6 +625,9 @@ test("parses worktree commit with a message, and refuses the message anywhere el
     assert.equal(parsed.worktreeMessage, "feat: one\n\nbody $(id)");
     assert.equal(parsed.worktreeName, undefined);
   }
+  // commit refuses a worktree another session owns, so it must be able to be told which session it is.
+  assert.equal(parseArgs(["worktree", "commit", "-m", "x", "--session", "session-1"]).sessionId, "session-1");
+  assert.throws(() => parseArgs(["worktree", "finish", "alpha", "--session", "session-1"]), CliArgumentError);
   for (const argv of [
     ["worktree", "commit"],
     ["worktree", "commit", "-m", "  "],

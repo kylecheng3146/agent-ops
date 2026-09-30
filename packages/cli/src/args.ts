@@ -848,7 +848,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     !/^[A-Za-z0-9._/-]{1,128}$/u.test(worktreeTargetBranch)) {
     throw new CliArgumentError("CLI_INVALID_VALUE", `Invalid value for --target-branch: ${worktreeTargetBranch}`, "--target-branch");
   }
-  if (command === "worktree" && action !== "add" && action !== "resume" && sessionId !== undefined) {
+  // commit acts as a session (it refuses another's worktree), so it may be told which.
+  if (
+    command === "worktree" &&
+    action !== "add" &&
+    action !== "resume" &&
+    action !== "commit" &&
+    sessionId !== undefined
+  ) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       `worktree ${action} takes the session from the worktree; omit --session.`
