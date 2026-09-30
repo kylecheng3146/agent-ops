@@ -1,0 +1,6 @@
+worktree: session-01a0f055 (agent-ops/session-01a0f055)
+session: 01a0f055-42ba-7450-bb17-9aabcd7bd599
+agent-ops task task-c246f966-fc43-48de-bc9a-b890b7b1487c: Fix Windows EnterWorktree test path for 0.4.0 release
+criteria:
+- native-path: The EnterWorktree adapter test expects the absolute path using node:path resolution so it is valid on POSIX and Windows
+- unsupported-input: EnterWorktree name-only and NUL-containing inputs remain unsupported, with no runtime behavior changed
