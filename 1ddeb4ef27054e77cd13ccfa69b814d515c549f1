@@ -1,0 +1,7 @@
+worktree: session-e70c29aa (agent-ops/session-e70c29aa)
+session: e70c29aa-a9be-413a-80a2-de2898eea865
+agent-ops task task-d7de70af-b9ce-46a8-9a1f-a0549d083177: S1 review probe diagnostics
+criteria:
+- probe-classification: A deep probe failure whose output matches login patterns is unauthenticated, network failures stay network-unreachable, and unknown or empty output is the new probe-failed result (tests/review/probe.test.ts)
+- diagnostic-carried: The review preflight NOT_RUN record carries the target CLI first redacted stderr line in preflight diagnostic and maps probe-failed to a probe-failed reason (tests/review/chain.test.ts)
+- surfaces-and-docs: review render and doctor show the diagnostic for probe-failed without advising a login, and the en and zh-TW guides describe probe-failed
