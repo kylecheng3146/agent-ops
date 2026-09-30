@@ -1,0 +1,9 @@
+worktree: session-e70c29aa (agent-ops/session-e70c29aa)
+session: e70c29aa-a9be-413a-80a2-de2898eea865
+agent-ops task task-24c60b10-c7ea-4f18-b3d1-b1bfb0c1c0a2: S2 session identity and isolation
+criteria:
+- session-id-source: The CLI resolves the session from AGENT_OPS_SESSION_ID, then CODEX_THREAD_ID, then the recorded id; a second SessionStart for another id contests the recorded id so the fallback fails with SESSION_ID_AMBIGUOUS; Claude SessionStart writes AGENT_OPS_SESSION_ID to CLAUDE_ENV_FILE
+- cross-session-guard: evaluateWorktreeWrite denies a path inside a worktree owned by another session and names the session own worktree
+- gate-backfill: A non-Stop hook event backfills a missing gate baseline, while Stop without state still blocks with a host-specific remedy that never mentions PreInvocation for claude or codex
+- main-config: Hooks, verify and review run inside a worktree load the config of the main checkout instead of the worktree copy
+- finish-strict: worktree finish refuses and names an active task in the worktree that belongs to another session and archives nothing
