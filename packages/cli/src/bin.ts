@@ -27,7 +27,11 @@ import {
   smokeAvailabilityStatus
 } from "../../../runtime/src/install/probes.js";
 import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
-import { readRecordedSessionId } from "../../../runtime/src/hooks/codex-loop.js";
+import {
+  readRecordedSessionId,
+  resolveCommandSessionId,
+  sessionIdFromEnvironment
+} from "../../../runtime/src/hooks/codex-loop.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -557,8 +561,13 @@ process.exitCode = await runCli(
             // Explicit `--session` wins, then an injected identity, then the
             // id a SessionStart hook recorded for this checkout: a command
             // run inside a session is never told which session it is in.
-            const sessionId = process.env.AGENT_OPS_SESSION_ID ??
-              await readRecordedSessionId(root);
+            // Only create, attach and status act as a session; a contested
+            // record refuses those rather than guess, and leaves the rest.
+            const actsAsSession = args.action === "create" ||
+              args.action === "attach" || args.action === "status";
+            const sessionId = args.sessionId ?? (actsAsSession
+              ? await resolveCommandSessionId(root)
+              : sessionIdFromEnvironment() ?? await readRecordedSessionId(root));
             const createConfig = args.action === "create"
               ? (await loadEffectiveConfig(
                   root,

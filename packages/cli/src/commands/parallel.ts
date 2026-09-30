@@ -1,5 +1,6 @@
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
+import { sessionIdFromEnvironment } from "../../../../runtime/src/hooks/codex-loop.js";
 import {
   addWorktree,
   type WorktreeAddResult
@@ -74,7 +75,7 @@ export async function runWorktreeCommand(options: {
     const record = await resumeWorktree(options.deps, {
       cwd: options.cwd,
       name: args.worktreeName,
-      sessionId: args.sessionId ?? process.env.AGENT_OPS_SESSION_ID
+      sessionId: args.sessionId ?? sessionIdFromEnvironment()
     });
     return okEnvelope("WORKTREE_RESUMED", {
       record,
@@ -99,7 +100,7 @@ export async function runWorktreeCommand(options: {
     const finished = await finishWorktree(options.deps, { cwd: options.cwd, name: args.worktreeName });
     return okEnvelope("WORKTREE_FINISHED", { ...finished, text: finishText(finished) });
   }
-  const sessionId = args.sessionId ?? process.env.AGENT_OPS_SESSION_ID;
+  const sessionId = args.sessionId ?? sessionIdFromEnvironment();
   const result = await addWorktree(options.deps, {
     cwd: options.cwd,
     name: args.worktreeName,

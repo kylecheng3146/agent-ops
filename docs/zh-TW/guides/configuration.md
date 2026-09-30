@@ -180,6 +180,18 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
 - Session 的 completion gate 會跟著它：Claude Code 以 EnterWorktree 進入
   worktree；無法移動 session 的 host（agy）則透過主 checkout 記錄的 redirect，
   由 worktree 的 gate 判定。
+- 指令依序以 `--session`、`AGENT_OPS_SESSION_ID`、`CODEX_THREAD_ID`、SessionStart
+  為該 checkout 記錄的 id 得知自己的 session。Claude Code 的 SessionStart 會把
+  `AGENT_OPS_SESSION_ID` 寫入 `CLAUDE_ENV_FILE`，之後每個 Bash 指令都帶有它。
+  十五分鐘內若有另一個 session 在同一 checkout 啟動，記錄的 id 視為有爭議：
+  `task create`、`attach`、`status` 會以 `SESSION_ID_AMBIGUOUS` 失敗，而不是以
+  錯誤的 session 行動。
+- Worktree 屬於建立它的 session：寫入別的 session 的 worktree 會被拒絕
+  （`WORKTREE_OWNED_BY_OTHER_SESSION`），並指出該 session 自己的 worktree。沒有
+  baseline 的 session（SessionStart 沒送達）會在第一次呼叫工具時補建，絕不會在
+  Stop 時補建。
+- 在 worktree 內，專案 config 一律取自主 checkout，因此分支無法在合併前改變判定
+  它自己的 gate、verifier 或 trust；主 checkout 沒有 config 時才使用 worktree 自己的。
 - 在 worktree 裡對每個 task 執行 verify 與 review，但不要執行 `task complete`
   （Claude Code 在隔離的 worktree session 中會拒絕它）。`agent-ops worktree finish
   <name>` 會在任何 rebase 之前 complete worktree 內每個未封存的 task，先 subtask

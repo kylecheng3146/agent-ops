@@ -325,7 +325,8 @@ export async function finishWorktree(
         await deps.tasks(record.path, base).complete(task.task.id, {});
       } catch (error) {
         throw finishError("WORKTREE_TASK_INCOMPLETE",
-          `Task ${task.task.id} (${task.task.title}) could not be completed against ${base}: ${error instanceof Error ? error.message : String(error)}`);
+          `Task ${task.task.id} (${task.task.title}) could not be completed against ${base}: ${error instanceof Error ? error.message : String(error)} ` +
+          "A task another session left here is not this session's to archive: its owner finishes or archives it, and finish never does.");
       }
     }
     const worktreeGate = await deps.gate(record.path, worktreeConfig);

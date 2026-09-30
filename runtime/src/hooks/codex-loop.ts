@@ -1,9 +1,10 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
-import { lstat, realpath } from "node:fs/promises";
+import { appendFile, lstat, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 
 import { applyManagedBlock } from "../fs/managed-block.js";
+import { AgentOpsError } from "../fs/paths.js";
 import { evaluateGuardrail } from "../guardrails/evaluate.js";
 import { appendLocalLog } from "../logging/local-log.js";
 import {
@@ -62,6 +63,8 @@ export interface ProjectLoopOptions {
   readonly now?: () => string;
   readonly gitStatus?: (root: string) => Promise<string>;
   readonly telemetryMaxBytes?: number;
+  /** The environment a SessionStart reads `CLAUDE_ENV_FILE` from. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 interface LoopDecision {
@@ -506,6 +509,8 @@ function sessionIdOf(input: unknown): string | undefined {
 interface LoopSessionMarker {
   readonly sessionId?: string;
   readonly taskId?: string;
+  /** Another session started here while this one was recorded and recent. */
+  readonly contested?: boolean;
 }
 
 function parseSessionMarker(source: string | null): LoopSessionMarker {
@@ -514,25 +519,38 @@ function parseSessionMarker(source: string | null): LoopSessionMarker {
   }
   const session = source.match(/^Session: (\S+)$/mu)?.[1];
   const task = source.match(/^Task: (\S+)$/mu)?.[1];
+  const contested = /^Contested: yes$/mu.test(source);
   return {
     ...(session === undefined ? {} : { sessionId: session }),
-    ...(task === undefined ? {} : { taskId: task })
+    ...(task === undefined ? {} : { taskId: task }),
+    ...(contested ? { contested } : {})
   };
 }
+
+/**
+ * A different session starting inside this window means two are open in one
+ * checkout.
+ *
+ * ponytail: a session idle for longer than this is not noticed; hosts that
+ * inject their own id (Claude Code, Codex) never depend on the marker at all.
+ */
+const CONTEST_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * The bridge the CLI cannot build for itself: a hook is told the session id,
  * a command run inside that session is not. Recording it here lets
  * `agent-ops task attach` default to the session actually running.
  *
- * ponytail: last writer wins. Two concurrent sessions in one checkout already
- * violate the one-writer rule; pass `--session` explicitly if you need that.
+ * The last writer wins, but a different session replacing a recent one marks
+ * the checkout contested, so a command that has to guess its session refuses
+ * instead of acting as the wrong one (`resolveCommandSessionId`).
  */
 export async function writeSessionMarker(options: {
   readonly root: string;
   readonly harness: ProjectLoopHarness;
   readonly sessionId: string;
   readonly taskId?: string;
+  readonly now?: () => number;
 }): Promise<void> {
   const path = loopPath(options.root, options.harness, "loop-state.md");
   await withPrivateFileLock(path, options.root, async () => {
@@ -540,6 +558,15 @@ export async function writeSessionMarker(options: {
     const baseline = source ?? "# Loop state\n";
     const previous = parseSessionMarker(source);
     const taskId = options.taskId ?? previous.taskId;
+    const replaced = previous.sessionId !== undefined &&
+      previous.sessionId !== options.sessionId;
+    const age = replaced
+      ? (options.now?.() ?? Date.now()) -
+        await lstat(path).then((status) => status.mtimeMs, () => 0)
+      : 0;
+    const contested = replaced
+      ? age < CONTEST_WINDOW_MS
+      : previous.contested === true;
     await writePrivateFile(
       path,
       applyManagedBlock(baseline, {
@@ -547,7 +574,8 @@ export async function writeSessionMarker(options: {
         version: 1,
         content: [
           `Session: ${options.sessionId}`,
-          ...(taskId === undefined ? [] : [`Task: ${taskId}`])
+          ...(taskId === undefined ? [] : [`Task: ${taskId}`]),
+          ...(contested ? ["Contested: yes"] : [])
         ].join("\n")
       }),
       options.root
@@ -563,7 +591,17 @@ export async function writeSessionMarker(options: {
 export async function readRecordedSessionId(
   root: string
 ): Promise<string | undefined> {
-  const candidates: { readonly sessionId: string; readonly at: number }[] = [];
+  return (await readRecordedSession(root))?.sessionId;
+}
+
+async function readRecordedSession(
+  root: string
+): Promise<{ readonly sessionId: string; readonly contested: boolean } | undefined> {
+  const candidates: {
+    readonly sessionId: string;
+    readonly contested: boolean;
+    readonly at: number;
+  }[] = [];
   for (const harness of ["claude", "codex"] as const) {
     const path = loopPath(root, harness, "loop-state.md");
     try {
@@ -572,12 +610,49 @@ export async function readRecordedSessionId(
         continue;
       }
       const status = await lstat(path);
-      candidates.push({ sessionId: marker.sessionId, at: status.mtimeMs });
+      candidates.push({
+        sessionId: marker.sessionId,
+        contested: marker.contested === true,
+        at: status.mtimeMs
+      });
     } catch {
       continue;
     }
   }
-  return candidates.sort((left, right) => right.at - left.at)[0]?.sessionId;
+  return candidates.sort((left, right) => right.at - left.at)[0];
+}
+
+/** The id the host injected into this command's environment, if any. */
+export function sessionIdFromEnvironment(
+  env: Readonly<Record<string, string | undefined>> = process.env
+): string | undefined {
+  return [env.AGENT_OPS_SESSION_ID, env.CODEX_THREAD_ID]
+    .find((value) => value !== undefined && value !== "");
+}
+
+/**
+ * Who is running this command: the injected id, else the one a SessionStart
+ * recorded for this checkout. A recorded id another session has since
+ * contested is a guess, and acting as the wrong session is worse than
+ * stopping.
+ */
+export async function resolveCommandSessionId(
+  root: string,
+  env: Readonly<Record<string, string | undefined>> = process.env
+): Promise<string | undefined> {
+  const injected = sessionIdFromEnvironment(env);
+  if (injected !== undefined) {
+    return injected;
+  }
+  const recorded = await readRecordedSession(root);
+  if (recorded?.contested === true) {
+    throw new AgentOpsError(
+      "SESSION_ID_AMBIGUOUS",
+      "Another session started in this checkout recently, so its recorded session id may not be yours. " +
+        "Pass --session <id>, or set AGENT_OPS_SESSION_ID."
+    );
+  }
+  return recorded?.sessionId;
 }
 
 interface RestoreState {
@@ -839,6 +914,14 @@ export async function runProjectLoop(
         sessionId,
         ...(restore.taskId === undefined ? {} : { taskId: restore.taskId })
       }).catch(() => undefined);
+      // Claude Code sources this file before every Bash command, so each of
+      // this session's commands knows who it is. `sessionId` matched
+      // SESSION_ID_PATTERN, which is why it is safe to write unquoted.
+      const envFile = (options.env ?? process.env).CLAUDE_ENV_FILE;
+      if (options.harness === "claude" && envFile !== undefined && envFile !== "") {
+        await appendFile(envFile, `export AGENT_OPS_SESSION_ID=${sessionId}\n`)
+          .catch(() => undefined);
+      }
     }
     try {
       const [goal, telemetryEntries] = await Promise.all([

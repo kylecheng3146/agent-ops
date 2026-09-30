@@ -122,6 +122,80 @@ function stop() {
   };
 }
 
+function toolCall() {
+  return {
+    event: "command" as const,
+    projectRoot: ".",
+    sessionId: SESSION,
+    command: "echo",
+    args: [],
+    scope: "."
+  };
+}
+
+function gateFor(root: string, harness: "agy" | "claude" | "codex") {
+  const { tasks, evidence, runner } = setup(root);
+  return new CompletionGateService({
+    root,
+    config: CONFIG,
+    gitRunner: runner,
+    taskService: tasks,
+    evidenceStore: evidence,
+    stateStore: new FileCompletionGateStore(root),
+    harness
+  });
+}
+
+test("a tool call backfills a missing baseline, so later changes still need a task", async () => {
+  const root = await repository();
+  try {
+    await writeFile(join(root, "source.txt"), "preexisting\n");
+    const gate = gateFor(root, "claude");
+    assert.equal(await gate.handle(toolCall()), null);
+    // Preexisting changes are the baseline, not this session's work.
+    assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_ALLOWED");
+
+    await writeFile(join(root, "source.txt"), "changed by the session\n");
+    const stopped = await gate.handle(stop());
+    assert.equal(stopped?.action, "block");
+    assert.notEqual(stopped?.code, "COMPLETION_GATE_NOT_INITIALIZED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Stop never takes a baseline, and its recovery text names the host's own way", async () => {
+  const root = await repository();
+  try {
+    for (const harness of ["claude", "codex"] as const) {
+      const gate = gateFor(root, harness);
+      await writeFile(join(root, "source.txt"), `edited before ${harness} ever called a tool\n`);
+      // Twice: a Stop that backfilled would let the second one through.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const blocked = await gate.handle(stop());
+        assert.equal(blocked?.code, "COMPLETION_GATE_NOT_INITIALIZED");
+        assert.doesNotMatch(blocked?.remedy ?? "", /PreInvocation/u);
+        assert.match(blocked?.remedy ?? "", /SessionStart never reached this checkout/u);
+      }
+    }
+    const agy = await gateFor(root, "agy").handle(stop());
+    assert.match(agy?.remedy ?? "", /PreInvocation/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an unsupported event does not backfill a baseline", async () => {
+  const root = await repository();
+  try {
+    const gate = gateFor(root, "claude");
+    await gate.handle({ event: "unsupported", projectRoot: ".", sessionId: SESSION });
+    assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_NOT_INITIALIZED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("preexisting Git-visible changes and read-only turns stop normally", async () => {
   const root = await repository();
   try {

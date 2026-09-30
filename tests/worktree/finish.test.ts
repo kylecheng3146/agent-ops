@@ -265,6 +265,39 @@ test("finish merges nothing when a task in the worktree cannot complete", async 
   }
 });
 
+test("finish names a task another session left in the worktree and archives nothing", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "source.txt", "work\n");
+    await git(record.path, "add", "source.txt");
+    await git(record.path, "commit", "-qm", "work");
+    await reviewedTask(record, { title: "Mine", base: record.base });
+    const foreign = (await d.tasks(record.path).create({
+      title: "Left by another session",
+      criteria: [
+        { id: "one", description: "First.", verifierIds: ["node-test"] },
+        { id: "two", description: "Second.", verifierIds: ["node-test"] }
+      ],
+      policyConfigHash: calculateConfigHash(CONFIG),
+      sessionId: "session-two"
+    })).task.id;
+    const main = await git(root, "rev-parse", "main");
+
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), (error: unknown) =>
+      rejectsWith("WORKTREE_TASK_INCOMPLETE")(error) &&
+      (error as Error).message.includes(`Task ${foreign} (Left by another session)`) &&
+      /finish never does/u.test((error as Error).message));
+
+    assert.equal(await git(root, "rev-parse", "main"), main);
+    assert.equal(await exists(record.path), true);
+    assert.equal((await d.tasks(record.path).status({ taskId: foreign })).status, "active");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("finish changes nothing unless the main checkout, worktree and task are all ready", async () => {
   const root = await repository();
   try {

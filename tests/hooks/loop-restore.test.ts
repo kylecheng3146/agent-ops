@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
   readRecordedSessionId,
+  resolveCommandSessionId,
   runProjectLoop
 } from "../../runtime/src/hooks/codex-loop.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
@@ -419,4 +420,85 @@ test("a credential-shaped criterion id is redacted, not injected", async () => {
 
   assert.doesNotMatch(context, /sk-abcdefgh/);
   assert.match(context, /plain-id:/);
+});
+
+async function startAs(
+  root: string,
+  harness: "claude" | "codex",
+  sessionId: string,
+  env: Record<string, string | undefined> = {}
+): Promise<void> {
+  await runProjectLoop({
+    harness,
+    event: "SessionStart",
+    input: { cwd: root, session_id: sessionId, source: "startup" },
+    root,
+    env
+  });
+}
+
+test("a Claude SessionStart hands its session id to every later command through CLAUDE_ENV_FILE", async () => {
+  const root = await loopRoot();
+  const envFile = join(root, "claude-env.sh");
+
+  await startAs(root, "claude", SESSION, { CLAUDE_ENV_FILE: envFile });
+
+  assert.equal(await readFile(envFile, "utf8"), `export AGENT_OPS_SESSION_ID=${SESSION}\n`);
+});
+
+test("only Claude writes the env file, and never for an id that is not shell-safe", async () => {
+  const root = await loopRoot();
+  const envFile = join(root, "claude-env.sh");
+  await mkdir(join(root, ".codex"), { recursive: true });
+
+  await startAs(root, "codex", SESSION, { CLAUDE_ENV_FILE: envFile });
+  await startAs(root, "claude", "x; touch pwned", { CLAUDE_ENV_FILE: envFile });
+  await startAs(root, "claude", SESSION, {});
+
+  await assert.rejects(readFile(envFile, "utf8"), { code: "ENOENT" });
+});
+
+test("a command resolves its session from the injected id before any recorded one", async () => {
+  const root = await loopRoot();
+  await startAs(root, "claude", SESSION);
+
+  assert.equal(await resolveCommandSessionId(root, {}), SESSION);
+  assert.equal(await resolveCommandSessionId(root, { CODEX_THREAD_ID: OTHER_SESSION }), OTHER_SESSION);
+  assert.equal(
+    await resolveCommandSessionId(root, {
+      AGENT_OPS_SESSION_ID: SESSION,
+      CODEX_THREAD_ID: OTHER_SESSION
+    }),
+    SESSION
+  );
+});
+
+test("a different session starting in a checkout contests the recorded id, and guessing then fails", async () => {
+  const root = await loopRoot();
+  await startAs(root, "claude", SESSION);
+  await startAs(root, "claude", OTHER_SESSION);
+
+  const state = await readFile(join(root, ".claude", "loop-state.md"), "utf8");
+  assert.match(state, /^Contested: yes$/mu);
+  await assert.rejects(
+    resolveCommandSessionId(root, {}),
+    { code: "SESSION_ID_AMBIGUOUS" }
+  );
+  // An injected id is not a guess, and a restart of the same session keeps the flag.
+  assert.equal(await resolveCommandSessionId(root, { AGENT_OPS_SESSION_ID: SESSION }), SESSION);
+  await startAs(root, "claude", OTHER_SESSION);
+  await assert.rejects(resolveCommandSessionId(root, {}), { code: "SESSION_ID_AMBIGUOUS" });
+});
+
+test("resuming the same session, or replacing a long-idle one, is not a contest", async () => {
+  const root = await loopRoot();
+  await startAs(root, "claude", SESSION);
+  await startAs(root, "claude", SESSION);
+  assert.equal(await resolveCommandSessionId(root, {}), SESSION);
+
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  await utimes(join(root, ".claude", "loop-state.md"), old, old);
+  await startAs(root, "claude", OTHER_SESSION);
+
+  assert.equal(await resolveCommandSessionId(root, {}), OTHER_SESSION);
 });

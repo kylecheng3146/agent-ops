@@ -363,12 +363,14 @@ function shouldBuildStopVerification(
 function completionGateFor(
   root: string,
   config: AgentOpsConfig,
-  gitRunner: GitRunner
+  gitRunner: GitRunner,
+  harness?: "agy" | "claude" | "codex"
 ): CompletionGateService {
   return new CompletionGateService({
     root,
     config,
     gitRunner,
+    ...(harness === undefined ? {} : { harness }),
     taskService: new TaskService(
       new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
     ),
@@ -378,7 +380,7 @@ function completionGateFor(
       if (outcome.kind !== "loaded" || !outcome.config.features.completionGate.enabled) {
         throw new Error("The redirected worktree has no enabled completion gate.");
       }
-      return completionGateFor(worktree, outcome.config, defaultGitRunner(worktree));
+      return completionGateFor(worktree, outcome.config, defaultGitRunner(worktree), harness);
     }
   });
 }
@@ -517,7 +519,7 @@ export async function runHookProcess(
       config.features.completionGate.enabled
         ? dependencies.completionGate ?? {
             handle: async (normalized) =>
-              await completionGateFor(root, config, gitRunner).handle(normalized)
+              await completionGateFor(root, config, gitRunner, harnessId).handle(normalized)
           }
         : undefined;
     const worktreeGuard = config.worktree?.mode === "auto"

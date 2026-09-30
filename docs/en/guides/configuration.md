@@ -207,6 +207,20 @@ evidence. Give each editing conversation its own worktree instead:
 - The session's completion gate follows it: Claude Code enters the worktree
   with EnterWorktree, and a host that cannot move a session (agy) is judged by
   the worktree's gate through a redirect the main checkout records.
+- A command knows its session from `--session`, then `AGENT_OPS_SESSION_ID`,
+  then `CODEX_THREAD_ID`, then the id a SessionStart recorded for the
+  checkout. Claude Code's SessionStart appends `AGENT_OPS_SESSION_ID` to its
+  `CLAUDE_ENV_FILE`, so every later Bash command carries it. When a different
+  session started in the same checkout within fifteen minutes, the recorded id
+  is contested: `task create`, `attach` and `status` fail with
+  `SESSION_ID_AMBIGUOUS` instead of acting as the wrong session.
+- A worktree belongs to the session that created it: a file write into
+  another session's worktree is denied (`WORKTREE_OWNED_BY_OTHER_SESSION`),
+  naming the session's own worktree. A session with no baseline (its
+  SessionStart never arrived) gets one at its first tool call, never at Stop.
+- Inside a worktree the project config is the main checkout's, so a branch
+  cannot change the gate, verifiers or trust that judge it before merging; a
+  worktree of a repository whose main checkout has no config uses its own.
 - In a worktree, verify and review each task but do not run `task complete`
   (Claude Code refuses it inside an isolated worktree session). `agent-ops
   worktree finish <name>` completes every non-archived task in the worktree,

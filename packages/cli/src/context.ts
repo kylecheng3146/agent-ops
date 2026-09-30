@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 
 import type {
   AgentOpsConfig,
@@ -36,6 +37,34 @@ export const DEFAULT_CONFIG: AgentOpsConfig = {
   pathMappings: [],
   securityExceptions: []
 };
+
+/**
+ * Where a checkout's project config lives. Inside an agent-ops worktree it is
+ * the main checkout's: a branch must not change the config that decides its
+ * own gate, verifiers and trust before that change is merged, and a copy of a
+ * gitignored file can be missing or stale. Anything git cannot confirm is a
+ * worktree of this repository falls back to the checkout itself.
+ */
+export function projectConfigRoot(root: string): string {
+  try {
+    const common = execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).trim();
+    if (basename(common) !== ".git") {
+      return root;
+    }
+    const main = realpathSync(dirname(common));
+    const here = realpathSync(root);
+    return here.startsWith(`${join(main, ".worktrees")}${sep}`) &&
+      existsSync(join(main, ".agent-ops", "config.json"))
+      ? main
+      : root;
+  } catch {
+    return root;
+  }
+}
 
 export type ProjectHookConfigOutcome =
   | { readonly kind: "absent"; readonly config: AgentOpsConfig }
@@ -75,7 +104,11 @@ export async function loadEffectiveConfig(
 ): Promise<MergedConfig> {
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const userPath = join(home, ".agent-ops", "config.json");
-  const projectPath = join(root, ".agent-ops", "config.json");
+  const projectPath = join(
+    scope === "user" ? root : projectConfigRoot(root),
+    ".agent-ops",
+    "config.json"
+  );
   const layers: ConfigLayer[] = [defaultConfigLayer()];
   if (scope === "user") {
     const user = await loadOptionalConfig(userPath);
@@ -121,7 +154,7 @@ export async function loadProjectHookConfig(
 ): Promise<ProjectHookConfigOutcome> {
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const userPath = join(home, ".agent-ops", "config.json");
-  const projectPath = join(root, ".agent-ops", "config.json");
+  const projectPath = join(projectConfigRoot(root), ".agent-ops", "config.json");
   const layers: ConfigLayer[] = [defaultConfigLayer()];
 
   let project;
