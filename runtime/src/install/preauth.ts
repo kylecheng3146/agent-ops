@@ -18,13 +18,16 @@ export const CLAUDE_PREAUTH_ALLOW: readonly string[] = [
   "Bash(agent-ops task *)",
   "Bash(agent-ops verify *)",
   "Bash(agent-ops review *)",
+  "Bash(agent-ops batch *)",
   "Bash(agent-ops worktree *)",
   "Bash(agent-ops doctor *)"
 ];
-/** review talks to the reviewer's API, which the sandbox withholds. */
+/** review and batch talk to the reviewer's API, which the sandbox withholds. */
 export const CLAUDE_PREAUTH_UNSANDBOXED: readonly string[] = [
   "agent-ops review",
-  "agent-ops review *"
+  "agent-ops review *",
+  "agent-ops batch",
+  "agent-ops batch *"
 ];
 
 export const CODEX_RULES_PATH = "rules/agent-ops.rules";
@@ -68,8 +71,9 @@ function rule(options: {
 
 /**
  * Prefix rules for the exact shapes `.agent-ops/AGENTS.md` tells Codex to run,
- * with and without AGENT_OPS_HOST, for review and the auth probe. Matching is
- * by argv prefix, so a shell redirect would defeat it: use `--output`.
+ * with and without AGENT_OPS_HOST, for review, batch and the auth probe.
+ * Matching is by argv prefix, so a shell redirect would defeat it: use
+ * `--output`.
  */
 export const CODEX_RULES_CONTENT = `${[
   CODEX_RULES_MARKER,
@@ -82,6 +86,13 @@ export const CODEX_RULES_CONTENT = `${[
         command: ["review"],
         justification: "agent-ops review needs network and loopback outside the sandbox.",
         match: `${env} review --task task-x --yes --output review.json`,
+        notMatch: `${env} trust grant --scope project --yes`
+      }),
+      rule({
+        withHost,
+        command: ["batch"],
+        justification: "agent-ops batch runs reviews, which need network and loopback outside the sandbox.",
+        match: `${env} batch --parent task-x --yes --output batch.json`,
         notMatch: `${env} trust grant --scope project --yes`
       }),
       rule({
