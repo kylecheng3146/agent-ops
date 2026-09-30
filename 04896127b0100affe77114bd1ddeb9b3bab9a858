@@ -1,0 +1,7 @@
+worktree: session-e70c29aa (agent-ops/session-e70c29aa)
+session: 01a0f055-42ba-7450-bb17-9aabcd7bd599
+agent-ops task task-f90065a3-03e7-4a2e-88f2-54cd229a8a38: Release 0.4.0
+criteria:
+- version-bump: package.json and package-lock.json both say 0.4.0
+- changelog: CHANGELOG.md has a dated 0.4.0 section that describes each of the four changes and keeps an empty Unreleased section above it
+- release-scans: npm run build, npm run package:check and node scripts/scan-source.mjs all pass on the release commit
