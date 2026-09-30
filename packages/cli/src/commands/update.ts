@@ -41,6 +41,8 @@ export interface UpdateCommandOptions {
   readonly isTTY: boolean;
   readonly hookRuntimePath?: string;
   readonly hookTargets?: readonly HookTargetSelection[];
+  /** Codex's home, where the rules that let a session run review unprompted live. */
+  readonly codexHome?: string;
   readonly trustStore?: TrustStore;
   calculateTrustBinding?(config: UpdatePlan["installation"]["config"]): Promise<TrustBinding | null>;
   confirm(plan: UpdatePlan, trust: PublicTrustChange): Promise<boolean>;
@@ -194,6 +196,7 @@ export async function runUpdateCommand(
     ...((options.hookTargets ?? options.args.hookTargets) === undefined
       ? {}
       : { hookTargets: options.hookTargets ?? options.args.hookTargets }),
+    ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome }),
     ...(worktree === undefined ? {} : { worktree })
   });
   const trust = await trustChange(options, plan);

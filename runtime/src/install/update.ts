@@ -46,6 +46,8 @@ export interface CreateUpdatePlanOptions {
   readonly harness?: Harness;
   /** Worktree configuration override; undefined preserves existing. */
   readonly worktree?: WorktreeConfig | null;
+  /** Codex's home, for the rules agent-ops keeps there. */
+  readonly codexHome?: string;
 }
 
 export interface UpdatePlan {
@@ -234,6 +236,7 @@ export async function createUpdatePlan(
       value: configPreview.migrated,
       sourceHash: configPreview.sourceHash
     },
+    ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome }),
     ...(options.worktree === undefined
       ? {}
       : { worktree: options.worktree })

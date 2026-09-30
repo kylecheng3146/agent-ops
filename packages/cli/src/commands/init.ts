@@ -39,6 +39,8 @@ export interface InitCommandOptions {
   readonly toolkitVersion?: string;
   readonly hookRuntimePath?: string;
   readonly hookTargets?: readonly HookTargetSelection[];
+  /** Codex's home, where the rules that let a session run review unprompted live. */
+  readonly codexHome?: string;
   /** Optional runtime probe; init warns but never blocks on an agy binary. */
   agyWarning?(): string | undefined;
   readonly trustStore?: TrustStore;
@@ -216,6 +218,7 @@ export async function runInitCommand(
     ...(args.completionGate === undefined
       ? {}
       : { completionGateEnabled: args.completionGate }),
+    ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome }),
     ...(worktreeConfig === undefined
       ? {}
       : { worktree: worktreeConfig })

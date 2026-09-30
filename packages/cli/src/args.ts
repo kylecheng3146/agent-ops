@@ -87,6 +87,8 @@ export interface ParsedArgs {
   worktreeFrom?: string;
   /** worktree commit: the commit message. */
   worktreeMessage?: string;
+  /** review, doctor: write the JSON envelope to this file instead of relying on a shell redirect. */
+  output?: string;
   /** worktree add: branch finish merges back into (defaults to the current branch; required when detached). */
   worktreeTargetBranch?: string;
   /** Worktree mode: auto isolates sessions into git worktrees, off disables. */
@@ -193,6 +195,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let force = false;
   let worktreeFrom: string | undefined;
   let worktreeMessage: string | undefined;
+  let output: string | undefined;
   let worktreeTargetBranch: string | undefined;
   let worktree: "auto" | "off" | undefined;
 
@@ -397,6 +400,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         index += 1;
         break;
       }
+      case "--output": {
+        if (output !== undefined) {
+          duplicate(token);
+        }
+        output = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
       case "--target-branch": {
         if (worktreeTargetBranch !== undefined) {
           duplicate(token);
@@ -556,6 +567,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       worktree !== undefined ||
       worktreeFrom !== undefined ||
       worktreeMessage !== undefined ||
+      output !== undefined ||
       worktreeTargetBranch !== undefined ||
       force
     ) {
@@ -828,6 +840,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "worktree accepts only a name, --session, --from, --target-branch, --message and --json."
     );
   }
+  if (output !== undefined && command !== "review" && command !== "doctor") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "--output may be used only with review or doctor.",
+      "--output"
+    );
+  }
+  if (output !== undefined && (output.trim() === "" || output.includes("\0"))) {
+    throw new CliArgumentError("CLI_INVALID_VALUE", "Invalid value for --output.", "--output");
+  }
   if (force && !(command === "worktree" && action === "remove")) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
@@ -883,6 +905,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(base === undefined ? {} : { base }),
     ...(worktreeFrom === undefined ? {} : { worktreeFrom }),
     ...(worktreeMessage === undefined ? {} : { worktreeMessage }),
+    ...(output === undefined ? {} : { output }),
     ...(worktreeTargetBranch === undefined ? {} : { worktreeTargetBranch }),
     ...(checkAuth ? { checkAuth } : {}),
     ...(checkAuthTargets.length === 0 ? {} : { checkAuthTargets }),

@@ -32,6 +32,7 @@ import {
   resolveCommandSessionId,
   sessionIdFromEnvironment
 } from "../../../runtime/src/hooks/codex-loop.js";
+import { codexHomeDirectory } from "../../../runtime/src/install/preauth.js";
 import { NpmRegistryClient } from "../../../runtime/src/registry/npm.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -335,6 +336,7 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              codexHome: codexHomeDirectory(),
               agyWarning: () => {
                 try {
                   const output = runAgy(["--version"], { timeout: 5_000 });
@@ -479,6 +481,7 @@ process.exitCode = await runCli(
               args,
               root,
               isTTY,
+              codexHome: codexHomeDirectory(),
               trustStore: store,
               calculateTrustBinding: async () =>
                 await plannedTrustBinding(root),
@@ -511,6 +514,7 @@ process.exitCode = await runCli(
               isTTY,
               toolkitVersion: CLI_VERSION,
               hookRuntimePath: HOOK_RUNTIME_PATH,
+              codexHome: codexHomeDirectory(),
               ...(updateArgs.hookTargets === undefined
                 ? {}
                 : { hookTargets: updateArgs.hookTargets }),

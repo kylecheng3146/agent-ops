@@ -1,3 +1,6 @@
+import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
 import {
   CliArgumentError,
   parseArgs,
@@ -129,6 +132,9 @@ Options:
   --scope <project|user>
   --harness <all|both|agy|claude|codex|opencode|comma-separated>
   --check-auth   Probe each review target's authentication with one real call
+  --output <file>
+                 Write the JSON envelope to <file> (mode 0600) and print one
+                 summary line, so no shell redirect is needed
   --json
 `,
   update: `Usage: agent-ops update [options]
@@ -195,6 +201,8 @@ fresh adversarial reviewer from the configured pair.
 Options:
   --task <id>          Required task whose original criteria are reviewed
   --base <git-ref>     Review a clean committed range
+  --output <file>      Write the JSON envelope to <file> (mode 0600) and print
+                       one summary line, so no shell redirect is needed
   --json
   --yes                Required authorization for both reviewer sessions
 `,
@@ -355,16 +363,27 @@ export async function runCli(
       );
     }
     const result = await execute(args);
-    return writeAndReturn(
-      io,
-      result,
-      args.json,
-      result.status === "ok"
-        ? 0
-        : result.code === "REVIEW_NOT_RUN"
-          ? 2
-          : 1
-    );
+    const exitCode = result.status === "ok"
+      ? 0
+      : result.code === "REVIEW_NOT_RUN"
+        ? 2
+        : 1;
+    if (args.output !== undefined) {
+      // The envelope goes to the file whole; stdout carries one line, so an
+      // agent needs neither a shell redirect nor the whole report in context.
+      try {
+        await writeFile(
+          resolve(args.output),
+          `${JSON.stringify(result.data === undefined ? { ...result, data: null } : result)}\n`,
+          { mode: 0o600 }
+        );
+      } catch {
+        throw new AgentOpsError("CLI_OUTPUT_WRITE_FAILED", `Could not write ${args.output}.`);
+      }
+      io.writeStdout(`agent-ops: ${result.code} (${result.status}); envelope written to ${args.output}\n`);
+      return exitCode;
+    }
+    return writeAndReturn(io, result, args.json, exitCode);
   } catch (error) {
     if (error instanceof CliArgumentError) {
       return writeAndReturn(
