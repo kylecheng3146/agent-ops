@@ -52,6 +52,7 @@ Commands:
              Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review
+  batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
   worktree <add|finish|list|resume|remove>
@@ -70,13 +71,16 @@ Options:
   --check-auth-target <target>        Repeatable doctor filter with --check-auth
   --task <id>
   --parent <task-id>                  Task create: record a subtask of this
-                                      task; task status: list its subtasks
+                                      task; task status: list its subtasks;
+                                      batch: the task whose subtasks it covers
+  --parent-base <git-ref>             Batch only: base for the parent task
+  --width <n>                         Batch only: reviews allowed at once (default 2)
   --target-version <version>          Update target version (offline-capable)
   --title <text>
   --criterion <json>                    Repeatable
   --evidence <criterion-id=reference>   Repeatable
   --session <id>
-  --base <git-ref>                    Verify/review/complete a clean committed range
+  --base <git-ref>                    Verify/review/batch/complete a clean committed range
   --dry-run
   --json
   --yes
@@ -205,6 +209,26 @@ Options:
                        one summary line, so no shell redirect is needed
   --json
   --yes                Required authorization for both reviewer sessions
+`,
+  batch: `Usage: agent-ops batch --parent <task-id> --yes [options]
+
+Verify and review the active subtasks of a parent task, and the parent itself,
+together. Verify runs one task at a time and skips a task that already has
+fresh PASS evidence; each review starts as soon as its own verify passes.
+Nothing may commit or edit the worktree while it runs.
+
+Options:
+  --parent <task-id>   Required task whose active subtasks and itself are covered
+  --base <git-ref>     Base for the subtasks (default: each task's recorded
+                       review base, then the worktree base)
+  --parent-base <git-ref>
+                       Base for the parent task (same default)
+  --width <n>          Reviews allowed at once (default 2); a transient
+                       NOT_RUN lowers it to 1 and earns one retry
+  --output <file>      Write the JSON envelope to <file> (mode 0600) and print
+                       one summary line, so no shell redirect is needed
+  --json
+  --yes                Required authorization for the reviewer sessions
 `,
   "allow-stop": `Usage: agent-ops allow-stop --session <id> [options]
 
@@ -365,7 +389,7 @@ export async function runCli(
     const result = await execute(args);
     const exitCode = result.status === "ok"
       ? 0
-      : result.code === "REVIEW_NOT_RUN"
+      : result.code === "REVIEW_NOT_RUN" || result.code === "BATCH_NOT_RUN"
         ? 2
         : 1;
     if (args.output !== undefined) {

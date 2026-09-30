@@ -41,6 +41,7 @@ import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { calculateSourceFingerprint } from "../../../runtime/src/verify/source-fingerprint.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
 import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
+import { parseArgs, type ParsedArgs } from "./args.js";
 import { runCli } from "./cli.js";
 import {
   loadEffectiveConfig,
@@ -63,10 +64,18 @@ import {
   runUninstallCommand
 } from "./commands/uninstall.js";
 import { runTaskCommand } from "./commands/task.js";
-import { runReviewCommand } from "./commands/review.js";
+import {
+  hasFreshVerification,
+  runReviewCommand,
+  type ReviewCommandOptions
+} from "./commands/review.js";
+import { runBatchCommand } from "./commands/batch.js";
+import { createSourceGuard } from "../../../runtime/src/review/batch-guard.js";
+import { memoizePreflight } from "../../../runtime/src/review/batch.js";
 import {
   createReviewExecutor,
-  ReviewInterruptedError
+  ReviewInterruptedError,
+  type ReviewExecutorOptions
 } from "../../../runtime/src/review/execute.js";
 import { probeReviewTargetDetailed } from "../../../runtime/src/review/probe.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
@@ -84,6 +93,7 @@ import { runAgyHeadless } from "./agy-headless.js";
 import { runWorktreeCommand } from "./commands/parallel.js";
 import {
   ensureSessionWorktree,
+  readWorktreeRecord,
   resolveCheckouts
 } from "../../../runtime/src/parallel/service.js";
 import {
@@ -588,18 +598,90 @@ process.exitCode = await runCli(
                 : {})
             });
           }
-          if (args.command === "review") {
+          const probeTarget: NonNullable<ReviewExecutorOptions["preflightTarget"]> =
+            async (target, budget) =>
+              await probeReviewTargetDetailed(target, {
+                cwd: root,
+                deep: true,
+                // The probe answers within the chain's remaining budget
+                // or not at all; its own default would outlast it.
+                ...(budget === undefined ? {} : { timeoutMs: budget.timeoutMs })
+              });
+          // One place builds a review's options, so `review` and each task of
+          // a `batch` are reviewed identically.
+          const buildReviewOptions = async (
+            reviewArgs: ParsedArgs,
+            signal: AbortSignal,
+            preflightTarget: typeof probeTarget = probeTarget,
+            progressPrefix = ""
+          ): Promise<ReviewCommandOptions> => {
             const reviewSessionId = process.env.AGENT_OPS_SESSION_ID;
             const reviewGit = gitRunner(root);
             const reviewConfig = (await loadEffectiveConfig(
               root,
-              args.scope === "user" ? "user" : "project"
+              reviewArgs.scope === "user" ? "user" : "project"
             )).config;
             const reviewRole = resolveReviewRole(
               "independent-review",
               reviewConfig.reviewRoles ?? []
             );
             const configuredReviewTargets = reviewRole?.targets ?? [];
+            return {
+              args: reviewArgs,
+              authorized: reviewArgs.yes,
+              tasks: taskService,
+              ...(reviewArgs.taskId === undefined ? {} : { taskId: reviewArgs.taskId }),
+              ...(reviewSessionId === undefined
+                ? {}
+                : { sessionId: reviewSessionId }),
+              ...(reviewConfig.reviewRoles === undefined
+                ? {}
+                : { roles: reviewConfig.reviewRoles }),
+              targets: configuredReviewTargets,
+              root,
+              gitRunner: reviewGit,
+              policyConfigHash: calculateConfigHash(reviewConfig),
+              currentPolicyConfigHash: async () => calculateConfigHash((
+                await loadEffectiveConfig(
+                  root,
+                  reviewArgs.scope === "user" ? "user" : "project"
+                )
+              ).config),
+              config: reviewConfig,
+              evidenceStore: new FileEvidenceStore(root, root),
+              execute: createReviewExecutor({
+                targets: configuredReviewTargets,
+                cwd: root,
+                ...(reviewRole?.model === undefined
+                  ? {}
+                  : { model: reviewRole.model }),
+                ...(reviewRole?.effort === undefined
+                  ? {}
+                  : { effort: reviewRole.effort }),
+                ...(reviewRole?.timeoutMs === undefined
+                  ? {}
+                  : { timeoutMs: reviewRole.timeoutMs }),
+                preflightTarget,
+                verifySourceFingerprint: async (expected) => {
+                  const currentScope = await resolveReviewScope({
+                    root,
+                    runner: reviewGit,
+                    ...(reviewArgs.base === undefined ? {} : { base: reviewArgs.base })
+                  });
+                  return await calculateSourceFingerprint(
+                    root,
+                    currentScope,
+                    reviewGit
+                  ) === expected;
+                },
+                signal,
+                onProgress: (line) => {
+                  process.stderr.write(`${progressPrefix}${line}\n`);
+                }
+              })
+            };
+          };
+          if (args.command === "review") {
             const controller = new AbortController();
             let interruptedBy: "SIGINT" | "SIGTERM" | undefined;
             const interrupt = (signal: "SIGINT" | "SIGTERM"): void => {
@@ -611,69 +693,9 @@ process.exitCode = await runCli(
             process.once("SIGINT", onSigint);
             process.once("SIGTERM", onSigterm);
             try {
-              return await runReviewCommand({
-                args,
-                authorized: args.yes,
-                tasks: taskService,
-                ...(args.taskId === undefined ? {} : { taskId: args.taskId }),
-                ...(reviewSessionId === undefined
-                  ? {}
-                  : { sessionId: reviewSessionId }),
-                ...(reviewConfig.reviewRoles === undefined
-                  ? {}
-                  : { roles: reviewConfig.reviewRoles }),
-                targets: configuredReviewTargets,
-                root,
-                gitRunner: reviewGit,
-                policyConfigHash: calculateConfigHash(reviewConfig),
-                currentPolicyConfigHash: async () => calculateConfigHash((
-                  await loadEffectiveConfig(
-                    root,
-                    args.scope === "user" ? "user" : "project"
-                  )
-                ).config),
-                config: reviewConfig,
-                evidenceStore: new FileEvidenceStore(root, root),
-                execute: createReviewExecutor({
-                  targets: configuredReviewTargets,
-                  cwd: root,
-                  ...(reviewRole?.model === undefined
-                    ? {}
-                    : { model: reviewRole.model }),
-                  ...(reviewRole?.effort === undefined
-                    ? {}
-                    : { effort: reviewRole.effort }),
-                  ...(reviewRole?.timeoutMs === undefined
-                    ? {}
-                    : { timeoutMs: reviewRole.timeoutMs }),
-                  preflightTarget: async (target, budget) =>
-                    await probeReviewTargetDetailed(target, {
-                      cwd: root,
-                      deep: true,
-                      // The probe answers within the chain's remaining budget
-                      // or not at all; its own default would outlast it.
-                      ...(budget === undefined
-                        ? {}
-                        : { timeoutMs: budget.timeoutMs })
-                    }),
-                  verifySourceFingerprint: async (expected) => {
-                    const currentScope = await resolveReviewScope({
-                      root,
-                      runner: reviewGit,
-                      ...(args.base === undefined ? {} : { base: args.base })
-                    });
-                    return await calculateSourceFingerprint(
-                      root,
-                      currentScope,
-                      reviewGit
-                    ) === expected;
-                  },
-                  signal: controller.signal,
-                  onProgress: (line) => {
-                    process.stderr.write(`${line}\n`);
-                  }
-                })
-              });
+              return await runReviewCommand(
+                await buildReviewOptions(args, controller.signal)
+              );
             } catch (error) {
               if (
                 error instanceof ReviewInterruptedError &&
@@ -682,6 +704,81 @@ process.exitCode = await runCli(
                 process.exit(interruptedBy === "SIGINT" ? 130 : 143);
               }
               throw error;
+            } finally {
+              process.removeListener("SIGINT", onSigint);
+              process.removeListener("SIGTERM", onSigterm);
+            }
+          }
+          if (args.command === "batch") {
+            const controller = new AbortController();
+            let interruptedBy: "SIGINT" | "SIGTERM" | undefined;
+            const interrupt = (signal: "SIGINT" | "SIGTERM"): void => {
+              interruptedBy ??= signal;
+              controller.abort(signal);
+            };
+            const onSigint = (): void => interrupt("SIGINT");
+            const onSigterm = (): void => interrupt("SIGTERM");
+            process.once("SIGINT", onSigint);
+            process.once("SIGTERM", onSigterm);
+            try {
+              const batchScope = args.scope === "user" ? "user" : "project";
+              const batchConfig = (await loadEffectiveConfig(root, batchScope)).config;
+              const batchGit = gitRunner(root);
+              const trusted = await repositoryTrust(root, batchConfig, CLI_VERSION) === "TRUSTED";
+              const guard = await createSourceGuard(batchGit);
+              const preflight = memoizePreflight(probeTarget);
+              const taskArgs = (taskId: string, base: string): ParsedArgs =>
+                parseArgs(["review", "--task", taskId, "--base", base, "--yes"]);
+              const worktreeRecord = await readWorktreeRecord(root);
+              const envelope = await runBatchCommand({
+                args,
+                tasks: taskService,
+                ...(worktreeRecord === null ? {} : { worktreeBase: worktreeRecord.base }),
+                guard,
+                isVerified: async (taskId, base) => await hasFreshVerification(
+                  await buildReviewOptions(taskArgs(taskId, base), controller.signal, preflight),
+                  taskId,
+                  base
+                ),
+                verify: async (taskId, base) => {
+                  const report = await new VerificationService({
+                    root,
+                    scope: batchScope,
+                    config: batchConfig,
+                    gitRunner: batchGit,
+                    processRunner: new NodeVerificationProcessRunner(),
+                    taskService,
+                    evidenceStore: new FileEvidenceStore(root, root),
+                    trusted,
+                    base
+                  }).verify(taskId);
+                  return report.status === "PASS" ? "PASS" : "FAIL";
+                },
+                review: async (taskId, base, signal) => {
+                  const reviewed = await runReviewCommand(await buildReviewOptions(
+                    taskArgs(taskId, base),
+                    signal,
+                    preflight,
+                    `${taskId.slice(5, 13)}: `
+                  ));
+                  const result = reviewed.data?.result;
+                  return result === undefined
+                    ? { status: "NOT_RUN", reason: reviewed.errors[0]?.code ?? "review-error" }
+                    : {
+                        status: result.status,
+                        ...(result.reason === undefined ? {} : { reason: result.reason }),
+                        ...(result.reused === true ? { reused: true as const } : {})
+                      };
+                },
+                signal: controller.signal,
+                onProgress: (line) => {
+                  process.stderr.write(`batch: ${line}\n`);
+                }
+              });
+              if (interruptedBy !== undefined) {
+                process.exit(interruptedBy === "SIGINT" ? 130 : 143);
+              }
+              return envelope;
             } finally {
               process.removeListener("SIGINT", onSigint);
               process.removeListener("SIGTERM", onSigterm);

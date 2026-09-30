@@ -14,11 +14,16 @@ export const TRANSIENT_REVIEW_REASONS: ReadonlySet<string> = new Set([
   "network-unreachable"
 ]);
 
+/** Reviews allowed at once when the caller names no width. */
+export const DEFAULT_BATCH_WIDTH = 2;
+
 export type BatchVerifyStatus = "skipped" | "PASS" | "FAIL" | "not-run";
 
 export interface BatchReview {
   readonly status: "PASS" | "FAIL" | "NOT_RUN";
   readonly reason?: string;
+  /** Served from the attestation already recorded for this source. */
+  readonly reused?: true;
 }
 
 export interface BatchTaskOutcome {
