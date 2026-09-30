@@ -44,6 +44,7 @@ test("recognizes every top-level command", () => {
     "task",
     "verify",
     "review",
+    "batch",
     "allow-stop",
     "worktree"
   ]);
