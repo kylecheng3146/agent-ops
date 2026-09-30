@@ -5,8 +5,13 @@ import test from "node:test";
 
 import { TRANSIENT_REVIEW_REASONS } from "../../runtime/src/review/batch.js";
 
+/** A tracked text file with LF endings: Windows checks files out with CRLF. */
+async function read(path: string): Promise<string> {
+  return (await readFile(resolve(path), "utf8")).replace(/\r\n/gu, "\n");
+}
+
 async function rule(id: string): Promise<string> {
-  const source = await readFile(resolve("docs/en/spec/review.md"), "utf8");
+  const source = await read("docs/en/spec/review.md");
   const start = source.indexOf(`## ${id}\n`);
   assert.ok(start >= 0, `${id} is missing from the review spec`);
   const next = source.indexOf("\n## ", start + 1);
@@ -14,7 +19,7 @@ async function rule(id: string): Promise<string> {
 }
 
 test("spec-rules: the batch rules exist in order", async () => {
-  const source = await readFile(resolve("docs/en/spec/review.md"), "utf8");
+  const source = await read("docs/en/spec/review.md");
   const ids = [...source.matchAll(/^## (REVIEW-BATCH-\d{3})$/gm)].map((match) => match[1]);
   assert.deepEqual(ids, [1, 2, 3, 4, 5, 6, 7].map((n) => `REVIEW-BATCH-${String(n).padStart(3, "0")}`));
 });
@@ -34,12 +39,12 @@ test("spec-matches-code: the width default and the exit codes are stated where t
 });
 
 test("readme-changelog: the README and the changelog announce the batch command", async () => {
-  const readme = await readFile(resolve("README.md"), "utf8");
+  const readme = await read("README.md");
   assert.match(readme, /agent-ops batch --parent <task-id> --yes/u);
   for (const flag of ["--parent", "--base", "--parent-base", "--width", "--output"]) {
     assert.ok(readme.includes(`\`${flag}\``) || readme.includes(` ${flag} `), `README does not mention ${flag}`);
   }
-  const changelog = await readFile(resolve("CHANGELOG.md"), "utf8");
+  const changelog = await read("CHANGELOG.md");
   // Unreleased, then the newest release: the entry moves under a version heading when it ships.
   const sections = changelog.split(/\n(?=## \[)/u);
   assert.ok(sections[0]?.includes("All notable changes"));
