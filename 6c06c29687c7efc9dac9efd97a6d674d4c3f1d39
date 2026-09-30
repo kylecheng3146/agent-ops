@@ -1,0 +1,8 @@
+worktree: batch-select (agent-ops/batch-select)
+session: 0305b7d5-c1ea-4f91-a53a-d7f0b8af5cd4
+agent-ops task task-d50e44e5-4a03-448b-973b-7b2599b593c9: batch: task selection, base rules, shared freshness check
+criteria:
+- select-tree: selectBatchTasks returns the parent's active subtasks in creation order followed by the parent itself, and leaves out archived, completed and other parents' tasks
+- select-errors: selectBatchTasks rejects an unknown parent with BATCH_PARENT_NOT_FOUND and a parent that is not active with BATCH_PARENT_NOT_ACTIVE
+- base-precedence: resolveBatchBase picks an explicit flag (--base for subtasks, --parent-base for the parent) over the task's recorded reviewBase over the worktree base, names which one it used, and throws BATCH_BASE_UNKNOWN when none exists
+- fresh-check-shared: hasFreshVerification is exported from the review command and is the check review preflight itself uses: true only with current PASS evidence for the fingerprint of the task base, false for missing, stale and failing evidence, and the existing review tests still pass
