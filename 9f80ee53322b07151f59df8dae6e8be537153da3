@@ -1,0 +1,9 @@
+worktree: batch-cli (agent-ops/batch-cli)
+session: 0305b7d5-c1ea-4f91-a53a-d7f0b8af5cd4
+agent-ops task task-dbfdd7f6-1a12-4670-a6fa-de85ac2d9ff3: batch: CLI command, wiring and envelope
+criteria:
+- batch-args: batch is a command: parseArgs accepts batch --parent <id> --yes with optional --base, --parent-base, --width <positive integer>, --json and --output, and rejects a missing --parent or --yes, a zero or non-integer width, repeated options and options that belong to other commands, while --parent-base and --width are refused on every other command and batch --help documents the command
+- batch-wiring: runBatchCommand selects the parent's tasks, resolves each base, skips verify for a task with fresh evidence, verifies the rest, and reviews each task against its own resolved base through runBatch at the requested width, which defaults to 2
+- batch-envelope: the result envelope is BATCH_RESULT, BATCH_FAILED or BATCH_NOT_RUN with a data.tasks entry per task holding id, base, verify, review status and reason, reused, retried and aborted, and the CLI exits 0, 1 or 2 for them, also when --output writes the envelope to a file
+- batch-guard: batch refuses to start on a dirty working tree, its guard reports a change when HEAD or the tree differs from the start, and an interrupt signal aborts the batch and exits 130 or 143
+- shared-review-wiring: review and batch build their review command options through one shared function, the review command behaves as before, and the existing review tests pass unchanged
