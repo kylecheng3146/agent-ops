@@ -4,6 +4,14 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- `agent-ops batch --parent <task-id> --yes` verifies and reviews a parent
+  task's active subtasks and the parent together. Verify runs one task at a
+  time and each review starts as soon as its own verify passes, up to `--width`
+  reviews at once (default 2). A transient `NOT_RUN` lowers the width to 1 and
+  earns one retry, each review target is probed once per batch, and a changed
+  HEAD or working tree aborts the batch. `init` and `update` pre-authorize it
+  beside `review`.
+
 ## [0.4.0] - 2026-09-30
 
 A worktree session can now run from development to `worktree finish` without a
