@@ -1,6 +1,9 @@
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
-import { sessionIdFromEnvironment } from "../../../../runtime/src/hooks/codex-loop.js";
+import {
+  resolveCommandSessionId,
+  sessionIdFromEnvironment
+} from "../../../../runtime/src/hooks/codex-loop.js";
 import {
   addWorktree,
   type WorktreeAddResult
@@ -11,6 +14,7 @@ import {
   type FinishResult
 } from "../../../../runtime/src/parallel/finish.js";
 import {
+  commitWorktree,
   idleWorktrees,
   listWorktrees,
   removeWorktree,
@@ -70,6 +74,18 @@ export async function runWorktreeCommand(options: {
   if (args.action === "list") {
     const worktrees = await listWorktrees(options.deps, options.cwd);
     return okEnvelope("WORKTREE_LIST", { worktrees, text: listText(worktrees, Date.now()) });
+  }
+  if (args.action === "commit") {
+    const committed = await commitWorktree(options.deps, {
+      cwd: options.cwd,
+      sessionId: args.sessionId ?? await resolveCommandSessionId(options.cwd),
+      message: args.worktreeMessage ?? ""
+    });
+    return okEnvelope("WORKTREE_COMMITTED", {
+      ...committed,
+      text: `Committed ${committed.commit} in ${committed.record.path}.\n` +
+        `Verify and review with --base ${committed.record.base} (or the commit before your first change), then finish from ${committed.record.mainRoot}.`
+    });
   }
   if (args.action === "resume") {
     const record = await resumeWorktree(options.deps, {

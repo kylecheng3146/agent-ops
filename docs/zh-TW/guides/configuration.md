@@ -192,6 +192,16 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   Stop 時補建。
 - 在 worktree 內，專案 config 一律取自主 checkout，因此分支無法在合併前改變判定
   它自己的 gate、verifier 或 trust；主 checkout 沒有 config 時才使用 worktree 自己的。
+- `agent-ops worktree commit --message <text>` 會暫存並 commit 目前 worktree 的
+  所有變更。Git 由 agent-ops 自己執行而非經過 shell，因此即使 host 無法證明某條
+  shell 指令停留在 worktree 內，session 仍能 commit；它會拒絕主 checkout、別的
+  session 擁有的 worktree、無法辨識的呼叫者，以及沒有變更的情況。它會暫存所有
+  Git 未忽略的檔案，所以請不要把雜檔留在 worktree 裡。
+- 在 auto 模式下，Claude 的 PreToolUse hook 也處理 `EnterWorktree`：切入恰好是
+  為呼叫 session 記錄的 worktree 時，不必經過 Claude Code 自己的確認即放行；其他
+  任何路徑一律拒絕（`WORKTREE_ENTER_DENIED`，並列出該 session 的 worktree）。請
+  執行一次 `agent-ops update`，讓 hook 的 matcher 包含 `EnterWorktree`；`doctor`
+  會把較舊的 matcher 回報為註冊漂移。
 - 在 worktree 裡對每個 task 執行 verify 與 review，但不要執行 `task complete`
   （Claude Code 在隔離的 worktree session 中會拒絕它）。`agent-ops worktree finish
   <name>` 會在任何 rebase 之前 complete worktree 內每個未封存的 task，先 subtask

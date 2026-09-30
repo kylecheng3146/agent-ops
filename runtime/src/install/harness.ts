@@ -201,9 +201,8 @@ function jsonHookRegistered(
   ) {
     return false;
   }
-  const events = Object.keys(
-    control.buildHooks(capabilities, "probe").hooks
-  );
+  const expected = control.buildHooks(capabilities, "probe").hooks;
+  const events = Object.keys(expected);
   if (events.length === 0) {
     return true;
   }
@@ -212,16 +211,24 @@ function jsonHookRegistered(
     return false;
   }
   const hooks = parsed.hooks;
+  const isManaged = control.isManagedHandler as (value: unknown) => boolean;
+  const ownsHandler = (group: unknown, matcher?: string): boolean =>
+    isRecord(group) &&
+    (matcher === undefined || group.matcher === matcher) &&
+    Array.isArray(group.hooks) &&
+    group.hooks.some(isManaged);
   return events.every((event) => {
     const groups = hooks[event];
+    // A matcher is part of the registration: one written before a tool was
+    // added to it still holds a managed handler, which never fires for that tool.
+    const matchers = [(expected as Record<string, unknown>)[event]]
+      .flat()
+      .filter(isRecord)
+      .flatMap((group) => typeof group.matcher === "string" ? [group.matcher] : []);
     return (
       Array.isArray(groups) &&
-      groups.some(
-        (group) =>
-          isRecord(group) &&
-          Array.isArray(group.hooks) &&
-          group.hooks.some(control.isManagedHandler as (value: unknown) => boolean)
-      )
+      groups.some((group) => ownsHandler(group)) &&
+      matchers.every((matcher) => groups.some((group) => ownsHandler(group, matcher)))
     );
   });
 }

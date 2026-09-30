@@ -221,6 +221,18 @@ evidence. Give each editing conversation its own worktree instead:
 - Inside a worktree the project config is the main checkout's, so a branch
   cannot change the gate, verifiers or trust that judge it before merging; a
   worktree of a repository whose main checkout has no config uses its own.
+- `agent-ops worktree commit --message <text>` stages and commits every change
+  in the current worktree. Git runs inside agent-ops, not the shell, so a host
+  that cannot prove a shell command stays inside the worktree still lets the
+  session commit; it refuses the main checkout, a worktree another session
+  owns, a caller it cannot identify and an empty change. It stages everything
+  Git does not ignore, so keep stray files out of the worktree.
+- In auto mode the Claude PreToolUse hook also handles `EnterWorktree`: a
+  switch into exactly a worktree recorded for the calling session is allowed
+  without Claude Code's own confirmation, and any other path is denied
+  (`WORKTREE_ENTER_DENIED`, naming the session's worktrees). Run `agent-ops
+  update` once so the hook's matcher includes `EnterWorktree`; `doctor`
+  reports an older matcher as registration drift.
 - In a worktree, verify and review each task but do not run `task complete`
   (Claude Code refuses it inside an isolated worktree session). `agent-ops
   worktree finish <name>` completes every non-archived task in the worktree,

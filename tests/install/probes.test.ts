@@ -10,6 +10,7 @@ import {
   smokeAvailabilityStatus
 } from "../../runtime/src/install/probes.js";
 import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
+import { CLAUDE_PRE_TOOL_MATCHER } from "../../runtime/src/adapters/claude/config.js";
 import { buildOpencodePlugin } from "../../runtime/src/adapters/opencode/config.js";
 import {
   HARNESS_IDS,
@@ -131,6 +132,35 @@ function hookConfig(
     securityExceptions: []
   };
 }
+
+test("a PreToolUse registration whose matcher lacks a tool the hook now handles counts as drift", () => {
+  const preToolUse = (matcher: string) => ({
+    hooks: {
+      PreToolUse: [{
+        matcher,
+        hooks: [{
+          type: "command",
+          command: "node",
+          args: ["/opt/agent-ops/hook-entry.js", "claude", "PreToolUse", "--managed-by=agent-ops"]
+        }]
+      }]
+    }
+  });
+  const config = {
+    ...hookConfig(["core", "guardrails"]),
+    features: { completionGate: { enabled: false }, stopVerification: { enabled: false } }
+  };
+  const drift = (matcher: string) => hookRegistrationDrift({
+    harness: ["claude"],
+    config,
+    sources: { claude: preToolUse(matcher) }
+  });
+
+  // Written by a version before EnterWorktree was handled: the managed
+  // handler is present and never fires for that tool.
+  assert.deepEqual(drift("Bash|Edit|MultiEdit|NotebookEdit|Write"), ["claude"]);
+  assert.deepEqual(drift(CLAUDE_PRE_TOOL_MATCHER), []);
+});
 
 test("core-only installations have no hooks to register", () => {
   assert.equal(
