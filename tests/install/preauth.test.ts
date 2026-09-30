@@ -59,7 +59,7 @@ test("the managed entries are merged in beside the user's own and leave the rest
 test("nothing that only the user may approve is pre-authorized", () => {
   for (const entry of CLAUDE_PREAUTH_ALLOW) {
     assert.doesNotMatch(entry, /trust|allow-stop|init|update|uninstall|config/u, entry);
-    assert.match(entry, /^Bash\(agent-ops (task|verify|review|worktree|doctor) \*\)$/u, entry);
+    assert.match(entry, /^Bash\(agent-ops (task|verify|review|batch|worktree|doctor) \*\)$/u, entry);
   }
 });
 
@@ -72,6 +72,43 @@ test("removal strips exactly the managed entries, and removes a file that held n
   assert.deepEqual(planClaudeLocalSettings(only, false), { content: null });
   assert.equal(planClaudeLocalSettings(null, false), undefined);
   assert.equal(planClaudeLocalSettings(JSON.stringify(USER_SETTINGS), false), undefined);
+});
+
+test("update-adds-batch: an install holding the old review-only entries gains the batch entries once", async () => {
+  const oldAllow = ["Bash(agent-ops task *)", "Bash(agent-ops verify *)", "Bash(agent-ops review *)", "Bash(agent-ops worktree *)", "Bash(agent-ops doctor *)"];
+  const old = {
+    permissions: { allow: ["Bash(npm test *)", ...oldAllow], deny: ["Bash(rm -rf *)"] },
+    sandbox: { enabled: true, excludedCommands: ["docker", "agent-ops review", "agent-ops review *"] }
+  };
+  const planned = planClaudeLocalSettings(JSON.stringify(old), true);
+  assert.notEqual(planned, undefined);
+  const settings = JSON.parse(planned?.content ?? "") as typeof old;
+  for (const entry of ["Bash(agent-ops batch *)"]) {
+    assert.equal(settings.permissions.allow.filter((value) => value === entry).length, 1, entry);
+  }
+  for (const entry of ["agent-ops batch", "agent-ops batch *"]) {
+    assert.equal(settings.sandbox.excludedCommands.filter((value) => value === entry).length, 1, entry);
+  }
+  assert.ok(settings.permissions.allow.includes("Bash(npm test *)"));
+  assert.ok(settings.sandbox.excludedCommands.includes("docker"));
+  assert.deepEqual(settings.permissions.deny, ["Bash(rm -rf *)"]);
+  assert.equal(new Set(settings.permissions.allow).size, settings.permissions.allow.length);
+  assert.equal(new Set(settings.sandbox.excludedCommands).size, settings.sandbox.excludedCommands.length);
+  assert.equal(planClaudeLocalSettings(planned?.content ?? null, true), undefined, "a second update changes nothing");
+
+  // A rules file agent-ops wrote before batch existed is regenerated, then left alone.
+  const { root, codexHome } = await scratch();
+  try {
+    const path = join(codexHome, CODEX_RULES_PATH);
+    await writeFile(path, `${CODEX_RULES_MARKER}\n# stale: review only\n`);
+    const change = await planPreauth({ root, scope: "project", harness: ["codex"], desired: true, codexHome });
+    assert.equal(change.length, 1);
+    await applyPreauth(change);
+    assert.equal(await readFile(path, "utf8"), CODEX_RULES_CONTENT);
+    assert.deepEqual(await planPreauth({ root, scope: "project", harness: ["codex"], desired: true, codexHome }), []);
+  } finally {
+    await rm(join(root, ".."), { recursive: true, force: true });
+  }
 });
 
 test("settings that cannot be merged safely are refused, not rewritten", () => {
@@ -132,9 +169,12 @@ test("Codex rules are written once, only when Codex's home is named, and never o
   }
 });
 
-test("the rules cover the shapes AGENTS.md runs, and only review and the auth probe", async (t) => {
+test("the rules cover the shapes AGENTS.md runs, and only review, batch and the auth probe", async (t) => {
   assert.ok(CODEX_RULES_CONTENT.startsWith(CODEX_RULES_MARKER));
-  assert.equal(CODEX_RULES_CONTENT.match(/^prefix_rule\(/gmu)?.length, 4);
+  assert.equal(CODEX_RULES_CONTENT.match(/^prefix_rule\(/gmu)?.length, 6);
+  // batch, like review, is allowed with and without AGENT_OPS_HOST.
+  assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "batch"\]/gu)?.length, 2);
+  assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "review"\]/gu)?.length, 2);
   assert.match(CODEX_RULES_CONTENT, /"AGENT_OPS_HOST=codex", "AGENT_OPS_HOST=claude", "AGENT_OPS_HOST=agy"/u);
   assert.doesNotMatch(CODEX_RULES_CONTENT.replace(/not_match = .*/gu, ""), /trust|allow-stop|complete/u);
 
@@ -156,6 +196,8 @@ test("the rules cover the shapes AGENTS.md runs, and only review and the auth pr
     const prefix = ["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED"];
     assert.equal((await check(...prefix, "AGENT_OPS_HOST=codex", "agent-ops", "review", "--task", "task-1", "--yes", "--output", "/tmp/r.json")).decision, "allow");
     assert.equal((await check(...prefix, "agent-ops", "doctor", "--check-auth", "--json")).decision, "allow");
+    assert.equal((await check(...prefix, "AGENT_OPS_HOST=claude", "agent-ops", "batch", "--parent", "task-1", "--yes", "--output", "/tmp/b.json")).decision, "allow");
+    assert.equal((await check(...prefix, "agent-ops", "batch", "--parent", "task-1", "--yes")).decision, "allow");
     assert.equal((await check(...prefix, "AGENT_OPS_HOST=codex", "agent-ops", "trust", "grant", "--scope", "project", "--yes")).decision, undefined);
   } finally {
     await rm(join(root, ".."), { recursive: true, force: true });

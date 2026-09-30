@@ -210,13 +210,27 @@ export function buildTargetInvocation(
 }
 
 /** A deep doctor probe uses stdin but keeps its simple text response contract. */
+/**
+ * What the probe runs with where it differs from a review. The probe asks for
+ * one word, not a review, and agy's plan mode tells the model to research the
+ * task first: on a real project it explores, runs a command the headless user
+ * never allowed, is soft-denied, and prints nothing, which reads as
+ * `probe-failed`. In 40 replays, plan mode failed 4 of 20 and without it all 20
+ * answered in exactly two model calls. Only the probe drops it; a review keeps
+ * `READ_ONLY_ARGS`, and the sandbox stays on for both.
+ */
+const PROBE_ARGS: Readonly<Partial<Record<ReviewTargetId, readonly string[]>>> = {
+  agy: ["--sandbox"]
+};
+
 export function buildProbeInvocation(
   request: TargetInvocationRequest
 ): TargetInvocation | undefined {
-  const readOnly = READ_ONLY_ARGS[request.target] as readonly string[] | undefined;
-  if (readOnly === undefined || readOnly.length === 0) {
+  const eligible = READ_ONLY_ARGS[request.target] as readonly string[] | undefined;
+  if (eligible === undefined || eligible.length === 0) {
     return undefined;
   }
+  const readOnly = PROBE_ARGS[request.target] ?? eligible;
   if (request.target === "codex") {
     return {
       command: "codex",

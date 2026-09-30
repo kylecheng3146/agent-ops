@@ -242,6 +242,20 @@ test("managed rules tell each harness how to delegate a subtask", () => {
   );
 });
 
+test("managed rules tell every harness how to run a batch review", () => {
+  for (const id of ["claude", "codex", "agy", "opencode"] as const) {
+    const content = managedRules(harnessDescriptor(id), {
+      scope: "project",
+      profiles: ["core"],
+      capabilities: ["rules", "task"]
+    }).replace(/\s+/gu, " ");
+    assert.match(content, /run `agent-ops batch --parent <task-id> --yes` instead of one review per subtask/u, id);
+    assert.match(content, /start it through the trusted outer host runner as its first and only invocation, with the same Codex elevation/u, id);
+    assert.match(content, /keep `--output <file>` instead of a shell redirect/u, id);
+    assert.match(content, /Do not commit or edit the worktree while it runs: a moved HEAD voids every verify and review in the batch/u, id);
+  }
+});
+
 test("managed rules route parallel conversations through their own worktree", () => {
   const content = managedRules(harnessDescriptor("claude"), {
     scope: "project",

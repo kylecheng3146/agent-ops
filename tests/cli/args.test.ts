@@ -44,6 +44,7 @@ test("recognizes every top-level command", () => {
     "task",
     "verify",
     "review",
+    "batch",
     "allow-stop",
     "worktree"
   ]);
@@ -56,6 +57,8 @@ test("recognizes every top-level command", () => {
           ? [command, "--session", "session-one"]
           : command === "review"
             ? [command, "--task", "task-one", "--yes"]
+          : command === "batch"
+            ? [command, "--parent", "task-one", "--yes"]
           : command === "worktree"
             ? [command, "add", "alpha"]
           : [command];

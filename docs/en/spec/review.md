@@ -125,3 +125,73 @@ FAIL.
 - Evidence: The result reason distinguishes a protocol violation from a verdict.
 - Positive: `NOT_RUN: unparseable-output; one criterion was missing.`
 - Negative: `Record a failed review because the model's JSON was malformed.`
+
+## REVIEW-BATCH-001
+
+A batch review MUST cover exactly the active subtasks of the named parent and the parent itself.
+
+- Trigger: Running `batch --parent <task-id>`.
+- Action: Select the parent's active subtasks in creation order, then the parent. Leave out archived and completed tasks and tasks under another parent. Reject an unknown parent with `BATCH_PARENT_NOT_FOUND` and an inactive one with `BATCH_PARENT_NOT_ACTIVE`.
+- Evidence: `data.tasks` lists exactly those task ids, in that order.
+- Positive: `Two active subtasks and the parent are covered; the archived subtask is not.`
+- Negative: `Cover every task in the worktree whatever its parent.`
+
+## REVIEW-BATCH-002
+
+Each task's base MUST come from an explicit flag, then its recorded review base, then the worktree base.
+
+- Trigger: Resolving the range a batch task is verified and reviewed against.
+- Action: Use `--base` for subtasks and `--parent-base` for the parent; otherwise the task's recorded `reviewBase`; otherwise the worktree base. Report `BATCH_BASE_UNKNOWN` when none exists.
+- Evidence: `data.tasks[].base` names the base each task used.
+- Positive: `A rerun reuses each PASSed task's recorded base, so its fingerprint and attestation still match.`
+- Negative: `Apply --base to the parent, or fall back to HEAD when no base is known.`
+
+## REVIEW-BATCH-003
+
+Verification MUST run one task at a time, each task's review MUST start as soon as its own verification passes, and no more than `--width` reviews (default 2) MUST run at once.
+
+- Trigger: Tasks in a batch need verification and review.
+- Action: Skip verification for a task that already holds fresh PASS evidence, using the same check review preflight makes. Verify the rest serially. Start a task's review right after its verification passes. Give a task whose verification fails no review, and continue with the others.
+- Evidence: `data.tasks[].verify` is `skipped`, `PASS` or `FAIL`, and a task that failed verification has no review.
+- Positive: `Task B is verified while task A is being reviewed.`
+- Negative: `Run every task's test suite at once.`
+
+## REVIEW-BATCH-004
+
+A transient NOT_RUN MUST lower the review width to 1 for the rest of the batch and earn exactly one retry, and every other result MUST be final.
+
+- Trigger: A review in a batch returns NOT_RUN.
+- Action: When the reason is `probe-failed`, `stalled`, `timeout`, `quota-exhausted` or `network-unreachable`, set the width to 1 for every review not yet started and retry that task once, alone, after the rest have finished. Never retry another reason, never retry twice, and never raise the width again.
+- Evidence: `review.retried` is true for a retried task, and a second transient NOT_RUN stays NOT_RUN.
+- Positive: `probe-failed on task A drops the width to 1, and A runs once more after the others.`
+- Negative: `Retry host-sandboxed until it passes.`
+
+## REVIEW-BATCH-005
+
+A batch MUST stop when the source it started on changes or the process is interrupted.
+
+- Trigger: HEAD or the working tree differs from the start of the batch, or the process receives SIGINT or SIGTERM.
+- Action: Require a clean working tree before starting and check HEAD and the tree before every step. On a change, abort the reviews in flight, start nothing new, and report each unfinished task as `aborted`. A signal exits 130 or 143.
+- Evidence: `data.tasks[].aborted` is true for every task that did not finish.
+- Positive: `A commit during the batch aborts it and the unfinished tasks say aborted.`
+- Negative: `Let in-flight reviews finish against a HEAD that no longer matches.`
+
+## REVIEW-BATCH-006
+
+A batch MUST probe each review target at most once while the probe succeeds and MUST NOT cache a failed probe.
+
+- Trigger: Reviews in a batch need target preflight.
+- Action: Share the probe in flight between concurrent reviews and keep a successful answer for the rest of the batch. Forget a failed answer, so the retry of a task probes again.
+- Evidence: A batch of several reviews makes one probe per target, and a retry after a failure makes a new one.
+- Positive: `Five reviews share one successful agy probe.`
+- Negative: `Cache probe-failed and refuse every remaining task.`
+
+## REVIEW-BATCH-007
+
+A batch result MUST report every task's outcome and MUST exit 0 only when every task passed.
+
+- Trigger: A batch ends.
+- Action: Return `BATCH_RESULT`, `BATCH_FAILED` or `BATCH_NOT_RUN` with `data.tasks[]` holding each task's id, base, verify status, review status and reason, `reused`, `retried` and `aborted`, without the full reports, which stay under `.agent-ops/reviews/`. Exit 0 when every task passed, 1 when any review or verification failed, and 2 otherwise. `batch` is started like `review`: it needs `--yes` and trust, and REVIEW-HOST-001 applies to it.
+- Evidence: The envelope code and the exit code agree with the per-task outcomes.
+- Positive: `One FAIL and one NOT_RUN exit 1, so the defect is handled first.`
+- Negative: `Exit 0 while a task is still NOT_RUN.`

@@ -87,7 +87,24 @@ export async function probeReviewTarget(
   return (await probeReviewTargetDetailed(target, options)).result;
 }
 
+/**
+ * A deep probe is one model call, and a model call can fail for reasons that
+ * say nothing about the install. `probe-failed` is the answer for "it did not
+ * work and did not say why", so it gets one more try; every other answer is
+ * specific (not logged in, no network, timed out, not installed) and repeating
+ * it would only spend more of the budget on the same result.
+ */
 export async function probeReviewTargetDetailed(
+  target: ReviewTargetId,
+  options: ReviewTargetProbeOptions
+): Promise<ReviewTargetProbeOutcome> {
+  const first = await probeOnce(target, options);
+  return options.deep === true && first.result === "probe-failed"
+    ? await probeOnce(target, options)
+    : first;
+}
+
+async function probeOnce(
   target: ReviewTargetId,
   options: ReviewTargetProbeOptions
 ): Promise<ReviewTargetProbeOutcome> {

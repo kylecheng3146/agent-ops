@@ -21,6 +21,7 @@ export const COMMAND_NAMES = [
   "task",
   "verify",
   "review",
+  "batch",
   "allow-stop",
   "worktree"
 ] as const;
@@ -74,6 +75,10 @@ export interface ParsedArgs {
   evidence?: string[];
   sessionId?: string;
   base?: string;
+  /** batch: the base for the parent task; `base` applies to its subtasks. */
+  parentBase?: string;
+  /** batch: how many reviews may run at once. */
+  width?: number;
   dryRun: boolean;
   json: boolean;
   yes: boolean;
@@ -178,6 +183,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let title: string | undefined;
   let sessionId: string | undefined;
   let base: string | undefined;
+  let parentBase: string | undefined;
+  let width: number | undefined;
   const profiles: Profile[] = [];
   const reviewTargets: ReviewTargetId[] = [];
   const criteria: string[] = [];
@@ -316,6 +323,26 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           duplicate(token);
         }
         base = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--parent-base": {
+        if (parentBase !== undefined) {
+          duplicate(token);
+        }
+        parentBase = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--width": {
+        if (width !== undefined) {
+          duplicate(token);
+        }
+        const value = readOptionValue(argv, index, token);
+        if (!/^[1-9][0-9]{0,2}$/u.test(value)) {
+          invalidValue(token, value);
+        }
+        width = Number(value);
         index += 1;
         break;
       }
@@ -559,6 +586,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       completionGate !== undefined ||
       sessionId !== undefined ||
       base !== undefined ||
+      parentBase !== undefined ||
+      width !== undefined ||
       checkAuth ||
       checkAuthTargets.length > 0 ||
       dryRun ||
@@ -642,10 +671,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Task target options may be used only with task or verify."
     );
   }
-  if (command !== "task" && parentTaskId !== undefined) {
+  if (command !== "task" && command !== "batch" && parentTaskId !== undefined) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "--parent may be used only with task create or task status."
+      "--parent may be used only with task create, task status or batch."
     );
   }
   if (command !== "update" && targetVersion !== undefined) {
@@ -655,10 +684,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     );
   }
   if (base !== undefined && command !== "verify" && command !== "review" &&
-    !(command === "task" && action === "complete")) {
+    command !== "batch" && !(command === "task" && action === "complete")) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "--base may be used only with verify, review or task complete."
+      "--base may be used only with verify, review, batch or task complete."
+    );
+  }
+  if ((parentBase !== undefined || width !== undefined) && command !== "batch") {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      `${parentBase !== undefined ? "--parent-base" : "--width"} may be used only with batch.`
     );
   }
   if (
@@ -806,6 +841,27 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Complete review covers every task criterion; omit --criterion and --evidence."
     );
   }
+  if (command === "batch" && parentTaskId === undefined) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Batch requires --parent to name the task whose subtasks it covers."
+    );
+  }
+  if (command === "batch" && !yes) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Batch requires --yes to authorize the reviewer sessions."
+    );
+  }
+  if (
+    command === "batch" &&
+    (harness !== undefined || profiles.length > 0 || dryRun || rerun)
+  ) {
+    throw new CliArgumentError(
+      "CLI_OPTION_NOT_ALLOWED",
+      "Batch accepts parent, base, parent-base, width, json, output and yes options."
+    );
+  }
   if (
     command === "allow-stop" &&
     (sessionId === undefined ||
@@ -840,10 +896,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "worktree accepts only a name, --session, --from, --target-branch, --message and --json."
     );
   }
-  if (output !== undefined && command !== "review" && command !== "doctor") {
+  if (output !== undefined && command !== "review" && command !== "batch" && command !== "doctor") {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "--output may be used only with review or doctor.",
+      "--output may be used only with review, batch or doctor.",
       "--output"
     );
   }
@@ -903,6 +959,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(evidence.length === 0 ? {} : { evidence }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(base === undefined ? {} : { base }),
+    ...(parentBase === undefined ? {} : { parentBase }),
+    ...(width === undefined ? {} : { width }),
     ...(worktreeFrom === undefined ? {} : { worktreeFrom }),
     ...(worktreeMessage === undefined ? {} : { worktreeMessage }),
     ...(output === undefined ? {} : { output }),

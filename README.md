@@ -345,6 +345,41 @@ agent-ops doctor              # presence only: no tokens, no network
 agent-ops doctor --check-auth # one real print call per configured target
 ```
 
+### Batch review
+
+A change split into subtasks needs one verify and one review per subtask.
+`agent-ops batch --parent <task-id> --yes` runs them together for the parent's
+active subtasks and the parent itself, instead of one `review` at a time:
+
+```bash
+agent-ops batch --parent <task-id> --yes --output batch.json
+agent-ops batch --parent <task-id> --yes --base <ref> --parent-base <ref> --width 3
+```
+
+- Each task is verified and reviewed against its own base: `--base` for the
+  subtasks and `--parent-base` for the parent, otherwise the base recorded by
+  its last PASS review, otherwise the worktree base.
+- A task that already has fresh PASS verification evidence skips verify. The
+  rest are verified one at a time, and each task's review starts as soon as its
+  own verify passes, so the next verify overlaps it. A task whose verify fails
+  gets no review; the others continue.
+- At most `--width` reviews run at once (default 2). A transient `NOT_RUN`
+  (`probe-failed`, `stalled`, `timeout`, `quota-exhausted`,
+  `network-unreachable`) lowers the width to 1 for the rest and earns that task
+  one retry, alone, after the others finish. Other results are final.
+- Each review target is probed once per batch while the probe succeeds; a
+  failed probe is forgotten so the retry probes again.
+- Nothing may commit or edit the worktree while it runs. HEAD is part of every
+  fingerprint, so a change aborts the batch and reports the unfinished tasks
+  as `aborted`.
+- Exit code 0 means every task passed, 1 means a review or verify failed, and 2
+  means the rest could not run and may be retried. The JSON envelope lists each
+  task; the full reports stay under `.agent-ops/reviews/`.
+
+`batch` is started exactly like `review`: through the trusted outer host runner
+as its first and only invocation, with `--output` instead of a shell redirect.
+`agent-ops init` and `update` pre-authorize it beside `review`.
+
 See [Configuration](docs/en/guides/configuration.md) for the full contract.
 
 ## Project principles

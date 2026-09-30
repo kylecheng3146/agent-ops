@@ -145,6 +145,21 @@ test("agy uses sandboxed plan mode without bypassing permissions", () => {
   );
 });
 
+test("probe-no-plan: only the agy probe drops plan mode, and the review invocation keeps it", () => {
+  const review = buildTargetInvocation({ target: "agy", prompt: PROMPT })?.args ?? [];
+  assert.deepEqual(review.slice(review.indexOf("--sandbox"), review.indexOf("--sandbox") + 3), ["--sandbox", "--mode", "plan"]);
+
+  const probe = buildProbeInvocation({ target: "agy", prompt: PROMPT })?.args ?? [];
+  assert.ok(probe.includes("--sandbox"));
+  assert.ok(!probe.includes("--mode") && !probe.includes("plan"));
+
+  // claude and codex probes are untouched.
+  const claude = buildProbeInvocation({ target: "claude", prompt: PROMPT })?.args ?? [];
+  assert.deepEqual(claude.slice(claude.indexOf("--permission-mode")), ["--permission-mode", "plan"]);
+  const codex = buildProbeInvocation({ target: "codex", prompt: PROMPT })?.args ?? [];
+  assert.deepEqual(codex.slice(codex.indexOf("-s")), ["-s", "read-only"]);
+});
+
 test("the schema handed to a reviewer drops its meta-schema declaration", () => {
   const args = argsFor("agy");
   const schema = args[args.indexOf("--json-schema") + 1] ?? "";
