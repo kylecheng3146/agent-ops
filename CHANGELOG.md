@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-30
+
 - `agent-ops batch --parent <task-id> --yes` verifies and reviews a parent
   task's active subtasks and the parent together. Verify runs one task at a
   time and each review starts as soon as its own verify passes, up to `--width`
@@ -11,6 +13,16 @@ All notable changes to the project are documented here.
   earns one retry, each review target is probed once per batch, and a changed
   HEAD or working tree aborts the batch. `init` and `update` pre-authorize it
   beside `review`.
+- Fix: the agy review preflight failed intermittently as `probe-failed`. The
+  probe ran agy in sandboxed plan mode, which tells the model to research
+  before answering, so on a real project it explored, ran a command the
+  headless user had not allowed, and was soft-denied with no output. In 40
+  replays plan mode failed 4 of 20 probes and without it all 20 answered in
+  two model calls, so the probe now runs with `--sandbox` alone. A review
+  still runs in sandboxed plan mode. A `probe-failed` probe is also retried
+  once; every specific answer (not logged in, no network, timeout) is not.
+- Fix: the command registry is built from the parser's command list, so a
+  command the parser accepts can no longer answer `CLI_COMMAND_UNAVAILABLE`.
 
 ## [0.4.0] - 2026-09-30
 

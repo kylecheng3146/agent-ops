@@ -40,9 +40,9 @@ test("readme-changelog: the README and the changelog announce the batch command"
     assert.ok(readme.includes(`\`${flag}\``) || readme.includes(` ${flag} `), `README does not mention ${flag}`);
   }
   const changelog = await readFile(resolve("CHANGELOG.md"), "utf8");
-  const unreleased = changelog.slice(
-    changelog.indexOf("## [Unreleased]"),
-    changelog.indexOf("\n## [", changelog.indexOf("## [Unreleased]") + 1)
-  );
-  assert.match(unreleased, /agent-ops batch --parent/u);
+  // Unreleased, then the newest release: the entry moves under a version heading when it ships.
+  const sections = changelog.split(/\n(?=## \[)/u);
+  assert.ok(sections[0]?.includes("All notable changes"));
+  assert.ok(sections[1]?.startsWith("## [Unreleased]"));
+  assert.match(`${sections[1]}\n${sections[2] ?? ""}`, /agent-ops batch --parent/u);
 });
