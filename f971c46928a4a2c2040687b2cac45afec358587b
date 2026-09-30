@@ -1,0 +1,7 @@
+worktree: probe-fix (agent-ops/probe-fix)
+session: 0305b7d5-c1ea-4f91-a53a-d7f0b8af5cd4
+agent-ops task task-f8bc534f-163d-487b-a9b1-bc69a4b44aa1: review probe: no plan mode for agy, one retry on probe-failed
+criteria:
+- probe-no-plan: the deep agy probe runs agy with --sandbox and without --mode plan, while the agy review invocation still carries --sandbox --mode plan and the claude and codex probe arguments are unchanged
+- probe-retry-once: a deep probe that returns probe-failed is run once more and its second answer is final, an ok on the second run is ok, and unauthenticated, network-unreachable, timeout, capability-unavailable, missing-executable and ok are never retried
+- probe-fails-closed: two probe-failed answers still report probe-failed with the target's quoted diagnostic, and a shallow probe is never retried
