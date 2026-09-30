@@ -1,0 +1,9 @@
+worktree: session-0305b7d5 (agent-ops/session-0305b7d5)
+session: 0305b7d5-c1ea-4f91-a53a-d7f0b8af5cd4
+agent-ops task task-28abb1c9-03ad-4199-bb61-189c6e4f66fc: batch: scheduler core (pool, degrade, retry, abort, preflight memo)
+criteria:
+- width-cap: runBatch never runs more review jobs at once than the configured width, and starts the next queued review as soon as a slot frees
+- verify-serial-pipeline: verify steps never overlap each other, a review starts right after its own task verify passes, and a task whose verify fails gets no review while the others continue
+- degrade-retry: a transient NOT_RUN reason (probe-failed, stalled, timeout, quota-exhausted, network-unreachable) lowers width to 1 for unstarted reviews and retries that task exactly once alone after the rest finish; any other reason is never retried and width never rises again
+- guard-abort: when the guard reports a changed HEAD or tree, in-flight reviews are aborted through their signal, no new step starts, and every unfinished task is reported as aborted
+- preflight-memo: memoizePreflight shares one in-flight probe per target, caches only ok results, and probes again after a failure
