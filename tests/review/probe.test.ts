@@ -82,7 +82,7 @@ test("deep Codex probes preserve login while ignoring user config", async () => 
   }
 });
 
-test("deep Agy probe binds the prompt and keeps sandboxed plan mode", async () => {
+test("probe-no-plan: the deep Agy probe binds the prompt and runs sandboxed without plan mode", async () => {
   const requests: ProcessRequest[] = [];
   const runner: VerificationProcessRunner = {
     start(value) {
@@ -105,8 +105,11 @@ test("deep Agy probe binds the prompt and keeps sandboxed plan mode", async () =
     "-p",
     "Reply with the single word OK and nothing else."
   ]);
-  for (const flag of ["--sandbox", "--mode", "plan"]) {
-    assert.ok(request?.args.includes(flag), `missing ${flag}`);
+  assert.ok(request?.args.includes("--sandbox"), "the sandbox stays on");
+  // Plan mode tells the model to research first, so on a real project the
+  // one-word probe wandered into a command the user never allowed.
+  for (const flag of ["--mode", "plan"]) {
+    assert.ok(!request?.args.includes(flag), `the probe must not pass ${flag}`);
   }
   assert.ok(request?.args.includes("--log-file"));
   assert.equal(request?.stdin, "");
@@ -352,4 +355,67 @@ test("the probe ceiling survives a caller handing it the whole chain budget", ()
     "a hung probe must still stop at two minutes"
   );
   assert.equal(probeTimeoutMs(0), 1, "a spent budget still leaves a real timeout");
+});
+
+function sequenceRunner(outcomes: ReadonlyArray<{ readonly exitCode: number; readonly stdout?: string; readonly stderr?: string }>): {
+  readonly runner: VerificationProcessRunner;
+  readonly calls: () => number;
+} {
+  let calls = 0;
+  return {
+    calls: () => calls,
+    runner: {
+      start(): RunningVerificationProcess {
+        const outcome = outcomes[Math.min(calls, outcomes.length - 1)]!;
+        calls += 1;
+        return {
+          pid: 1,
+          stdout: bytes(outcome.stdout ?? ""),
+          stderr: bytes(outcome.stderr ?? ""),
+          completion: Promise.resolve({ exitCode: outcome.exitCode, signal: null }),
+          terminateTree: async () => {}
+        };
+      }
+    }
+  };
+}
+
+const DEEP = { cwd: "/project", deep: true, reachable: async () => true } as const;
+
+test("probe-retry-once: probe-failed is run once more, and the second answer is final", async () => {
+  const recovered = sequenceRunner([{ exitCode: 1, stderr: "something odd" }, { exitCode: 0, stdout: '{"result":"OK"}' }]);
+  assert.equal(await probeReviewTarget("claude", { ...DEEP, runner: recovered.runner }), "ok");
+  assert.equal(recovered.calls(), 2);
+
+  const stillFailing = sequenceRunner([{ exitCode: 1, stderr: "first oddity" }, { exitCode: 1, stderr: "second oddity" }]);
+  assert.deepEqual(
+    await probeReviewTargetDetailed("claude", { ...DEEP, runner: stillFailing.runner }),
+    { result: "probe-failed", diagnostic: "second oddity" }
+  );
+  assert.equal(stillFailing.calls(), 2, "never a third attempt");
+});
+
+test("probe-retry-once: a specific answer is never retried", async () => {
+  const cases: ReadonlyArray<readonly [string, { readonly exitCode: number; readonly stdout?: string; readonly stderr?: string }, string]> = [
+    ["ok", { exitCode: 0, stdout: '{"result":"OK"}' }, "ok"],
+    ["unauthenticated", { exitCode: 1, stderr: "Error: not logged in" }, "unauthenticated"],
+    ["network-unreachable", { exitCode: 1, stderr: "TypeError: fetch failed" }, "network-unreachable"],
+    ["capability-unavailable", { exitCode: 1, stderr: "listen: operation not permitted" }, "capability-unavailable"]
+  ];
+  for (const [name, outcome, expected] of cases) {
+    const counted = sequenceRunner([outcome]);
+    assert.equal(await probeReviewTarget("claude", { ...DEEP, runner: counted.runner }), expected, name);
+    assert.equal(counted.calls(), 1, `${name} is not retried`);
+  }
+});
+
+test("probe-fails-closed: a shallow probe is never retried and a double failure keeps its quote", async () => {
+  const shallow = sequenceRunner([{ exitCode: 1, stderr: "boom" }, { exitCode: 0 }]);
+  assert.equal(await probeReviewTarget("claude", { cwd: "/project", runner: shallow.runner }), "probe-failed");
+  assert.equal(shallow.calls(), 1);
+
+  const twice = sequenceRunner([{ exitCode: 1, stderr: "oddity one" }, { exitCode: 1, stderr: "oddity two" }]);
+  const outcome = await probeReviewTargetDetailed("claude", { ...DEEP, runner: twice.runner });
+  assert.equal(outcome.result, "probe-failed");
+  assert.equal(outcome.diagnostic, "oddity two");
 });
