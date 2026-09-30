@@ -4,6 +4,69 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
+A worktree session can now run from development to `worktree finish` without a
+prompt for anything that does not affect security.
+
+- Fix: a review preflight that failed for any reason other than a network or
+  permission error was reported as `login-required`, and the target's own
+  output was dropped, so a CLI that could not run read as "not logged in" with
+  nothing to diagnose from. Only output with login wording is `login-required`
+  now; anything else is the new `probe-failed`. The preflight record and
+  `doctor` quote the target's first redacted line (agy writes its errors to a
+  log file, so its last log line when stderr is empty) and no longer advise a
+  login.
+- Each session knows who it is. A command resolves its session from
+  `--session`, then `AGENT_OPS_SESSION_ID`, then `CODEX_THREAD_ID`, then the id
+  a SessionStart recorded for the checkout. Claude Code's SessionStart appends
+  `AGENT_OPS_SESSION_ID` to its `CLAUDE_ENV_FILE`. A different session starting
+  in the same checkout within fifteen minutes contests the recorded id, and
+  `task create`, `attach` and `status` fail with `SESSION_ID_AMBIGUOUS` rather
+  than act as the wrong session. This is what let a second conversation adopt
+  the first one's worktree and task.
+- A write into a worktree another session owns is denied
+  (`WORKTREE_OWNED_BY_OTHER_SESSION`) and names the session's own worktree.
+  `worktree finish` says a task another session left behind is not this
+  session's to archive.
+- A session with no completion-gate baseline gets one at its first tool call,
+  never at Stop, and the Stop recovery text no longer sends Claude Code or
+  Codex to `PreInvocation`, which only agy has.
+- Inside a worktree the project config is the main checkout's, so a branch
+  cannot change the gate, verifiers or trust that judge it before it merges,
+  and a missing or stale copy of the gitignored file can no longer read as
+  `COMPLETION_GATE_CONFIG_DISABLED`.
+- New `agent-ops worktree commit --message <text>` stages and commits
+  everything in the calling session's own worktree. Git runs inside agent-ops,
+  not the shell, so a host that cannot prove a shell command stays inside the
+  worktree still lets the session commit. It refuses the main checkout, another
+  session's worktree, a caller it cannot identify and an empty change.
+- In auto mode the Claude PreToolUse hook handles `EnterWorktree`: a switch
+  into exactly a worktree recorded for the calling session is allowed without
+  Claude Code's own confirmation, any other path is denied. `doctor` reports a
+  hook matcher written before this as registration drift, so run
+  `agent-ops update` once.
+- With `worktree.mode` auto, `init` and `update` also pre-authorize what a
+  session runs itself, listed in the plan before you confirm: in
+  `.claude/settings.local.json`, `permissions.allow` for `agent-ops task`,
+  `verify`, `review`, `worktree` and `doctor` and `sandbox.excludedCommands`
+  for `agent-ops review` (your other entries are kept and the plan describes
+  the file instead of printing it); and, when Codex's home (`CODEX_HOME`, else
+  `~/.codex`) exists, `rules/agent-ops.rules` with allow rules for
+  `agent-ops review` and `doctor --check-auth`, with and without
+  `AGENT_OPS_HOST=`. `trust`, `allow-stop`, `init`, `update` and `uninstall` are
+  never pre-authorized. Turning auto mode off, or `uninstall`, removes exactly
+  those entries.
+- `review` and `doctor` take `--output <file>`: the JSON envelope is written
+  there (mode 0600) and one summary line is printed, so no shell redirect is
+  needed. Codex wraps a redirect in `zsh -lc` and can only allow it by
+  matching the whole command string, task id included, which is why every
+  review asked again. The managed rules now tell agents to use it.
+- `WORKTREE_SETUP_UNTRUSTED` and the `doctor` trust results explain that trust
+  is bound to the config hash, so a hand edit of `.agent-ops/config.json` costs
+  it, and name the one grant: `agent-ops update`, which lists the commands it
+  will trust and asks once.
+
 ## [0.3.7] - 2026-09-30
 
 - Fix: a host sandbox that withholds the network made an authenticated review

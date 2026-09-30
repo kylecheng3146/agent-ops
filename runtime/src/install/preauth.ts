@@ -81,14 +81,14 @@ export const CODEX_RULES_CONTENT = `${[
         withHost,
         command: ["review"],
         justification: "agent-ops review needs network and loopback outside the sandbox.",
-        match: `${env} review --task task-x --yes --output /tmp/review.json`,
+        match: `${env} review --task task-x --yes --output review.json`,
         notMatch: `${env} trust grant --scope project --yes`
       }),
       rule({
         withHost,
         command: ["doctor", "--check-auth"],
         justification: "agent-ops doctor --check-auth probes review targets, which needs the network outside the sandbox.",
-        match: `${env} doctor --check-auth --json --output /tmp/doctor.json`,
+        match: `${env} doctor --check-auth --json --output doctor.json`,
         notMatch: `${env} doctor --scope user`
       })
     ];
