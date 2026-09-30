@@ -357,7 +357,7 @@ test("EnterWorktree with a path becomes an enter-worktree event, and a name does
   assert.deepEqual(enter({ path: ".worktrees/alpha" }), {
     event: "enter-worktree",
     projectRoot: "/repo",
-    path: "/repo/.worktrees/alpha",
+    path: resolve("/repo", ".worktrees/alpha"),
     sessionId: "session-one"
   });
   assert.equal(enter({ name: "fresh" }).event, "unsupported");
