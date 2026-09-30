@@ -6,6 +6,7 @@ import {
   agyVersionSupported,
   hookRegistrationDrift,
   hookRegistrationSatisfied,
+  repositoryTrustProbe,
   repositoryTrustStatus,
   smokeAvailabilityStatus
 } from "../../runtime/src/install/probes.js";
@@ -160,6 +161,23 @@ test("a PreToolUse registration whose matcher lacks a tool the hook now handles 
   // handler is present and never fires for that tool.
   assert.deepEqual(drift("Bash|Edit|MultiEdit|NotebookEdit|Write"), ["claude"]);
   assert.deepEqual(drift(CLAUDE_PRE_TOOL_MATCHER), []);
+});
+
+test("a stale or missing trust names the user's one grant, never an agent-run command", () => {
+  for (const trust of ["STALE", "UNTRUSTED"] as const) {
+    const result = repositoryTrustProbe(trust, true) as {
+      status: string; message: string; code?: string; remediation?: string;
+    };
+    assert.equal(result.code, "TRUST_REQUIRED", trust);
+    assert.match(result.remediation ?? "", /The user grants it, once: run `agent-ops update`/u, trust);
+    assert.match(result.remediation ?? "", /lists the commands it will trust and asks/u, trust);
+  }
+  assert.match((repositoryTrustProbe("STALE", true) as { message: string }).message, /config hash changed/u);
+  assert.deepEqual(repositoryTrustProbe("TRUSTED", true), { status: "PASS" });
+  // Without verifiers there is nothing to trust yet.
+  const idle = repositoryTrustProbe("UNTRUSTED", false) as { code?: string; remediation?: string };
+  assert.equal(idle.code, undefined);
+  assert.match(idle.remediation ?? "", /No action needed/u);
 });
 
 test("core-only installations have no hooks to register", () => {

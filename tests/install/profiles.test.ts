@@ -218,6 +218,9 @@ test("managed rules authorize the independent review invocation", () => {
   assert.match(content, /unset[\s\S]*CODEX_SANDBOX_NETWORK_DISABLED/);
   assert.match(content, /env -u CODEX_SANDBOX_NETWORK_DISABLED AGENT_OPS_HOST=<current-host>/);
   assert.match(content, /Do not run it once in the restricted sandbox/);
+  // No shell redirect: a host can only allow one by matching the whole command string.
+  assert.match(content, /--output <file>/);
+  assert.match(content, /instead of\s+a shell redirect/);
 });
 
 test("managed rules tell each harness how to delegate a subtask", () => {

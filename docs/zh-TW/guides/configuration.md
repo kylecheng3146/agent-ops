@@ -202,6 +202,22 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   任何路徑一律拒絕（`WORKTREE_ENTER_DENIED`，並列出該 session 的 worktree）。請
   執行一次 `agent-ops update`，讓 hook 的 matcher 包含 `EnterWorktree`；`doctor`
   會把較舊的 matcher 回報為註冊漂移。
+- 當 `worktree.mode` 為 auto，`init` 與 `update` 也會預先授權 session 自己會執行的
+  指令，並在你確認前先列在計畫裡：在 `.claude/settings.local.json` 寫入
+  `agent-ops task`、`verify`、`review`、`worktree`、`doctor` 的 `permissions.allow`，
+  以及 `agent-ops review` 的 `sandbox.excludedCommands`（你原有的項目會保留，計畫只
+  描述該檔案而不印出內容）；若 CLI 找得到 Codex 的 home（`CODEX_HOME`，否則
+  `~/.codex`），另寫入 `rules/agent-ops.rules`，內含 `agent-ops review` 與
+  `doctor --check-auth` 的 allow 規則（含與不含 `AGENT_OPS_HOST=`）。`trust`、
+  `allow-stop`、`init`、`update`、`uninstall` 永遠不會被預先授權。關閉 auto 模式或
+  `uninstall` 會精確移除這些項目；同名但不是 agent-ops 寫的規則檔不會被動到。
+- `review` 與 `doctor` 支援 `--output <file>`：JSON envelope 寫入該檔（權限 0600），
+  並只印出一行摘要。請用它取代 shell 重導向；Codex 會把重導向包成 `zsh -lc`，只能
+  以整串指令比對來放行。
+- Trust 綁定 config hash，因此手動編輯 `.agent-ops/config.json`（例如加入
+  `worktree.setup`）會讓 repository 變成未受信任，`WORKTREE_SETUP_UNTRUSTED` 會擋下
+  下一個 worktree。唯一的授權點屬於使用者：`agent-ops update` 會列出它將信任的指令並
+  詢問一次。
 - 在 worktree 裡對每個 task 執行 verify 與 review，但不要執行 `task complete`
   （Claude Code 在隔離的 worktree session 中會拒絕它）。`agent-ops worktree finish
   <name>` 會在任何 rebase 之前 complete worktree 內每個未封存的 task，先 subtask

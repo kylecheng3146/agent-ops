@@ -233,6 +233,26 @@ evidence. Give each editing conversation its own worktree instead:
   (`WORKTREE_ENTER_DENIED`, naming the session's worktrees). Run `agent-ops
   update` once so the hook's matcher includes `EnterWorktree`; `doctor`
   reports an older matcher as registration drift.
+- With `worktree.mode` auto, `init` and `update` also pre-authorize what a
+  session runs itself, and the plan lists it before you confirm: in
+  `.claude/settings.local.json`, `permissions.allow` for `agent-ops task`,
+  `verify`, `review`, `worktree` and `doctor` and `sandbox.excludedCommands`
+  for `agent-ops review` (your other entries are kept, and the plan describes
+  the file instead of printing it); and, when the CLI can see Codex's home
+  (`CODEX_HOME`, else `~/.codex`), `rules/agent-ops.rules` with allow rules
+  for `agent-ops review` and `doctor --check-auth`, with and without
+  `AGENT_OPS_HOST=`. `trust`, `allow-stop`, `init`, `update` and `uninstall`
+  are never pre-authorized. Turning auto mode off, or `uninstall`, takes
+  exactly those entries back out; a rules file of that name agent-ops did not
+  write is left alone.
+- `review` and `doctor` take `--output <file>`: the JSON envelope is written
+  there (mode 0600) and one summary line is printed. Use it instead of a shell
+  redirect, which Codex wraps in `zsh -lc` and can only allow by matching the
+  whole command string.
+- Trust is bound to the config hash, so a hand edit of `.agent-ops/config.json`
+  (adding `worktree.setup`, say) leaves the repository untrusted and
+  `WORKTREE_SETUP_UNTRUSTED` stops the next worktree. The one grant is the
+  user's: `agent-ops update` lists the commands it will trust and asks once.
 - In a worktree, verify and review each task but do not run `task complete`
   (Claude Code refuses it inside an isolated worktree session). `agent-ops
   worktree finish <name>` completes every non-archived task in the worktree,

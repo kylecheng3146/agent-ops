@@ -23,7 +23,7 @@ import {
   agyRuntimeStatus,
   agyVersionSupported,
   hookRegistrationDrift,
-  repositoryTrustStatus,
+  repositoryTrustProbe,
   smokeAvailabilityStatus
 } from "../../../runtime/src/install/probes.js";
 import { parseInstallManifest } from "../../../runtime/src/fs/manifest.js";
@@ -419,36 +419,10 @@ process.exitCode = await runCli(
                       };
                 },
                 repositoryTrust: async () => {
-                  const trust = await repositoryTrust(root, config, CLI_VERSION);
-                  const status = repositoryTrustStatus(trust);
-                  if (trust === "STALE") {
-                    return {
-                      status,
-                      message: "Repository trust binding is stale.",
-                      code: "TRUST_REQUIRED",
-                      remediation: "Run `agent-ops trust grant`."
-                    };
-                  }
-                  if (trust === "UNTRUSTED") {
-                    const verificationConfigured =
-                      config.verification.commands.length > 0;
-                    return {
-                      status,
-                      message: verificationConfigured
-                        ? "Repository is not trusted; Stop verification will not run."
-                        : "Repository is not trusted.",
-                      ...(verificationConfigured
-                        ? {
-                            code: "TRUST_REQUIRED",
-                            remediation: "Run `agent-ops trust grant`."
-                          }
-                        : {
-                            remediation:
-                              "No action needed; trust is only required once verification.commands is set."
-                          })
-                    };
-                  }
-                  return { status };
+                  return repositoryTrustProbe(
+                    await repositoryTrust(root, config, CLI_VERSION),
+                    config.verification.commands.length > 0
+                  );
                 },
                 smokeAvailability: () => {
                   const status = smokeAvailabilityStatus(config);
