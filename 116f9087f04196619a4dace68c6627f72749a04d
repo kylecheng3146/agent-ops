@@ -1,0 +1,8 @@
+worktree: s4-preauth (agent-ops/s4-preauth)
+session: e70c29aa-a9be-413a-80a2-de2898eea865
+agent-ops task task-467eae03-3976-4b49-8a78-e014636d53a7: S4 pre-authorization writers
+criteria:
+- claude-settings-block: With worktree.mode auto, init and update write managed permissions.allow and sandbox.excludedCommands entries to .claude/settings.local.json, keeping the user entries, described in the plan without printing the file, idempotently, and uninstall or turning auto off removes exactly those entries
+- codex-rules: When the CLI names Codex home, init and update write one managed Codex rules file with allow rules for agent-ops review and doctor --check-auth with and without AGENT_OPS_HOST, idempotently, never over a same-named file agent-ops did not write, and uninstall removes it; trust, allow-stop, init, update and uninstall are never pre-authorized
+- output-flag: review and doctor accept --output <file> and write their JSON envelope there with mode 0600 so no shell redirect is needed, and it is refused elsewhere
+- trust-guidance-and-docs: WORKTREE_SETUP_UNTRUSTED and the doctor trust results name the config hash and agent-ops update as the user grant, the managed rules give the redirect-free review invocation, and the en and zh-TW guides describe pre-authorization, --output and trust
