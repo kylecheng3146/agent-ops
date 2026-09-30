@@ -3,14 +3,16 @@ import {
   type VerificationProcessRunner
 } from "../verify/spawn.js";
 import type { ReviewTargetId } from "../contracts.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractFinalMessage } from "./extract.js";
 import {
+  firstComplaint,
   isolatedReviewEnvironment
 } from "./execute.js";
 import {
+  isLoginFailure,
   isNetworkFailure,
   probeHostReachable,
   TARGET_API_HOST
@@ -24,7 +26,20 @@ export type ReviewTargetProbeResult =
   | "timeout"
   | "unauthenticated"
   | "network-unreachable"
-  | "capability-unavailable";
+  | "capability-unavailable"
+  | "probe-failed";
+
+/** A probe answer plus the target's own first line when it did not answer. */
+export interface ReviewTargetProbeOutcome {
+  readonly result: ReviewTargetProbeResult;
+  readonly diagnostic?: string | undefined;
+}
+
+/** A log's last non-empty line: where a CLI that logs to a file puts its error. */
+async function lastLogLine(path: string): Promise<string> {
+  const text = await readFile(path, "utf8").catch(() => "");
+  return text.split(/\r?\n/u).filter((line) => line.trim().length > 0).at(-1) ?? "";
+}
 
 export interface ReviewTargetProbeOptions {
   readonly cwd: string;
@@ -69,6 +84,13 @@ export async function probeReviewTarget(
   target: ReviewTargetId,
   options: ReviewTargetProbeOptions
 ): Promise<ReviewTargetProbeResult> {
+  return (await probeReviewTargetDetailed(target, options)).result;
+}
+
+export async function probeReviewTargetDetailed(
+  target: ReviewTargetId,
+  options: ReviewTargetProbeOptions
+): Promise<ReviewTargetProbeOutcome> {
   const deep = options.deep === true;
   const directory = deep
     ? await mkdtemp(join(tmpdir(), "agent-ops-review-probe-"))
@@ -109,7 +131,7 @@ export async function probeReviewTarget(
       : {})
   });
   if (invocation === undefined) {
-    return "ineligible";
+    return { result: "ineligible" };
   }
   const spawned = await runVerificationCommand(
     {
@@ -134,35 +156,51 @@ export async function probeReviewTarget(
     }
   );
   if (spawned.failureClass === "missing-executable") {
-    return "missing-executable";
+    return { result: "missing-executable" };
   }
   if (spawned.timedOut) {
-    return "timeout";
+    return { result: "timeout" };
   }
+  const output = `${spawned.stderr}\n${spawned.stdout}`;
+  // The target's own words, so a failure is never reduced to a guess. agy
+  // writes its errors to the log file the probe hands it, not to stderr.
+  const complaint = async (): Promise<string | undefined> =>
+    firstComplaint(spawned.stderr, spawned.stdout) ??
+    (deep && target === "agy"
+      ? firstComplaint(await lastLogLine(join(directory, "agy.log")))
+      : undefined);
   if (
     /(?:operation not permitted|permission denied|bind(?:ing)?[^\n]*(?:failed|denied))/iu.test(
-      `${spawned.stderr}\n${spawned.stdout}`
+      output
     )
   ) {
-    return "capability-unavailable";
+    return { result: "capability-unavailable", diagnostic: await complaint() };
   }
   if (!deep) {
-    return spawned.status === "PASS" ? "ok" : "unauthenticated";
+    return spawned.status === "PASS"
+      ? { result: "ok" }
+      : { result: "probe-failed", diagnostic: await complaint() };
   }
   if (
     spawned.status === "PASS" &&
     extractFinalMessage(target, spawned.stdout) !== undefined
   ) {
-    return "ok";
+    return { result: "ok" };
   }
   // An unreachable API host outranks whatever the CLI printed: a sandbox that
   // withholds the network makes an authenticated CLI say "not logged in".
-  if (isNetworkFailure(`${spawned.stderr}\n${spawned.stdout}`)) {
-    return "network-unreachable";
+  if (isNetworkFailure(output)) {
+    return { result: "network-unreachable", diagnostic: await complaint() };
   }
-  return (await (options.reachable ?? probeHostReachable)(TARGET_API_HOST[target]))
-    ? "unauthenticated"
-    : "network-unreachable";
+  if (!await (options.reachable ?? probeHostReachable)(TARGET_API_HOST[target])) {
+    return { result: "network-unreachable", diagnostic: await complaint() };
+  }
+  const diagnostic = await complaint();
+  // Login is what the output says it is; anything else is a probe that could
+  // not run, and the diagnostic is all the evidence there is.
+  return isLoginFailure(`${output}\n${diagnostic ?? ""}`)
+    ? { result: "unauthenticated", diagnostic }
+    : { result: "probe-failed", diagnostic };
   } finally {
     if (deep) {
       await rm(directory, { recursive: true, force: true });

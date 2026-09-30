@@ -63,7 +63,7 @@ import {
   createReviewExecutor,
   ReviewInterruptedError
 } from "../../../runtime/src/review/execute.js";
-import { probeReviewTarget } from "../../../runtime/src/review/probe.js";
+import { probeReviewTargetDetailed } from "../../../runtime/src/review/probe.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
@@ -456,7 +456,7 @@ process.exitCode = await runCli(
                     : { status };
                 },
                 reviewTarget: async (target, deep) =>
-                  await probeReviewTarget(target, { cwd: root, deep }),
+                  await probeReviewTargetDetailed(target, { cwd: root, deep }),
                 worktrees: async () => await worktreeDoctorProbe(root),
                 worktreeBranchLock: async () => await worktreeBranchLockProbe(root),
                 rootGhostFiles: async () => await rootGhostFilesProbe(root)
@@ -660,7 +660,7 @@ process.exitCode = await runCli(
                     ? {}
                     : { timeoutMs: reviewRole.timeoutMs }),
                   preflightTarget: async (target, budget) =>
-                    await probeReviewTarget(target, {
+                    await probeReviewTargetDetailed(target, {
                       cwd: root,
                       deep: true,
                       // The probe answers within the chain's remaining budget

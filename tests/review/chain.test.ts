@@ -1534,6 +1534,30 @@ test("a reviewer that cannot reach the network is not reported as logged out", a
   assert.equal(rejected?.reason, "network-unreachable");
 });
 
+test("a probe-failed preflight stops as probe-failed and keeps the target's own words", async () => {
+  const { runner } = fakeRunner([]);
+  const execute = createReviewExecutor({
+    targets: ["agy"],
+    cwd: process.cwd(),
+    runner,
+    env: {},
+    probeBind: async () => true,
+    preflightTarget: async () => ({
+      result: "probe-failed",
+      diagnostic: "keychain access denied"
+    })
+  });
+  const result = await execute(request());
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.reason, "probe-failed");
+  assert.deepEqual(result.preflight?.[0], {
+    target: "agy",
+    status: "NOT_RUN",
+    reason: "probe-failed",
+    diagnostic: "target preflight returned probe-failed: keychain access denied"
+  });
+});
+
 test("a network-unreachable preflight stops as network-unreachable", async () => {
   const { runner } = fakeRunner([]);
   const execute = createReviewExecutor({

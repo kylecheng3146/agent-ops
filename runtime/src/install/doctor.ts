@@ -15,7 +15,10 @@ import {
   resolveContainedPath
 } from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
-import type { ReviewTargetProbeResult } from "../review/probe.js";
+import type {
+  ReviewTargetProbeOutcome,
+  ReviewTargetProbeResult
+} from "../review/probe.js";
 import {
   detectHostRestriction,
   type HostRestriction
@@ -91,7 +94,10 @@ export type DoctorProbe = () =>
 export type DoctorReviewTargetProbe = (
   target: ReviewTargetId,
   deep: boolean
-) => Promise<ReviewTargetProbeResult> | ReviewTargetProbeResult;
+) =>
+  | Promise<ReviewTargetProbeResult | ReviewTargetProbeOutcome>
+  | ReviewTargetProbeResult
+  | ReviewTargetProbeOutcome;
 
 export interface DoctorProbes {
   /**
@@ -982,7 +988,9 @@ async function checkReviewTargets(
   const failures: DoctorCheck[] = [];
   const degraded: DoctorCheck[] = [];
   for (const target of targets) {
-    const result = await probe(target, checkAuth);
+    const answer = await probe(target, checkAuth);
+    const result = typeof answer === "string" ? answer : answer.result;
+    const diagnostic = typeof answer === "string" ? undefined : answer.diagnostic;
     if (result === "missing-executable") {
       failures.push(check(
         "review-targets",
@@ -1032,6 +1040,17 @@ async function checkReviewTargets(
         `${target} could not complete its read-only capability probe.`,
         undefined,
         "Run agent-ops review on a host with network and loopback permission, then retry."
+      ));
+      continue;
+    }
+    if (result === "probe-failed") {
+      failures.push(check(
+        "review-targets",
+        "FAIL",
+        `${target} failed its probe${diagnostic === undefined ? "" : `: ${diagnostic}`}. ` +
+          "This is not evidence of a missing login.",
+        undefined,
+        "Fix what the message reports, or run agent-ops review --json for the full preflight record, then re-run: agent-ops doctor --check-auth"
       ));
       continue;
     }

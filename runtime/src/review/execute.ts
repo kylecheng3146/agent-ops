@@ -23,7 +23,11 @@ import {
   type ReviewReport
 } from "./report.js";
 import { detectHostTarget, planReviewTargets } from "./roles.js";
-import { detectHostRestriction, isNetworkFailure } from "./host-sandbox.js";
+import {
+  detectHostRestriction,
+  isLoginFailure,
+  isNetworkFailure
+} from "./host-sandbox.js";
 import {
   buildAdversarialPrompt,
   buildReviewPrompt,
@@ -44,7 +48,14 @@ export type ReviewTargetPreflightResult =
   | "timeout"
   | "unauthenticated"
   | "network-unreachable"
-  | "capability-unavailable";
+  | "capability-unavailable"
+  | "probe-failed";
+
+/** A preflight answer, optionally with the target's own words for a failure. */
+export interface ReviewTargetPreflightOutcome {
+  readonly result: ReviewTargetPreflightResult;
+  readonly diagnostic?: string | undefined;
+}
 
 /**
  * Full repository reviews need far more headroom than the lightweight auth
@@ -100,7 +111,7 @@ export interface ReviewExecutorOptions {
   readonly preflightTarget?: (
     target: ReviewTargetId,
     budget?: { readonly timeoutMs: number }
-  ) => Promise<ReviewTargetPreflightResult>;
+  ) => Promise<ReviewTargetPreflightResult | ReviewTargetPreflightOutcome>;
   /** Re-checks the source before the adversarial session starts. */
   readonly verifySourceFingerprint?: (expected: string) => Promise<boolean>;
   readonly runner?: VerificationProcessRunner;
@@ -252,6 +263,8 @@ function preflightUnavailableReason(
       return "capability-unavailable";
     case "capability-unavailable":
       return "capability-unavailable";
+    case "probe-failed":
+      return "probe-failed";
   }
 }
 
@@ -261,7 +274,7 @@ function preflightUnavailableReason(
  * suppressed under `--json`: a machine consumer would otherwise be left with
  * the bare authentication guess this exists to qualify. Never evidence.
  */
-function firstComplaint(...streams: readonly string[]): string | undefined {
+export function firstComplaint(...streams: readonly string[]): string | undefined {
   for (const stream of streams) {
     const line = redactSecrets(stream)
       .split(/\r?\n/u)
@@ -281,11 +294,7 @@ function rejectedCallReason(output: string): ReviewUnavailableReason {
   if (isNetworkFailure(output)) {
     return "network-unreachable";
   }
-  if (
-    /\b(?:not logged in|login required|log in to|authentication required|unauthenticated|unauthorized)\b/iu.test(output) ||
-    /\b(?:invalid|expired)\s+(?:api key|token|credential)/iu.test(output) ||
-    /\b401\b/u.test(output)
-  ) {
+  if (isLoginFailure(output)) {
     return "login-required";
   }
   return "capability-unavailable";
@@ -1023,15 +1032,18 @@ export function createReviewExecutor(
             attempts: []
           };
         }
-        const result = await options.preflightTarget(target, {
+        const answer = await options.preflightTarget(target, {
           timeoutMs: Math.max(1, remainingMs())
         });
+        const result = typeof answer === "string" ? answer : answer.result;
         if (result === "ok") {
           preflight.push({ target, status: "PASS" });
           continue;
         }
         const reason = preflightUnavailableReason(result);
-        const diagnostic = `target preflight returned ${result}`;
+        const complaint = typeof answer === "string" ? undefined : answer.diagnostic;
+        const diagnostic = `target preflight returned ${result}` +
+          (complaint === undefined ? "" : `: ${complaint}`);
         preflight.push({ target, status: "NOT_RUN", reason, diagnostic });
         report(`${target}: preflight ${reason} (${diagnostic})`);
         return {

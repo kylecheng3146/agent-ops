@@ -140,7 +140,11 @@ review preflight finds a target unauthenticated, a 2-second TCP connection to
 that target's API host on port 443 (`cloudcode-pa.googleapis.com` for agy,
 `api.openai.com` for codex, `api.anthropic.com` for claude) decides between the
 two; it only refines the reported reason and never blocks a review. The review suggests
-`doctor --check-auth` only when an authentication failure was detected. Confirm target authentication with:
+`doctor --check-auth` only when an authentication failure was detected. A probe
+that fails without network or login wording is `probe-failed`, never
+`login-required`: the preflight record and `doctor` quote the target's own first
+line (for agy, the last line of its log file when stderr is empty) so the real
+cause is visible instead of guessed. Confirm target authentication with:
 
 ```bash
 agent-ops doctor              # presence only: no tokens, no network

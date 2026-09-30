@@ -121,6 +121,9 @@ preflight 判定目標未認證時，會再對該目標的 API 主機（agy 為
 `api.anthropic.com`）的 443 埠做 2 秒 TCP 連線測試，據此在兩種原因間擇一；
 它只修正回報的原因，不會阻擋 review。
 只有偵測到認證失敗時，review 才會建議執行 `doctor --check-auth`。
+探測失敗但輸出沒有網路或登入字樣時為 `probe-failed`，不會被當成
+`login-required`：preflight 紀錄與 `doctor` 會引述目標自己的第一行輸出
+（agy 在 stderr 為空時取其 log 檔最後一行），讓真正原因可見而非猜測。
 可用以下指令確認目標的認證狀態：
 
 ```bash
