@@ -4,6 +4,15 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-02
+
+- A review report that lists a file whose path contains a space or a
+  non-ASCII letter, such as `docs/src/Short URL API/x.md`, is no longer
+  rejected as `INVALID_REPORT`. Before, every review of a change touching such
+  a file ended `NOT_RUN` with `unparseable-output`, however many times it was
+  rerun. Absolute paths, `..` and `.` segments, empty segments, backslashes and
+  control characters are still rejected.
+
 ## [0.5.1] - 2026-10-02
 
 - `agent-ops update` repairs managed content that drifted from the manifest
