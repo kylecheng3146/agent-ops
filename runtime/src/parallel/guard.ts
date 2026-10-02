@@ -5,6 +5,7 @@ import type { HookResult } from "../hooks/events.js";
 import type { GitRunner } from "../verify/change-surface.js";
 import {
   insideWorktreeDirectory,
+  mayUseWorktree,
   readWorktreeRecord,
   WORKTREE_DIRECTORY
 } from "./service.js";
@@ -51,8 +52,10 @@ export async function evaluateWorktreeWrite(
   mainRoot: string,
   paths: readonly string[],
   sessionId: string | undefined,
-  /** Creates or reuses this session's worktree and returns its path. */
-  ensureWorktree?: (sessionId: string) => Promise<string>
+  /** Creates or reuses this writer's worktree and returns its path. */
+  ensureWorktree?: (sessionId: string, agentId: string | undefined) => Promise<string>,
+  /** The subagent making the write, when there is one: it has a worktree of its own. */
+  agentId?: string
 ): Promise<HookResult> {
   for (const path of paths) {
     const target = await canonicalPath(path);
@@ -61,20 +64,22 @@ export async function evaluateWorktreeWrite(
       // A worktree belongs to the session that made it: writing into another
       // session's mixes two tasks' changes into one review and one merge.
       const name = relative(join(mainRoot, WORKTREE_DIRECTORY), target).split(sep)[0] ?? "";
-      const owner = (await readWorktreeRecord(join(mainRoot, WORKTREE_DIRECTORY, name)))?.sessionId;
-      if (owner !== undefined && owner !== sessionId) {
+      const record = await readWorktreeRecord(join(mainRoot, WORKTREE_DIRECTORY, name));
+      if (record !== null && !mayUseWorktree(record, sessionId, agentId)) {
+        const owner = record.sessionId;
+        const sameSession = owner === sessionId;
         let own = "";
         if (ensureWorktree !== undefined) {
-          own = await ensureWorktree(sessionId).then(
-            (worktree) => ` Your own worktree is ${worktree}: edit there instead.`,
+          own = await ensureWorktree(sessionId, agentId).then(
+            (worktree) => ` Your own worktree is ${worktree}: edit there instead${agentId === undefined ? "" : ", with absolute paths under it"}.`,
             () => ""
           );
         }
         return {
           action: "block",
           status: "FAIL",
-          code: "WORKTREE_OWNED_BY_OTHER_SESSION",
-          remedy: `${join(mainRoot, WORKTREE_DIRECTORY, name)} belongs to another session (${owner}); ` +
+          code: sameSession ? "WORKTREE_OWNED_BY_OTHER_AGENT" : "WORKTREE_OWNED_BY_OTHER_SESSION",
+          remedy: `${join(mainRoot, WORKTREE_DIRECTORY, name)} belongs to ${sameSession ? `another writer of this session (${record.agentId ?? "its main thread"})` : `another session (${owner})`}; ` +
             `this session is ${sessionId}.${own || " Run agent-ops worktree add <name> --session " + sessionId + " from " + mainRoot + " and edit in the printed path."}`
         };
       }
@@ -83,12 +88,14 @@ export async function evaluateWorktreeWrite(
       let failure = "";
       if (sessionId !== undefined && ensureWorktree !== undefined) {
         try {
-          const worktree = await ensureWorktree(sessionId);
+          const worktree = await ensureWorktree(sessionId, agentId);
           return {
             action: "block",
             status: "FAIL",
             code: "WORKTREE_CREATED",
-            remedy: `worktree.mode is auto, so this session now has its own worktree at ${worktree}. Enter it (Claude Code: EnterWorktree with path ${worktree}; otherwise use the worktree path as every command's working directory) and redo this edit there, at ${join(worktree, relative(mainRoot, target))}.`
+            remedy: agentId === undefined
+              ? `worktree.mode is auto, so this session now has its own worktree at ${worktree}. Enter it (Claude Code: EnterWorktree with path ${worktree}; otherwise use the worktree path as every command's working directory) and redo this edit there, at ${join(worktree, relative(mainRoot, target))}.`
+              : `worktree.mode is auto, so this subagent now has its own worktree at ${worktree}. Redo this edit there with an absolute path, at ${join(worktree, relative(mainRoot, target))}, and use absolute paths under ${worktree} for every later edit.`
           };
         } catch (error) {
           failure = ` Creating this session's worktree failed: ${error instanceof Error ? error.message : String(error)}`;

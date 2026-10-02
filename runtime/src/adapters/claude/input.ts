@@ -37,6 +37,10 @@ export function normalizeClaudeHookInput(
   const sessionId = typeof input.session_id === "string"
     ? input.session_id
     : undefined;
+  // Present only inside a subagent, which shares the parent's session_id.
+  const agentId = typeof input.agent_id === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(input.agent_id)
+    ? input.agent_id
+    : undefined;
   if (input.hook_event_name === "SessionStart") {
     return {
       ...normalizeHookEvent({ event: "session-start", projectRoot }),
@@ -71,7 +75,8 @@ export function normalizeClaudeHookInput(
         event: "file-write",
         projectRoot,
         paths: [resolve(projectRoot, target)],
-        ...(sessionId === undefined ? {} : { sessionId })
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(agentId === undefined ? {} : { agentId })
       };
     }
   }
@@ -90,7 +95,8 @@ export function normalizeClaudeHookInput(
         event: "enter-worktree",
         projectRoot,
         path: resolve(projectRoot, target),
-        ...(sessionId === undefined ? {} : { sessionId })
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(agentId === undefined ? {} : { agentId })
       };
     }
   }

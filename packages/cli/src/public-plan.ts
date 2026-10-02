@@ -63,6 +63,7 @@ export interface PublicInstallPlan {
   readonly capabilities: InstallPlan["capabilities"];
   readonly manifest: InstallManifest;
   readonly operations: readonly PublicFileOperation[];
+  readonly repaired: InstallPlan["repaired"];
   readonly detectedVerification: readonly VerificationCommand[];
   readonly trust?: PublicTrustChange;
 }
@@ -167,6 +168,7 @@ export function toPublicInstallPlan(
       ...toPublicOperations(plan.operations),
       ...toPublicPreauthorization(plan.preauthorization)
     ],
+    repaired: plan.repaired,
     detectedVerification: plan.detectedVerification,
     ...(trust === undefined ? {} : { trust })
   };

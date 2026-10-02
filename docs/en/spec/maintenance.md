@@ -30,3 +30,13 @@ hand-edited in place.
 - Evidence: The artifact hash and shim import tests pass; release documentation records the revalidation condition.
 - Positive: `agent-ops update` rewrites a changed plugin after ownership checks pass.
 - Negative: `Patch the opencode plugin manually and retain the old manifest hash.`
+
+## MAINTAIN-DRIFT-001
+
+`agent-ops update` MUST rewrite a managed artifact or managed block whose content drifted from the manifest, MUST report each rewrite, and MUST NOT rewrite anything it cannot prove it owns.
+
+- Trigger: `agent-ops update` finds a managed whole-file artifact whose hash differs from the manifest, or a managed block whose markers are intact but whose content changed, for example after a Git operation restored an older tracked revision.
+- Action: Rewrite the artifact, or only the content between the markers, and list it as `repaired: <path> (<reason>)`. Keep `.agent-ops/config.json`, `agent-ops uninstall`, paths absent from the manifest, and blocks with missing, duplicated or reordered markers as errors; the last needs a person to locate the owned span.
+- Evidence: `InstallPlan.repaired` and the update output name each rewritten path; text outside the markers is byte-identical afterwards.
+- Positive: `A tracked .agent-ops/GEMINI.md restored to an older version is rewritten by update, with "repaired: .agent-ops/GEMINI.md (artifact drift)".`
+- Negative: `Rewrite a block whose end marker was deleted, or overwrite .agent-ops/config.json.`

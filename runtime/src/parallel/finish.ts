@@ -404,7 +404,8 @@ export async function finishWorktree(
         await mainGate.rebase(before, after);
         // rebase only moves baselines equal to `before`; a main that moved since
         // this session began would leave it reading the merge as its own change.
-        await mainGate.seed(record.sessionId, after);
+        // Only this worktree leaves the session; its other roots stay covered.
+        await mainGate.afterFinish(record.sessionId, record.path, after);
       });
     }
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));

@@ -22,7 +22,10 @@ import {
   WorktreeConflictError,
   type FinishDependencies
 } from "../../runtime/src/parallel/finish.js";
-import { addWorktree, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
+import { addWorktree, ensureSessionWorktree, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
+import { evaluateWorktreeWrite } from "../../runtime/src/parallel/guard.js";
+import { parseArgs } from "../../packages/cli/src/args.js";
+import { runWorktreeCommand } from "../../packages/cli/src/commands/parallel.js";
 import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
 import { CONFIG, deps, gateFor, git, gitRunner, loadConfig as loadFixtureConfig, repository, stopEvent, write } from "./fixture.js";
 
@@ -530,6 +533,65 @@ test("finish waits for a live lock, reclaims a dead one and gives up when told t
     await hold(2_147_483_646);
     await finishWorktree(dead, { cwd: root, name: "beta" });
     assert.equal(await exists(lock), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finishing one subagent worktree leaves the session's other worktrees covered", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const a = await addWorktree(d, { cwd: root, name: "agent-a", sessionId: SESSION, agentId: "a92303631fb7add5b" });
+    const b = await addWorktree(d, { cwd: root, name: "agent-b", sessionId: SESSION, agentId: "b11111111aaaabbbb" });
+    await completeWork(a.record, "source.txt", "agent a work\n");
+
+    await finishWorktree(d, { cwd: root, name: "agent-a" });
+
+    const store = new FileCompletionGateStore(root);
+    assert.deepEqual((await store.read(SESSION))?.extraRoots, [b.record.path]);
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+
+    await write(b.record.path, "other.txt", "agent b edit\n");
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("two simulated subagents each write in their own worktree, finish in turn, and Stop is allowed at the end", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const AGENT_A = "a92303631fb7add5b";
+    const AGENT_B = "b11111111aaaabbbb";
+    const a = await ensureSessionWorktree(d, { cwd: root, sessionId: SESSION, agentId: AGENT_A });
+    const b = await ensureSessionWorktree(d, { cwd: root, sessionId: SESSION, agentId: AGENT_B });
+    assert.notEqual(a.path, b.path);
+
+    // Each writer may edit only its own worktree.
+    const ensure = async () => a.path;
+    assert.equal((await evaluateWorktreeWrite(root, [join(a.path, "x.txt")], SESSION, ensure, AGENT_A)).action, "continue");
+    assert.equal((await evaluateWorktreeWrite(root, [join(a.path, "x.txt")], SESSION, ensure, AGENT_B)).code, "WORKTREE_OWNED_BY_OTHER_AGENT");
+
+    const listed = await runWorktreeCommand({ args: parseArgs(["worktree", "list"]), cwd: root, deps: d });
+    const text = (listed.data as { text: string }).text;
+    assert.match(text, new RegExp(`agent: ${AGENT_A}`, "u"));
+    assert.match(text, new RegExp(`agent: ${AGENT_B}`, "u"));
+
+    const main = gateFor(root, CONFIG);
+    await completeWork(a, "a.txt", "from a\n");
+    await completeWork(b, "b.txt", "from b\n");
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+
+    await finishWorktree(d, { cwd: root, name: a.name });
+    const second = await finishWorktree(d, { cwd: root, name: b.name });
+
+    assert.equal(second.rebased, true);
+    assert.equal(await readFile(join(root, "a.txt"), "utf8"), "from a\n");
+    assert.equal(await readFile(join(root, "b.txt"), "utf8"), "from b\n");
+    assert.equal((await new FileCompletionGateStore(root).read(SESSION))?.extraRoots, undefined);
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

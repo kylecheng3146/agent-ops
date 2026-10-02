@@ -525,7 +525,7 @@ test("excludes the OpenCode plugin artifact from staleness checks", async () => 
   }
 });
 
-test("fails markers when managed block content changes", async () => {
+test("degrades markers when managed block content changes inside intact markers", async () => {
   const root = await createInstallation();
   try {
     await writeFile(
@@ -539,7 +539,7 @@ test("fails markers when managed block content changes", async () => {
       probes: passingProbes()
     });
 
-    assert.equal(checkStatus(report, "markers"), "FAIL");
+    assert.equal(checkStatus(report, "markers"), "DEGRADED");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -598,7 +598,7 @@ test("recognizes an exact legacy routing block as managed but needing migration"
   }
 });
 
-test("rejects a changed legacy routing block instead of treating it as managed", async () => {
+test("reports a changed legacy routing block as repairable drift, not as managed", async () => {
   const changedLegacy = LEGACY_MANAGED_BLOCK.replace(
     "canonical Loop Engineering specification",
     "changed Loop Engineering specification"
@@ -611,7 +611,7 @@ test("rejects a changed legacy routing block instead of treating it as managed",
       probes: passingProbes()
     });
 
-    assert.equal(checkStatus(report, "markers"), "FAIL");
+    assert.equal(checkStatus(report, "markers"), "DEGRADED");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

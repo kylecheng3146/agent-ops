@@ -67,7 +67,18 @@ export interface WorktreeRecord {
   readonly targetBranch: string;
   readonly base: string;
   readonly sessionId: string;
+  /** The subagent that owns this worktree; absent for the session's own. */
+  readonly agentId?: string;
   readonly createdAt: string;
+}
+
+/** The session's own worktree is open to its main thread; a subagent's only to that subagent. */
+export function mayUseWorktree(
+  record: WorktreeRecord,
+  sessionId: string,
+  agentId: string | undefined
+): boolean {
+  return record.sessionId === sessionId && (agentId === undefined || record.agentId === agentId);
 }
 
 export interface WorktreeAddResult {
@@ -276,6 +287,7 @@ export async function readWorktreeRecord(root: string): Promise<WorktreeRecord |
   try {
     const value = JSON.parse(source) as Partial<WorktreeRecord>;
     return value.schemaVersion === 1 && typeof value.name === "string" &&
+      (value.agentId === undefined || typeof value.agentId === "string") &&
       typeof value.branch === "string" && typeof value.path === "string" &&
       typeof value.mainRoot === "string" && typeof value.targetBranch === "string" &&
       typeof value.base === "string" && typeof value.sessionId === "string" &&
@@ -310,7 +322,10 @@ export async function bindSession(
   if (!mainConfig.features.completionGate.enabled) return;
   const worktreeConfig = await deps.loadConfig(record.path);
   await (await deps.gate(record.path, worktreeConfig)).seed(record.sessionId, baselineFingerprint);
-  await (await deps.gate(record.mainRoot, mainConfig)).redirect(record.sessionId, record.path);
+  const mainGate = await deps.gate(record.mainRoot, mainConfig);
+  // A subagent's worktree joins the session's roots instead of replacing its own.
+  if (record.agentId === undefined) await mainGate.redirect(record.sessionId, record.path);
+  else await mainGate.addRoot(record.sessionId, record.path);
 }
 
 export async function removeCheckout(deps: WorktreeDependencies, record: WorktreeRecord, force: boolean): Promise<void> {
@@ -336,6 +351,7 @@ export async function addWorktree(
     readonly cwd: string;
     readonly name: string | undefined;
     readonly sessionId: string | undefined;
+    readonly agentId?: string;
     readonly from?: string;
     readonly targetBranch?: string;
   }
@@ -420,6 +436,7 @@ export async function addWorktree(
     targetBranch,
     base,
     sessionId,
+    ...(options.agentId === undefined ? {} : { agentId: options.agentId }),
     createdAt: deps.now?.() ?? new Date().toISOString()
   };
   let trusted = false;
@@ -450,7 +467,9 @@ export async function addWorktree(
     return { record, copied, trusted, setup };
   } catch (error) {
     if (mainConfig.features.completionGate.enabled) {
-      await (await deps.gate(mainRoot, mainConfig)).redirect(sessionId, null).catch(() => undefined);
+      const mainGate = await deps.gate(mainRoot, mainConfig);
+      await (options.agentId === undefined ? mainGate.redirect(sessionId, null) : mainGate.removeRoot(sessionId, path))
+        .catch(() => undefined);
     }
     if (trusted) await deps.trust.revoke(record.path, mainConfig).catch(() => undefined);
     await removeCheckout(deps, record, true).catch(() => undefined);
@@ -464,20 +483,34 @@ export function sessionWorktreeName(sessionId: string): string {
   return `session-${slug === "" ? "0" : slug}`;
 }
 
+/** The session's worktree name plus the first eight name-safe characters of the subagent id. */
+export function agentWorktreeName(sessionId: string, agentId: string): string {
+  const slug = agentId.toLowerCase().replace(/[^a-z0-9]/gu, "").slice(0, 8);
+  return `${sessionWorktreeName(sessionId)}-${slug === "" ? "0" : slug}`;
+}
+
 /**
- * The worktree `sessionId` works in, created on first use. One already bound
- * to the same session is reused, so a session blocked twice before it moves
- * still gets exactly one worktree.
+ * The worktree `sessionId` (or one of its subagents) works in, created on
+ * first use. One already bound to the same session and agent is reused, so a
+ * writer blocked twice before it moves still gets exactly one worktree.
  */
 export async function ensureSessionWorktree(
   deps: WorktreeDependencies,
-  options: { readonly cwd: string; readonly sessionId: string }
+  options: { readonly cwd: string; readonly sessionId: string; readonly agentId?: string }
 ): Promise<WorktreeRecord> {
   const { mainRoot } = await resolveCheckouts(deps, options.cwd);
-  const name = sessionWorktreeName(options.sessionId);
+  const { agentId } = options;
+  const name = agentId === undefined
+    ? sessionWorktreeName(options.sessionId)
+    : agentWorktreeName(options.sessionId, agentId);
   const existing = await readWorktreeRecord(worktreePath(mainRoot, name));
-  if (existing?.sessionId === options.sessionId) return existing;
-  return (await addWorktree(deps, { cwd: mainRoot, name, sessionId: options.sessionId })).record;
+  if (existing?.sessionId === options.sessionId && existing.agentId === agentId) return existing;
+  return (await addWorktree(deps, {
+    cwd: mainRoot,
+    name,
+    sessionId: options.sessionId,
+    ...(agentId === undefined ? {} : { agentId })
+  })).record;
 }
 
 function sessionOriginPath(mainRoot: string, sessionId: string): string {

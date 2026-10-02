@@ -41,3 +41,13 @@ English source version: 2026-09-24. Revalidate: when the English specification c
 - Evidence: `agent-ops worktree list` 顯示每個修改中的 session 各有一個 worktree，且每次 finish 都回報 fast-forward 合併。
 - Positive: `兩個對話分別修改 .worktrees/login 與 .worktrees/cart；各自驗證、review 並 finish。`
 - Negative: `兩個對話同時修改主 checkout，彼此的寫入讓對方的驗證與 review 全部作廢。`
+
+## DELEGATE-ISOLATION-003
+
+同一個 session 中會寫入檔案的 subagent MUST 各自在自己的 agent-ops worktree 中工作，並各自擁有 task、驗證與 review。
+
+- Trigger: `worktree.mode` 為 `auto`，且 subagent 寫入檔案。subagent 內的 hook 呼叫會在父對話的 `session_id` 之下帶有自己的 `agent_id`；沒有 `agent_id` 的 payload 視為該 session 的主執行緒。
+- Action: 第一次被擋下的寫入會配發一個屬於該 session 與該 agent 的 worktree；之後用絕對路徑在那裡編輯，因為 hook 的 `cwd` 不會跟著 `cd` 改變。subagent 在自己的 worktree 內 commit，並執行 `agent-ops verify` 與 `agent-ops review`。整個 repository 的所有 worktree 同時最多進行兩個 review，其餘排隊等待。協調者依序對每個 worktree 執行 `agent-ops worktree finish <name>`；只有該 session 的每個 worktree 都有已完成的 task，Stop 才會放行。
+- Evidence: `agent-ops worktree list` 為每個 subagent worktree 顯示一行 `agent:`，寫入其他 writer 的 worktree 會以 `WORKTREE_OWNED_BY_OTHER_AGENT` 被拒絕，且每次 finish 都回報 fast-forward 合併。
+- Positive: `兩個 subagent 在 .worktrees/session-ab12cd34-a9230363 與 .worktrees/session-ab12cd34-b1111111 各自實作獨立的 task；各自 review，協調者依序 finish。`
+- Negative: `subagent 修改協調者的 worktree，或兩個 subagent 修改同一個 worktree，導致一次 review 涵蓋兩個 task 的變更。`

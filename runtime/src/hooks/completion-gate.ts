@@ -35,6 +35,8 @@ export interface CompletionGateState {
    * checkout it started in; the gate follows this pointer instead.
    */
   readonly root?: string;
+  /** Worktrees of the session's subagents; each holds its own task and evidence. */
+  readonly extraRoots?: readonly string[];
 }
 
 function gateDirectory(root: string): string {
@@ -83,10 +85,12 @@ function parseState(source: string | null, sessionId: string): CompletionGateSta
     throw new AgentOpsError("COMPLETION_GATE_STATE_INVALID", "Completion-gate state is invalid.");
   }
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).filter((key) => key !== "root").sort().join(",");
+  const keys = Object.keys(record).filter((key) => key !== "root" && key !== "extraRoots").sort().join(",");
   if (
     keys !== "baselineFingerprint,permitFingerprint,schemaVersion,sessionId" ||
     ("root" in record && !validRoot(record.root)) ||
+    ("extraRoots" in record &&
+      (!Array.isArray(record.extraRoots) || record.extraRoots.length > 64 || !record.extraRoots.every(validRoot))) ||
     record.schemaVersion !== 1 ||
     record.sessionId !== sessionId ||
     typeof record.baselineFingerprint !== "string" ||
@@ -347,11 +351,75 @@ export class CompletionGateService {
 
   async grantPermit(sessionId: string): Promise<void> {
     const fingerprint = await this.#fingerprint();
-    await this.#store.mutate(sessionId, (state) => {
+    const granted = await this.#store.mutate(sessionId, (state) => {
       if (state === null) {
         throw new AgentOpsError("COMPLETION_GATE_NOT_INITIALIZED", "The session has no completion-gate baseline.");
       }
       return { ...state, permitFingerprint: fingerprint };
+    });
+    // One approved Stop covers every worktree the session works in.
+    if (this.#options.forRoot !== undefined) {
+      for (const root of this.#delegatedRoots(granted)) {
+        if (await isDirectory(root)) await (await this.#options.forRoot(root)).grantPermit(sessionId);
+      }
+    }
+  }
+
+  /** The worktrees whose gates decide for this session, other than this checkout. */
+  #delegatedRoots(state: CompletionGateState): readonly string[] {
+    const roots = [...(state.root === undefined ? [] : [state.root]), ...(state.extraRoots ?? [])];
+    return [...new Set(roots)].filter((root) => root !== this.#options.root);
+  }
+
+  /** Adds a subagent's worktree to the roots this session's Stop must cover. */
+  async addRoot(sessionId: string, root: string): Promise<void> {
+    const fingerprint = await this.#fingerprint();
+    await this.#store.mutate(sessionId, (current) => {
+      const base = current ?? {
+        schemaVersion: 1 as const,
+        sessionId,
+        baselineFingerprint: fingerprint,
+        permitFingerprint: null
+      };
+      return { ...base, extraRoots: [...new Set([...(base.extraRoots ?? []), root])] };
+    });
+  }
+
+  /** Drops one worktree from the session, leaving its other roots in place. */
+  async removeRoot(sessionId: string, root: string): Promise<void> {
+    if (await this.#store.read(sessionId) === null) return;
+    await this.#store.mutate(sessionId, (current) => {
+      if (current === null) throw new AgentOpsError("COMPLETION_GATE_NOT_INITIALIZED", "The session baseline disappeared.");
+      const { root: own, extraRoots, ...rest } = current;
+      const remaining = (extraRoots ?? []).filter((candidate) => candidate !== root);
+      return {
+        ...rest,
+        ...(own === undefined || own === root ? {} : { root: own }),
+        ...(remaining.length === 0 ? {} : { extraRoots: remaining })
+      };
+    });
+  }
+
+  /**
+   * After `worktree finish` merged one worktree: moves the baseline past the
+   * merge and forgets that worktree, keeping the session's other roots.
+   */
+  async afterFinish(sessionId: string, finishedRoot: string, baselineFingerprint: string): Promise<void> {
+    await this.#store.mutate(sessionId, (current) => {
+      const { root: own, extraRoots, ...rest } = current ?? {
+        schemaVersion: 1 as const,
+        sessionId,
+        baselineFingerprint,
+        permitFingerprint: null
+      };
+      const remaining = (extraRoots ?? []).filter((candidate) => candidate !== finishedRoot);
+      return {
+        ...rest,
+        baselineFingerprint,
+        permitFingerprint: null,
+        ...(own === undefined || own === finishedRoot ? {} : { root: own }),
+        ...(remaining.length === 0 ? {} : { extraRoots: remaining })
+      };
     });
   }
 
@@ -461,18 +529,25 @@ export class CompletionGateService {
         : "The session baseline is unavailable: its SessionStart never reached this checkout. The next tool call records one; if this repeats, run agent-ops doctor.");
     }
     const changed = state.baselineFingerprint !== fingerprint && state.permitFingerprint !== fingerprint;
-    if (state.root !== undefined && state.root !== this.#options.root) {
+    const delegated = this.#delegatedRoots(state);
+    if (delegated.length > 0) {
       // This checkout only has to stay untouched; the work, its task and its
-      // evidence live in the worktree, and that gate decides.
+      // evidence live in the worktrees, and each of their gates decides.
       if (changed) {
         return gateResult("block", "FAIL", "COMPLETION_GATE_MAIN_CHANGED",
-          `This session works in ${state.root}, but this checkout changed too. Move those edits into the worktree, or ask the user for a one-time permit.`);
+          `This session works in ${delegated.join(", ")}, but this checkout changed too. Move those edits into a worktree, or ask the user for a one-time permit.`);
       }
-      if (!await isDirectory(state.root) || this.#options.forRoot === undefined) {
-        return gateResult("block", "UNKNOWN", "COMPLETION_GATE_WORKTREE_MISSING",
-          `The worktree ${state.root} is unavailable. Run agent-ops worktree list, then resume or remove it.`);
+      let last: HookResult | null = null;
+      for (const root of delegated) {
+        if (!await isDirectory(root) || this.#options.forRoot === undefined) {
+          return gateResult("block", "UNKNOWN", "COMPLETION_GATE_WORKTREE_MISSING",
+            `The worktree ${root} is unavailable. Run agent-ops worktree list, then resume or remove it.`);
+        }
+        const result = await (await this.#options.forRoot(root)).handle(event);
+        if (result !== null && result.action === "block") return result;
+        last = result;
       }
-      return await (await this.#options.forRoot(state.root)).handle(event);
+      return last;
     }
     if (changed) {
       const failure = await this.#validateTask(sessionId);

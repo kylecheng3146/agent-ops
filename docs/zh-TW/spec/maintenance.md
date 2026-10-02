@@ -31,3 +31,13 @@ English source version: 2026-07-31. Revalidate: when the English specification c
 - Evidence: artifact hash 與 shim import 測試通過；release 文件記錄重驗條件。
 - Positive: `agent-ops update` 通過 ownership checks 後重寫已變更的 plugin。
 - Negative: `手動修改 .opencode/plugins/agent-ops.js，卻保留舊的 manifest hash。`
+
+## MAINTAIN-DRIFT-001
+
+`agent-ops update` MUST 重寫內容已偏離 manifest 的 managed artifact 或 managed block，MUST 回報每一次重寫，且 MUST NOT 重寫無法證明歸其所有的內容。
+
+- Trigger: `agent-ops update` 發現 managed 整檔 artifact 的 hash 與 manifest 不同，或 managed block 的標記完整但內容已變更，例如 Git 操作把已追蹤檔案還原成舊版。
+- Action: 重寫該 artifact，或只重寫標記之間的內容，並以 `repaired: <path> (<reason>)` 列出。`.agent-ops/config.json`、`agent-ops uninstall`、不在 manifest 內的路徑，以及標記缺失、重複或順序顛倒的 block 仍視為錯誤；最後一種需要人來判斷哪一段歸 agent-ops。
+- Evidence: `InstallPlan.repaired` 與 update 輸出列出每個被重寫的路徑；標記以外的文字前後逐位元組相同。
+- Positive: `被還原成舊版的已追蹤 .agent-ops/GEMINI.md 由 update 重寫，並輸出 "repaired: .agent-ops/GEMINI.md (artifact drift)"。`
+- Negative: `重寫結束標記已被刪除的 block，或覆寫 .agent-ops/config.json。`

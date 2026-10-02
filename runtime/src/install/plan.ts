@@ -47,6 +47,7 @@ import {
 } from "./harness.js";
 import {
   assertExpectedManagedBlock,
+  managedBlockBoundariesIntact,
   assertSupportedManifestOwnership,
   type ExpectedManagedMarker
 } from "./ownership.js";
@@ -108,6 +109,12 @@ export interface CreateInstallPlanOptions {
   readonly codexHome?: string;
 }
 
+/** A managed path whose on-disk content drifted from the manifest and is rewritten. */
+export interface RepairedPath {
+  readonly path: string;
+  readonly reason: "artifact-drift" | "block-drift";
+}
+
 export interface InstallPlan {
   readonly scope: InstallScope;
   readonly harness: Harness;
@@ -120,6 +127,8 @@ export interface InstallPlan {
   readonly config: AgentOpsConfig;
   readonly manifest: InstallManifest;
   readonly operations: FileOperation[];
+  /** Managed paths rewritten because their content drifted after installation. */
+  readonly repaired: readonly RepairedPath[];
   /**
    * Changes outside the manifest that let a worktree session run without
    * prompts: the local Claude settings entries and the Codex rules file. Not
@@ -476,6 +485,7 @@ async function planArtifact(
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
+  repaired?: RepairedPath;
 }> {
   const current = await readCurrentFile(root, artifact.path);
   const owned = findOwnedArtifact(existingManifest, artifact.path);
@@ -495,18 +505,14 @@ async function planArtifact(
       `Refusing to replace an unmanaged install artifact: ${artifact.path}`
     );
   }
-  if (
-    current !== null &&
-    owned !== undefined &&
-    owned.hash !== current.hash
-  ) {
-    throw new AgentOpsError(
-      "MANAGED_ARTIFACT_CHANGED",
-      `Managed artifact changed after installation: ${artifact.path}`
-    );
-  }
+  // Drifted managed artifacts are agent-ops owned: rewrite them and report it.
+  const drifted =
+    current !== null && owned !== undefined && owned.hash !== current.hash;
   const hash = sha256(artifact.content);
   return {
+    ...(drifted
+      ? { repaired: { path: artifact.path, reason: "artifact-drift" as const } }
+      : {}),
     operation: {
       kind: "write",
       path: artifact.path,
@@ -637,6 +643,7 @@ async function planBlocks(
 ): Promise<{
   operations: FileOperation[];
   records: ManagedMarkerRecord[];
+  repaired: RepairedPath[];
 }> {
   const grouped = new Map<
     string,
@@ -670,6 +677,7 @@ async function planBlocks(
 
   const operations: FileOperation[] = [];
   const records: ManagedMarkerRecord[] = [];
+  const repaired: RepairedPath[] = [];
   for (const {
     path,
     blocks: pathBlocks,
@@ -699,6 +707,33 @@ async function planBlocks(
       );
     }
     for (const block of pathBlocks) {
+      const expected = expectedMarkers.get(block.id);
+      if (current !== null && expected !== undefined) {
+        const { start, end } = managedBlockMarkers(
+          block.id,
+          block.version,
+          block.markerStyle
+        );
+        const marker: ManagedMarkerRecord = {
+          id: block.id,
+          path,
+          hash: sha256(content),
+          owner: "agent-ops",
+          startMarker: start,
+          endMarker: end
+        };
+        try {
+          assertExpectedManagedBlock(content, marker, expected);
+        } catch (error) {
+          // Content drift is repaired below; broken boundaries stay an error.
+          if (!managedBlockBoundariesIntact(content, marker)) {
+            throw error;
+          }
+          if (!repaired.some((entry) => entry.path === path)) {
+            repaired.push({ path, reason: "block-drift" });
+          }
+        }
+      }
       content = applyManagedBlock(content, block);
     }
     const hash = sha256(content);
@@ -732,7 +767,7 @@ async function planBlocks(
       });
     }
   }
-  return { operations, records };
+  return { operations, records, repaired };
 }
 
 export async function createInstallPlan(
@@ -930,6 +965,7 @@ export async function createInstallPlan(
   operations.push(config.operation);
   artifacts.push(config.record);
 
+  const repaired: RepairedPath[] = [];
   for (const artifact of contribution.artifacts) {
     const planned = await planArtifact(
       options.root,
@@ -938,6 +974,9 @@ export async function createInstallPlan(
     );
     operations.push(planned.operation);
     artifacts.push(planned.record);
+    if (planned.repaired !== undefined) {
+      repaired.push(planned.repaired);
+    }
   }
 
   if (resolved.capabilities.includes("project-loop")) {
@@ -968,6 +1007,7 @@ export async function createInstallPlan(
     expectedExistingMarkers
   );
   operations.push(...plannedBlocks.operations);
+  repaired.push(...plannedBlocks.repaired);
 
   const hooks: ManagedHookRecord[] = [];
   if (options.hookRuntimePath !== undefined) {
@@ -1086,6 +1126,7 @@ export async function createInstallPlan(
     config: config.config,
     manifest,
     operations,
+    repaired,
     ...(preauthorization.length === 0 ? {} : { preauthorization }),
     detectedVerification: config.detectedVerification,
     verificationBlockers: config.verificationBlockers

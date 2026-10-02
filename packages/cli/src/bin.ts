@@ -71,6 +71,7 @@ import {
 } from "./commands/review.js";
 import { runBatchCommand } from "./commands/batch.js";
 import { createSourceGuard } from "../../../runtime/src/review/batch-guard.js";
+import { withReviewSlot } from "../../../runtime/src/review/slots.js";
 import { memoizePreflight } from "../../../runtime/src/review/batch.js";
 import {
   createReviewExecutor,
@@ -616,6 +617,28 @@ process.exitCode = await runCli(
               reviewConfig.reviewRoles ?? []
             );
             const configuredReviewTargets = reviewRole?.targets ?? [];
+            // Every worktree of the repository shares this directory, so the
+            // slots bound reviews across writers, not just within one process.
+            const commonDirResult = await reviewGit.run([
+              "rev-parse",
+              "--path-format=absolute",
+              "--git-common-dir"
+            ]);
+            const slotDir = commonDirResult.exitCode === 0
+              ? new TextDecoder().decode(commonDirResult.stdout).trim()
+              : undefined;
+            const inSlot = (
+              executor: ReturnType<typeof createReviewExecutor>
+            ): ReturnType<typeof createReviewExecutor> =>
+              slotDir === undefined
+                ? executor
+                : async (request) => await withReviewSlot({
+                    dir: slotDir,
+                    signal,
+                    onWait: (line) => {
+                      process.stderr.write(`${progressPrefix}${line}\n`);
+                    }
+                  }, async () => await executor(request));
             return {
               args: reviewArgs,
               authorized: reviewArgs.yes,
@@ -639,7 +662,7 @@ process.exitCode = await runCli(
               ).config),
               config: reviewConfig,
               evidenceStore: new FileEvidenceStore(root, root),
-              execute: createReviewExecutor({
+              execute: inSlot(createReviewExecutor({
                 targets: configuredReviewTargets,
                 cwd: root,
                 ...(reviewRole?.model === undefined
@@ -668,7 +691,7 @@ process.exitCode = await runCli(
                 onProgress: (line) => {
                   process.stderr.write(`${progressPrefix}${line}\n`);
                 }
-              })
+              }))
             };
           };
           if (args.command === "review") {

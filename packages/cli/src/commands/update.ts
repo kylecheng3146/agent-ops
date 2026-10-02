@@ -56,6 +56,12 @@ export interface UpdateCommandData {
   readonly text?: string;
 }
 
+function repairedLines(plan: UpdatePlan): string[] {
+  return plan.installation.repaired.map(
+    ({ path, reason }) => `repaired: ${path} (${reason.replace("-", " ")})`
+  );
+}
+
 export function formatUpdatePlan(
   plan: UpdatePlan,
   trust?: PublicTrustChange
@@ -76,6 +82,7 @@ export function formatUpdatePlan(
             }`
           ]),
       ...(trust === undefined ? [] : formatTrustChange(trust)),
+      ...repairedLines(plan),
       `Schema migrations: ${
         plan.migrationSteps.length === 0
           ? "none"
@@ -247,6 +254,14 @@ export async function runUpdateCommand(
   return okEnvelope("UPDATE_APPLIED", {
     applied: true,
     plan: toPublicUpdatePlan(plan, trust),
-    message: `Managed installation updated to ${plan.targetVersion}.`
+    message: `Managed installation updated to ${plan.targetVersion}.`,
+    ...(plan.installation.repaired.length === 0
+      ? {}
+      : {
+          text: [
+            `Managed installation updated to ${plan.targetVersion}.`,
+            ...repairedLines(plan)
+          ].join("\n")
+        })
   });
 }
