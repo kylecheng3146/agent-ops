@@ -1,0 +1,7 @@
+worktree: session-4a4dce5b (agent-ops/session-4a4dce5b)
+session: 4a4dce5b-8f6d-4886-a54e-d7c55899071d
+agent-ops task task-99c36533-d042-46e7-a3c0-ae2a21f8be77: Prepare release 0.5.2
+criteria:
+- version-bumped: package.json and package-lock.json both declare version 0.5.2 and nothing else in them changes
+- changelog-entry: CHANGELOG.md has an empty Unreleased section and a dated [0.5.2] section describing the review report path fix
+- suite-green: The full npm test suite passes at version 0.5.2
