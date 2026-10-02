@@ -1,0 +1,8 @@
+worktree: session-c05d8f13 (agent-ops/session-c05d8f13)
+session: c05d8f13-dd3c-43cf-adf2-a737b1de93fa
+agent-ops task task-ea4e9beb-8cee-4f65-80b7-f9b3f86623bb: Pre-authorize worktree commit, lint-staged, EnterWorktree
+criteria:
+- claude-allow: CLAUDE_PREAUTH_ALLOW includes EnterWorktree and Bash(npx lint-staged *)
+- claude-unsandboxed: CLAUDE_PREAUTH_UNSANDBOXED includes agent-ops worktree commit entries
+- codex-rules: Codex rules content allows agent-ops worktree commit and npx lint-staged
+- tests-updated: preauth tests cover the new entries and the full suite passes
