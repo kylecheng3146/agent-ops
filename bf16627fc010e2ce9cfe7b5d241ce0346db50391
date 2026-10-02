@@ -1,0 +1,7 @@
+worktree: session-c05d8f13 (agent-ops/session-c05d8f13)
+session: c05d8f13-dd3c-43cf-adf2-a737b1de93fa
+agent-ops task task-51a58783-4cb3-431f-b294-e056e0e6a0fa: Release 0.5.0: preauth, relicense to PolyForm Shield
+criteria:
+- changes-applied: The preauth commit d43f041 and relicense commit 2b2a85a are applied on top of origin/main with one merged Unreleased changelog
+- version-bumped: package.json and package-lock.json root declare version 0.5.0 and the CHANGELOG has a dated 0.5.0 heading
+- suite-green: The full test suite passes
