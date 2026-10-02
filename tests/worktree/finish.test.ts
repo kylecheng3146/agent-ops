@@ -534,3 +534,24 @@ test("finish waits for a live lock, reclaims a dead one and gives up when told t
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("finishing one subagent worktree leaves the session's other worktrees covered", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const a = await addWorktree(d, { cwd: root, name: "agent-a", sessionId: SESSION, agentId: "a92303631fb7add5b" });
+    const b = await addWorktree(d, { cwd: root, name: "agent-b", sessionId: SESSION, agentId: "b11111111aaaabbbb" });
+    await completeWork(a.record, "source.txt", "agent a work\n");
+
+    await finishWorktree(d, { cwd: root, name: "agent-a" });
+
+    const store = new FileCompletionGateStore(root);
+    assert.deepEqual((await store.read(SESSION))?.extraRoots, [b.record.path]);
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+
+    await write(b.record.path, "other.txt", "agent b edit\n");
+    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

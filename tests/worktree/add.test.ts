@@ -270,3 +270,70 @@ test("add refuses a branch already checked out in another worktree", async () =>
     await rm(root, { recursive: true, force: true });
   }
 });
+
+const AGENT_A = "a92303631fb7add5b";
+const AGENT_B = "b11111111aaaabbbb";
+
+test("a subagent worktree joins the session's roots without replacing its own", async () => {
+  const root = await repository();
+  try {
+    const own = await addWorktree(deps(), { cwd: root, name: "alpha", sessionId: SESSION });
+    const a = await addWorktree(deps(), { cwd: root, name: "agent-a", sessionId: SESSION, agentId: AGENT_A });
+    const b = await addWorktree(deps(), { cwd: root, name: "agent-b", sessionId: SESSION, agentId: AGENT_B });
+    const store = new FileCompletionGateStore(root);
+
+    const state = await store.read(SESSION);
+    assert.equal(state?.root, own.record.path);
+    assert.deepEqual(state?.extraRoots, [a.record.path, b.record.path]);
+
+    // A relative root is not a root: the state file stays well formed.
+    await assert.rejects(
+      store.mutate(SESSION, (current) => ({ ...current!, extraRoots: ["relative/path"] })),
+      rejectsWith("COMPLETION_GATE_STATE_INVALID")
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Stop is blocked while any worktree of the session has an incomplete task, and allowed once none do", async () => {
+  const root = await repository();
+  try {
+    const a = await addWorktree(deps(), { cwd: root, name: "agent-a", sessionId: SESSION, agentId: AGENT_A });
+    const b = await addWorktree(deps(), { cwd: root, name: "agent-b", sessionId: SESSION, agentId: AGENT_B });
+    const main = gateFor(root, CONFIG);
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+
+    await write(b.record.path, "source.txt", "agent b edit\n");
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+    await write(a.record.path, "source.txt", "agent a edit\n");
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+
+    await git(b.record.path, "checkout", "--", "source.txt");
+    await git(a.record.path, "checkout", "--", "source.txt");
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+
+    await rm(b.record.path, { recursive: true, force: true });
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_WORKTREE_MISSING");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("one allow-stop permit made in the main checkout covers every worktree's current change", async () => {
+  const root = await repository();
+  try {
+    const a = await addWorktree(deps(), { cwd: root, name: "agent-a", sessionId: SESSION, agentId: AGENT_A });
+    const b = await addWorktree(deps(), { cwd: root, name: "agent-b", sessionId: SESSION, agentId: AGENT_B });
+    const main = gateFor(root, CONFIG);
+    await write(a.record.path, "source.txt", "agent a edit\n");
+    await write(b.record.path, "source.txt", "agent b edit\n");
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+
+    await main.grantPermit(SESSION);
+
+    assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

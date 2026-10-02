@@ -195,7 +195,10 @@ export async function resumeWorktree(
   await writeWorktreeRecord(record);
   const mainConfig = await deps.loadConfig(mainRoot);
   if (mainConfig.features.completionGate.enabled && previous.sessionId !== sessionId) {
-    await (await deps.gate(mainRoot, mainConfig)).redirect(previous.sessionId, null);
+    const mainGate = await deps.gate(mainRoot, mainConfig);
+    await (previous.agentId === undefined
+      ? mainGate.redirect(previous.sessionId, null)
+      : mainGate.removeRoot(previous.sessionId, previous.path));
   }
   await bindSession(deps, record, mainConfig, RESUMED_BASELINE);
   return record;
@@ -269,7 +272,10 @@ export async function removeWorktree(
   const { record } = status;
   const mainConfig = await deps.loadConfig(mainRoot);
   if (mainConfig.features.completionGate.enabled) {
-    await (await deps.gate(mainRoot, mainConfig)).redirect(record.sessionId, null);
+    const mainGate = await deps.gate(mainRoot, mainConfig);
+    await (record.agentId === undefined
+      ? mainGate.redirect(record.sessionId, null)
+      : mainGate.removeRoot(record.sessionId, record.path));
   }
   await deps.trust.revoke(record.path, await deps.loadConfig(record.path)).catch(() => undefined);
   await removeCheckout(deps, record, true);

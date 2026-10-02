@@ -322,10 +322,10 @@ export async function bindSession(
   if (!mainConfig.features.completionGate.enabled) return;
   const worktreeConfig = await deps.loadConfig(record.path);
   await (await deps.gate(record.path, worktreeConfig)).seed(record.sessionId, baselineFingerprint);
-  // ponytail: a subagent's worktree does not move the session's gate; covering several roots is S2.
-  if (record.agentId === undefined) {
-    await (await deps.gate(record.mainRoot, mainConfig)).redirect(record.sessionId, record.path);
-  }
+  const mainGate = await deps.gate(record.mainRoot, mainConfig);
+  // A subagent's worktree joins the session's roots instead of replacing its own.
+  if (record.agentId === undefined) await mainGate.redirect(record.sessionId, record.path);
+  else await mainGate.addRoot(record.sessionId, record.path);
 }
 
 export async function removeCheckout(deps: WorktreeDependencies, record: WorktreeRecord, force: boolean): Promise<void> {
@@ -466,8 +466,10 @@ export async function addWorktree(
     await bindSession(deps, record, mainConfig);
     return { record, copied, trusted, setup };
   } catch (error) {
-    if (mainConfig.features.completionGate.enabled && options.agentId === undefined) {
-      await (await deps.gate(mainRoot, mainConfig)).redirect(sessionId, null).catch(() => undefined);
+    if (mainConfig.features.completionGate.enabled) {
+      const mainGate = await deps.gate(mainRoot, mainConfig);
+      await (options.agentId === undefined ? mainGate.redirect(sessionId, null) : mainGate.removeRoot(sessionId, path))
+        .catch(() => undefined);
     }
     if (trusted) await deps.trust.revoke(record.path, mainConfig).catch(() => undefined);
     await removeCheckout(deps, record, true).catch(() => undefined);
