@@ -1,0 +1,8 @@
+worktree: session-c05d8f13 (agent-ops/session-c05d8f13)
+session: c05d8f13-dd3c-43cf-adf2-a737b1de93fa
+agent-ops task task-ce00d5d7-a56a-44e3-bf07-2d413f872968: Relicense from MIT to PolyForm Shield 1.0.0
+criteria:
+- license-text: LICENSE is the official PolyForm Shield 1.0.0 text, led by a Required Notice line naming Kyle Cheng
+- package-field: package.json and the package-lock root entry declare license SEE LICENSE IN LICENSE
+- readme-contributing: README License section and CONTRIBUTING name PolyForm Shield 1.0.0 and no longer say MIT
+- suite-green: The full test suite still passes
