@@ -3,7 +3,7 @@ import { join, relative, sep } from "node:path";
 
 import type { HookResult } from "../hooks/events.js";
 import { canonicalPath } from "./guard.js";
-import { readWorktreeRecord, WORKTREE_DIRECTORY } from "./service.js";
+import { mayUseWorktree, readWorktreeRecord, WORKTREE_DIRECTORY } from "./service.js";
 
 /**
  * Whether Claude's EnterWorktree may switch this session into `path`. Only the
@@ -14,7 +14,8 @@ import { readWorktreeRecord, WORKTREE_DIRECTORY } from "./service.js";
 export async function evaluateWorktreeEnter(
   mainRoot: string,
   path: string,
-  sessionId: string | undefined
+  sessionId: string | undefined,
+  agentId?: string
 ): Promise<HookResult> {
   if (sessionId === undefined) {
     return { action: "continue", status: "UNKNOWN", code: "WORKTREE_ENTER_UNJUDGED" };
@@ -23,7 +24,8 @@ export async function evaluateWorktreeEnter(
   const target = await canonicalPath(path);
   const name = relative(directory, target).split(sep)[0] ?? "";
   const inside = !target.startsWith(`${directory}${sep}`) ? false : target === join(directory, name);
-  if (inside && (await readWorktreeRecord(target))?.sessionId === sessionId) {
+  const entered = inside ? await readWorktreeRecord(target) : null;
+  if (entered !== null && mayUseWorktree(entered, sessionId, agentId)) {
     return {
       action: "continue",
       status: "PASS",
@@ -34,7 +36,8 @@ export async function evaluateWorktreeEnter(
   }
   const owned: string[] = [];
   for (const entry of await readdir(directory).catch(() => [] as string[])) {
-    if ((await readWorktreeRecord(join(directory, entry)))?.sessionId === sessionId) {
+    const record = await readWorktreeRecord(join(directory, entry));
+    if (record !== null && mayUseWorktree(record, sessionId, agentId)) {
       owned.push(join(directory, entry));
     }
   }

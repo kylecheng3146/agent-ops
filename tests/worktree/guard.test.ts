@@ -14,6 +14,7 @@ import { runProjectLoop } from "../../runtime/src/hooks/codex-loop.js";
 import { evaluateWorktreeWrite } from "../../runtime/src/parallel/guard.js";
 import {
   addWorktree,
+  agentWorktreeName,
   readWorktreeRecord,
   sessionWorktreeName
 } from "../../runtime/src/parallel/service.js";
@@ -256,6 +257,73 @@ test("SessionStart tells the agent its session id, and auto mode asks for a work
     assert.equal(
       (await gateFor(record.path, AUTO).handle({ event: "session-start", projectRoot: record.path, sessionId: "session-three" }))?.code,
       "COMPLETION_GATE_READY"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const AGENT_A = "a92303631fb7add5b";
+const AGENT_B = "b11111111aaaabbbb";
+
+test("a subagent call carries agent_id into the event, the main thread and bad ids do not", () => {
+  const sub = normalizeClaudeHookInput({ ...edit("/repo", "src/a.ts"), agent_id: AGENT_A, agent_type: "general-purpose" });
+  assert.equal((sub as { agentId?: string }).agentId, AGENT_A);
+  assert.equal("agentId" in normalizeClaudeHookInput(edit("/repo", "src/a.ts")), false);
+  assert.equal("agentId" in normalizeClaudeHookInput({ ...edit("/repo", "src/a.ts"), agent_id: "bad id\n" }), false);
+});
+
+test("a subagent's first main-checkout write allocates a worktree it owns, named by absolute path", async () => {
+  const root = await repository(AUTO);
+  try {
+    const input = { ...edit(root, join(root, "source.txt")), agent_id: AGENT_A };
+    const first = denialReason(await preToolUse(root, AUTO, input, deps()));
+    const path = join(root, ".worktrees", agentWorktreeName(SESSION, AGENT_A));
+    assert.match(first, /^WORKTREE_CREATED: /u);
+    assert.ok(first.includes(join(path, "source.txt")), first);
+    assert.match(first, /absolute path/u);
+    assert.doesNotMatch(first, /EnterWorktree/u);
+    const record = await readWorktreeRecord(path);
+    assert.equal(record?.sessionId, SESSION);
+    assert.equal(record?.agentId, AGENT_A);
+
+    // A second blocked write reuses it; the main thread still gets its own.
+    await preToolUse(root, AUTO, { ...input, tool_input: { file_path: join(root, "other.txt") } }, deps());
+    const main = denialReason(await preToolUse(root, AUTO, edit(root, join(root, "source.txt")), deps()));
+    assert.ok(main.includes(`EnterWorktree with path ${join(root, ".worktrees", sessionWorktreeName(SESSION))}`), main);
+    assert.deepEqual((await readdir(join(root, ".worktrees"))).sort(), [
+      agentWorktreeName(SESSION, AGENT_A),
+      sessionWorktreeName(SESSION)
+    ].sort());
+
+    // Inside its own worktree, by absolute path, the subagent's edit goes through.
+    assert.equal(await preToolUse(root, AUTO, { ...edit(root, join(path, "source.txt")), agent_id: AGENT_A }, deps()), "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a subagent may not write into another writer's worktree; the main thread may enter any of its session's", async () => {
+  const root = await repository(AUTO);
+  try {
+    const own = await addWorktree(deps(), { cwd: root, name: "main-wt", sessionId: SESSION });
+    const a = await addWorktree(deps(), { cwd: root, name: "agent-a", sessionId: SESSION, agentId: AGENT_A });
+    const ensure = async () => join(root, ".worktrees", "agent-b");
+
+    const cross = await evaluateWorktreeWrite(root, [join(a.record.path, "x.ts")], SESSION, ensure, AGENT_B);
+    assert.equal(cross.action, "block");
+    assert.equal(cross.code, "WORKTREE_OWNED_BY_OTHER_AGENT");
+    assert.match(cross.remedy ?? "", /absolute paths/u);
+
+    const intoMainThread = await evaluateWorktreeWrite(root, [join(own.record.path, "x.ts")], SESSION, ensure, AGENT_A);
+    assert.equal(intoMainThread.code, "WORKTREE_OWNED_BY_OTHER_AGENT");
+
+    assert.equal((await evaluateWorktreeWrite(root, [join(a.record.path, "x.ts")], SESSION, ensure, AGENT_A)).action, "continue");
+    assert.equal((await evaluateWorktreeWrite(root, [join(a.record.path, "x.ts")], SESSION)).action, "continue");
+    // Another session is still refused as before.
+    assert.equal(
+      (await evaluateWorktreeWrite(root, [join(a.record.path, "x.ts")], "session-two", ensure)).code,
+      "WORKTREE_OWNED_BY_OTHER_SESSION"
     );
   } finally {
     await rm(root, { recursive: true, force: true });

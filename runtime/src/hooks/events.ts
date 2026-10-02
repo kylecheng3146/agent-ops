@@ -6,6 +6,8 @@ export type HookAction = "block" | "continue";
 interface HookEventBase {
   readonly projectRoot: string;
   readonly sessionId?: string;
+  /** Set only for a call made inside a subagent; the main thread has none. */
+  readonly agentId?: string;
 }
 
 export interface SessionStartHookEvent extends HookEventBase {

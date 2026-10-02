@@ -535,10 +535,11 @@ export async function runHookProcess(
                 write.sessionId,
                 dependencies.worktree === undefined
                   ? undefined
-                  : async (sessionId) => (await ensureSessionWorktree(
+                  : async (sessionId, agentId) => (await ensureSessionWorktree(
                       dependencies.worktree!,
-                      { cwd: mainRoot, sessionId }
-                    )).path
+                      { cwd: mainRoot, sessionId, ...(agentId === undefined ? {} : { agentId }) }
+                    )).path,
+                write.agentId
               );
         }
       : undefined;
@@ -547,7 +548,7 @@ export async function runHookProcess(
           const mainRoot = await resolveMainRoot(gitRunner);
           return mainRoot === null
             ? { action: "continue", status: "UNKNOWN", code: "WORKTREE_GUARD_UNAVAILABLE" }
-            : await evaluateWorktreeEnter(mainRoot, enter.path, enter.sessionId);
+            : await evaluateWorktreeEnter(mainRoot, enter.path, enter.sessionId, enter.agentId);
         }
       : undefined;
     if (hookEvent === "SessionStart" && config.worktree?.mode === "auto" &&
