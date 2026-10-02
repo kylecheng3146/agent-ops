@@ -1,0 +1,7 @@
+worktree: session-4a4dce5b (agent-ops/session-4a4dce5b)
+session: 4a4dce5b-8f6d-4886-a54e-d7c55899071d
+agent-ops task task-d45805d8-508a-4190-b3ea-ae17d8b74577: Review report accepts paths with spaces and non-ASCII letters
+criteria:
+- space-path-accepted: validateReviewReport accepts changedFilesInspected, supportingFilesInspected and finding locations whose path contains spaces or non-ASCII letters
+- unsafe-still-rejected: validateReviewReport still rejects absolute paths, .. segments, backslashes, control characters, empty segments and . segments
+- suite-green: The full npm test suite passes with the new tests included
