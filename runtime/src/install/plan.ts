@@ -729,7 +729,9 @@ async function planBlocks(
           if (!managedBlockBoundariesIntact(content, marker)) {
             throw error;
           }
-          repaired.push({ path, reason: "block-drift" });
+          if (!repaired.some((entry) => entry.path === path)) {
+            repaired.push({ path, reason: "block-drift" });
+          }
         }
       }
       content = applyManagedBlock(content, block);
