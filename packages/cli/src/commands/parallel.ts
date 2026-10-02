@@ -29,6 +29,7 @@ function listText(statuses: readonly WorktreeStatus[], now: number): string {
     `${record.name}${idle.has(record.name) ? " (idle)" : ""}`,
     `  path: ${record.path}`,
     `  session: ${record.sessionId}`,
+    ...(record.agentId === undefined ? [] : [`  agent: ${record.agentId}`]),
     `  branch: ${record.branch}, ${ahead} commit(s) ahead of ${record.targetBranch}${dirty ? ", uncommitted changes" : ""}`,
     `  task: ${taskStatus}`,
     `  last activity: ${lastActivity}`

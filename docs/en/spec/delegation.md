@@ -39,3 +39,13 @@ Parallel editing conversations in one repository MUST each work in their own age
 - Evidence: `agent-ops worktree list` shows one worktree per editing session, and each finish reports a fast-forward merge.
 - Positive: `Two conversations edit .worktrees/login and .worktrees/cart; each verifies, reviews and finishes on its own.`
 - Negative: `Two conversations edit the main checkout at once, so each one's verification and review is voided by the other's writes.`
+
+## DELEGATE-ISOLATION-003
+
+Subagents that write files in one session MUST each work in their own agent-ops worktree, with their own task, verification and review.
+
+- Trigger: `worktree.mode` is `auto` and a subagent writes a file. Hook calls made inside a subagent carry its `agent_id` under the parent's `session_id`; a payload without `agent_id` is treated as the session's main thread.
+- Action: The first blocked write allocates a worktree owned by that session and agent; edit there using absolute paths, because the hook's `cwd` does not follow a `cd`. The subagent commits and runs `agent-ops verify` and `agent-ops review` in its worktree. At most two reviews run at once across all worktrees of the repository; the rest wait. The coordinator runs `agent-ops worktree finish <name>` for each worktree in turn, and Stop is allowed only when every worktree of the session has a completed task.
+- Evidence: `agent-ops worktree list` shows an `agent:` line for each subagent worktree, writing into another writer's worktree is refused with `WORKTREE_OWNED_BY_OTHER_AGENT`, and each finish reports a fast-forward merge.
+- Positive: `Two subagents implement independent tasks in .worktrees/session-ab12cd34-a9230363 and .worktrees/session-ab12cd34-b1111111; each reviews itself and the coordinator finishes them one after the other.`
+- Negative: `A subagent edits the coordinator's worktree, or two subagents edit one worktree, so one review covers two tasks' changes.`
