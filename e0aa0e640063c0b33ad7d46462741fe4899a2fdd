@@ -1,0 +1,27 @@
+worktree: session-a647e062 (agent-ops/session-a647e062)
+session: a647e062-6480-42d7-a0af-84336b755aab
+agent-ops task task-c7b9ce55-c6b8-4c0a-b331-8fd599e153f1: worktree: parallel writers per session (agent_id)
+criteria:
+- writers-identity-done: S1 complete: writers are identified by session_id plus agent_id and each gets its own worktree
+- writers-gate-review-done: S2, S3 and S4 complete: gate covers all roots, reviews are bounded, docs and integration test exist
+  agent-ops task task-47c1d8f2-b3ee-41de-82a4-41b93f9ab67b: S1: writer identity (session_id + agent_id) and lazy worktree allocation
+  criteria:
+  - s1-agent-id-read: claude hook input exposes agentId when the payload has agent_id and leaves it undefined otherwise
+  - s1-lazy-allocation: a subagent first write into the main checkout allocates a worktree owned by session plus agent and the block remedy names its absolute path
+  - s1-cross-agent-blocked: a different agent writing into that worktree is blocked with WORKTREE_OWNED_BY_OTHER_AGENT, judged on absolute tool paths not hook cwd
+  - s1-main-thread-access: the main thread without agent_id may use every worktree of its session; no agent_id anywhere keeps today session-level behavior
+  agent-ops task task-05669ebd-5292-449f-ae44-652465d77f2b: S2: completion gate covers every worktree of a session
+  criteria:
+  - s2-roots-state: gate state stores a list of roots per session and still parses the old single-root state file
+  - s2-stop-all-roots: Stop is blocked while any root task is incomplete and allowed once all are complete
+  - s2-permit-and-finish: allow-stop permit binds every root fingerprint and worktree finish removes only its own root
+  agent-ops task task-83ef3d74-a257-4bba-af50-12eca0ad52ff: S3: cross-worktree review concurrency limit
+  criteria:
+  - s3-width-limit: concurrent reviews across worktrees never exceed the width (default 2); others wait and proceed when a slot frees
+  - s3-stale-lock: a slot held by a dead process is reclaimed
+  - s3-batch-compat: batch width and the shared limit do not deadlock and a transient NOT_RUN still degrades to 1
+  agent-ops task task-e76e8e54-153b-4d71-93f7-8dc0ebf42b7e: S4: docs, worktree list, two-agent integration test
+  criteria:
+  - s4-docs: delegation.md and its zh-TW mirror describe per-agent worktrees, the absolute-path rule and the review limit
+  - s4-list-agent: worktree list shows the owning agent of each worktree
+  - s4-integration: two simulated agents each write in their own worktree, complete their tasks, and finish serially
