@@ -47,6 +47,7 @@ import {
 } from "./harness.js";
 import {
   assertExpectedManagedBlock,
+  managedBlockBoundariesIntact,
   assertSupportedManifestOwnership,
   type ExpectedManagedMarker
 } from "./ownership.js";
@@ -111,7 +112,7 @@ export interface CreateInstallPlanOptions {
 /** A managed path whose on-disk content drifted from the manifest and is rewritten. */
 export interface RepairedPath {
   readonly path: string;
-  readonly reason: "artifact-drift";
+  readonly reason: "artifact-drift" | "block-drift";
 }
 
 export interface InstallPlan {
@@ -642,6 +643,7 @@ async function planBlocks(
 ): Promise<{
   operations: FileOperation[];
   records: ManagedMarkerRecord[];
+  repaired: RepairedPath[];
 }> {
   const grouped = new Map<
     string,
@@ -675,6 +677,7 @@ async function planBlocks(
 
   const operations: FileOperation[] = [];
   const records: ManagedMarkerRecord[] = [];
+  const repaired: RepairedPath[] = [];
   for (const {
     path,
     blocks: pathBlocks,
@@ -704,6 +707,31 @@ async function planBlocks(
       );
     }
     for (const block of pathBlocks) {
+      const expected = expectedMarkers.get(block.id);
+      if (current !== null && expected !== undefined) {
+        const { start, end } = managedBlockMarkers(
+          block.id,
+          block.version,
+          block.markerStyle
+        );
+        const marker: ManagedMarkerRecord = {
+          id: block.id,
+          path,
+          hash: sha256(content),
+          owner: "agent-ops",
+          startMarker: start,
+          endMarker: end
+        };
+        try {
+          assertExpectedManagedBlock(content, marker, expected);
+        } catch (error) {
+          // Content drift is repaired below; broken boundaries stay an error.
+          if (!managedBlockBoundariesIntact(content, marker)) {
+            throw error;
+          }
+          repaired.push({ path, reason: "block-drift" });
+        }
+      }
       content = applyManagedBlock(content, block);
     }
     const hash = sha256(content);
@@ -737,7 +765,7 @@ async function planBlocks(
       });
     }
   }
-  return { operations, records };
+  return { operations, records, repaired };
 }
 
 export async function createInstallPlan(
@@ -977,6 +1005,7 @@ export async function createInstallPlan(
     expectedExistingMarkers
   );
   operations.push(...plannedBlocks.operations);
+  repaired.push(...plannedBlocks.repaired);
 
   const hooks: ManagedHookRecord[] = [];
   if (options.hookRuntimePath !== undefined) {

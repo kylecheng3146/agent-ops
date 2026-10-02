@@ -25,6 +25,7 @@ import {
 } from "../review/host-sandbox.js";
 import {
   assertExpectedManagedBlock,
+  managedBlockBoundariesIntact,
   assertSupportedManifestOwnership
 } from "./ownership.js";
 import { isOpencodeManagedPlugin } from "../adapters/opencode/config.js";
@@ -511,6 +512,7 @@ async function checkMarkers(
 
   const failures: string[] = [];
   const legacyPaths: string[] = [];
+  const driftedPaths: string[] = [];
   const expectedMarkers =
     assertSupportedManifestOwnership(manifest, root);
   for (const marker of manifest.markers) {
@@ -526,7 +528,13 @@ async function checkMarkers(
         legacyPaths.push(marker.path);
       }
     } catch {
-      failures.push(marker.path);
+      // Intact markers with changed content are repaired by update; broken
+      // boundaries are not, since the owned span cannot be located.
+      const intact = await readContainedText(root, marker.path).then(
+        (source) => managedBlockBoundariesIntact(source, marker),
+        () => false
+      );
+      (intact ? driftedPaths : failures).push(marker.path);
     }
   }
   if (failures.length > 0) {
@@ -536,6 +544,15 @@ async function checkMarkers(
       `Managed block markers failed verification: ${failures.join(", ")}.`,
       "UPDATE_REQUIRED",
       "Run `agent-ops update`."
+    );
+  }
+  if (driftedPaths.length > 0) {
+    return check(
+      "markers",
+      "DEGRADED",
+      `Managed block content changed after installation: ${driftedPaths.join(", ")}.`,
+      "UPDATE_REQUIRED",
+      "Run `agent-ops update`; it rewrites the content between the markers and leaves the rest of the file."
     );
   }
   if (legacyPaths.length > 0) {

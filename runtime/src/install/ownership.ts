@@ -330,6 +330,18 @@ function exactMarkerCount(source: string, marker: string): number {
   return count;
 }
 
+/** The start and end markers each appear exactly once, in order. */
+export function managedBlockBoundariesIntact(
+  source: string,
+  marker: Pick<ManagedMarkerRecord, "startMarker" | "endMarker">
+): boolean {
+  return (
+    exactMarkerCount(source, marker.startMarker) === 1 &&
+    exactMarkerCount(source, marker.endMarker) === 1 &&
+    source.indexOf(marker.startMarker) < source.indexOf(marker.endMarker)
+  );
+}
+
 export function assertExpectedManagedBlock(
   source: string,
   marker: ManagedMarkerRecord,
@@ -337,11 +349,7 @@ export function assertExpectedManagedBlock(
 ): "desired" | "legacy" {
   const startIndex = source.indexOf(marker.startMarker);
   const endIndex = source.indexOf(marker.endMarker);
-  if (
-    exactMarkerCount(source, marker.startMarker) !== 1 ||
-    exactMarkerCount(source, marker.endMarker) !== 1 ||
-    startIndex >= endIndex
-  ) {
+  if (!managedBlockBoundariesIntact(source, marker)) {
     throw new AgentOpsError(
       "MANAGED_BLOCK_CHANGED",
       `Managed block boundaries changed after installation: ${marker.path}`

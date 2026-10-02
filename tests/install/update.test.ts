@@ -390,29 +390,37 @@ test("migrates Codex and Claude legacy routing blocks in one update", async () =
   }
 });
 
-test("changed legacy routing content fails closed during update", async () => {
+test("changed routing block content is repaired and surrounding bytes are kept", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-update-"));
   try {
     await install(root);
     const agentsPath = join(root, "AGENTS.md");
     await writeFile(
       agentsPath,
-      managedBlock(
+      `# Mine before\n\n${managedBlock(
         CODEX_START,
         CODEX_LEGACY_BODY.replace("canonical", "user-edited"),
         CODEX_END
-      )
+      )}\n# Mine after\n`
     );
 
-    await assert.rejects(
-      createUpdatePlan({
-        root,
-        adapters: commonHarnessAdapters(),
-        targetVersion: "0.2.0"
-      }),
-      (error: unknown) =>
-        error instanceof AgentOpsError &&
-        error.code === "UPDATE_INSTALLATION_INVALID"
+    const plan = await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    });
+
+    assert.deepEqual(plan.installation.repaired, [
+      { path: "AGENTS.md", reason: "block-drift" }
+    ]);
+    await applyUpdatePlan(root, plan);
+    assert.equal(
+      await readFile(agentsPath, "utf8"),
+      `# Mine before\n\n${managedBlock(
+        CODEX_START,
+        CODEX_DESIRED_BODY,
+        CODEX_END
+      )}\n# Mine after\n`
     );
   } finally {
     await rm(root, { recursive: true, force: true });
