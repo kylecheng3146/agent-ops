@@ -23,7 +23,10 @@ import {
 } from "../../runtime/src/install/update.js";
 import type { RegistryClient } from "../../runtime/src/registry/npm.js";
 import { parseArgs } from "../../packages/cli/src/args.js";
-import { runUpdateCommand } from "../../packages/cli/src/commands/update.js";
+import {
+  formatUpdatePlan,
+  runUpdateCommand
+} from "../../packages/cli/src/commands/update.js";
 
 const CODEX_START = "<!-- agent-ops:start agents-routing v1 -->";
 const CODEX_END = "<!-- agent-ops:end agents-routing -->";
@@ -966,3 +969,33 @@ test("update does not prompt for worktree when already configured", async () => 
   }
 });
 
+
+test("update repairs a drifted managed artifact and reports it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-repair-"));
+  try {
+    await install(root);
+    const rulesPath = join(root, ".agent-ops", "AGENTS.md");
+    await writeFile(rulesPath, "# Reverted to an old version\n");
+    const options = {
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0"
+    };
+
+    const plan = await createUpdatePlan(options);
+
+    assert.deepEqual(plan.installation.repaired, [
+      { path: ".agent-ops/AGENTS.md", reason: "artifact-drift" }
+    ]);
+    assert.match(
+      formatUpdatePlan(plan),
+      /repaired: \.agent-ops\/AGENTS\.md \(artifact drift\)/u
+    );
+    await applyUpdatePlan(root, plan);
+    assert.match(await readFile(rulesPath, "utf8"), /Loop Engineering/u);
+    const again = await createUpdatePlan(options);
+    assert.deepEqual(again.installation.repaired, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

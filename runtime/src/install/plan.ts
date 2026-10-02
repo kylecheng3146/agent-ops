@@ -108,6 +108,12 @@ export interface CreateInstallPlanOptions {
   readonly codexHome?: string;
 }
 
+/** A managed path whose on-disk content drifted from the manifest and is rewritten. */
+export interface RepairedPath {
+  readonly path: string;
+  readonly reason: "artifact-drift";
+}
+
 export interface InstallPlan {
   readonly scope: InstallScope;
   readonly harness: Harness;
@@ -120,6 +126,8 @@ export interface InstallPlan {
   readonly config: AgentOpsConfig;
   readonly manifest: InstallManifest;
   readonly operations: FileOperation[];
+  /** Managed paths rewritten because their content drifted after installation. */
+  readonly repaired: readonly RepairedPath[];
   /**
    * Changes outside the manifest that let a worktree session run without
    * prompts: the local Claude settings entries and the Codex rules file. Not
@@ -476,6 +484,7 @@ async function planArtifact(
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
+  repaired?: RepairedPath;
 }> {
   const current = await readCurrentFile(root, artifact.path);
   const owned = findOwnedArtifact(existingManifest, artifact.path);
@@ -495,18 +504,14 @@ async function planArtifact(
       `Refusing to replace an unmanaged install artifact: ${artifact.path}`
     );
   }
-  if (
-    current !== null &&
-    owned !== undefined &&
-    owned.hash !== current.hash
-  ) {
-    throw new AgentOpsError(
-      "MANAGED_ARTIFACT_CHANGED",
-      `Managed artifact changed after installation: ${artifact.path}`
-    );
-  }
+  // Drifted managed artifacts are agent-ops owned: rewrite them and report it.
+  const drifted =
+    current !== null && owned !== undefined && owned.hash !== current.hash;
   const hash = sha256(artifact.content);
   return {
+    ...(drifted
+      ? { repaired: { path: artifact.path, reason: "artifact-drift" as const } }
+      : {}),
     operation: {
       kind: "write",
       path: artifact.path,
@@ -930,6 +935,7 @@ export async function createInstallPlan(
   operations.push(config.operation);
   artifacts.push(config.record);
 
+  const repaired: RepairedPath[] = [];
   for (const artifact of contribution.artifacts) {
     const planned = await planArtifact(
       options.root,
@@ -938,6 +944,9 @@ export async function createInstallPlan(
     );
     operations.push(planned.operation);
     artifacts.push(planned.record);
+    if (planned.repaired !== undefined) {
+      repaired.push(planned.repaired);
+    }
   }
 
   if (resolved.capabilities.includes("project-loop")) {
@@ -1086,6 +1095,7 @@ export async function createInstallPlan(
     config: config.config,
     manifest,
     operations,
+    repaired,
     ...(preauthorization.length === 0 ? {} : { preauthorization }),
     detectedVerification: config.detectedVerification,
     verificationBlockers: config.verificationBlockers
