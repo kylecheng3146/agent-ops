@@ -1,0 +1,16 @@
+worktree: session-a647e062 (agent-ops/session-a647e062)
+session: a647e062-6480-42d7-a0af-84336b755aab
+agent-ops task task-1631338e-fbea-414e-886f-b4510766192c: update: auto-repair drifted managed artifacts and blocks
+criteria:
+- artifact-repair-done: S1 subtask complete: non-config managed artifact drift is repaired and reported
+- block-repair-done: S2 subtask complete: managed block content drift is repaired, docs updated
+  agent-ops task task-38c35d3d-c160-4dc0-bf14-1c612ca36b86: S1: repair drifted non-config managed artifacts, report via InstallPlan.repaired
+  criteria:
+  - s1-artifact-repaired: update rewrites a non-config managed artifact whose hash differs from the manifest instead of throwing, and records the new hash
+  - s1-protections-kept: config artifact drift, uninstall drift and UNMANAGED_INSTALL_PATH still throw
+  - s1-repaired-reported: InstallPlan.repaired lists path and reason, update and dry-run print one line per path, exit code 0
+  agent-ops task task-e07247fb-cb46-4352-9a96-3188527f36fa: S2: repair drifted managed block content, docs
+  criteria:
+  - s2-block-repaired: managed block with intact markers but changed content is replaced between markers, text outside markers unchanged
+  - s2-boundary-throws: managed block with missing, duplicated or reordered markers still throws MANAGED_BLOCK_CHANGED
+  - s2-docs: troubleshooting.md and its zh-TW mirror describe auto-repair scope and exclusions
