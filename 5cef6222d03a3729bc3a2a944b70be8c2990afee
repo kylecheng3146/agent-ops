@@ -1,0 +1,6 @@
+worktree: session-a647e062 (agent-ops/session-a647e062)
+session: a647e062-6480-42d7-a0af-84336b755aab
+agent-ops task task-053e663e-13ef-4711-abfe-bd4f349a401e: chore(release): prepare 0.5.1
+criteria:
+- version-bumped: package.json and package-lock.json say 0.5.1 and CHANGELOG has a dated 0.5.1 section describing update drift repair and parallel subagent writers
+- suite-passes: the full test suite passes on the release commit
