@@ -59,8 +59,22 @@ test("the managed entries are merged in beside the user's own and leave the rest
 test("nothing that only the user may approve is pre-authorized", () => {
   for (const entry of CLAUDE_PREAUTH_ALLOW) {
     assert.doesNotMatch(entry, /trust|allow-stop|init|update|uninstall|config/u, entry);
-    assert.match(entry, /^Bash\(agent-ops (task|verify|review|batch|worktree|doctor) \*\)$/u, entry);
+    assert.match(
+      entry,
+      /^(Bash\(agent-ops (task|verify|review|batch|worktree|doctor) \*\)|EnterWorktree|Bash\(npx lint-staged \*\))$/u,
+      entry
+    );
   }
+});
+
+test("a worktree session commits and enters its worktree without a prompt", () => {
+  assert.ok(CLAUDE_PREAUTH_ALLOW.includes("EnterWorktree"));
+  assert.ok(CLAUDE_PREAUTH_ALLOW.includes("Bash(npx lint-staged *)"));
+  for (const entry of ["agent-ops worktree commit *", "npx lint-staged *"]) {
+    assert.ok(CLAUDE_PREAUTH_UNSANDBOXED.includes(entry), entry);
+  }
+  assert.match(CODEX_RULES_CONTENT, /pattern = \["agent-ops", "worktree", "commit"\]/u);
+  assert.match(CODEX_RULES_CONTENT, /pattern = \["npx", "lint-staged"\]/u);
 });
 
 test("removal strips exactly the managed entries, and removes a file that held nothing else", () => {
@@ -171,7 +185,7 @@ test("Codex rules are written once, only when Codex's home is named, and never o
 
 test("the rules cover the shapes AGENTS.md runs, and only review, batch and the auth probe", async (t) => {
   assert.ok(CODEX_RULES_CONTENT.startsWith(CODEX_RULES_MARKER));
-  assert.equal(CODEX_RULES_CONTENT.match(/^prefix_rule\(/gmu)?.length, 6);
+  assert.equal(CODEX_RULES_CONTENT.match(/^prefix_rule\(/gmu)?.length, 8);
   // batch, like review, is allowed with and without AGENT_OPS_HOST.
   assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "batch"\]/gu)?.length, 2);
   assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "review"\]/gu)?.length, 2);
@@ -198,6 +212,9 @@ test("the rules cover the shapes AGENTS.md runs, and only review, batch and the 
     assert.equal((await check(...prefix, "agent-ops", "doctor", "--check-auth", "--json")).decision, "allow");
     assert.equal((await check(...prefix, "AGENT_OPS_HOST=claude", "agent-ops", "batch", "--parent", "task-1", "--yes", "--output", "/tmp/b.json")).decision, "allow");
     assert.equal((await check(...prefix, "agent-ops", "batch", "--parent", "task-1", "--yes")).decision, "allow");
+    assert.equal((await check("agent-ops", "worktree", "commit", "-m", "feat: x")).decision, "allow");
+    assert.equal((await check("npx", "lint-staged", "--debug")).decision, "allow");
+    assert.equal((await check("agent-ops", "worktree", "finish", "x")).decision, undefined);
     assert.equal((await check(...prefix, "AGENT_OPS_HOST=codex", "agent-ops", "trust", "grant", "--scope", "project", "--yes")).decision, undefined);
   } finally {
     await rm(join(root, ".."), { recursive: true, force: true });

@@ -4,6 +4,18 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-02
+
+- The license changes from MIT to the PolyForm Shield License 1.0.0: use,
+  change and share the software freely, including inside a company, but do not
+  use it to build a product or service that competes with agent-ops. Versions
+  up to 0.4.1 stay under MIT. `package.json` declares
+  `SEE LICENSE IN LICENSE`, since npm has no SPDX identifier for it.
+- `init` and `update` also pre-authorize `EnterWorktree`, `npx lint-staged`
+  and, outside the sandbox, `agent-ops worktree commit`, in Claude's local
+  settings and Codex's rules, so a worktree session no longer stops on those
+  prompts or on a pre-commit hook that cannot write the main `.git`.
+
 ## [0.4.1] - 2026-09-30
 
 - `agent-ops batch --parent <task-id> --yes` verifies and reviews a parent

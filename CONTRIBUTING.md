@@ -60,5 +60,5 @@ run the dispatch-only Release workflow. The workflow performs the full gate and
 publishes with OIDC provenance; it does not use an npm token.
 
 The project does not require a Contributor License Agreement or Developer
-Certificate of Origin. Contributions are provided under the repository's MIT
-License.
+Certificate of Origin. Contributions are provided under the repository's
+PolyForm Shield License 1.0.0.

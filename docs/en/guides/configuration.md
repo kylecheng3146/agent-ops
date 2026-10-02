@@ -236,12 +236,15 @@ evidence. Give each editing conversation its own worktree instead:
 - With `worktree.mode` auto, `init` and `update` also pre-authorize what a
   session runs itself, and the plan lists it before you confirm: in
   `.claude/settings.local.json`, `permissions.allow` for `agent-ops task`,
-  `verify`, `review`, `worktree` and `doctor` and `sandbox.excludedCommands`
-  for `agent-ops review` (your other entries are kept, and the plan describes
+  `verify`, `review`, `worktree` and `doctor`, plus `EnterWorktree` (the hook
+  still blocks a path the session does not own) and `npx lint-staged`, and
+  `sandbox.excludedCommands` for `agent-ops review`, `batch`, `worktree commit`
+  and `npx lint-staged` (your other entries are kept, and the plan describes
   the file instead of printing it); and, when the CLI can see Codex's home
   (`CODEX_HOME`, else `~/.codex`), `rules/agent-ops.rules` with allow rules
   for `agent-ops review` and `doctor --check-auth`, with and without
-  `AGENT_OPS_HOST=`. `trust`, `allow-stop`, `init`, `update` and `uninstall`
+  `AGENT_OPS_HOST=`, and for `agent-ops worktree commit` and `npx lint-staged`,
+  so a pre-commit hook can write the main `.git`. `trust`, `allow-stop`, `init`, `update` and `uninstall`
   are never pre-authorized. Turning auto mode off, or `uninstall`, takes
   exactly those entries back out; a rules file of that name agent-ops did not
   write is left alone.

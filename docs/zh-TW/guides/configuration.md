@@ -204,11 +204,14 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   會把較舊的 matcher 回報為註冊漂移。
 - 當 `worktree.mode` 為 auto，`init` 與 `update` 也會預先授權 session 自己會執行的
   指令，並在你確認前先列在計畫裡：在 `.claude/settings.local.json` 寫入
-  `agent-ops task`、`verify`、`review`、`worktree`、`doctor` 的 `permissions.allow`，
-  以及 `agent-ops review` 的 `sandbox.excludedCommands`（你原有的項目會保留，計畫只
-  描述該檔案而不印出內容）；若 CLI 找得到 Codex 的 home（`CODEX_HOME`，否則
-  `~/.codex`），另寫入 `rules/agent-ops.rules`，內含 `agent-ops review` 與
-  `doctor --check-auth` 的 allow 規則（含與不含 `AGENT_OPS_HOST=`）。`trust`、
+  `agent-ops task`、`verify`、`review`、`worktree`、`doctor`，加上 `EnterWorktree`
+  （hook 仍會擋下 session 不擁有的路徑）與 `npx lint-staged` 的 `permissions.allow`，
+  以及 `agent-ops review`、`batch`、`worktree commit` 與 `npx lint-staged` 的
+  `sandbox.excludedCommands`（你原有的項目會保留，計畫只描述該檔案而不印出內容）；
+  若 CLI 找得到 Codex 的 home（`CODEX_HOME`，否則 `~/.codex`），另寫入
+  `rules/agent-ops.rules`，內含 `agent-ops review` 與 `doctor --check-auth` 的 allow
+  規則（含與不含 `AGENT_OPS_HOST=`），以及 `agent-ops worktree commit` 與
+  `npx lint-staged` 的 allow 規則，讓 pre-commit hook 能寫入主 `.git`。`trust`、
   `allow-stop`、`init`、`update`、`uninstall` 永遠不會被預先授權。關閉 auto 模式或
   `uninstall` 會精確移除這些項目；同名但不是 agent-ops 寫的規則檔不會被動到。
 - `review` 與 `doctor` 支援 `--output <file>`：JSON envelope 寫入該檔（權限 0600），
