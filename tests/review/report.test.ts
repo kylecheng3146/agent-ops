@@ -44,3 +44,22 @@ test("rejects duplicate criteria, unlinked failures, and invalid finding severit
   }];
   assert.equal(validateReviewReport(critical, ["tests"]).ok, false);
 });
+
+test("accepts reviewed paths with spaces or non-ASCII letters", () => {
+  const files = ["docs/src/Short URL API/redirect-short-url.md", "文件/說明 v2.md"];
+  const report = reportFor(criteria, "PASS", files) as unknown as Record<string, unknown>;
+  report.supportingFilesInspected = ["notes/read me.txt"];
+  assert.equal(validateReviewReport(report, ["tests"]).ok, true);
+
+  const located = reportFor(criteria, "FAIL", ["docs/Short URL API/a b.md"]) as unknown as
+    { findings: { locations: unknown[] }[] };
+  located.findings[0]!.locations = [{ path: "docs/Short URL API/a b.md", line: 3 }];
+  assert.equal(validateReviewReport(located, ["tests"]).ok, true);
+});
+
+test("still rejects unsafe reviewed paths", () => {
+  const unsafe = ["/abs/path.md", "a/../b.md", "../b.md", "a\\b.md", "a//b.md", "a/./b.md", "a\nb.md", "a\0b.md", "a\tb.md", ""];
+  for (const path of unsafe) {
+    assert.equal(validateReviewReport(reportFor(criteria, "PASS", [path]), ["tests"]).ok, false, JSON.stringify(path));
+  }
+});

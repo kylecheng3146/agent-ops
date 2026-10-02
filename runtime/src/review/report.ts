@@ -45,7 +45,7 @@ export type ReviewReportValidation =
 const MAX_ERRORS = 20;
 const MAX_TEXT = 16 * 1024;
 const MAX_ARRAY = 128;
-const SAFE_PATH = /^(?!\/)(?!.*\\)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/;
+const SAFE_PATH = /^(?!\/)(?!.*\\)(?!.*(?:^|\/)\.\.(?:\/|$))[\p{L}\p{N}._ /-]+$/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
