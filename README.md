@@ -412,4 +412,7 @@ Documentation:
 
 ## License
 
-Copyright (c) 2026 Kyle Cheng. Released under the [MIT License](LICENSE).
+Copyright (c) 2026 Kyle Cheng. Released under the
+[PolyForm Shield License 1.0.0](LICENSE): free to use, change and share,
+including inside a company, but not to build a product or service that competes
+with agent-ops. Versions up to 0.4.1 were released under, and remain under, the MIT License.

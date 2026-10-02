@@ -1,9 +1,9 @@
 {
   "name": "@kylecheng3146/agent-ops",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Evidence-driven development loops for agy, Codex, Claude Code, and opencode",
   "type": "module",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": "github:kylecheng3146/agent-ops",
   "engines": {
     "node": ">=22.14.0"

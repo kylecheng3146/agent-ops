@@ -20,14 +20,26 @@ export const CLAUDE_PREAUTH_ALLOW: readonly string[] = [
   "Bash(agent-ops review *)",
   "Bash(agent-ops batch *)",
   "Bash(agent-ops worktree *)",
-  "Bash(agent-ops doctor *)"
+  "Bash(agent-ops doctor *)",
+  // The PreToolUse hook still blocks a path this session does not own.
+  "EnterWorktree",
+  // A worktree commit runs the project's pre-commit hook, usually this.
+  "Bash(npx lint-staged *)"
 ];
-/** review and batch talk to the reviewer's API, which the sandbox withholds. */
+/**
+ * review and batch talk to the reviewer's API, which the sandbox withholds;
+ * worktree commit and lint-staged write the main .git, which a worktree's
+ * sandbox cannot.
+ */
 export const CLAUDE_PREAUTH_UNSANDBOXED: readonly string[] = [
   "agent-ops review",
   "agent-ops review *",
   "agent-ops batch",
-  "agent-ops batch *"
+  "agent-ops batch *",
+  "agent-ops worktree commit",
+  "agent-ops worktree commit *",
+  "npx lint-staged",
+  "npx lint-staged *"
 ];
 
 export const CODEX_RULES_PATH = "rules/agent-ops.rules";
@@ -77,6 +89,26 @@ function rule(options: {
  */
 export const CODEX_RULES_CONTENT = `${[
   CODEX_RULES_MARKER,
+  ...[
+    {
+      pattern: ["agent-ops", "worktree", "commit"],
+      justification: "agent-ops worktree commit runs git hooks, which write the main .git outside the sandbox.",
+      match: "agent-ops worktree commit -m message"
+    },
+    {
+      pattern: ["npx", "lint-staged"],
+      justification: "lint-staged backs up through the main .git, which the sandbox cannot write from a worktree.",
+      match: "npx lint-staged --debug"
+    }
+  ].map((entry) => [
+    "prefix_rule(",
+    `    pattern = ${starlarkList(entry.pattern)},`,
+    '    decision = "allow",',
+    `    justification = ${JSON.stringify(entry.justification)},`,
+    `    match = [${JSON.stringify(entry.match)}],`,
+    '    not_match = ["agent-ops trust grant --scope project --yes"]',
+    ")"
+  ].join("\n")),
   ...[true, false].flatMap((withHost) => {
     const host = withHost ? "AGENT_OPS_HOST=codex " : "";
     const env = `env -u CODEX_SANDBOX_NETWORK_DISABLED ${host}agent-ops`;
@@ -297,7 +329,7 @@ async function codexChange(
           content: CODEX_RULES_CONTENT,
           expectedHash: current?.hash ?? null
         },
-        summary: `Writes ${join(codexHome, CODEX_RULES_PATH)}: allow rules for agent-ops review and doctor --check-auth.`,
+        summary: `Writes ${join(codexHome, CODEX_RULES_PATH)}: allow rules for agent-ops review, batch, doctor --check-auth, worktree commit and lint-staged.`,
         ownedContent: true
       };
 }
