@@ -4,6 +4,34 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-02
+
+- `agent-ops update` repairs managed content that drifted from the manifest
+  instead of failing with `MANAGED_ARTIFACT_CHANGED`, for example when a Git
+  operation restored an older revision of a tracked `.agent-ops/GEMINI.md`. A
+  drifted whole-file artifact is rewritten, and a managed block whose markers
+  are intact is rewritten between its markers with the rest of the file left
+  alone. Each repair is listed as `repaired: <path> (<reason>)` and in
+  `InstallPlan.repaired`. `.agent-ops/config.json`, `uninstall`, paths absent
+  from the manifest and blocks with missing, duplicated or reordered markers
+  still fail. `doctor` reports a managed block with changed content inside
+  intact markers as DEGRADED instead of FAIL. Nothing is backed up before a
+  rewrite.
+- Subagents of one session each get their own worktree. Hook calls inside a
+  subagent carry its `agent_id` under the parent's `session_id`; its first write
+  into the main checkout creates a worktree it owns, and writing into another
+  writer's worktree is refused with `WORKTREE_OWNED_BY_OTHER_AGENT`. Without an
+  `agent_id` nothing changes. The completion gate covers every worktree of a
+  session, one `allow-stop` permit covers them all, and `worktree finish`
+  forgets only the worktree it merged. `worktree list` shows each worktree's
+  `agent:`. See `DELEGATE-ISOLATION-003`.
+- At most two reviews run at once across all worktrees of a repository; the
+  rest wait. A slot held by a dead process is reclaimed.
+- Compatibility: the gate state of a session with subagent worktrees has an
+  `extraRoots` field that 0.5.0 rejects as `Completion-gate state is invalid`.
+  Keep the hooks and the `agent-ops` command on the same version, and delete
+  the files under `.agent-ops/tasks/completion-gate/` if you downgrade.
+
 ## [0.5.0] - 2026-10-02
 
 - The license changes from MIT to the PolyForm Shield License 1.0.0: use,
