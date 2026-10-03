@@ -1,0 +1,18 @@
+worktree: session-01a0ff8e (agent-ops/session-01a0ff8e)
+session: 01a0ff8e-182b-7da2-b413-de1069426caa
+agent-ops task task-e5a3a502-e7a7-447e-9f5f-0465963fe24d: 整合子 worktree 並由 task advance 完成最終證據門檻與 finish
+criteria:
+- advance-flow: task advance 安全整合子 worktree、在同一候選版本取得完整證據後自動執行 finish；可修復失敗可重試，無法證明完成時保留 worktree
+- end-to-end-contract: 測試與規範涵蓋 parent 與子 task 的整合流程、範圍退路、目標分支移動與本地可查驗完成紀錄
+  agent-ops task task-21d384cf-b7fc-48c0-91c4-47fb39a873a4: 子 worktree 意圖與安全整合
+  criteria:
+  - intent-record: 子 task 開工前記錄可供整合與 review 的完整修改意圖，且與 task criteria 一起可查驗
+  - safe-integration: 只把同 session 的已提交子分支安全整合到候選 worktree，衝突或未提交變更時保留原 worktree 並停止
+  - tree-import: 整合後候選版本保留 parent 與每個子 task 的身份、criteria 及意圖，不丟失任何已提交程式碼
+  agent-ops task task-8198cdec-9222-4004-a77d-5a5475475e75: 整合後最終證據與完成紀錄
+  criteria:
+  - tree-evidence: 整合後候選版本的所有 parent 與子 task 必要 verifier 均有同源 PASS 證據，缺漏或 FAIL 禁止 finish
+  - tree-review: 全樹 criteria 由兩輪 reviewer 審查；只有範圍過大 NOT_RUN 才退回逐 task 雙輪，實質 FAIL 必須修復
+  - durable-finish: 合併前主 checkout 保存可查驗完整收據，target 移動最多重做一次最終門檻，失敗時不宣稱 finish
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/dbc9fbc99288f01f099f8f9c37fbf9f7eaf608bc9d4978a60090ef56dca0e7fb-6f3d347c0f54ac187633ace3128bd7cd54759050.json
+receipt-sha256: 4412cea9c7b77d90ffdb85647014e6fd934808e2458cd347ba0172df9d0f346e
