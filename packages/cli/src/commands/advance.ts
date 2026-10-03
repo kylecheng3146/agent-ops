@@ -6,15 +6,17 @@ import { finishWorktree, type FinishDependencies } from "../../../../runtime/src
 import { integrateSessionChildren } from "../../../../runtime/src/parallel/integrate.js";
 import { readWorktreeRecord, resolveCheckouts, sessionWorktreeName, worktreePath } from "../../../../runtime/src/parallel/service.js";
 import { resolveReviewScope } from "../../../../runtime/src/review/scope.js";
+import { renderReviewDetails, renderReviewHighlights, type ReviewDisplayArtifact } from "../../../../runtime/src/review/render.js";
 import { calculateSourceFingerprint } from "../../../../runtime/src/verify/source-fingerprint.js";
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
+import { readFinishedReview } from "./review-show.js";
 
 interface StepEnvelope {
   readonly code: string;
   readonly status: "ok" | "error";
-  readonly data?: { readonly result?: { readonly status?: string; readonly reason?: string };
-                    readonly report?: { readonly status?: string } } | null;
+  readonly data?: { readonly result?: ReviewDisplayArtifact & { readonly status?: string; readonly taskId?: string };
+                    readonly report?: { readonly status?: string }; readonly text?: string } | null;
   readonly errors?: readonly { readonly code: string; readonly message: string }[];
 }
 
@@ -63,7 +65,11 @@ async function git(deps: FinishDependencies, cwd: string, args: readonly string[
 
 function requirePass(step: StepEnvelope, label: string): void {
   if (step.status === "ok" && (step.data?.result?.status === "PASS" || step.data?.report?.status === "PASS")) return;
-  throw new AgentOpsError(step.code, `${label}: ${step.errors?.[0]?.message ?? step.data?.result?.reason ?? "proof did not pass"}`);
+  const result = step.data?.result;
+  const details = result?.report !== undefined || result?.attempts !== undefined
+    ? `\n${renderReviewDetails([{ taskId: result.taskId ?? label, title: label, artifact: result }], "active")}`
+    : step.data?.text ?? "";
+  throw new AgentOpsError(step.code, `${label}: ${step.errors?.[0]?.message ?? result?.reason ?? "proof did not pass"}${details ? `\n${details}` : ""}`);
 }
 
 export async function reviewFinalTree(
@@ -93,7 +99,7 @@ export async function runAdvanceCommand(options: {
   if (options.sessionId === undefined || options.parentTaskId === undefined) {
     throw new AgentOpsError("ADVANCE_TARGET_REQUIRED", "task advance requires --task and a current or explicit --session.");
   }
-  const { mainRoot, currentRoot } = await resolveCheckouts(deps, cwd);
+  const { mainRoot, currentRoot, commonDir } = await resolveCheckouts(deps, cwd);
   if (mainRoot !== currentRoot) throw new AgentOpsError("WORKTREE_NESTED", `Run task advance from ${mainRoot}.`);
   const name = sessionWorktreeName(options.sessionId);
   const record = await readWorktreeRecord(worktreePath(mainRoot, name));
@@ -145,12 +151,15 @@ export async function runAdvanceCommand(options: {
         cwd: mainRoot, name,
         finalProof: { target, head, sourceFingerprint, children }
       });
+      if (finished.receipt === undefined) throw new AgentOpsError("WORKTREE_RECEIPT_MISSING", "Finish returned without a final review receipt.");
+      const review = await readFinishedReview(deps, mainRoot, commonDir, finished.receipt);
+      const highlights = renderReviewHighlights(review.entries);
       return okEnvelope("TASK_ADVANCED", {
         parentTaskId: parent.task.id,
         reviewMode,
         sourceFingerprint,
         ...finished,
-        text: `Final candidate ${head} passed all task verifiers and ${reviewMode} review, then finished into ${record.targetBranch}. Receipt: ${finished.receipt ?? "missing"}.`
+        text: `Final candidate ${head} passed all task verifiers and ${reviewMode} review, then finished into ${record.targetBranch}. Receipt: ${finished.receipt}.\n${highlights}Full reports: agent-ops review show --task ${parent.task.id}`
       });
     } catch (failure) {
       if (failure instanceof AgentOpsError && failure.code === "WORKTREE_TARGET_MOVED" && attempt === 0) continue;

@@ -1,5 +1,6 @@
 import { redactSecrets } from "../security/redact.js";
 import { safeTaskText } from "../task/render.js";
+import type { ReviewReport } from "./report.js";
 import type { ReviewRunResult } from "./runner.js";
 
 function safe(value: string): string {
@@ -214,4 +215,84 @@ export function renderReviewResult(result: ReviewRunResult): string {
   lines.push("", "Changed files inspected:", ...lineList(report.changedFilesInspected));
   lines.push("", "Supporting files inspected:", ...lineList(report.supportingFilesInspected));
   return `${lines.join("\n")}\n`;
+}
+
+export interface ReviewDisplayEntry {
+  readonly taskId: string;
+  readonly title: string;
+  readonly artifact: ReviewDisplayArtifact | null;
+}
+
+export interface ReviewDisplayArtifact {
+  readonly harness?: string;
+  readonly reason?: string;
+  readonly attempts?: readonly { readonly target: string; readonly status: string; readonly reason?: string }[];
+  readonly report?: ReviewReport;
+  readonly adversarial?: { readonly target: string; readonly refuted?: boolean; readonly report: ReviewReport };
+}
+
+function fullReportLines(report: ReviewReport): string[] {
+  const lines = ["Summary:", safe(report.summary), "", "Criteria:"];
+  for (const item of report.results) {
+    lines.push(`- ${safe(item.criterionId)}: ${item.status} — ${safe(item.summary)}`);
+    lines.push(...item.evidence.map((evidence) => `  - ${safe(evidence)}`));
+  }
+  lines.push("", "Findings:");
+  if (report.findings.length === 0) lines.push("- none");
+  for (const finding of report.findings) {
+    lines.push(`- [${finding.severity}] ${finding.blocking ? "blocking" : "non-blocking"}: ${safe(finding.title)}`);
+    lines.push(`  Criteria: ${finding.criterionIds.length === 0 ? "none" : finding.criterionIds.map(safe).join(", ")}`);
+    lines.push(`  ${safe(finding.details)}`);
+    lines.push(`  Recommendation: ${safe(finding.recommendation)}`);
+    lines.push(...finding.locations.map((location) => `  Location: ${safe(location.path)}${location.line === undefined ? "" : `:${location.line}`}`));
+    lines.push(...finding.evidence.map((evidence) => `  Evidence: ${safe(evidence)}`));
+  }
+  lines.push("", "Residual risks:", ...lineList(report.residualRisks));
+  lines.push("", "Changed files inspected:", ...lineList(report.changedFilesInspected));
+  lines.push("", "Supporting files inspected:", ...lineList(report.supportingFilesInspected));
+  return lines;
+}
+
+/** Full, already-redacted reports, with unrun rounds explicitly named. */
+export function renderReviewDetails(entries: readonly ReviewDisplayEntry[], mode: string): string {
+  const lines = [`Recorded review (${mode}):`];
+  for (const { taskId, title, artifact } of entries) {
+    lines.push("", `Task ${safe(taskId)}: ${safe(title)}`);
+    if (artifact === null) {
+      lines.push("No review for the current candidate.", "Round 1 — primary: NOT_RUN.", "Round 2 — adversarial: NOT_RUN.");
+      continue;
+    }
+    const first = artifact.attempts?.[0];
+    lines.push(`Round 1 — primary (${safe(first?.target ?? artifact.harness ?? "unassigned")}): ${first?.status ?? "NOT_RUN"}.`);
+    if (artifact.report === undefined) lines.push(`Reason: ${safe(first?.reason ?? artifact.reason ?? "no report")}.`);
+    else lines.push(...fullReportLines(artifact.report));
+    const second = artifact.attempts?.[1];
+    lines.push("", `Round 2 — adversarial (${safe(second?.target ?? artifact.adversarial?.target ?? "unassigned")}): ${second?.status ?? "NOT_RUN"}.`);
+    if (artifact.adversarial !== undefined) lines.push(artifact.adversarial.refuted ? "Outcome: refuted the primary PASS." : "Outcome: upheld the primary PASS.");
+    if (artifact.adversarial?.report === undefined) {
+      lines.push(`Not run: ${safe(second?.reason ?? (artifact.report === undefined ? "first round did not run" :
+        first?.status === "FAIL" ? "first round failed" : artifact.reason ?? "no second-round report") )}.`);
+    } else {
+      lines.push(...fullReportLines(artifact.adversarial.report));
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Short finish output still names every concrete non-blocking issue and risk. */
+export function renderReviewHighlights(entries: readonly ReviewDisplayEntry[]): string {
+  const lines: string[] = [];
+  for (const { title, artifact } of entries) {
+    if (artifact === null) continue;
+    const rounds = [artifact.report, artifact.adversarial?.report];
+    for (const [index, report] of rounds.entries()) {
+      if (report === undefined) continue;
+      lines.push(`${entries.length > 1 ? `${safe(title)} — ` : ""}Round ${index + 1}: ${safe(report.summary)}`);
+      for (const finding of report.findings.filter(({ blocking }) => !blocking)) {
+        lines.push(`- [${finding.severity}] ${safe(finding.title)}: ${safe(finding.details)}`);
+      }
+      for (const risk of report.residualRisks) lines.push(`- Risk: ${safe(risk)}`);
+    }
+  }
+  return lines.length === 0 ? "No review report is available.\n" : `${lines.join("\n")}\n`;
 }

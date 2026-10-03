@@ -129,6 +129,16 @@ permission bypass。外部 host runner 不可用時，結果 MUST 保持 NOT_RUN
 
 只有 `NOT_RUN / scope-too-large` 可以退回各 task 各自完整的兩輪 review。實質 FAIL、缺少驗證證據、reviewer 無法使用或其他 NOT_RUN 都阻擋 finish。Target 移動時，`task advance` 最多 rebase 並重做整套最終門檻一次。收據在目標分支移動前寫入主 checkout 的 `.git/agent-ops/receipts/` 並讀回檢查；保存失敗禁止合併。合併前晚到的 target 移動會被拒絕，以便重做最終證據。合併後清理失敗則回報為部分完成，不宣稱 finish 成功。
 
+## REVIEW-SHOW-001
+
+使用者 MUST 能從主 checkout 檢視最新候選版本已保存的兩輪 reviewer 報告，而不啟動新審查。
+
+- Trigger: 對 active 或 finished task 執行 `review show --task <id>`。
+- Action: 顯示完整、已遮蔽敏感資訊的結構化第一輪與第二輪報告，包括每項 criterion、finding、已檢查檔案與剩餘風險。全樹審查成功時只顯示一次共用報告；逐 task 退回時依 task 分組。Finished 收據必須對照 Git note digest 驗證。候選版本改變後，應明示目前版本尚未審查，不得顯示舊 verdict。失敗或未執行的輪次需明確指出缺少的報告。`task advance` 通過時摘要具體非阻擋發現與風險，失敗時顯示可取得的報告細節。
+- Evidence: 唯讀指令不呼叫 reviewer，輸出綁定 active fingerprint 或 finished 收據。
+- Positive: `finish 後從主 checkout 執行 review show，可看到最終候選版本的兩份完整報告與剩餘風險。`
+- Negative: `新增 commit 後仍將上一個候選版本的 PASS 顯示為目前結果。`
+
 ## REVIEW-BATCH-001
 
 批次審查 MUST 只涵蓋指定 parent 的 active 子 task 以及 parent 本身。

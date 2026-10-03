@@ -357,6 +357,9 @@ runs one two-round tree review. Only `NOT_RUN / scope-too-large` falls back to
 per-task two-round reviews; FAIL requires a fix and a fresh final gate. A
 passing gate saves the complete local receipt in `.git/agent-ops/receipts/`
 before finish. A moved target gets at most one automatic rebase and repeat.
+Run `agent-ops review show --task <parent-id>` from the main checkout to read
+both full recorded reports for the latest candidate without invoking a reviewer.
+`task advance` prints a short summary of nonblocking findings and residual risks.
 
 `batch` remains the per-task review command for tasks already in one worktree.
 

@@ -44,9 +44,10 @@ export type TaskAction =
   | "create"
   | "export"
   | "status";
+export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
-export type CliAction = ConfigAction | TaskAction | TrustAction | WorktreeAction;
+export type CliAction = ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
   command: CliCommand;
@@ -520,6 +521,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           action = token as TaskAction;
           break;
         }
+        if (command === "review" && action === undefined && token === "show") {
+          action = "show";
+          break;
+        }
         if (
           command === "worktree" &&
           action === undefined &&
@@ -848,13 +853,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review requires --task for the complete task-bound review."
     );
   }
+  if (command === "review" && action === "show" &&
+      (yes || rerun || tree || base !== undefined || output !== undefined ||
+       scope !== undefined || harness !== undefined || profiles.length > 0 ||
+       criteria.length > 0 || evidence.length > 0)) {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED",
+      "review show accepts only --task and optional --json; it never runs a reviewer.");
+  }
   if (tree && command !== "review") {
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--tree may be used only with review.");
   }
   if (intent !== undefined && !(command === "task" && action === "create")) {
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--intent may be used only with task create.");
   }
-  if (command === "review" && !yes) {
+  if (command === "review" && action !== "show" && !yes) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "Review requires --yes to authorize both reviewer sessions."

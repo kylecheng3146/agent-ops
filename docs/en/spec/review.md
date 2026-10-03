@@ -138,6 +138,16 @@ FAIL.
 
 Only `NOT_RUN / scope-too-large` may fall back to a separate complete two-round review for each task. A substantive FAIL, missing verifier evidence, reviewer unavailability, or any other NOT_RUN blocks finish. `task advance` may rebase onto a moved target and repeat the entire final gate once. The receipt is written under the main checkout's `.git/agent-ops/receipts/` before the target branch moves; failure to write or read it back blocks the merge. A late target move rejects the merge so final proof can be repeated. A post-merge cleanup failure is reported as partial, not as successful finish.
 
+## REVIEW-SHOW-001
+
+The user MUST be able to inspect both recorded reviewer reports for the latest candidate from the main checkout without starting another review.
+
+- Trigger: `review show --task <id>` for an active or finished task.
+- Action: Display the full redacted structured primary and adversarial reports, including every criterion, finding, inspected file, and residual risk. For a successful tree review, display the shared report once; for a per-task fallback, group both rounds by task. Validate a finished receipt against its Git note digest. If the candidate changed since review, state that the current candidate has no review instead of showing an old verdict. A failed or unavailable round names the missing report explicitly. `task advance` summarizes concrete nonblocking findings and risks on PASS and shows available report details on failure.
+- Evidence: The read-only command invokes no reviewer and its output is bound to the active fingerprint or the finished receipt.
+- Positive: `After finish, review show from main displays both full reports and residual risks for the final candidate.`
+- Negative: `A new commit still displays the preceding candidate's PASS as current.`
+
 ## REVIEW-BATCH-001
 
 A batch review MUST cover exactly the active subtasks of the named parent and the parent itself.

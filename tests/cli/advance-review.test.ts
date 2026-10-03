@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { reviewFinalTree, type AdvanceStep } from "../../packages/cli/src/commands/advance.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
+import { renderReviewHighlights } from "../../runtime/src/review/render.js";
+import { reportFor } from "../review/report-fixture.js";
 
 const pass = { code: "REVIEW_RESULT", status: "ok" as const, data: { result: { status: "PASS" } } };
 
@@ -38,4 +40,28 @@ test("a substantive FAIL or other NOT_RUN stops without fallback", async () => {
     (failure: unknown) => failure instanceof AgentOpsError && failure.code === result.code);
     assert.equal(calls, 1);
   }
+});
+
+test("a failed final review surfaces its finding and names the missing second round", async () => {
+  const report = reportFor([{ id: "parent:behavior" }], "FAIL");
+  const failed = { code: "REVIEW_FAILED", status: "error" as const,
+    data: { result: { status: "FAIL", harness: "agy", report,
+      attempts: [{ target: "agy", status: "FAIL" }] } } };
+  await assert.rejects(reviewFinalTree(async () => failed, "/candidate", "parent", ["parent"], "base"),
+    (error: unknown) => error instanceof AgentOpsError &&
+      error.message.includes("Criterion failed") && error.message.includes("Round 2 — adversarial") &&
+      error.message.includes("NOT_RUN"));
+});
+
+test("finish summary keeps concrete nonblocking findings and residual risks from both rounds", () => {
+  const first = reportFor([{ id: "behavior" }]);
+  const finding = { severity: "minor" as const, blocking: false, title: "Check logs",
+    details: "Inspect rollout logs.", locations: [], evidence: ["reviewed source"],
+    recommendation: "Watch the rollout.", criterionIds: [] };
+  const summary = renderReviewHighlights([{ taskId: "parent", title: "Parent", artifact: {
+    report: { ...first, findings: [finding] },
+    adversarial: { target: "agy", report: { ...first, residualRisks: ["Rare concurrent update."] } }
+  } }]);
+  assert.match(summary, /Check logs: Inspect rollout logs/);
+  assert.match(summary, /Risk: Rare concurrent update/);
 });

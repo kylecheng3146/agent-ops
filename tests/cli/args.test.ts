@@ -146,6 +146,21 @@ test("parses the final advance and pre-work intent only in their supported comma
   }
 });
 
+test("review show is read-only and accepts only a task and JSON output", () => {
+  const shown = parseArgs(["review", "show", "--task", "parent", "--json"]);
+  assert.equal(shown.action, "show");
+  assert.equal(shown.taskId, "parent");
+  assert.equal(shown.json, true);
+  assert.equal(shown.yes, false);
+  for (const args of [
+    ["review", "show"],
+    ["review", "show", "--task", "parent", "--yes"],
+    ["review", "show", "--task", "parent", "--tree"],
+    ["review", "show", "--task", "parent", "--base", "main"],
+    ["review", "show", "--task", "parent", "--output", "out.json"]
+  ]) assert.throws(() => parseArgs(args), CliArgumentError);
+});
+
 test("parses verify task or session targets without task mutation options", () => {
   assert.deepEqual(
     parseArgs([

@@ -51,7 +51,7 @@ Commands:
   task <create|status|attach|complete|archive|export>
              Manage independent task acceptance state
   verify     Run configured verification
-  review     Run an independent review
+  review     Run an independent review or show recorded reports
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -200,9 +200,11 @@ Options:
   --json
 `,
   review: `Usage: agent-ops review --task <id> --yes [options]
+       agent-ops review show --task <id> [--json]
 
 Run the complete task-bound review: one necessary reviewer followed by one
-fresh adversarial reviewer from the configured pair.
+fresh adversarial reviewer from the configured pair. Show reads recorded
+reports without running a reviewer, including from the main checkout.
 
 Options:
   --task <id>          Required task whose original criteria are reviewed
