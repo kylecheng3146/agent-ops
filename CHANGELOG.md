@@ -4,6 +4,21 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-03
+
+- `task advance` integrates committed child worktrees and their recorded
+  modification intents into one candidate. It reruns every parent and child
+  verifier, performs two independent reviews of the full task tree, saves a
+  receipt bound to the final commit, and finishes the worktree. Only a review
+  that cannot run because the tree is too large falls back to two reviews per
+  task; a FAIL blocks finish. A moved target gets one automatic retry.
+- `agent-ops review show --task <id>` displays both full, redacted reviewer
+  reports for the latest active or finished candidate from the main checkout
+  without starting another review. An edited candidate shows no current
+  verdict until reviewed again. `task advance` also prints concrete
+  nonblocking findings and residual risks after a PASS, or available details
+  when review fails.
+
 ## [0.5.2] - 2026-10-02
 
 - A review report that lists a file whose path contains a space or a
