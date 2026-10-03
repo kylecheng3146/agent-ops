@@ -1,0 +1,10 @@
+worktree: session-01a0ff8e (agent-ops/session-01a0ff8e)
+session: 01a0ff8e-182b-7da2-b413-de1069426caa
+agent-ops task task-53a3aaae-9ffc-4985-a765-e9fb6f1f6fb1: Prepare 0.5.3 trusted release
+intent: Bump package and lockfile to 0.5.3, document the integrated final candidate gate and two-round review display, preserve the existing GitHub OIDC trusted publishing workflow, and ship through its release gate.
+criteria:
+- version-consistency: package.json and package-lock.json consistently declare 0.5.3 and the packed package identifies that version.
+- release-notes: CHANGELOG 0.5.3 accurately describes the final candidate gate and two-round report display, including the user-visible command.
+- publisher-gate: The existing manual release workflow retains GitHub OIDC trusted publishing and version/tag validation, with no token-based publishing introduced.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/dbc9fbc99288f01f099f8f9c37fbf9f7eaf608bc9d4978a60090ef56dca0e7fb-aedc1bf7f4c32be1db8fd978aa42c0bc26605fb3.json
+receipt-sha256: 0502f6df0184d4cadf9b55bd6fc2f4752616b6093a910ec22a25ed519e138a06
