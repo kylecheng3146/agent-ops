@@ -1,0 +1,10 @@
+worktree: session-dd026dd4 (agent-ops/session-dd026dd4)
+session: dd026dd4-361d-4647-a188-6bcd4955a4bf
+agent-ops task task-1085394c-4b72-4c1d-8635-a027ac5be2b9: Display both final reviewer reports by task
+intent: Expose stored redacted primary and adversarial reports without rerunning review; show current failure details and concise finish risks while preserving evidence integrity.
+criteria:
+- finished-report: From the main checkout, review show --task reads the latest finished receipt, validates its Git note digest, and renders both complete structured reports once per tree or grouped for per-task fallback without invoking reviewers.
+- active-report: For an active task, review show resolves the latest candidate review from the main checkout; FAIL or NOT_RUN exposes available details, missing rounds are explicit, and a changed unreviewed candidate is never shown an old verdict.
+- advance-visibility: task advance prints concrete nonblocking findings and residual risks on PASS and available review details on failure, while leaving finish rules and existing CLI review behavior intact.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/854de44145b9ff973497ab47d70e380ed40cfdcb32dfea1ac6e64ed5a6c33fe5-3cb342570c2ce6573507f482b218d9cec858b2cc.json
+receipt-sha256: d0b3c3b0d391971cd2d1292d128daf1146f646c7514476229cd74e998a8e2f18
