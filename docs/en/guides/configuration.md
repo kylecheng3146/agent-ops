@@ -265,6 +265,16 @@ evidence. Give each editing conversation its own worktree instead:
   Creating a subtask keeps the session attached to the top of its tree, and
   each task keeps its own review record, so a parent and a subtask reviewed
   on the same source do not overwrite each other.
+- When writing subagents use separate worktrees, create each child task with
+  `--intent` before editing, then commit and verify locally. From the main
+  checkout run `agent-ops task advance --task <parent-id> --session <id> --yes`
+  through the trusted outer host runner. It integrates all child commits and
+  intents into the coordinator worktree, reruns each task's required verifier
+  on the same candidate, and performs one two-round tree review. Only an
+  explicit `NOT_RUN / scope-too-large` falls back to per-task two-round review.
+  After PASS it saves a complete receipt under `.git/agent-ops/receipts/` and
+  calls finish; a moved target may trigger one repeat of the final gate.
+  A direct finish of one child while siblings exist is refused.
 - `agent-ops worktree finish <name>` merges by fast-forward only, one finish
   at a time. When the main checkout is on the target branch the merge updates
   its files, so uncommitted changes there block it. When the main checkout is

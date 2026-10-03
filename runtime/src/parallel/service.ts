@@ -328,12 +328,16 @@ export async function bindSession(
   else await mainGate.addRoot(record.sessionId, record.path);
 }
 
-export async function removeCheckout(deps: WorktreeDependencies, record: WorktreeRecord, force: boolean): Promise<void> {
+export async function removeCheckout(
+  deps: WorktreeDependencies, record: WorktreeRecord, force: boolean, expectedHead?: string
+): Promise<void> {
   await git(deps, record.mainRoot,
     ["worktree", "remove", ...(force ? ["--force"] : []), record.path],
     "WORKTREE_REMOVE_FAILED", `Git could not remove ${record.path}.`);
-  await git(deps, record.mainRoot, ["branch", force ? "-D" : "-d", record.branch],
-    "WORKTREE_REMOVE_FAILED", `Git could not delete ${record.branch}.`);
+  await git(deps, record.mainRoot, expectedHead === undefined
+    ? ["branch", force ? "-D" : "-d", record.branch]
+    : ["update-ref", "-d", `refs/heads/${record.branch}`, expectedHead],
+  "WORKTREE_REMOVE_FAILED", `Git could not delete ${record.branch}.`);
 }
 
 /**

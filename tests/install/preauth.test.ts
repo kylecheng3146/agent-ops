@@ -183,12 +183,13 @@ test("Codex rules are written once, only when Codex's home is named, and never o
   }
 });
 
-test("the rules cover the shapes AGENTS.md runs, and only review, batch and the auth probe", async (t) => {
+test("the rules cover review, batch, advance and the auth probe", async (t) => {
   assert.ok(CODEX_RULES_CONTENT.startsWith(CODEX_RULES_MARKER));
-  assert.equal(CODEX_RULES_CONTENT.match(/^prefix_rule\(/gmu)?.length, 8);
+  assert.equal(CODEX_RULES_CONTENT.match(/^prefix_rule\(/gmu)?.length, 10);
   // batch, like review, is allowed with and without AGENT_OPS_HOST.
   assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "batch"\]/gu)?.length, 2);
   assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "review"\]/gu)?.length, 2);
+  assert.equal(CODEX_RULES_CONTENT.match(/"agent-ops", "task", "advance"\]/gu)?.length, 2);
   assert.match(CODEX_RULES_CONTENT, /"AGENT_OPS_HOST=codex", "AGENT_OPS_HOST=claude", "AGENT_OPS_HOST=agy"/u);
   assert.doesNotMatch(CODEX_RULES_CONTENT.replace(/not_match = .*/gu, ""), /trust|allow-stop|complete/u);
 

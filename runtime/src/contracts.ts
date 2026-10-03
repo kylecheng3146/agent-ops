@@ -141,6 +141,8 @@ export interface AgentTask {
   schemaVersion: typeof TASK_SCHEMA_VERSION;
   id: string;
   title: string;
+  /** User-approved intended behavior, constraints and integration points. */
+  intent?: string;
   criteria: AcceptanceCriterion[];
   /**
    * The task this one was decomposed from, when it is a subtask. Absent on

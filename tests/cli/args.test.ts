@@ -125,6 +125,42 @@ test("parses structured task lifecycle arguments", () => {
   );
 });
 
+test("parses the final advance and pre-work intent only in their supported commands", () => {
+  const advanced = parseArgs(["task", "advance", "--task", "parent", "--session", "session-one", "--yes"]);
+  assert.equal(advanced.action, "advance");
+  assert.equal(advanced.taskId, "parent");
+  assert.equal(advanced.sessionId, "session-one");
+  assert.equal(advanced.yes, true);
+  assert.equal(parseArgs(["task", "create", "--title", "Child", "--intent", "Add behavior A",
+    "--criterion", '{"id":"behavior","description":"A works","verifierIds":["unit"]}',
+    "--criterion", '{"id":"regression","description":"Existing behavior works","verifierIds":["unit"]}']).intent,
+  "Add behavior A");
+  assert.equal(parseArgs(["review", "--task", "parent", "--tree", "--yes"]).tree, true);
+  for (const argv of [
+    ["task", "advance", "--task", "parent"],
+    ["task", "advance", "--yes"],
+    ["verify", "--task", "parent", "--intent", "ignored"],
+    ["review", "--task", "parent", "--intent", "ignored", "--yes"]
+  ]) {
+    assert.throws(() => parseArgs(argv), CliArgumentError);
+  }
+});
+
+test("review show is read-only and accepts only a task and JSON output", () => {
+  const shown = parseArgs(["review", "show", "--task", "parent", "--json"]);
+  assert.equal(shown.action, "show");
+  assert.equal(shown.taskId, "parent");
+  assert.equal(shown.json, true);
+  assert.equal(shown.yes, false);
+  for (const args of [
+    ["review", "show"],
+    ["review", "show", "--task", "parent", "--yes"],
+    ["review", "show", "--task", "parent", "--tree"],
+    ["review", "show", "--task", "parent", "--base", "main"],
+    ["review", "show", "--task", "parent", "--output", "out.json"]
+  ]) assert.throws(() => parseArgs(args), CliArgumentError);
+});
+
 test("parses verify task or session targets without task mutation options", () => {
   assert.deepEqual(
     parseArgs([
@@ -665,4 +701,3 @@ test("parses --from and --target-branch for worktree add only", () => {
     );
   }
 });
-

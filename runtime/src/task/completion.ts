@@ -20,7 +20,28 @@ export async function checkTaskCompletionEvidence(
     readonly evidenceStore: FileEvidenceStore;
   }
 ): Promise<CompletionProblem | null> {
-  const { root, config, sourceFingerprint, evidenceStore } = options;
+  const problem = await checkTaskVerificationEvidence(stored, options);
+  if (problem !== null) return problem;
+  const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
+  if (attestation === null || attestation.taskId !== stored.task.id ||
+      (attestation.tree !== undefined && stored.task.criteria.some((criterion) =>
+        !attestation.tree!.criterionIds.includes(`${stored.task.id}:${criterion.id}`)))) {
+    return { status: "FAIL", code: "REVIEW_REQUIRED", remedy: `Run agent-ops review --task ${stored.task.id} --yes for the whole task and current source.` };
+  }
+  return null;
+}
+
+/** The same mechanical proof check used by final completion and child delivery. */
+export async function checkTaskVerificationEvidence(
+  stored: StoredTaskRecord,
+  options: {
+    readonly root: string;
+    readonly config: AgentOpsConfig;
+    readonly sourceFingerprint: string;
+    readonly evidenceStore: FileEvidenceStore;
+  }
+): Promise<CompletionProblem | null> {
+  const { config, sourceFingerprint, evidenceStore } = options;
   if (stored.failureFingerprint !== null) {
     return { status: "FAIL", code: "VERIFICATION_FAILED", remedy: "Resolve the latest verification failure before completing the task." };
   }
@@ -53,10 +74,6 @@ export async function checkTaskCompletionEvidence(
         return { status: "FAIL", code: "EVIDENCE_REQUIRED", remedy: "Run agent-ops verify and supply current PASS evidence for every required verifier." };
       }
     }
-  }
-  const attestation = await findReviewAttestation(root, sourceFingerprint, stored.task.id);
-  if (attestation === null || attestation.taskId !== stored.task.id) {
-    return { status: "FAIL", code: "REVIEW_REQUIRED", remedy: `Run agent-ops review --task ${stored.task.id} --yes for the whole task and current source.` };
   }
   return null;
 }

@@ -12,6 +12,9 @@ import {
   executeConfiguredCommand
 } from "../verify/command-executor.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
+import { prepareFinishReceipt } from "./receipt.js";
+import { listWorktrees } from "./manage.js";
+import type { IntegratedChild } from "./integrate.js";
 import {
   assertWorktreeName,
   NOTES_REF,
@@ -48,6 +51,14 @@ export interface FinishResult {
   /** Every task the merge carries, top of each tree first. */
   readonly taskIds: readonly string[];
   readonly warnings: readonly string[];
+  readonly receipt?: string;
+}
+
+export interface FinalCandidateProof {
+  readonly target: string;
+  readonly head: string;
+  readonly sourceFingerprint: string;
+  readonly children: readonly IntegratedChild[];
 }
 
 export interface TargetIntent {
@@ -250,6 +261,7 @@ function noteText(record: WorktreeRecord, tasks: readonly { readonly task: Store
       const indent = "  ".repeat(depth);
       return [
         `${indent}agent-ops task ${task.task.id}: ${task.task.title}`,
+        ...(task.task.intent === undefined ? [] : [`${indent}intent: ${task.task.intent}`]),
         `${indent}criteria:`,
         ...task.task.criteria.map(({ id, description }) => `${indent}- ${id}: ${description}`)
       ];
@@ -264,7 +276,7 @@ function noteText(record: WorktreeRecord, tasks: readonly { readonly task: Store
  */
 export async function finishWorktree(
   deps: FinishDependencies,
-  options: { readonly cwd: string; readonly name: string | undefined }
+  options: { readonly cwd: string; readonly name: string | undefined; readonly finalProof?: FinalCandidateProof }
 ): Promise<FinishResult> {
   const name = assertWorktreeName(options.name);
   const { mainRoot, currentRoot, commonDir } = await resolveCheckouts(deps, options.cwd);
@@ -277,6 +289,30 @@ export async function finishWorktree(
     throw finishError("WORKTREE_NOT_FOUND", `No agent-ops worktree named ${name}; see agent-ops worktree list.`);
   }
   return await withFinishLock(deps, commonDir, async () => {
+    const sessionChildren = (await listWorktrees(deps, mainRoot))
+      .map(({ record: child }) => child)
+      .filter((child) => child.sessionId === record.sessionId && child.agentId !== undefined);
+    if (options.finalProof === undefined && sessionChildren.length > 0) {
+      throw finishError("WORKTREE_CHILDREN_REQUIRE_ADVANCE", "This session has child worktrees; run task advance for integrated final evidence before finish.");
+    }
+    if (options.finalProof !== undefined &&
+        (sessionChildren.length !== options.finalProof.children.length ||
+         sessionChildren.some((child) => !options.finalProof!.children.some(({ name }) => name === child.name)))) {
+      throw finishError("WORKTREE_CHILDREN_CHANGED", "The child worktree set changed after final review.");
+    }
+    const assertPinnedChild = async (child: WorktreeRecord): Promise<string> => {
+      const expected = options.finalProof?.children.find(({ name }) => name === child.name)?.commit;
+      const head = await git(deps, child.path, ["rev-parse", "HEAD"],
+        "WORKTREE_CHILDREN_CHANGED", `Cannot read child ${child.name}.`);
+      if (expected === undefined || head !== expected ||
+          (await collectChangeSurface(runner(deps, child.path))).paths.length > 0) {
+        throw finishError("WORKTREE_CHILDREN_CHANGED", `Child ${child.name} changed after integration; preserve its worktree.`);
+      }
+      return head;
+    };
+    if (options.finalProof !== undefined) {
+      for (const child of sessionChildren) await assertPinnedChild(child);
+    }
     const mainRunner = runner(deps, mainRoot);
     const worktreeRunner = runner(deps, record.path);
     const onBranch = (await deps.git(mainRoot, ["symbolic-ref", "--short", "-q", "HEAD"])).stdout.trim();
@@ -303,6 +339,9 @@ export async function finishWorktree(
     }
     const target = await git(deps, mainRoot, ["rev-parse", "--verify", `${record.targetBranch}^{commit}`],
       "WORKTREE_TARGET_MISSING", `${record.targetBranch} does not resolve to a commit.`);
+    if (options.finalProof !== undefined && target !== options.finalProof.target) {
+      throw finishError("WORKTREE_TARGET_MOVED", "The target branch moved after final review; rerun the final evidence gate.");
+    }
     const ahead = Number(await git(deps, record.path, ["rev-list", "--count", `${target}..HEAD`],
       "WORKTREE_LOG_FAILED", "Git could not compare the branch with its target."));
     if (ahead === 0) {
@@ -310,34 +349,55 @@ export async function finishWorktree(
         `${record.branch} has no commits beyond ${record.targetBranch}; remove the worktree instead.`);
     }
     const worktreeConfig = await deps.loadConfig(record.path);
-    // The whole branch merges, so every task in the worktree completes first,
-    // subtasks before their parents, each over the range its review covered.
-    // Before any rebase: rebasing rewrites the commits those fingerprints name.
+    const headBeforeCompletion = await git(deps, record.path, ["rev-parse", "HEAD"],
+      "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
+    if (options.finalProof !== undefined) {
+      if (headBeforeCompletion !== options.finalProof.head) {
+        throw finishError("WORKTREE_SOURCE_MOVED", "The candidate changed after final review.");
+      }
+      if ((await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode !== 0) {
+        throw finishError("WORKTREE_TARGET_MOVED", "The final candidate is not based on the target; rerun the final evidence gate.");
+      }
+    }
+    // Direct finish completes before merge. A final-proof finish checks all
+    // evidence first, then completes only after the target's fast-forward:
+    // a target that moves before that point can still be re-reviewed once.
     const tree = taskTree((await deps.tasks(record.path).list()).filter(({ status }) => status !== "archived"));
     if (tree.length === 0) {
       throw finishError("WORKTREE_TASK_INCOMPLETE",
         "The worktree has no task; create one, verify and review it before finishing.");
     }
-    for (const { task } of [...tree].sort((left, right) => right.depth - left.depth)) {
-      if (task.status === "complete") continue;
-      const base = task.reviewBase ?? record.base;
-      try {
-        await deps.tasks(record.path, base).complete(task.task.id, {});
-      } catch (error) {
-        throw finishError("WORKTREE_TASK_INCOMPLETE",
-          `Task ${task.task.id} (${task.task.title}) could not be completed against ${base}: ${error instanceof Error ? error.message : String(error)} ` +
-          "A task another session left here is not this session's to archive: its owner finishes or archives it, and finish never does.");
+    const completeTasks = async () => {
+      for (const { task } of [...tree].sort((left, right) => right.depth - left.depth)) {
+        if (task.status === "complete") continue;
+        const base = options.finalProof === undefined ? task.reviewBase ?? record.base : target;
+        try {
+          await deps.tasks(record.path, base).complete(task.task.id, {});
+        } catch (error) {
+          throw finishError("WORKTREE_TASK_INCOMPLETE",
+            `Task ${task.task.id} (${task.task.title}) could not be completed against ${base}: ${error instanceof Error ? error.message : String(error)} ` +
+            "A task another session left here is not this session's to archive: its owner finishes or archives it, and finish never does.");
+        }
       }
-    }
-    const worktreeGate = await deps.gate(record.path, worktreeConfig);
-    const problem = await worktreeGate.validate(record.sessionId);
-    if (problem !== null) {
-      throw finishError("WORKTREE_TASK_INCOMPLETE",
-        `The worktree's task is not ready to merge (${problem.code}). ${problem.remedy ?? ""}`.trim());
+    };
+    const validateGate = async () => {
+      const worktreeGate = await deps.gate(record.path, worktreeConfig);
+      const problem = await worktreeGate.validate(record.sessionId);
+      if (problem !== null) {
+        throw finishError("WORKTREE_TASK_INCOMPLETE",
+          `The worktree's task is not ready to merge (${problem.code}). ${problem.remedy ?? ""}`.trim());
+      }
+    };
+    if (options.finalProof === undefined) {
+      await completeTasks();
+      await validateGate();
     }
 
     const head = await git(deps, record.path, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
     const fastForward = (await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode === 0;
+    if (options.finalProof !== undefined && !fastForward) {
+      throw finishError("WORKTREE_TARGET_MOVED", "The target branch moved after final review.");
+    }
     if (!fastForward) {
       const before = await patchHash(deps, record.path, target);
       const rebase = await deps.git(record.path, ["rebase", "--no-autostash", target]);
@@ -367,22 +427,66 @@ export async function finishWorktree(
       }
     }
 
+    const receiptOptions = options.finalProof === undefined ? undefined : {
+      commonDir,
+      record,
+      candidateHead: head,
+      targetCommit: target,
+      expectedFingerprint: options.finalProof.sourceFingerprint,
+      children: options.finalProof.children,
+      config: worktreeConfig,
+      gitRunner: worktreeRunner
+    };
+    let receipt = receiptOptions === undefined ? undefined : await prepareFinishReceipt({
+      ...receiptOptions,
+      tasks: await deps.tasks(record.path).list().then((tasks) => tasks.filter(({ status }) => status !== "archived"))
+    });
     const mainConfig = await deps.loadConfig(mainRoot);
     const gateEnabled = mainConfig.features.completionGate.enabled;
     const before = gateEnabled ? await currentGateFingerprint(mainRoot, mainRunner) : "";
     let mergedHead: string;
     if (onTarget) {
-      await git(deps, mainRoot, ["merge", "--ff-only", record.branch],
-        "WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}.`);
+      if (options.finalProof !== undefined &&
+          await git(deps, mainRoot, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.") !== target) {
+        throw finishError("WORKTREE_TARGET_MOVED", "The target changed after the final proof was prepared.");
+      }
+      const merge = await deps.git(mainRoot, ["merge", "--ff-only", record.branch]);
+      if (merge.exitCode !== 0) {
+        if (options.finalProof !== undefined &&
+            await git(deps, mainRoot, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.") !== target) {
+          throw finishError("WORKTREE_TARGET_MOVED", "The target moved during finish; rerun the final evidence gate.");
+        }
+        throw finishError("WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}. ${merge.stderr.trim()}`);
+      }
       mergedHead = await git(deps, mainRoot, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
     } else {
       // Compare-and-swap on the target's value read above: a target that moved
       // since fails here instead of being overwritten.
       mergedHead = await git(deps, mainRoot, ["rev-parse", "--verify", `${record.branch}^{commit}`],
         "WORKTREE_LOG_FAILED", `Git could not read ${record.branch}.`);
-      await git(deps, mainRoot,
-        ["update-ref", "-m", `agent-ops finish ${record.branch}`, `refs/heads/${record.targetBranch}`, mergedHead, target],
-        "WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}.`);
+      const update = await deps.git(mainRoot,
+        ["update-ref", "-m", `agent-ops finish ${record.branch}`, `refs/heads/${record.targetBranch}`, mergedHead, target]);
+      if (update.exitCode !== 0) {
+        if (options.finalProof !== undefined &&
+            await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`],
+              "WORKTREE_LOG_FAILED", "Git could not read the target.") !== target) {
+          throw finishError("WORKTREE_TARGET_MOVED", "The target moved during finish; rerun the final evidence gate.");
+        }
+        throw finishError("WORKTREE_MERGE_FAILED", `Git could not fast-forward ${record.targetBranch}. ${update.stderr.trim()}`);
+      }
+    }
+
+    if (receiptOptions !== undefined) {
+      try {
+        await completeTasks();
+        await validateGate();
+        receipt = await prepareFinishReceipt({
+          ...receiptOptions,
+          tasks: await deps.tasks(record.path).list().then((tasks) => tasks.filter(({ status }) => status !== "archived"))
+        });
+      } catch (error) {
+        throw finishError("WORKTREE_FINISH_PARTIAL", `Code merged at ${mergedHead}; final task state or receipt failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     // The merge happened; everything below is cleanup, reported, never undone.
@@ -391,11 +495,16 @@ export async function finishWorktree(
       try {
         await step();
       } catch (error) {
-        warnings.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+        const message = `${label}: ${error instanceof Error ? error.message : String(error)}`;
+        if (options.finalProof !== undefined) {
+          throw finishError("WORKTREE_FINISH_PARTIAL", `Code merged at ${mergedHead} with receipt ${receipt?.path}; ${message}`);
+        }
+        warnings.push(message);
       }
     };
+    const finishNote = `${noteText(record, tree)}${receipt === undefined ? "" : `\nreceipt: ${receipt.path}\nreceipt-sha256: ${receipt.digest}`}`;
     await attempt("note", async () => await git(deps, mainRoot,
-      ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", noteText(record, tree), mergedHead],
+      ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", finishNote, mergedHead],
       "WORKTREE_NOTE_FAILED", "Git could not write the agent-ops note."));
     if (gateEnabled) {
       await attempt("gate", async () => {
@@ -406,10 +515,26 @@ export async function finishWorktree(
         // this session began would leave it reading the merge as its own change.
         // Only this worktree leaves the session; its other roots stay covered.
         await mainGate.afterFinish(record.sessionId, record.path, after);
+        if (options.finalProof !== undefined) {
+          for (const child of sessionChildren) {
+            await mainGate.afterFinish(record.sessionId, child.path, after);
+          }
+        }
       });
     }
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));
-    await attempt("remove", async () => await removeCheckout(deps, record, true));
-    return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings };
+    if (options.finalProof !== undefined) {
+      for (const child of sessionChildren) {
+        await attempt(`child ${child.name}`, async () => {
+          const pinnedHead = await assertPinnedChild(child);
+          await deps.trust.revoke(child.path, await deps.loadConfig(child.path));
+          await removeCheckout(deps, child, false, pinnedHead);
+        });
+      }
+    }
+    await attempt("remove", async () => await removeCheckout(deps, record,
+      options.finalProof === undefined, options.finalProof?.head));
+    return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings,
+      ...(receipt === undefined ? {} : { receipt: receipt.path }) };
   });
 }

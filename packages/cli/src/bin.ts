@@ -83,6 +83,8 @@ import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
+import { runAdvanceCommand } from "./commands/advance.js";
+import { runReviewShowCommand } from "./commands/review-show.js";
 import { runAllowStopCommand } from "./commands/allow-stop.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import {
@@ -547,6 +549,14 @@ process.exitCode = await runCli(
             const sessionId = args.sessionId ?? (actsAsSession
               ? await resolveCommandSessionId(root)
               : sessionIdFromEnvironment() ?? await readRecordedSessionId(root));
+            if (args.action === "advance") {
+              return await runAdvanceCommand({
+                cwd: root,
+                sessionId: sessionId ?? await resolveCommandSessionId(root),
+                parentTaskId: args.taskId,
+                deps: worktreeDependencies()
+              });
+            }
             const createConfig = args.action === "create"
               ? (await loadEffectiveConfig(
                   root,
@@ -695,6 +705,9 @@ process.exitCode = await runCli(
             };
           };
           if (args.command === "review") {
+            if (args.action === "show") {
+              return await runReviewShowCommand({ cwd: root, taskId: args.taskId!, deps: worktreeDependencies() });
+            }
             const controller = new AbortController();
             let interruptedBy: "SIGINT" | "SIGTERM" | undefined;
             const interrupt = (signal: "SIGINT" | "SIGTERM"): void => {

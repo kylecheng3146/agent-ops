@@ -347,6 +347,22 @@ agent-ops doctor --check-auth # one real print call per configured target
 
 ### Batch review
 
+For writing subagents in separate worktrees, record each child's complete
+modification intent at task creation (`--intent`), then commit and run its
+local verifier. The coordinator runs `agent-ops task advance --task <parent-id>
+--session <session-id> --yes` from the main checkout through the same trusted
+outer host runner used for review. Advance integrates the committed children,
+verifies every parent and child criterion on the integrated candidate, and
+runs one two-round tree review. Only `NOT_RUN / scope-too-large` falls back to
+per-task two-round reviews; FAIL requires a fix and a fresh final gate. A
+passing gate saves the complete local receipt in `.git/agent-ops/receipts/`
+before finish. A moved target gets at most one automatic rebase and repeat.
+Run `agent-ops review show --task <parent-id>` from the main checkout to read
+both full recorded reports for the latest candidate without invoking a reviewer.
+`task advance` prints a short summary of nonblocking findings and residual risks.
+
+`batch` remains the per-task review command for tasks already in one worktree.
+
 A change split into subtasks needs one verify and one review per subtask.
 `agent-ops batch --parent <task-id> --yes` runs them together for the parent's
 active subtasks and the parent itself, instead of one `review` at a time:

@@ -37,15 +37,17 @@ export type CliCommand = "help" | "version" | TopLevelCommand;
 export type ConfigAction = "explain";
 export type TrustAction = "grant" | "revoke" | "status";
 export type TaskAction =
+  | "advance"
   | "archive"
   | "attach"
   | "complete"
   | "create"
   | "export"
   | "status";
+export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
-export type CliAction = ConfigAction | TaskAction | TrustAction | WorktreeAction;
+export type CliAction = ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
   command: CliCommand;
@@ -71,6 +73,7 @@ export interface ParsedArgs {
   parentTaskId?: string;
   targetVersion?: string;
   title?: string;
+  intent?: string;
   criteria?: string[];
   evidence?: string[];
   sessionId?: string;
@@ -84,6 +87,8 @@ export interface ParsedArgs {
   yes: boolean;
   /** review: discard a matching PASS attestation and run the chain again. */
   rerun: boolean;
+  /** review: cover the selected task and all non-archived descendants. */
+  tree?: boolean;
   /** worktree: the worktree name after the action. */
   worktreeName?: string;
   /** worktree remove: discard uncommitted or unmerged work. */
@@ -181,6 +186,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let parentTaskId: string | undefined;
   let targetVersion: string | undefined;
   let title: string | undefined;
+  let intent: string | undefined;
   let sessionId: string | undefined;
   let base: string | undefined;
   let parentBase: string | undefined;
@@ -196,6 +202,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let json = false;
   let yes = false;
   let rerun = false;
+  let tree = false;
   let helpSeen = false;
   let versionSeen = false;
   let worktreeName: string | undefined;
@@ -298,6 +305,17 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         title = readOptionValue(argv, index, token);
         index += 1;
+        break;
+      }
+      case "--intent": {
+        if (intent !== undefined) duplicate(token);
+        intent = readOptionValue(argv, index, token);
+        index += 1;
+        break;
+      }
+      case "--tree": {
+        if (tree) duplicate(token);
+        tree = true;
         break;
       }
       case "--criterion": {
@@ -491,6 +509,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           command === "task" &&
           action === undefined &&
           [
+            "advance",
             "archive",
             "attach",
             "complete",
@@ -500,6 +519,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           ].includes(token)
         ) {
           action = token as TaskAction;
+          break;
+        }
+        if (command === "review" && action === undefined && token === "show") {
+          action = "show";
           break;
         }
         if (
@@ -580,6 +603,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       parentTaskId !== undefined ||
       targetVersion !== undefined ||
       title !== undefined ||
+      intent !== undefined ||
       criteria.length > 0 ||
       evidence.length > 0 ||
       reviewTargets.length > 0 ||
@@ -593,6 +617,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       dryRun ||
       yes ||
       rerun ||
+      tree ||
       worktree !== undefined ||
       worktreeFrom !== undefined ||
       worktreeMessage !== undefined ||
@@ -648,7 +673,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command === "task" && action === undefined) {
     throw new CliArgumentError(
       "CLI_ACTION_REQUIRED",
-      "The task command requires one of: create, status, attach, complete, archive, export."
+      "The task command requires one of: create, status, attach, complete, archive, export, advance."
     );
   }
   const hasTaskTargetOptions =
@@ -656,6 +681,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     sessionId !== undefined;
   const hasTaskMutationOptions =
     title !== undefined ||
+    intent !== undefined ||
     criteria.length > 0 ||
     evidence.length > 0;
   if (
@@ -749,7 +775,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       harness !== undefined ||
       profiles.length > 0 ||
       dryRun ||
-      yes ||
+      (yes && action !== "advance") ||
       rerun
     ) {
       throw new CliArgumentError(
@@ -762,7 +788,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         (taskId !== undefined ||
           evidence.length > 0)) ||
       (action === "status" &&
-        (title !== undefined ||
+        (title !== undefined || intent !== undefined ||
           criteria.length > 0 ||
           evidence.length > 0 ||
           // --parent filters the listing, so it cannot name a single target.
@@ -770,21 +796,25 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
             (taskId !== undefined || sessionId !== undefined)) ||
           (taskId !== undefined && sessionId !== undefined))) ||
       (action === "attach" &&
-        (title !== undefined ||
+        (title !== undefined || intent !== undefined ||
           criteria.length > 0 ||
           evidence.length > 0 ||
           parentTaskId !== undefined)) ||
       (action === "complete" &&
-        (title !== undefined ||
+        (title !== undefined || intent !== undefined ||
           criteria.length > 0 ||
           sessionId !== undefined ||
           parentTaskId !== undefined)) ||
       ((action === "archive" || action === "export") &&
-        (title !== undefined ||
+        (title !== undefined || intent !== undefined ||
           criteria.length > 0 ||
           evidence.length > 0 ||
           sessionId !== undefined ||
-          parentTaskId !== undefined));
+          parentTaskId !== undefined)) ||
+      (action === "advance" &&
+        (taskId === undefined || title !== undefined || intent !== undefined ||
+          criteria.length > 0 || evidence.length > 0 || parentTaskId !== undefined ||
+          !yes));
     if (taskOptionInvalid) {
       throw new CliArgumentError(
         "CLI_OPTION_NOT_ALLOWED",
@@ -823,7 +853,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "Review requires --task for the complete task-bound review."
     );
   }
-  if (command === "review" && !yes) {
+  if (command === "review" && action === "show" &&
+      (yes || rerun || tree || base !== undefined || output !== undefined ||
+       scope !== undefined || harness !== undefined || profiles.length > 0 ||
+       criteria.length > 0 || evidence.length > 0)) {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED",
+      "review show accepts only --task and optional --json; it never runs a reviewer.");
+  }
+  if (tree && command !== "review") {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--tree may be used only with review.");
+  }
+  if (intent !== undefined && !(command === "task" && action === "create")) {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--intent may be used only with task create.");
+  }
+  if (command === "review" && action !== "show" && !yes) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
       "Review requires --yes to authorize both reviewer sessions."
@@ -953,6 +996,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(parentTaskId === undefined ? {} : { parentTaskId }),
     ...(targetVersion === undefined ? {} : { targetVersion }),
     ...(title === undefined ? {} : { title }),
+    ...(intent === undefined ? {} : { intent }),
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
     ...(completionGate === undefined ? {} : { completionGate }),
     ...(criteria.length === 0 ? {} : { criteria }),
@@ -968,6 +1012,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(checkAuth ? { checkAuth } : {}),
     ...(checkAuthTargets.length === 0 ? {} : { checkAuthTargets }),
     rerun,
+    ...(tree ? { tree } : {}),
     dryRun,
     json,
     yes,

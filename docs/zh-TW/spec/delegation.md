@@ -44,10 +44,10 @@ English source version: 2026-09-24. Revalidate: when the English specification c
 
 ## DELEGATE-ISOLATION-003
 
-同一個 session 中會寫入檔案的 subagent MUST 各自在自己的 agent-ops worktree 中工作，並各自擁有 task、驗證與 review。
+同一個 session 中會寫入檔案的 subagent MUST 各自在自己的 agent-ops worktree 中工作，並各自擁有 task、開工前修改意圖與局部驗證。
 
 - Trigger: `worktree.mode` 為 `auto`，且 subagent 寫入檔案。subagent 內的 hook 呼叫會在父對話的 `session_id` 之下帶有自己的 `agent_id`；沒有 `agent_id` 的 payload 視為該 session 的主執行緒。
-- Action: 第一次被擋下的寫入會配發一個屬於該 session 與該 agent 的 worktree；之後用絕對路徑在那裡編輯，因為 hook 的 `cwd` 不會跟著 `cd` 改變。subagent 在自己的 worktree 內 commit，並執行 `agent-ops verify` 與 `agent-ops review`。整個 repository 的所有 worktree 同時最多進行兩個 review，其餘排隊等待。協調者依序對每個 worktree 執行 `agent-ops worktree finish <name>`；只有該 session 的每個 worktree 都有已完成的 task，Stop 才會放行。
-- Evidence: `agent-ops worktree list` 為每個 subagent worktree 顯示一行 `agent:`，寫入其他 writer 的 worktree 會以 `WORKTREE_OWNED_BY_OTHER_AGENT` 被拒絕，且每次 finish 都回報 fast-forward 合併。
-- Positive: `兩個 subagent 在 .worktrees/session-ab12cd34-a9230363 與 .worktrees/session-ab12cd34-b1111111 各自實作獨立的 task；各自 review，協調者依序 finish。`
+- Action: 第一次被擋下的寫入會配發一個屬於該 session 與該 agent 的 worktree；之後用絕對路徑在那裡編輯，因為 hook 的 `cwd` 不會跟著 `cd` 改變。每個 subagent 編輯前用 `task create --intent` 記錄意圖，提交後在自己的 worktree 執行 `agent-ops verify --task`。協調者從主 checkout 執行 `agent-ops task advance --task <parent-id> --session <id> --yes`：整合子 worktree，在同一候選版本驗證所有 criteria、完成兩輪全樹 review、保存本地證據，再執行 finish。存在兄弟子 worktree 時，直接 finish 單一子 worktree 會被拒絕。
+- Evidence: `agent-ops worktree list` 為每個子 worktree 顯示 `agent:`；`.git/agent-ops/receipts/` 的最終收據保存整合後 task tree、意圖、驗證證據與 review 報告。
+- Positive: `兩個 subagent 各自提交並驗證；一次 task advance 整合兩者並完成最終證據門檻後 finish。`
 - Negative: `subagent 修改協調者的 worktree，或兩個 subagent 修改同一個 worktree，導致一次 review 涵蓋兩個 task 的變更。`

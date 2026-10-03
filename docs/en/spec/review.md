@@ -5,9 +5,9 @@
 An independent reviewer MUST receive a minimal packet containing the request, criteria, artifact references, and evidence requirements.
 
 - Trigger: A multi-step change reaches a review checkpoint.
-- Action: Omit implementation rationale, hidden reasoning, raw logs, and credentials.
+- Action: Include user-approved task intent in the request when recorded; omit hidden reasoning, raw logs, and credentials.
 - Evidence: The packet keys and artifact references are visible without sensitive content.
-- Positive: `Packet contains criteria, files, and evidence requirements only.`
+- Positive: `Packet contains recorded task intent, criteria, files, and evidence requirements.`
 - Negative: `Forward the complete session transcript and environment.`
 
 ## REVIEW-RESULT-001
@@ -125,6 +125,28 @@ FAIL.
 - Evidence: The result reason distinguishes a protocol violation from a verdict.
 - Positive: `NOT_RUN: unparseable-output; one criterion was missing.`
 - Negative: `Record a failed review because the model's JSON was malformed.`
+
+## REVIEW-TREE-001
+
+`task advance` MUST prove one integrated candidate against every parent and descendant criterion before it calls finish.
+
+- Trigger: A session has a parent task and one or more agent-owned child worktrees.
+- Action: Import each child task's pre-work intent and committed code into the coordinator candidate. Run every task's required verifier against the same final base and source fingerprint. Run `review --task <parent-id> --tree --base <final-base> --yes`, which sends all uniquely qualified criteria and intents through the existing two fresh reviewer sessions. Save a task-bound alias for every task, all pointing to that complete tree report.
+- Evidence: The final receipt contains the complete task tree, intents, source fingerprint, verifier evidence, two reviewer reports, review mode, and residual risks.
+- Positive: `Two child worktrees with three criteria each and a parent with two criteria receive one two-round final review covering all eight criteria.`
+- Negative: `Review the parent alone, then finish children whose criteria were never checked against the integrated code.`
+
+Only `NOT_RUN / scope-too-large` may fall back to a separate complete two-round review for each task. A substantive FAIL, missing verifier evidence, reviewer unavailability, or any other NOT_RUN blocks finish. `task advance` may rebase onto a moved target and repeat the entire final gate once. The receipt is written under the main checkout's `.git/agent-ops/receipts/` before the target branch moves; failure to write or read it back blocks the merge. A late target move rejects the merge so final proof can be repeated. A post-merge cleanup failure is reported as partial, not as successful finish.
+
+## REVIEW-SHOW-001
+
+The user MUST be able to inspect both recorded reviewer reports for the latest candidate from the main checkout without starting another review.
+
+- Trigger: `review show --task <id>` for an active or finished task.
+- Action: Display the full redacted structured primary and adversarial reports, including every criterion, finding, inspected file, and residual risk. For a successful tree review, display the shared report once; for a per-task fallback, group both rounds by task. Validate a finished receipt against its Git note digest. If the candidate changed since review, state that the current candidate has no review instead of showing an old verdict. A failed or unavailable round names the missing report explicitly. `task advance` summarizes concrete nonblocking findings and risks on PASS and shows available report details on failure.
+- Evidence: The read-only command invokes no reviewer and its output is bound to the active fingerprint or the finished receipt.
+- Positive: `After finish, review show from main displays both full reports and residual risks for the final candidate.`
+- Negative: `A new commit still displays the preceding candidate's PASS as current.`
 
 ## REVIEW-BATCH-001
 

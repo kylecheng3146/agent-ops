@@ -12,6 +12,16 @@ English source version: 2026-09-27. Revalidate: when the English specification c
 - Positive: `tests → npm test（354 個測試通過）`。
 - Negative: `看起來正確，所以不需要證據。`
 
+## EVIDENCE-INTENT-001
+
+每個子 worktree MUST 在編輯前記錄完整程式修改意圖。
+
+- Trigger: 子 agent 即將在自己的 worktree 編輯。
+- Action: 使用 `task create --intent <text>` 記錄使用者同意的行為、限制與整合點；協調者連同子 task 匯入意圖，並在整合候選版本重跑驗證。
+- Evidence: 子 task 與最終完成紀錄保留意圖，最終 verifier 證據綁定整合候選版本。
+- Positive: `子 agent 先記錄預定 API 修改、提交程式碼，最後完成紀錄包含該意圖與整合後驗證。`
+- Negative: `先修改程式碼，交付時才補寫一行事後意圖。`
+
 ## EVIDENCE-AGGREGATE-001
 
 驗證器 MUST 在條件缺少、重複、未知或證據為空時回傳 FAIL。
