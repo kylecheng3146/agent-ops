@@ -208,6 +208,135 @@ test("finish fast-forwards, records the task in notes and retires the worktree",
   }
 });
 
+test("final-proof finish archives verifier and review evidence before merging", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "proof.txt", "reviewed candidate\n");
+    await git(record.path, "add", "proof.txt");
+    await git(record.path, "commit", "-qm", "candidate");
+    const taskId = await reviewedTask(record, { title: "Final proof", base: record.base });
+    const target = await git(root, "rev-parse", "HEAD");
+    const head = await git(record.path, "rev-parse", "HEAD");
+    const runner = gitRunner(record.path);
+    const fingerprint = await calculateSourceFingerprint(record.path, {
+      mode: "base", baseRef: target, resolvedBase: target,
+      changedFiles: await collectBaseChangePaths(runner, target)
+    }, runner);
+    const finished = await finishWorktree(d, { cwd: root, name: "alpha",
+      finalProof: { target, head, sourceFingerprint: fingerprint, children: [] } });
+    assert.equal(finished.mergedHead, head);
+    assert.ok(finished.receipt);
+    const receipt = JSON.parse(await readFile(finished.receipt, "utf8")) as {
+      sourceFingerprint: string; reviewMode: string; tasks: { task: { id: string } }[];
+      reviews: Record<string, unknown>; verification: Record<string, unknown>; residualRisks: string[]
+    };
+    assert.equal(receipt.sourceFingerprint, fingerprint);
+    assert.equal(receipt.reviewMode, "per-task-fallback");
+    assert.deepEqual(receipt.tasks.map(({ task }) => task.id), [taskId]);
+    assert.ok(receipt.reviews[taskId]);
+    assert.ok(Object.keys(receipt.verification).length >= 2);
+    assert.deepEqual(receipt.residualRisks, ["fixture risk"]);
+    assert.equal(await exists(record.path), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("unwritable final receipt blocks the merge and leaves tasks active", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "proof.txt", "reviewed candidate\n");
+    await git(record.path, "add", "proof.txt");
+    await git(record.path, "commit", "-qm", "candidate");
+    const taskId = await reviewedTask(record, { title: "Final proof", base: record.base });
+    const target = await git(root, "rev-parse", "HEAD");
+    const head = await git(record.path, "rev-parse", "HEAD");
+    const runner = gitRunner(record.path);
+    const fingerprint = await calculateSourceFingerprint(record.path, {
+      mode: "base", baseRef: target, resolvedBase: target,
+      changedFiles: await collectBaseChangePaths(runner, target)
+    }, runner);
+    await writeFile(join(root, ".git", "agent-ops"), "directory blocked");
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha",
+      finalProof: { target, head, sourceFingerprint: fingerprint, children: [] } }));
+    assert.equal(await git(root, "rev-parse", "HEAD"), target);
+    assert.equal((await new TaskService(new FileTaskStore(join(record.path, ".agent-ops", "tasks", "state.json"), record.path))
+      .status({ taskId })).status, "active");
+    assert.equal(await exists(record.path), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("final-proof finish rejects a moved target before completing tasks", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "proof.txt", "candidate\n");
+    await git(record.path, "add", "proof.txt");
+    await git(record.path, "commit", "-qm", "candidate");
+    const taskId = await reviewedTask(record, { title: "Final proof", base: record.base });
+    const target = await git(root, "rev-parse", "HEAD");
+    const head = await git(record.path, "rev-parse", "HEAD");
+    const runner = gitRunner(record.path);
+    const fingerprint = await calculateSourceFingerprint(record.path, {
+      mode: "base", baseRef: target, resolvedBase: target,
+      changedFiles: await collectBaseChangePaths(runner, target)
+    }, runner);
+    await write(root, "other.txt", "target moved\n");
+    await git(root, "add", "other.txt");
+    await git(root, "commit", "-qm", "target moved");
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha",
+      finalProof: { target, head, sourceFingerprint: fingerprint, children: [] } }), rejectsWith("WORKTREE_TARGET_MOVED"));
+    assert.equal((await new TaskService(new FileTaskStore(join(record.path, ".agent-ops", "tasks", "state.json"), record.path))
+      .status({ taskId })).status, "active");
+    assert.equal(await exists(record.path), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("final-proof finish detects a target move during the fast-forward", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await write(record.path, "proof.txt", "candidate\n");
+    await git(record.path, "add", "proof.txt");
+    await git(record.path, "commit", "-qm", "candidate");
+    const taskId = await reviewedTask(record, { title: "Final proof", base: record.base });
+    const target = await git(root, "rev-parse", "HEAD");
+    const head = await git(record.path, "rev-parse", "HEAD");
+    const runner = gitRunner(record.path);
+    const sourceFingerprint = await calculateSourceFingerprint(record.path, {
+      mode: "base", baseRef: target, resolvedBase: target,
+      changedFiles: await collectBaseChangePaths(runner, target)
+    }, runner);
+    const originalGit = d.git;
+    let moved = false;
+    const racing = { ...d, git: async (cwd: string, args: readonly string[]) => {
+      if (!moved && cwd === root && args[0] === "merge" && args[1] === "--ff-only") {
+        moved = true;
+        await git(root, "commit", "--allow-empty", "-qm", "target moved late");
+      }
+      return await originalGit(cwd, args);
+    } };
+    await assert.rejects(finishWorktree(racing, { cwd: root, name: "alpha",
+      finalProof: { target, head, sourceFingerprint, children: [] } }), rejectsWith("WORKTREE_TARGET_MOVED"));
+    assert.equal(moved, true);
+    assert.equal((await new TaskService(new FileTaskStore(join(record.path, ".agent-ops", "tasks", "state.json"), record.path))
+      .status({ taskId })).status, "active");
+    assert.equal(await exists(record.path), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("finish completes the worktree's whole task tree, subtasks first, and records it", async () => {
   const root = await repository();
   try {
@@ -538,7 +667,7 @@ test("finish waits for a live lock, reclaims a dead one and gives up when told t
   }
 });
 
-test("finishing one subagent worktree leaves the session's other worktrees covered", async () => {
+test("direct finish preserves sibling subagent worktrees for final integration", async () => {
   const root = await repository();
   try {
     const d = finishDeps();
@@ -546,11 +675,10 @@ test("finishing one subagent worktree leaves the session's other worktrees cover
     const b = await addWorktree(d, { cwd: root, name: "agent-b", sessionId: SESSION, agentId: "b11111111aaaabbbb" });
     await completeWork(a.record, "source.txt", "agent a work\n");
 
-    await finishWorktree(d, { cwd: root, name: "agent-a" });
-
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "agent-a" }), rejectsWith("WORKTREE_CHILDREN_REQUIRE_ADVANCE"));
     const store = new FileCompletionGateStore(root);
-    assert.deepEqual((await store.read(SESSION))?.extraRoots, [b.record.path]);
-    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+    assert.deepEqual((await store.read(SESSION))?.extraRoots, [a.record.path, b.record.path]);
+    assert.equal(await exists(a.record.path), true);
 
     await write(b.record.path, "other.txt", "agent b edit\n");
     assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_TASK_REQUIRED");
@@ -559,7 +687,7 @@ test("finishing one subagent worktree leaves the session's other worktrees cover
   }
 });
 
-test("two simulated subagents each write in their own worktree, finish in turn, and Stop is allowed at the end", async () => {
+test("two simulated subagents cannot bypass integrated final review with direct finish", async () => {
   const root = await repository();
   try {
     const d = finishDeps();
@@ -584,14 +712,11 @@ test("two simulated subagents each write in their own worktree, finish in turn, 
     await completeWork(b, "b.txt", "from b\n");
     assert.equal((await main.handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
 
-    await finishWorktree(d, { cwd: root, name: a.name });
-    const second = await finishWorktree(d, { cwd: root, name: b.name });
-
-    assert.equal(second.rebased, true);
-    assert.equal(await readFile(join(root, "a.txt"), "utf8"), "from a\n");
-    assert.equal(await readFile(join(root, "b.txt"), "utf8"), "from b\n");
-    assert.equal((await new FileCompletionGateStore(root).read(SESSION))?.extraRoots, undefined);
-    assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+    await assert.rejects(finishWorktree(d, { cwd: root, name: a.name }), rejectsWith("WORKTREE_CHILDREN_REQUIRE_ADVANCE"));
+    await assert.rejects(finishWorktree(d, { cwd: root, name: b.name }), rejectsWith("WORKTREE_CHILDREN_REQUIRE_ADVANCE"));
+    assert.equal(await exists(a.path), true);
+    assert.equal(await exists(b.path), true);
+    assert.equal(await exists(join(root, "a.txt")), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

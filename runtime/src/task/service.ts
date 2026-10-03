@@ -28,6 +28,7 @@ import type {
 
 export interface CreateTaskInput {
   readonly title: string;
+  readonly intent?: string;
   readonly criteria: readonly AcceptanceCriterion[];
   /** CLI task creation captures this; callers without it remain compatible. */
   readonly policyConfigHash?: string;
@@ -192,6 +193,7 @@ export class TaskService {
       schemaVersion: TASK_SCHEMA_VERSION,
       id: this.#generateId(),
       title: input.title,
+      ...(input.intent === undefined ? {} : { intent: input.intent }),
       criteria: [...input.criteria],
       ...(input.parentTaskId === undefined
         ? {}
@@ -272,6 +274,55 @@ export class TaskService {
         }
       }
       return cloneRecord(record);
+    });
+  }
+
+  /** Import a child worktree's intent and criteria, never its source-bound proof. */
+  async importDelivery(parentTaskId: string, delivered: readonly StoredTaskRecord[]): Promise<void> {
+    if (delivered.length === 0 || delivered.some(({ status, task }) =>
+      status === "archived" || task.intent === undefined || task.intent.trim() === "")) {
+      throw taskError("TASK_DELIVERY_INVALID", "Every delivered task needs a recorded intent and must not be archived.");
+    }
+    await this.#store.mutate((state) => {
+      const parent = findTask(state, parentTaskId);
+      if (parent.status !== "active") {
+        throw taskError("TASK_PARENT_NOT_ACTIVE", "Only an active parent can accept delivery.");
+      }
+      const ids = new Set(delivered.map(({ task }) => task.id));
+      if (ids.size !== delivered.length) {
+        throw taskError("TASK_DELIVERY_INVALID", "Delivered task IDs must be unique.");
+      }
+      for (const record of delivered) {
+        const task: AgentTask = {
+          ...record.task,
+          ...(record.task.parentTaskId === undefined ? { parentTaskId } : {})
+        };
+        if (task.parentTaskId !== parentTaskId && !ids.has(task.parentTaskId!)) {
+          throw taskError("TASK_DELIVERY_INVALID", `Task ${task.id} has a parent outside this delivery.`);
+        }
+        if (record.policyConfigHash !== parent.policyConfigHash || !validateTask(task).ok) {
+          throw taskError("TASK_DELIVERY_INVALID", `Task ${task.id} has an incompatible policy or definition.`);
+        }
+        const existing = state.tasks.find((item) => item.task.id === task.id);
+        if (existing !== undefined) {
+          if (JSON.stringify(existing.task) !== JSON.stringify(task)) {
+            throw taskError("TASK_ID_CONFLICT", `Task ${task.id} conflicts with an existing task.`);
+          }
+          continue;
+        }
+        state.tasks.push({
+          task,
+          status: "active",
+          evidence: {},
+          createdAt: record.createdAt,
+          updatedAt: this.#now(),
+          completedAt: null,
+          archivedAt: null,
+          failureFingerprint: null,
+          policyConfigHash: record.policyConfigHash,
+          completionBase: null
+        });
+      }
     });
   }
 

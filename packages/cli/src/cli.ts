@@ -165,19 +165,21 @@ Options:
   --json
   --yes
 `,
-  task: `Usage: agent-ops task <create|status|attach|complete|archive|export> [options]
+  task: `Usage: agent-ops task <create|status|attach|complete|archive|export|advance> [options]
 
 Manage independent task acceptance state. Task commands accept none of
---harness, --profile, --dry-run or --yes.
+--harness, --profile or --dry-run. Only advance accepts --yes.
 
 Options:
   --title <text>                        create
+  --intent <text>                       create: intended behavior and constraints before editing
   --criterion <json>                    create, repeatable, two to five total
   --parent <task-id>                    create: record a subtask; status: list subtasks
-  --task <id>                           status, attach, complete, archive, export
-  --session <id>                        attach, status
+  --task <id>                           status, attach, complete, archive, export, advance
+  --session <id>                        create, attach, status, advance
   --evidence <criterion-id=reference>   complete, repeatable
   --base <git-ref>                      complete: a clean committed range
+  --yes                                 advance: authorize the two review sessions
   --json
 
 Each --criterion is one JSON object with exactly these keys:
@@ -204,6 +206,7 @@ fresh adversarial reviewer from the configured pair.
 
 Options:
   --task <id>          Required task whose original criteria are reviewed
+  --tree               Cover this task and every non-archived descendant in one two-round review
   --base <git-ref>     Review a clean committed range
   --output <file>      Write the JSON envelope to <file> (mode 0600) and print
                        one summary line, so no shell redirect is needed

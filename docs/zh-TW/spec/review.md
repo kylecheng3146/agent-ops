@@ -7,9 +7,9 @@ English source version: 2026-09-30. Revalidate: when the English specification c
 獨立審查者 MUST 只收到包含請求、條件、產物參照與證據要求的最小 packet。
 
 - Trigger: 多步驟變更到達審查 checkpoint。
-- Action: 排除實作理由、隱藏推理、原始 log 與憑證。
+- Action: 有記錄時在 request 帶入使用者同意的 task 意圖；排除隱藏推理、原始 log 與憑證。
 - Evidence: 可見 packet keys 與產物參照，且不含敏感內容。
-- Positive: `Packet 僅含條件、檔案與證據要求。`
+- Positive: `Packet 包含已記錄的 task 意圖、條件、檔案與證據要求。`
 - Negative: `轉送完整 session transcript 與環境。`
 
 ## REVIEW-RESULT-001
@@ -116,6 +116,18 @@ permission bypass。外部 host runner 不可用時，結果 MUST 保持 NOT_RUN
 - Evidence: 結果的 reason 能區分協議違規與判定結果。
 - Positive: `NOT_RUN：unparseable-output；缺少一條 criterion。`
 - Negative: `因為模型的 JSON 格式錯誤就記錄一次失敗的審查。`
+
+## REVIEW-TREE-001
+
+`task advance` MUST 在呼叫 finish 前，讓同一個整合後候選版本通過 parent 與所有子 task 的 criteria。
+
+- Trigger: session 有 parent task 與一個以上由 subagent 擁有的子 worktree。
+- Action: 將各子 task 的開工前意圖及已提交程式碼匯入協調者候選 worktree。所有 task 的必要 verifier 使用相同最終 base 與 source fingerprint。執行 `review --task <parent-id> --tree --base <final-base> --yes`，把唯一化的 criteria 與意圖交給現有兩輪獨立 reviewer；每個 task 都保存指向完整全樹報告的 task-bound 證明。
+- Evidence: 最終收據包含完整 task tree、意圖、source fingerprint、驗證證據、兩份 reviewer 報告、review 模式與剩餘風險。
+- Positive: `parent 兩項、兩個子 task 各三項 criteria，在整合候選版本上由同一組兩輪 review 覆蓋全部八項。`
+- Negative: `只 review parent，就 finish 尚未在整合版本檢查 criteria 的子 worktree。`
+
+只有 `NOT_RUN / scope-too-large` 可以退回各 task 各自完整的兩輪 review。實質 FAIL、缺少驗證證據、reviewer 無法使用或其他 NOT_RUN 都阻擋 finish。Target 移動時，`task advance` 最多 rebase 並重做整套最終門檻一次。收據在目標分支移動前寫入主 checkout 的 `.git/agent-ops/receipts/` 並讀回檢查；保存失敗禁止合併。合併前晚到的 target 移動會被拒絕，以便重做最終證據。合併後清理失敗則回報為部分完成，不宣稱 finish 成功。
 
 ## REVIEW-BATCH-001
 

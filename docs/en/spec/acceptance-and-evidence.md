@@ -10,6 +10,16 @@ Every acceptance criterion MUST map to observable evidence.
 - Positive: `criterion tests → npm test (354 passing tests)`.
 - Negative: `The implementation looks correct, so no evidence is needed.`
 
+## EVIDENCE-INTENT-001
+
+Each child worktree MUST record its modification intent before editing.
+
+- Trigger: A subagent will edit in its own worktree.
+- Action: Use `task create --intent <text>` to record the user-approved behavior, constraints and integration points. The coordinator imports the intent with the child task and re-runs verification on the integrated candidate.
+- Evidence: The child task and final receipt contain the intent, with final verifier evidence bound to the integrated candidate.
+- Positive: `A child records its planned API change, commits it, and the final receipt includes that intent and integrated verification.`
+- Negative: `A child edits first and supplies a retrospective one-line intent at delivery.`
+
 ## EVIDENCE-AGGREGATE-001
 
 The verifier MUST return FAIL when a criterion is missing, duplicated, unknown, or has empty evidence.

@@ -27,11 +27,13 @@ export const CLAUDE_PREAUTH_ALLOW: readonly string[] = [
   "Bash(npx lint-staged *)"
 ];
 /**
- * review and batch talk to the reviewer's API, which the sandbox withholds;
+ * review, batch and task advance talk to the reviewer's API, which the sandbox withholds;
  * worktree commit and lint-staged write the main .git, which a worktree's
  * sandbox cannot.
  */
 export const CLAUDE_PREAUTH_UNSANDBOXED: readonly string[] = [
+  "agent-ops task advance",
+  "agent-ops task advance *",
   "agent-ops review",
   "agent-ops review *",
   "agent-ops batch",
@@ -125,6 +127,13 @@ export const CODEX_RULES_CONTENT = `${[
         command: ["batch"],
         justification: "agent-ops batch runs reviews, which need network and loopback outside the sandbox.",
         match: `${env} batch --parent task-x --yes --output batch.json`,
+        notMatch: `${env} trust grant --scope project --yes`
+      }),
+      rule({
+        withHost,
+        command: ["task", "advance"],
+        justification: "agent-ops task advance runs the final reviewer chain and finish outside the sandbox.",
+        match: `${env} task advance --task task-x --session session-x --yes`,
         notMatch: `${env} trust grant --scope project --yes`
       }),
       rule({

@@ -125,6 +125,27 @@ test("parses structured task lifecycle arguments", () => {
   );
 });
 
+test("parses the final advance and pre-work intent only in their supported commands", () => {
+  const advanced = parseArgs(["task", "advance", "--task", "parent", "--session", "session-one", "--yes"]);
+  assert.equal(advanced.action, "advance");
+  assert.equal(advanced.taskId, "parent");
+  assert.equal(advanced.sessionId, "session-one");
+  assert.equal(advanced.yes, true);
+  assert.equal(parseArgs(["task", "create", "--title", "Child", "--intent", "Add behavior A",
+    "--criterion", '{"id":"behavior","description":"A works","verifierIds":["unit"]}',
+    "--criterion", '{"id":"regression","description":"Existing behavior works","verifierIds":["unit"]}']).intent,
+  "Add behavior A");
+  assert.equal(parseArgs(["review", "--task", "parent", "--tree", "--yes"]).tree, true);
+  for (const argv of [
+    ["task", "advance", "--task", "parent"],
+    ["task", "advance", "--yes"],
+    ["verify", "--task", "parent", "--intent", "ignored"],
+    ["review", "--task", "parent", "--intent", "ignored", "--yes"]
+  ]) {
+    assert.throws(() => parseArgs(argv), CliArgumentError);
+  }
+});
+
 test("parses verify task or session targets without task mutation options", () => {
   assert.deepEqual(
     parseArgs([
@@ -665,4 +686,3 @@ test("parses --from and --target-branch for worktree add only", () => {
     );
   }
 });
-

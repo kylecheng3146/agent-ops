@@ -30,6 +30,12 @@ const DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u;
 const REPORT_ARTIFACT_MAX_BYTES = 512 * 1024;
 
+export interface TreeReviewScope {
+  readonly rootTaskId: string;
+  readonly taskIds: readonly string[];
+  readonly criterionIds: readonly string[];
+}
+
 /**
  * A durable record that one independent review passed against exactly one
  * source state. The source fingerprint is the key: any later edit produces a
@@ -38,6 +44,7 @@ const REPORT_ARTIFACT_MAX_BYTES = 512 * 1024;
 export interface ReviewAttestation {
   readonly schemaVersion: 2;
   readonly taskId?: string;
+  readonly tree?: TreeReviewScope;
   readonly harness: ReviewTargetId;
   readonly status: "PASS";
   readonly sourceFingerprint: string;
@@ -55,6 +62,7 @@ export interface ReviewReportArtifact {
   readonly schemaVersion: 1;
   readonly sourceFingerprint: string;
   readonly taskId?: string;
+  readonly tree?: TreeReviewScope;
   readonly status: ReviewRunResult["status"];
   readonly harness: ReviewTargetId;
   readonly plannedTargets: readonly ReviewTargetId[];
@@ -129,12 +137,14 @@ export function reviewReportDigest(report: ReviewReport): string {
 function reportArtifact(
   result: ReviewRunResult,
   sourceFingerprint: string,
-  taskId?: string
+  taskId?: string,
+  tree?: TreeReviewScope
 ): ReviewReportArtifact {
   return {
     schemaVersion: 1,
     sourceFingerprint,
     ...(taskId === undefined ? {} : { taskId }),
+    ...(tree === undefined ? {} : { tree }),
     status: result.status,
     harness: result.harness,
     plannedTargets: [...(result.plannedTargets ?? [result.harness])],
@@ -185,6 +195,7 @@ function matchingReportArtifact(
     record.harness !== attestation.harness ||
     record.harness !== attestation.reviewTargets[0] ||
     record.taskId !== attestation.taskId ||
+    JSON.stringify(record.tree) !== JSON.stringify(attestation.tree) ||
     record.hostTarget !== attestation.hostTarget ||
     !Array.isArray(plannedTargets) ||
     plannedTargets.length !== 2 ||
@@ -210,6 +221,15 @@ function matchingReportArtifact(
     return false;
   }
   const adversarialRecord = adversarial as Record<string, unknown>;
+  if (attestation.tree !== undefined) {
+    const expected = new Set(attestation.tree.criterionIds);
+    for (const report of [record.report, adversarialRecord.report]) {
+      const results = (report as ReviewReport | undefined)?.results;
+      if (!Array.isArray(results) || results.length !== expected.size ||
+          results.some((item) => !expected.has(item.criterionId)) ||
+          new Set(results.map((item) => item.criterionId)).size !== expected.size) return false;
+    }
+  }
   return (
     adversarialRecord.target === attestation.reviewTargets[1] &&
     adversarialRecord.refuted === false &&
@@ -249,7 +269,8 @@ export async function saveReviewReportArtifact(
   root: string,
   result: ReviewRunResult,
   sourceFingerprint: string,
-  taskId?: string
+  taskId?: string,
+  tree?: TreeReviewScope
 ): Promise<string> {
   if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
     throw new AgentOpsError(
@@ -263,7 +284,7 @@ export async function saveReviewReportArtifact(
       "Review report artifact has an invalid task id."
     );
   }
-  const value = reportArtifact(result, sourceFingerprint, taskId);
+  const value = reportArtifact(result, sourceFingerprint, taskId, tree);
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(serialized, "utf8") > REPORT_ARTIFACT_MAX_BYTES) {
     throw new AgentOpsError(
@@ -290,12 +311,23 @@ function parseAttestation(value: unknown): ReviewAttestation | null {
     return null;
   }
   const record = value as Record<string, unknown>;
+  const tree = record.tree as Partial<TreeReviewScope> | undefined;
   if (
     record.schemaVersion !== 2 ||
     record.status !== "PASS" ||
     (record.taskId !== undefined &&
       (typeof record.taskId !== "string" ||
         !TASK_ID_PATTERN.test(record.taskId))) ||
+    (tree !== undefined &&
+      (typeof tree !== "object" || tree === null ||
+        typeof tree.rootTaskId !== "string" || !TASK_ID_PATTERN.test(tree.rootTaskId) ||
+        !Array.isArray(tree.taskIds) || tree.taskIds.length === 0 ||
+        tree.taskIds.some((id) => typeof id !== "string" || !TASK_ID_PATTERN.test(id)) ||
+        new Set(tree.taskIds).size !== tree.taskIds.length ||
+        !tree.taskIds.includes(record.taskId as string) ||
+        !Array.isArray(tree.criterionIds) || tree.criterionIds.length === 0 ||
+        tree.criterionIds.some((id) => typeof id !== "string" || id.length > 256) ||
+        new Set(tree.criterionIds).size !== tree.criterionIds.length)) ||
     !isReviewTarget(record.harness) ||
     typeof record.sourceFingerprint !== "string" ||
     !FINGERPRINT_PATTERN.test(record.sourceFingerprint) ||
@@ -329,6 +361,7 @@ function parseAttestation(value: unknown): ReviewAttestation | null {
   return {
     schemaVersion: 2,
     ...(record.taskId === undefined ? {} : { taskId: record.taskId }),
+    ...(tree === undefined ? {} : { tree: tree as TreeReviewScope }),
     harness: record.harness,
     status: "PASS",
     sourceFingerprint: record.sourceFingerprint,

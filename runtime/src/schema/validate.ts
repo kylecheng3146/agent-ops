@@ -894,7 +894,7 @@ function validateCriterion(
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "parentTaskId", "schemaVersion", "title"],
+    ["criteria", "id", "intent", "parentTaskId", "schemaVersion", "title"],
     TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
@@ -919,6 +919,11 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   }
   if (!isNonEmptyString(root.title)) {
     return failure("INVALID_TITLE", "$.title", "Task title is required.");
+  }
+  if (root.intent !== undefined &&
+      (typeof root.intent !== "string" || root.intent.trim() === "" ||
+        root.intent.includes("\0") || Buffer.byteLength(root.intent, "utf8") > 8192)) {
+    return failure("INVALID_INTENT", "$.intent", "Task intent must be non-empty and at most 8 KiB.");
   }
   if (
     !Array.isArray(root.criteria) ||

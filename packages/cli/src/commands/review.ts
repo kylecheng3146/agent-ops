@@ -35,6 +35,7 @@ import {
   type ReviewRoleConfig
 } from "../../../../runtime/src/review/roles.js";
 import type { TaskService } from "../../../../runtime/src/task/service.js";
+import type { StoredTaskRecord } from "../../../../runtime/src/task/store.js";
 import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import {
@@ -103,6 +104,8 @@ interface TaskContext {
   readonly failureFingerprint: { readonly value: string } | null;
   readonly criteria: readonly ReviewCriterion[];
   readonly allCriteriaReviewed: boolean;
+  readonly treeTasks?: readonly StoredTaskRecord[];
+  readonly criterionOwners?: ReadonlyMap<string, { readonly taskId: string; readonly criterionId: string }>;
 }
 
 const GENERIC_REQUEST = "Review the current Git change surface.";
@@ -167,13 +170,62 @@ async function taskContext(
   }
   return {
     taskId: record.task.id,
-    title: record.task.title,
+    title: record.task.intent === undefined
+      ? record.task.title
+      : `${record.task.title}\nModification intent: ${record.task.intent}`,
     active: record.status === "active",
     policyConfigHash: record.policyConfigHash,
     evidence: record.evidence,
     failureFingerprint: record.failureFingerprint,
     criteria,
     allCriteriaReviewed: criteria.length === record.task.criteria.length
+  };
+}
+
+async function treeContext(options: ReviewCommandOptions): Promise<TaskContext> {
+  if (options.tasks === undefined || options.taskId === undefined) {
+    throw new AgentOpsError("REVIEW_TREE_TASK_REQUIRED", "Tree review requires a parent task.");
+  }
+  const all = await options.tasks.list();
+  const root = all.find(({ task }) => task.id === options.taskId);
+  if (root === undefined || root.status === "archived") {
+    throw new AgentOpsError("REVIEW_TREE_TASK_REQUIRED", "The selected review tree does not exist.");
+  }
+  const selected = new Set([root.task.id]);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const record of all) {
+      if (record.status !== "archived" && record.task.parentTaskId !== undefined &&
+          selected.has(record.task.parentTaskId) && !selected.has(record.task.id)) {
+        selected.add(record.task.id);
+        changed = true;
+      }
+    }
+  }
+  const treeTasks = all.filter(({ task }) => selected.has(task.id));
+  const owners = new Map<string, { taskId: string; criterionId: string }>();
+  const evidence: Record<string, readonly string[]> = {};
+  const criteria = treeTasks.flatMap((record) => record.task.criteria.map((criterion) => {
+    const id = `${record.task.id}:${criterion.id}`;
+    owners.set(id, { taskId: record.task.id, criterionId: criterion.id });
+    evidence[id] = record.evidence[criterion.id] ?? [];
+    return { id, description: `${record.task.title}: ${criterion.description}`, verifierIds: [...criterion.verifierIds] };
+  }));
+  if (treeTasks.some(({ policyConfigHash }) => policyConfigHash !== root.policyConfigHash)) {
+    throw new AgentOpsError("REVIEW_TREE_POLICY_MISMATCH", "Tree tasks must share one verifier policy.");
+  }
+  return {
+    taskId: root.task.id,
+    title: [root.task.title, ...treeTasks.map(({ task }) =>
+      `Task ${task.id}${task.parentTaskId === undefined ? "" : ` under ${task.parentTaskId}`}: ${task.title}\nModification intent: ${task.intent ?? task.title}`)].join("\n\n"),
+    active: treeTasks.every(({ status }) => status === "active"),
+    policyConfigHash: root.policyConfigHash,
+    evidence,
+    failureFingerprint: treeTasks.find(({ failureFingerprint }) => failureFingerprint !== null)?.failureFingerprint ?? null,
+    criteria,
+    allCriteriaReviewed: true,
+    treeTasks,
+    criterionOwners: owners
   };
 }
 
@@ -231,9 +283,10 @@ async function currentEvidence(
       continue;
     }
     const evidence = validation.value;
+    const owner = context.criterionOwners?.get(criterionId);
     if (
-      evidence.taskId !== context.taskId ||
-      evidence.criterionId !== criterionId ||
+      evidence.taskId !== (owner?.taskId ?? context.taskId) ||
+      evidence.criterionId !== (owner?.criterionId ?? criterionId) ||
       evidence.commandId !== commandId ||
       evidence.configHash !== configHash ||
       evidence.sourceFingerprint !== sourceFingerprint
@@ -476,6 +529,12 @@ async function reusableReview(
   if (attestation === null || attestation.taskId !== context?.taskId) {
     return null;
   }
+  if (context?.treeTasks !== undefined &&
+      (attestation.tree?.rootTaskId !== context.taskId ||
+       JSON.stringify(attestation.tree.taskIds) !== JSON.stringify(context.treeTasks.map(({ task }) => task.id)) ||
+       JSON.stringify(attestation.tree.criterionIds) !== JSON.stringify(context.criteria.map(({ id }) => id)))) {
+    return null;
+  }
   // The task's own policy baseline must still be the active one. This is
   // checked before this point too; repeating it here keeps the reuse path
   // safe wherever it is called from.
@@ -538,14 +597,22 @@ async function persistReviewEvidence(
         reason: "adversarial-review-missing" as const
       }
     : result;
-  let reportArtifact: string;
+  const taskIds = complete && context?.treeTasks !== undefined
+    ? context.treeTasks.map(({ task }) => task.id)
+    : [context?.taskId];
+  const tree = context?.treeTasks === undefined ? undefined : {
+    rootTaskId: context.taskId,
+    taskIds: context.treeTasks.map(({ task }) => task.id),
+    criterionIds: context.criteria.map(({ id }) => id)
+  };
+  const reportArtifacts: { taskId: string | undefined; path: string }[] = [];
   try {
-    reportArtifact = await saveReviewReportArtifact(
-      options.root,
-      artifactResult,
-      sourceFingerprint,
-      context?.taskId
-    );
+    for (const taskId of taskIds) {
+      reportArtifacts.push({ taskId, path: await saveReviewReportArtifact(
+        options.root, artifactResult, sourceFingerprint, taskId,
+        complete ? tree : undefined
+      ) });
+    }
   } catch {
     return {
       ...result,
@@ -562,21 +629,24 @@ async function persistReviewEvidence(
   try {
     const attempts = result.attempts;
     const plannedTargets = result.plannedTargets;
-    await saveReviewAttestation(options.root, {
-      schemaVersion: 2,
-      ...(context === undefined ? {} : { taskId: context.taskId }),
-      harness: result.harness,
-      status: "PASS",
-      sourceFingerprint,
-      reviewTargets: [plannedTargets[0], plannedTargets[1]],
-      reviewSessionIds: [attempts[0].sessionId!, attempts[1].sessionId!],
-      sessionIsolation: "fresh",
-      primaryReportDigest: reviewReportDigest(result.report),
-      adversarialReportDigest: reviewReportDigest(result.adversarial.report),
-      reportArtifact,
-      ...(result.hostTarget === undefined ? {} : { hostTarget: result.hostTarget }),
-      createdAt: new Date().toISOString()
-    });
+    for (const artifact of reportArtifacts) {
+      await saveReviewAttestation(options.root, {
+        schemaVersion: 2,
+        ...(artifact.taskId === undefined ? {} : { taskId: artifact.taskId }),
+        ...(tree === undefined ? {} : { tree }),
+        harness: result.harness,
+        status: "PASS",
+        sourceFingerprint,
+        reviewTargets: [plannedTargets[0], plannedTargets[1]],
+        reviewSessionIds: [attempts[0].sessionId!, attempts[1].sessionId!],
+        sessionIsolation: "fresh",
+        primaryReportDigest: reviewReportDigest(result.report),
+        adversarialReportDigest: reviewReportDigest(result.adversarial.report),
+        reportArtifact: artifact.path,
+        ...(result.hostTarget === undefined ? {} : { hostTarget: result.hostTarget }),
+        createdAt: new Date().toISOString()
+      });
+    }
   } catch {
     return {
       ...result,
@@ -632,7 +702,9 @@ export async function runReviewCommand(
       reason: targetPlan.reason
     });
   }
-  const context = await taskContext(options);
+  const context = options.args.tree === true
+    ? await treeContext(options)
+    : await taskContext(options);
   const evidenceRequirements: ReviewEvidenceRequirement[] = (
     options.args.evidence ?? []
   ).map((value) => {
@@ -714,7 +786,7 @@ export async function runReviewCommand(
       // source was reviewed; it says nothing about the policy in force now or
       // about verification that has failed since, and both of those are
       // decided above.
-      const reused = options.args.rerun
+      const reused = options.args.rerun || context?.treeTasks !== undefined
         ? null
         : await reusableReview(options, sourceFingerprint, context);
       if (reused !== null) {
@@ -727,13 +799,18 @@ export async function runReviewCommand(
           })
         });
       }
-      await invalidateReviewAttestation(options.root, sourceFingerprint, context?.taskId);
+      for (const taskId of context?.treeTasks?.map(({ task }) => task.id) ?? [context?.taskId]) {
+        await invalidateReviewAttestation(options.root, sourceFingerprint, taskId);
+      }
       pendingInvalidation = false;
     }
   }
   const criteria: ReviewCriterion[] = [
     ...(context?.criteria ?? GENERIC_CRITERIA)
   ];
+  if (context?.treeTasks !== undefined && criteria.length > 128) {
+    return notRunEnvelope({ ...resultBase, status: "NOT_RUN", reason: "scope-too-large" });
+  }
   let packet;
   try {
     packet = buildReviewPacket({
@@ -865,17 +942,18 @@ export async function runReviewCommand(
     context.active &&
     finalResult.results !== undefined
   ) {
-    await options.tasks.recordEvidence(
-      context.taskId,
-      Object.fromEntries(
-        finalResult.results.map((item) => [
-          item.criterionId,
-          item.evidence.map((reference) => `review:${finalResult.harness}:${reference}`)
-        ])
-      ),
-      // What `worktree finish` completes this task against.
-      scope?.mode === "base" ? scope.resolvedBase : null
-    );
+    for (const record of context.treeTasks ?? [await options.tasks.status({ taskId: context.taskId })]) {
+      await options.tasks.recordEvidence(
+        record.task.id,
+        Object.fromEntries(record.task.criteria.map((criterion) => {
+          const id = context.treeTasks === undefined
+            ? criterion.id : `${record.task.id}:${criterion.id}`;
+          const result = finalResult.results?.find((item) => item.criterionId === id);
+          return [criterion.id, (result?.evidence ?? []).map((reference) => `review:${finalResult.harness}:${reference}`)];
+        })),
+        scope?.mode === "base" ? scope.resolvedBase : null
+      );
+    }
   }
   const message =
     finalResult.status === "PASS"

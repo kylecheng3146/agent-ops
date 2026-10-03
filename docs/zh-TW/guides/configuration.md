@@ -228,6 +228,15 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   任一 task 無法完成時不會合併，錯誤訊息會指出是哪個 task。建立 subtask 時 session
   維持附著在 task 樹最上層，且每個 task 各自保留 review 紀錄，所以在同一份原始碼上
   review 的 parent 與 subtask 不會互相覆蓋。
+- 多個寫入型 subagent 各自在獨立 worktree 工作時，每個子 task 在編輯前以
+  `--intent` 記錄完整修改意圖，提交後進行局部 verify。協調者從主 checkout
+  經由與 review 相同的可信外層 host runner 執行
+  `agent-ops task advance --task <parent-id> --session <id> --yes`。
+  Advance 整合所有子 worktree 的程式與意圖，在同一候選版本重跑全部必要
+  verifier，並進行一次兩輪全樹 review。只有明確的 `NOT_RUN / scope-too-large`
+  會退回逐 task 雙輪 review；PASS 後在 `.git/agent-ops/receipts/` 保存完整
+  收據並呼叫 finish。Target 移動時最多重做一次最終門檻。仍有兄弟子 worktree
+  時，直接 finish 單一子 worktree 會被拒絕。
 - `agent-ops worktree finish <name>` 只以 fast-forward 合併，一次只執行一個
   finish。主 checkout 就在 target branch 上時，合併會更新它的檔案，所以那裡有未
   commit 的變更會擋住合併；主 checkout 在其他 branch 或 detached 時，只移動

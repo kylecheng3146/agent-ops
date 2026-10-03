@@ -177,6 +177,7 @@ export async function runTaskCommand(
         : await options.sessionWorktree(sessionId);
       const record = await (worktree?.service ?? options.service).create({
         title: options.args.title,
+        ...(options.args.intent === undefined ? {} : { intent: options.args.intent }),
         criteria: (options.args.criteria ?? []).map(parseCriterion),
         ...(options.policyConfigHash === undefined
           ? {}

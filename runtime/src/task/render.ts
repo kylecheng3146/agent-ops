@@ -32,6 +32,9 @@ export function renderTaskMarkdown(record: StoredTaskRecord): string {
     ...(record.archivedAt === null
       ? []
       : [`Archived: ${record.archivedAt}`]),
+    ...(record.task.intent === undefined
+      ? []
+      : ["", "## Modification intent", "", safeTaskText(record.task.intent)]),
     "",
     "## Acceptance criteria",
     ""
