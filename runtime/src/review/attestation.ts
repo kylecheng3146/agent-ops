@@ -41,8 +41,35 @@ export interface TreeReviewScope {
  * source state. The source fingerprint is the key: any later edit produces a
  * different fingerprint, so a stale attestation can never satisfy a gate.
  */
-export interface ReviewAttestation {
-  readonly schemaVersion: 2;
+export interface ReviewContractBinding {
+  readonly taskContractHash: string;
+  readonly taskContracts: Readonly<Record<string, string>>;
+  readonly treeContractHash?: string;
+  readonly goalHash: string;
+  readonly candidateCommit: string;
+  readonly coverageDigest: string;
+}
+
+function validContractBinding(value: Record<string, unknown>): boolean {
+  const hashes = [value.taskContractHash, value.goalHash, value.coverageDigest];
+  return hashes.every(v => typeof v === "string" && DIGEST_PATTERN.test(v)) &&
+    (value.treeContractHash === undefined || typeof value.treeContractHash === "string" && DIGEST_PATTERN.test(value.treeContractHash)) &&
+    typeof value.candidateCommit === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value.candidateCommit) &&
+    typeof value.taskContracts === "object" && value.taskContracts !== null && !Array.isArray(value.taskContracts) &&
+    Object.entries(value.taskContracts).length > 0 &&
+    (value.taskId === undefined || (value.taskContracts as Record<string, unknown>)[value.taskId as string] === value.taskContractHash) && Object.entries(value.taskContracts).every(([id, hash]) =>
+      TASK_ID_PATTERN.test(id) && typeof hash === "string" && DIGEST_PATTERN.test(hash));
+}
+function contractBinding(value: Record<string, unknown>): ReviewContractBinding | undefined {
+  return validContractBinding(value) ? {
+    taskContractHash: value.taskContractHash as string, taskContracts: value.taskContracts as Record<string, string>,
+    ...(value.treeContractHash === undefined ? {} : {treeContractHash: value.treeContractHash as string}),
+    goalHash: value.goalHash as string, candidateCommit: value.candidateCommit as string, coverageDigest: value.coverageDigest as string
+  } : undefined;
+}
+
+export interface ReviewAttestation extends Partial<ReviewContractBinding> {
+  readonly schemaVersion: 2 | 3;
   readonly taskId?: string;
   readonly tree?: TreeReviewScope;
   readonly harness: ReviewTargetId;
@@ -58,8 +85,8 @@ export interface ReviewAttestation {
   readonly createdAt: string;
 }
 
-export interface ReviewReportArtifact {
-  readonly schemaVersion: 1;
+export interface ReviewReportArtifact extends Partial<ReviewContractBinding> {
+  readonly schemaVersion: 1 | 2;
   readonly sourceFingerprint: string;
   readonly taskId?: string;
   readonly tree?: TreeReviewScope;
@@ -138,10 +165,12 @@ function reportArtifact(
   result: ReviewRunResult,
   sourceFingerprint: string,
   taskId?: string,
-  tree?: TreeReviewScope
+  tree?: TreeReviewScope,
+  binding?: ReviewContractBinding
 ): ReviewReportArtifact {
   return {
-    schemaVersion: 1,
+    schemaVersion: binding === undefined ? 1 : 2,
+    ...binding,
     sourceFingerprint,
     ...(taskId === undefined ? {} : { taskId }),
     ...(tree === undefined ? {} : { tree }),
@@ -189,7 +218,9 @@ function matchingReportArtifact(
   const plannedTargets = record.plannedTargets;
   const adversarial = record.adversarial;
   if (
-    record.schemaVersion !== 1 ||
+    ![1, 2].includes(record.schemaVersion as number) ||
+    (attestation.schemaVersion === 3 && (record.schemaVersion !== 2 ||
+      !validContractBinding(record) || JSON.stringify(contractBinding(record)) !== JSON.stringify(contractBinding(attestation as unknown as Record<string, unknown>)))) ||
     record.sourceFingerprint !== attestation.sourceFingerprint ||
     record.status !== "PASS" ||
     record.harness !== attestation.harness ||
@@ -270,7 +301,8 @@ export async function saveReviewReportArtifact(
   result: ReviewRunResult,
   sourceFingerprint: string,
   taskId?: string,
-  tree?: TreeReviewScope
+  tree?: TreeReviewScope,
+  binding?: ReviewContractBinding
 ): Promise<string> {
   if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
     throw new AgentOpsError(
@@ -284,7 +316,7 @@ export async function saveReviewReportArtifact(
       "Review report artifact has an invalid task id."
     );
   }
-  const value = reportArtifact(result, sourceFingerprint, taskId, tree);
+  const value = reportArtifact(result, sourceFingerprint, taskId, tree, binding);
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(serialized, "utf8") > REPORT_ARTIFACT_MAX_BYTES) {
     throw new AgentOpsError(
@@ -313,7 +345,8 @@ function parseAttestation(value: unknown): ReviewAttestation | null {
   const record = value as Record<string, unknown>;
   const tree = record.tree as Partial<TreeReviewScope> | undefined;
   if (
-    record.schemaVersion !== 2 ||
+    ![2, 3].includes(record.schemaVersion as number) ||
+    (record.schemaVersion === 3 && !validContractBinding(record)) ||
     record.status !== "PASS" ||
     (record.taskId !== undefined &&
       (typeof record.taskId !== "string" ||
@@ -359,7 +392,8 @@ function parseAttestation(value: unknown): ReviewAttestation | null {
     return null;
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: record.schemaVersion as 2 | 3,
+    ...(record.schemaVersion === 3 ? contractBinding(record) : {}),
     ...(record.taskId === undefined ? {} : { taskId: record.taskId }),
     ...(tree === undefined ? {} : { tree: tree as TreeReviewScope }),
     harness: record.harness,
@@ -617,7 +651,7 @@ export async function findPriorFailingFindings(
       const decided = value.status === "PASS" ||
         (value.status === "FAIL" && value.report !== undefined);
       if (
-        value?.schemaVersion !== 1 ||
+        ![1, 2].includes(value?.schemaVersion) ||
         value.sourceFingerprint !== fingerprint ||
         value.taskId !== taskId ||
         !decided ||

@@ -4,6 +4,8 @@ import type {
   InstallScope,
   VerificationCommand
 } from "../contracts.js";
+import {taskContractHash} from "../task/contract.js";
+import {replayAcceptance, type AcceptanceReplayResult} from "./acceptance-replay.js";
 import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
 import { validateTaskAgainstConfig } from "../schema/validate.js";
 import type { TaskService } from "../task/service.js";
@@ -52,6 +54,7 @@ export interface VerificationServiceOptions {
   readonly now?: () => string;
   readonly toolVersions?: Readonly<Record<string, string>>;
   readonly base?: string;
+  readonly noChangePaths?: readonly string[];
 }
 
 export interface VerificationCommandReport {
@@ -69,6 +72,7 @@ export interface VerificationCommandReport {
 }
 
 export interface VerificationReport {
+  readonly acceptance?: readonly AcceptanceReplayResult[];
   readonly taskId: string;
   readonly status: VerificationStatus;
   readonly surface: ChangeSurface;
@@ -106,7 +110,7 @@ function relevantCriteria(
   commandId: string
 ): AgentTask["criteria"] {
   return task.criteria.filter((criterion) =>
-    criterion.verifierIds.includes(commandId)
+    criterion.verifierIds.includes(commandId) || criterion.acceptance !== undefined
   );
 }
 
@@ -166,6 +170,7 @@ export class VerificationService {
         failureClass: result.failureClass,
         sourceFingerprint,
         toolVersions: this.#options.toolVersions ?? {},
+        ...(task.goal === undefined && (task.contractRevision ?? 0) === 0 && task.criteria.every(c => c.acceptance === undefined) ? {} : {taskContractHash: taskContractHash(task)}),
         config: this.#options.config
       });
       references.push(
@@ -241,7 +246,7 @@ export class VerificationService {
     }
 
     const missingCriteria = validation.value.criteria.filter((criterion) =>
-      !this.#options.config.verification.commands.some(({ id, required }) =>
+      criterion.acceptance === undefined && !this.#options.config.verification.commands.some(({ id, required }) =>
         required && criterion.verifierIds.includes(id))
     );
     if (missingCriteria.length > 0) {
@@ -254,6 +259,7 @@ export class VerificationService {
     const reviewScope = await resolveReviewScope({
       root: this.#options.root,
       runner: this.#options.gitRunner,
+      ...(this.#options.noChangePaths === undefined && stored.noChangePaths === undefined ? {} : {noChangePaths: this.#options.noChangePaths ?? stored.noChangePaths}),
       ...(this.#options.base === undefined ? {} : { base: this.#options.base })
     });
     const sourceFingerprint = await calculateSourceFingerprint(
@@ -274,7 +280,7 @@ export class VerificationService {
       ...mappedSelection,
       verifierIds: [...new Set([...mappedSelection.verifierIds,
         ...this.#options.config.verification.commands
-          .filter(({ id, required }) => required && taskVerifierIds.has(id))
+          .filter(({ id, required }) => required && (validation.value.criteria.some(c => c.acceptance !== undefined) || taskVerifierIds.has(id)))
           .map(({ id }) => id)])]
     };
     const results: VerificationCommandReport[] = [];
@@ -287,11 +293,14 @@ export class VerificationService {
       );
     }
 
-    let status = aggregateVerificationStatus(results);
+    const acceptance = validation.value.criteria.some(c => c.acceptance !== undefined && c.acceptance.mode !== "review-only")
+      ? await replayAcceptance({...this.#options, task: validation.value, sourceFingerprint}) : [];
+    let status = aggregateVerificationStatus([...results, ...acceptance.map(a => ({required: true, status: a.status}))]);
     let sourceChanged = false;
     const postflightScope = await resolveReviewScope({
       root: this.#options.root,
       runner: this.#options.gitRunner,
+      ...(this.#options.noChangePaths === undefined && stored.noChangePaths === undefined ? {} : {noChangePaths: this.#options.noChangePaths ?? stored.noChangePaths}),
       ...(this.#options.base === undefined ? {} : { base: this.#options.base })
     });
     const postflightFingerprint = await calculateSourceFingerprint(
@@ -301,14 +310,19 @@ export class VerificationService {
     );
     if (
       reviewScopeSignature(reviewScope) !== reviewScopeSignature(postflightScope) ||
-      sourceFingerprint !== postflightFingerprint
+      sourceFingerprint !== postflightFingerprint ||
+      taskContractHash((await this.#options.taskService.status({taskId})).task) !== taskContractHash(stored.task)
     ) {
       status = "UNKNOWN";
       sourceChanged = true;
     }
+    const acceptanceEvidence: Record<string, string[]> = {};
+    for (const proof of acceptance) acceptanceEvidence[proof.criterionId] = [...(acceptanceEvidence[proof.criterionId] ?? []), proof.reference];
+    if (status !== "PASS" && stored.status === "active" && acceptance.length > 0)
+      await this.#options.taskService.recordEvidence(taskId, acceptanceEvidence);
     let signal: FailureApproachSignal = null;
     if (status === "PASS") {
-      const taskEvidence: Record<string, string[]> = {};
+      const taskEvidence: Record<string, string[]> = {...acceptanceEvidence};
       for (const [index, result] of results.entries()) {
         const command = commandById(this.#options.config, result.commandId);
         const references = await this.#persistEvidence(
@@ -337,7 +351,9 @@ export class VerificationService {
         await this.#options.taskService.recordVerificationEvidence(stored, taskEvidence, sourceFingerprint);
       }
     } else {
-      const required = results.filter((result) => result.required);
+      const required = [...results.filter((result) => result.required), ...acceptance.map(a => ({commandId: a.runnerId, required: true,
+        status: a.status, failureClass: a.failureClass, exitCode: null, timedOut: false, testCount: null,
+        diagnostic: a.criterionId + ":" + a.phase + ":" + a.failureClass, evidenceReferences: [a.reference], startedAt: "", finishedAt: ""}))];
       const gating = required;
       const failed = gating.find(
         (result) => result.status !== "PASS"
@@ -359,7 +375,7 @@ export class VerificationService {
           })
         );
         signal = advanced.signal;
-        return { taskId, status, surface, selection, results, signal, reviewScope, sourceFingerprint };
+        return { taskId, status, surface, selection, results, signal, reviewScope, sourceFingerprint, acceptance };
       }
       const advanced =
         await this.#options.taskService.recordFailure(
@@ -375,6 +391,7 @@ export class VerificationService {
     }
 
     return {
+      acceptance,
       taskId,
       status,
       surface,

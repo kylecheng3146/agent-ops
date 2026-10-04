@@ -11,6 +11,8 @@ import {
   withPrivateFileLock,
   writePrivateFile
 } from "../security/permissions.js";
+import { taskContractHash } from "./contract.js";
+import { materialPath, commitIdentity } from "../schema/acceptance.js";
 import type {
   FailureFingerprintState
 } from "../verify/fingerprint.js";
@@ -20,8 +22,22 @@ export type TaskLifecycleStatus =
   | "archived"
   | "complete";
 
+export interface TaskRevision {
+  readonly previousTask: AgentTask;
+  readonly previousEvidence: Readonly<Record<string, readonly string[]>>;
+  readonly previousFailure: FailureFingerprintState | null;
+  readonly previousHash: string;
+  readonly currentHash: string;
+  readonly reason: string;
+  readonly at: string;
+  readonly diagnostics: readonly string[];
+}
+
 export interface StoredTaskRecord {
   readonly task: AgentTask;
+  readonly createdSourceCommit?: string;
+  readonly revisions?: readonly TaskRevision[];
+  readonly supersededBy?: readonly string[];
   readonly status: TaskLifecycleStatus;
   readonly evidence: Readonly<Record<string, readonly string[]>>;
   readonly createdAt: string;
@@ -42,6 +58,7 @@ export interface StoredTaskRecord {
    * review covered uncommitted work or predates this field.
    */
   readonly reviewBase?: string;
+  readonly noChangePaths?: readonly string[];
 }
 
 export interface SessionAttachment {
@@ -169,16 +186,9 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   ];
   // Every record written before an optional field existed must still parse, so
   // the accepted shapes are every combination of them.
-  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash", "reviewBase"];
-  const allowedKeys = new Set(
-    Array.from({ length: 1 << optionalKeys.length }, (_unused, mask) =>
-      [
-        ...baseKeys,
-        ...optionalKeys.filter((_key, position) => (mask & (1 << position)) !== 0)
-      ].sort().join("\0")
-    )
-  );
-  if (!isRecord(value) || !allowedKeys.has(Object.keys(value).sort().join("\0"))) {
+  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash", "reviewBase", "createdSourceCommit", "revisions", "supersededBy", "noChangePaths"];
+  if (!isRecord(value) || !baseKeys.every(k => Object.hasOwn(value, k)) ||
+    Object.keys(value).some(k => !baseKeys.includes(k) && !optionalKeys.includes(k))) {
     return invalidState("Task state contains an invalid task record.");
   }
   const task = validateTask(value.task);
@@ -277,8 +287,38 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   ) {
     return invalidState("Task state contains an invalid review base.");
   }
+  if (value.noChangePaths !== undefined && (!Array.isArray(value.noChangePaths) || value.noChangePaths.length === 0 || value.noChangePaths.length > 128 ||
+    value.noChangePaths.some(p => typeof p !== "string" || !materialPath(p)) || new Set(value.noChangePaths).size !== value.noChangePaths.length)) return invalidState("Invalid no-change scope.");
+  if (value.supersededBy !== undefined && (!Array.isArray(value.supersededBy) || value.supersededBy.length === 0 || value.supersededBy.length > 128 ||
+    value.supersededBy.some(v => typeof v !== "string" || !/^[a-z][a-z0-9-]{0,127}$/u.test(v)) || new Set(value.supersededBy).size !== value.supersededBy.length || status !== "archived"))
+    return invalidState("Invalid supersession mapping.");
+  if (value.createdSourceCommit !== undefined && !commitIdentity(value.createdSourceCommit))
+    return invalidState("Invalid task creation commit.");
+  if (value.revisions !== undefined) {
+    if (!Array.isArray(value.revisions) || value.revisions.length > 1024) return invalidState("Invalid revision history.");
+    let previousCurrent: string | undefined;
+    for (const revision of value.revisions) {
+      if (!isRecord(revision) || !hasExactKeys(revision, ["previousTask", "previousEvidence", "previousFailure", "previousHash", "currentHash", "reason", "at", "diagnostics"]) ||
+        typeof revision.reason !== "string" || revision.reason.trim() === "" || revision.reason.length > 8192 || revision.reason.includes("\0") ||
+        !isTimestamp(revision.at) || !Array.isArray(revision.diagnostics) || revision.diagnostics.length > 512 ||
+        revision.diagnostics.some(d => typeof d !== "string" || d.length > 4096 || d.includes("\0")) ||
+        typeof revision.currentHash !== "string" || !/^[a-f0-9]{64}$/u.test(revision.currentHash)) return invalidState("Invalid revision metadata.");
+      const before = validateTask(revision.previousTask);
+      if (!before.ok || before.value.id !== task.value.id || taskContractHash(before.value) !== revision.previousHash ||
+        (previousCurrent !== undefined && revision.previousHash !== previousCurrent)) return invalidState("Invalid revision chain.");
+      parseEvidence(revision.previousEvidence, before.value, false);
+      if (revision.previousFailure !== null && (!isRecord(revision.previousFailure) || typeof revision.previousFailure.value !== "string" || !/^[a-f0-9]{64}$/u.test(revision.previousFailure.value)))
+        return invalidState("Invalid revision failure provenance.");
+      previousCurrent = revision.currentHash;
+    }
+    if (previousCurrent !== undefined && previousCurrent !== taskContractHash(task.value)) return invalidState("Revision history does not match current contract.");
+  }
   return {
     task: task.value,
+    ...(value.noChangePaths === undefined ? {} : {noChangePaths: value.noChangePaths as string[]}),
+    ...(value.createdSourceCommit === undefined ? {} : {createdSourceCommit: value.createdSourceCommit as string}),
+    ...(value.revisions === undefined ? {} : {revisions: value.revisions as unknown as TaskRevision[]}),
+    ...(value.supersededBy === undefined ? {} : {supersededBy: value.supersededBy as string[]}),
     status,
     evidence,
     createdAt: value.createdAt,
@@ -336,7 +376,7 @@ function parseState(source: string | null): MutableTaskState {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, ["schemaVersion", "sessions", "tasks"]) ||
-    value.schemaVersion !== TASK_SCHEMA_VERSION ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== TASK_SCHEMA_VERSION) ||
     !Array.isArray(value.tasks) ||
     !Array.isArray(value.sessions)
   ) {
@@ -354,6 +394,19 @@ function parseState(source: string | null): MutableTaskState {
   const tasksById = new Map(
     tasks.map((record) => [record.task.id, record])
   );
+  for (const old of tasks) {
+    for (const successor of old.supersededBy ?? []) {
+      if (successor === old.task.id || !tasksById.has(successor)) return invalidState("Supersession must name a distinct known task.");
+      const seen = new Set([old.task.id]);
+      const visit = (id: string): void => {
+        if (seen.has(id)) return invalidState("Cyclic task supersession.");
+        seen.add(id);
+        for (const next of tasksById.get(id)?.supersededBy ?? []) visit(next);
+        seen.delete(id);
+      };
+      visit(successor);
+    }
+  }
   if (
     sessions.some(({ taskId }) => {
       const record = tasksById.get(taskId);

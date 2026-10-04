@@ -7,8 +7,8 @@ export interface JsonObject {
 }
 
 export const CONFIG_SCHEMA_VERSION = 3 as const;
-export const TASK_SCHEMA_VERSION = 1 as const;
-export const EVIDENCE_SCHEMA_VERSION = 3 as const;
+export const TASK_SCHEMA_VERSION = 2 as const;
+export const EVIDENCE_SCHEMA_VERSION = 4 as const;
 
 /** @deprecated Use the document-specific schema version constants. */
 export const SCHEMA_VERSION = CONFIG_SCHEMA_VERSION;
@@ -49,6 +49,37 @@ export type VerificationCommand = ShellVerifierCommand | VerifierCommand;
 
 export interface VerificationConfig {
   commands: VerificationCommand[];
+  acceptanceRunners?: AcceptanceRunner[];
+}
+
+export type AcceptanceAdapter = "generic" | "node" | "jest" | "vitest" | "pytest" | "rust";
+/** Repo-authorized argv; {materials} is expanded into separate arguments. */
+export interface AcceptanceRunner {
+  id: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  adapter: AcceptanceAdapter;
+  timeoutMs?: number;
+  setup?: WorktreeSetupCommand[];
+  build?: WorktreeSetupCommand[];
+  testBuild?: WorktreeSetupCommand[];
+}
+
+export interface AcceptanceMaterial {
+  path: string;
+  role: "test" | "fixture" | "helper";
+}
+export interface AcceptanceBinding {
+  runnerId: string;
+  checkIds: string[];
+  redCheckIds?: string[];
+  materials: AcceptanceMaterial[];
+}
+export interface CriterionAcceptance {
+  mode: "behavioral" | "invariant" | "review-only";
+  baselineCommit: string;
+  bindings: AcceptanceBinding[];
 }
 
 export interface PathMapping {
@@ -135,14 +166,19 @@ export interface AcceptanceCriterion {
   id: string;
   description: string;
   verifierIds: string[];
+  acceptance?: CriterionAcceptance;
+  finding?: { pinId: string; reportDigest: string; findingIndex: number; candidateCommit: string; criterionIds: string[] };
 }
 
 export interface AgentTask {
-  schemaVersion: typeof TASK_SCHEMA_VERSION;
+  schemaVersion: 1 | typeof TASK_SCHEMA_VERSION;
   id: string;
   title: string;
   /** User-approved intended behavior, constraints and integration points. */
   intent?: string;
+  /** Immutable user objective; revisions may change criteria, never this goal. */
+  goal?: string;
+  contractRevision?: number;
   criteria: AcceptanceCriterion[];
   /**
    * The task this one was decomposed from, when it is a subtask. Absent on
@@ -154,7 +190,7 @@ export interface AgentTask {
 }
 
 export interface VerificationEvidence {
-  schemaVersion: 2 | typeof EVIDENCE_SCHEMA_VERSION;
+  schemaVersion: 2 | 3 | typeof EVIDENCE_SCHEMA_VERSION;
   taskId: string;
   criterionId: string;
   commandId: string;
@@ -170,6 +206,18 @@ export interface VerificationEvidence {
   sourceFingerprint: string;
   toolVersions: Record<string, string>;
   configHash: string;
+  taskContractHash?: string;
+  acceptance?: {
+    criterionContractHash: string;
+    phase: "baseline" | "candidate";
+    commit: string;
+    pairedCommit: string;
+    bindingHash: string;
+    materialDigest: string;
+    executionDigest: string;
+    executionArtifact: string;
+    checks: { checkId: string; status: "PASS" | "FAIL" | "UNKNOWN"; failureClass: string }[];
+  };
 }
 
 export type InstallScope = "project" | "user";

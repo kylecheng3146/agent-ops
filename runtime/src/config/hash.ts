@@ -2,7 +2,7 @@ import type { AgentOpsConfig } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (
     value === null ||
     typeof value === "boolean" ||

@@ -377,6 +377,18 @@ process.exitCode = await runCli(
               root,
               toolkitVersion: CLI_VERSION,
               probes: {
+                acceptanceCoverage: async () => {
+                  const service = new TaskService(new FileTaskStore(join(root, ".agent-ops/tasks/state.json"), root),
+                    {completion: {root, gitRunner: gitRunner(root), loadConfig: async () => config}});
+                  const records = (await service.list()).filter(r => r.status !== "archived");
+                  const rows = await Promise.all(records.map(r => service.coverage(r.task.id)));
+                  const criteria = rows.flatMap(row => row.rows);
+                  const mechanical = criteria.filter(c => c.mode === "behavioral" || c.mode === "invariant");
+                  return {status: "PASS" as const, message: criteria.length + " criteria; " +
+                    criteria.filter(c => c.mode === "legacy").length + " legacy; " + mechanical.filter(c => c.status === "proven").length + "/" + mechanical.length +
+                    " mechanical proven; " + criteria.filter(c => c.mode === "review-only").length + " review-only; originally mechanical " + rows.reduce((n, r) => n + r.originalMechanical, 0) +
+                    "; undischarged " + rows.reduce((n, r) => n + r.rows.filter(c => c.status !== "proven" && !r.reviewed).length, 0)};
+                },
                 ...(doctorManifest?.harness.includes("agy") === true
                   ? {
                       agyRuntime: () => {
@@ -592,7 +604,8 @@ process.exitCode = await runCli(
                         service: new TaskService(new FileTaskStore(
                           join(record.path, ".agent-ops", "tasks", "state.json"),
                           record.path
-                        ))
+                        ), {completion: {root: record.path, gitRunner: gitRunner(record.path),
+                          loadConfig: async () => (await loadEffectiveConfig(record.path, "project")).config}})
                       };
                     }
                   }

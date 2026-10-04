@@ -20,7 +20,12 @@
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "enum": ["core", "advisory", "guardrails", "loop"]
+        "enum": [
+          "core",
+          "advisory",
+          "guardrails",
+          "loop"
+        ]
       }
     },
     "reviewRoles": {
@@ -28,7 +33,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["role", "targets"],
+        "required": [
+          "role",
+          "targets"
+        ],
         "properties": {
           "role": {
             "enum": [
@@ -43,19 +51,34 @@
             "minItems": 1,
             "uniqueItems": true,
             "items": {
-              "enum": ["codex", "agy", "claude"]
+              "enum": [
+                "codex",
+                "agy",
+                "claude"
+              ]
             }
           },
-          "model": { "type": "string", "minLength": 1 },
-          "effort": { "type": "string", "minLength": 1 },
-          "timeoutMs": { "type": "integer", "minimum": 1 }
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effort": {
+            "type": "string",
+            "minLength": 1
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       }
     },
     "verification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["commands"],
+      "required": [
+        "commands"
+      ],
       "properties": {
         "commands": {
           "type": "array",
@@ -69,18 +92,163 @@
               }
             ]
           }
+        },
+        "acceptanceRunners": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "command",
+              "args",
+              "cwd",
+              "adapter"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "args": {
+                "type": "array",
+                "maxItems": 512,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1
+              },
+              "adapter": {
+                "enum": [
+                  "generic",
+                  "node",
+                  "jest",
+                  "vitest",
+                  "pytest",
+                  "rust"
+                ]
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600000
+              },
+              "setup": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "command",
+                    "args"
+                  ],
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "args": {
+                      "type": "array",
+                      "maxItems": 512,
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3600000
+                    }
+                  }
+                }
+              },
+              "build": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "command",
+                    "args"
+                  ],
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "args": {
+                      "type": "array",
+                      "maxItems": 512,
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3600000
+                    }
+                  }
+                }
+              },
+              "testBuild": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "command",
+                    "args"
+                  ],
+                  "properties": {
+                    "command": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "args": {
+                      "type": "array",
+                      "maxItems": 512,
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3600000
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
     "features": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["completionGate", "stopVerification"],
+      "required": [
+        "completionGate",
+        "stopVerification"
+      ],
       "properties": {
         "completionGate": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "properties": {
             "enabled": {
               "type": "boolean"
@@ -90,7 +258,9 @@
         "stopVerification": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled"],
+          "required": [
+            "enabled"
+          ],
           "properties": {
             "enabled": {
               "type": "boolean"
@@ -104,7 +274,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "verifierIds"],
+        "required": [
+          "path",
+          "verifierIds"
+        ],
         "properties": {
           "path": {
             "$ref": "#/$defs/relativePath"
@@ -122,17 +295,25 @@
     "worktree": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode"],
+      "required": [
+        "mode"
+      ],
       "properties": {
         "mode": {
-          "enum": ["auto", "off"]
+          "enum": [
+            "auto",
+            "off"
+          ]
         },
         "setup": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["command", "args"],
+            "required": [
+              "command",
+              "args"
+            ],
             "properties": {
               "command": {
                 "$ref": "#/$defs/nonEmptyString"
@@ -159,7 +340,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["ruleId", "scope", "expiresAt", "reason"],
+        "required": [
+          "ruleId",
+          "scope",
+          "expiresAt",
+          "reason"
+        ],
         "properties": {
           "ruleId": {
             "$ref": "#/$defs/id"
@@ -259,10 +445,16 @@
     "evidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
-          "enum": ["exit-code", "test-count", "file"]
+          "enum": [
+            "exit-code",
+            "test-count",
+            "file"
+          ]
         },
         "minimum": {
           "type": "integer",
@@ -273,7 +465,14 @@
     },
     "commandFields": {
       "type": "object",
-      "required": ["id", "command", "args", "cwd", "required", "evidence"],
+      "required": [
+        "id",
+        "command",
+        "args",
+        "cwd",
+        "required",
+        "evidence"
+      ],
       "properties": {
         "id": {
           "$ref": "#/$defs/id"
@@ -335,7 +534,10 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["shell", "acknowledgeRisk"],
+          "required": [
+            "shell",
+            "acknowledgeRisk"
+          ],
           "properties": {
             "id": true,
             "command": true,

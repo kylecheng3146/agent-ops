@@ -43,7 +43,10 @@ export type TaskAction =
   | "complete"
   | "create"
   | "export"
-  | "status";
+  | "status"
+  | "revise"
+  | "replan"
+  | "pin-finding";
 export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
@@ -75,6 +78,14 @@ export interface ParsedArgs {
   title?: string;
   intent?: string;
   criteria?: string[];
+  criterionFiles?: string[];
+  criteriaFile?: string;
+  planFile?: string;
+  expectedContract?: string;
+  expectedTreeContract?: string;
+  reason?: string;
+  baseline?: string;
+  findingReference?: string;
   evidence?: string[];
   sessionId?: string;
   base?: string;
@@ -194,6 +205,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const profiles: Profile[] = [];
   const reviewTargets: ReviewTargetId[] = [];
   const criteria: string[] = [];
+  const criterionFiles: string[] = [];
+  let criteriaFile: string | undefined;
+  let planFile: string | undefined;
+  let expectedContract: string | undefined;
+  let expectedTreeContract: string | undefined;
+  let reason: string | undefined;
+  let baseline: string | undefined;
+  let findingReference: string | undefined;
   const evidence: string[] = [];
   let checkAuth = false;
   const checkAuthTargets: ReviewTargetId[] = [];
@@ -318,6 +337,13 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         tree = true;
         break;
       }
+      case "--criterion-file": criterionFiles.push(readOptionValue(argv, index++, token)); break;
+      case "--criteria-file": if (criteriaFile !== undefined) duplicate(token); criteriaFile = readOptionValue(argv, index++, token); break;
+      case "--plan-file": if (planFile !== undefined) duplicate(token); planFile = readOptionValue(argv, index++, token); break;
+      case "--expected-contract": if (expectedContract !== undefined) duplicate(token); expectedContract = readOptionValue(argv, index++, token); break;
+      case "--expected-tree-contract": if (expectedTreeContract !== undefined) duplicate(token); expectedTreeContract = readOptionValue(argv, index++, token); break;
+      case "--reason": if (reason !== undefined) duplicate(token); reason = readOptionValue(argv, index++, token); break;
+      case "--baseline": if (baseline !== undefined) duplicate(token); baseline = readOptionValue(argv, index++, token); break;
       case "--criterion": {
         criteria.push(readOptionValue(argv, index, token));
         index += 1;
@@ -515,7 +541,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
             "complete",
             "create",
             "export",
-            "status"
+            "status", "revise", "replan", "pin-finding"
           ].includes(token)
         ) {
           action = token as TaskAction;
@@ -543,6 +569,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           worktreeName = token;
           break;
         }
+        if (command === "task" && ["revise", "replan", "pin-finding"].includes(action ?? "") && taskId === undefined) {taskId = token; break;}
+        if (command === "task" && action === "pin-finding" && findingReference === undefined) {findingReference = token; break;}
         if (command !== undefined) {
           throw new CliArgumentError(
             "CLI_UNEXPECTED_ARGUMENT",
@@ -770,6 +798,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "--worktree may be used only with init or update."
     );
   }
+  const revisionAction = command === "task" && ["revise", "replan", "pin-finding"].includes(action ?? "");
+  if ((criterionFiles.length > 0 && !(command === "task" && (action === "create" || action === "pin-finding"))) ||
+    (criteriaFile !== undefined && !(command === "task" && action === "revise")) ||
+    (planFile !== undefined && !(command === "task" && action === "replan")) ||
+    (expectedContract !== undefined && !(command === "task" && (action === "revise" || action === "pin-finding"))) ||
+    (expectedTreeContract !== undefined && !(command === "task" && action === "replan")) ||
+    (reason !== undefined && !revisionAction) ||
+    (baseline !== undefined && !(command === "task" && (action === "create" || action === "revise"))))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Acceptance options are not supported by this command.");
+  if (revisionAction && (taskId === undefined || evidence.length > 0 || title !== undefined || intent !== undefined || parentTaskId !== undefined || sessionId !== undefined || criteria.length > 0 || base !== undefined ||
+    (action === "revise" && (expectedContract === undefined || criteriaFile === undefined || reason === undefined)) ||
+    (action === "replan" && (expectedTreeContract === undefined || planFile === undefined || reason === undefined)) ||
+    (action === "pin-finding" && (expectedContract === undefined || findingReference === undefined || criterionFiles.length !== 1))))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "Acceptance revision requires task, expected contract, payload and reason.");
   if (command === "task") {
     if (
       harness !== undefined ||
@@ -1000,6 +1042,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
     ...(completionGate === undefined ? {} : { completionGate }),
     ...(criteria.length === 0 ? {} : { criteria }),
+    ...(criterionFiles.length === 0 ? {} : {criterionFiles}),
+    ...(criteriaFile === undefined ? {} : {criteriaFile}),
+    ...(planFile === undefined ? {} : {planFile}),
+    ...(expectedContract === undefined ? {} : {expectedContract}),
+    ...(expectedTreeContract === undefined ? {} : {expectedTreeContract}),
+    ...(reason === undefined ? {} : {reason}),
+    ...(baseline === undefined ? {} : {baseline}),
+    ...(findingReference === undefined ? {} : {findingReference}),
     ...(evidence.length === 0 ? {} : { evidence }),
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(base === undefined ? {} : { base }),

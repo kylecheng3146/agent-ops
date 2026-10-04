@@ -34,6 +34,8 @@ export interface BuildVerificationEvidenceInput {
   readonly sourceFingerprint: string;
   readonly toolVersions: Readonly<Record<string, string>>;
   readonly config: AgentOpsConfig;
+  readonly taskContractHash?: string;
+  readonly acceptance?: VerificationEvidence["acceptance"];
 }
 
 function redactRecord(
@@ -65,7 +67,9 @@ export function buildVerificationEvidence(
   input: BuildVerificationEvidenceInput
 ): VerificationEvidence {
   return validateBuiltEvidence({
-    schemaVersion: EVIDENCE_SCHEMA_VERSION,
+    schemaVersion: input.taskContractHash === undefined && input.acceptance === undefined ? 3 : EVIDENCE_SCHEMA_VERSION,
+    ...(input.taskContractHash === undefined ? {} : {taskContractHash: input.taskContractHash}),
+    ...(input.acceptance === undefined ? {} : {acceptance: input.acceptance}),
     taskId: input.taskId,
     criterionId: input.criterionId,
     commandId: input.command.id,
@@ -103,7 +107,7 @@ export function isPassingVerificationEvidence(
     return false;
   }
   return command.evidence.kind !== "test-count" ||
-    (evidence.schemaVersion === EVIDENCE_SCHEMA_VERSION &&
+    (evidence.schemaVersion >= 3 &&
       evaluateTestCount(evidence.testCount, command.evidence.minimum).status === "PASS");
 }
 
@@ -115,6 +119,8 @@ export class FileEvidenceStore {
     this.#root = root;
     this.#anchorDirectory = anchorDirectory;
   }
+
+  get root(): string { return this.#root; }
 
   async save(value: VerificationEvidence): Promise<string> {
     const evidence = validateBuiltEvidence(value);

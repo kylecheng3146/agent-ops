@@ -11,6 +11,8 @@ export interface ReviewEvidenceRequirement {
 }
 
 export interface ReviewPacket {
+  readonly contractArtifacts?: readonly {readonly path: string; readonly digest: string; readonly content: string}[];
+  readonly contractManifest?: {readonly path: string; readonly digest: string; readonly content: string};
   readonly request: string;
   readonly criteria: readonly ReviewCriterion[];
   readonly artifactRefs: readonly string[];
@@ -44,6 +46,23 @@ function checkSensitive(value: string): void {
 }
 
 export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
+  if (input.contractManifest !== undefined) {
+    checkSensitive(input.contractManifest.content);
+    if (Buffer.byteLength(input.contractManifest.content, "utf8") > 512 * 1024 ||
+        sha256(input.contractManifest.content) !== input.contractManifest.digest ||
+        input.contractManifest.path !== ".agent-ops/tasks/review-contracts/" + input.contractManifest.digest + ".json")
+      throw new AgentOpsError("REVIEW_SCOPE_TOO_LARGE", "Contract manifest is invalid or exceeds 512 KiB.");
+  }
+  if (input.contractArtifacts !== undefined) {
+    if (input.contractArtifacts.length > 512 || input.contractArtifacts.reduce((size, artifact) => size + Buffer.byteLength(artifact.content), 0) > 16 * 1024 * 1024)
+      throw new AgentOpsError("REVIEW_SCOPE_TOO_LARGE", "Contract artifacts exceed the bounded snapshot scope.");
+    for (const artifact of input.contractArtifacts) {
+      checkSensitive(artifact.content);
+      if (!/^\.agent-ops\/tasks\/(?:acceptance\/[a-f0-9]{64}\.json|evidence\/[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*-[a-f0-9]{16}\.json)$/u.test(artifact.path) ||
+          sha256(artifact.content) !== artifact.digest || Buffer.byteLength(artifact.content) > 4 * 1024 * 1024)
+        throw new AgentOpsError("REVIEW_SCOPE_TOO_LARGE", "Contract artifact is invalid or too large.");
+    }
+  }
   for (const value of [
     input.request,
     ...input.criteria.flatMap((criterion) => [criterion.id, criterion.description, ...(criterion.verifierIds ?? [])]),
@@ -53,6 +72,8 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
     checkSensitive(value);
   }
   const packet: ReviewPacket = {
+    ...(input.contractArtifacts === undefined ? {} : {contractArtifacts: input.contractArtifacts}),
+    ...(input.contractManifest === undefined ? {} : {contractManifest: input.contractManifest}),
     request: safe(input.request),
     criteria: input.criteria.map((criterion) => ({
       id: safe(criterion.id),
@@ -67,7 +88,7 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
       requirement: safe(requirement.requirement)
     }))
   };
-  if (Buffer.byteLength(JSON.stringify(packet), "utf8") > MAX_PACKET_BYTES) {
+  if (Buffer.byteLength(JSON.stringify({...packet, contractArtifacts: packet.contractArtifacts?.map(({path, digest}) => ({path, digest})), contractManifest: packet.contractManifest === undefined ? undefined : {path: packet.contractManifest.path, digest: packet.contractManifest.digest}}), "utf8") > MAX_PACKET_BYTES) {
     throw new AgentOpsError(
       "REVIEW_SCOPE_TOO_LARGE",
       "Review packet exceeds the 64 KiB limit."
@@ -79,3 +100,5 @@ import { evaluateGuardrail } from "../guardrails/evaluate.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { redactSecrets } from "../security/redact.js";
 import { safeTaskText } from "../task/render.js";
+
+import {sha256} from "../fs/hash.js";

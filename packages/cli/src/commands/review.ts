@@ -25,7 +25,8 @@ import {
   readReviewReportArtifact,
   reviewReportDigest,
   saveReviewAttestation,
-  saveReviewReportArtifact
+  saveReviewReportArtifact,
+  type ReviewContractBinding
 } from "../../../../runtime/src/review/attestation.js";
 import {
   detectHostTarget,
@@ -35,6 +36,12 @@ import {
   type ReviewRoleConfig
 } from "../../../../runtime/src/review/roles.js";
 import type { TaskService } from "../../../../runtime/src/task/service.js";
+import {taskContractHash, treeContractHash, goalHash} from "../../../../runtime/src/task/contract.js";
+import {acceptanceCoverage, coverageDigest, type CriterionCoverage} from "../../../../runtime/src/verify/acceptance-coverage.js";
+import {resolveGitCommit} from "../../../../runtime/src/verify/change-surface.js";
+import {sha256} from "../../../../runtime/src/fs/hash.js";
+import {readPrivateFile, writePrivateFile} from "../../../../runtime/src/security/permissions.js";
+import {redactSecrets} from "../../../../runtime/src/security/redact.js";
 import type { StoredTaskRecord } from "../../../../runtime/src/task/store.js";
 import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
@@ -68,6 +75,7 @@ export interface ReviewCommandOptions {
   readonly sessionId?: string;
   readonly taskId?: string;
   readonly root?: string;
+  readonly noChangePaths?: readonly string[];
   readonly gitRunner?: GitRunner;
   readonly policyConfigHash?: string;
   readonly currentPolicyConfigHash?: () => Promise<string>;
@@ -96,6 +104,10 @@ function harness(value: Harness | undefined): ReviewTargetId | undefined {
 }
 
 interface TaskContext {
+  readonly records: readonly StoredTaskRecord[];
+  readonly historyRecords?: readonly StoredTaskRecord[];
+  binding?: ReviewContractBinding;
+  coverage?: readonly CriterionCoverage[];
   readonly taskId: string;
   readonly title: string;
   readonly active: boolean;
@@ -169,6 +181,7 @@ async function taskContext(
     );
   }
   return {
+    records: [record],
     taskId: record.task.id,
     title: record.task.intent === undefined
       ? record.task.title
@@ -214,7 +227,14 @@ async function treeContext(options: ReviewCommandOptions): Promise<TaskContext> 
   if (treeTasks.some(({ policyConfigHash }) => policyConfigHash !== root.policyConfigHash)) {
     throw new AgentOpsError("REVIEW_TREE_POLICY_MISMATCH", "Tree tasks must share one verifier policy.");
   }
+  const historical = new Set([root.task.id]);
+  for (let size = 0; size !== historical.size;) {
+    size = historical.size;
+    for (const record of all) if (record.task.parentTaskId !== undefined && historical.has(record.task.parentTaskId)) historical.add(record.task.id);
+  }
   return {
+    historyRecords: all.filter(record => historical.has(record.task.id) && record.supersededBy !== undefined),
+    records: treeTasks,
     taskId: root.task.id,
     title: [root.task.title, ...treeTasks.map(({ task }) =>
       `Task ${task.id}${task.parentTaskId === undefined ? "" : ` under ${task.parentTaskId}`}: ${task.title}\nModification intent: ${task.intent ?? task.title}`)].join("\n\n"),
@@ -289,7 +309,10 @@ async function currentEvidence(
       evidence.criterionId !== (owner?.criterionId ?? criterionId) ||
       evidence.commandId !== commandId ||
       evidence.configHash !== configHash ||
-      evidence.sourceFingerprint !== sourceFingerprint
+      evidence.sourceFingerprint !== sourceFingerprint ||
+      (context.records.some(r => r.task.id === (owner?.taskId ?? context.taskId) &&
+        (r.task.goal !== undefined || (r.task.contractRevision ?? 0) > 0 || r.task.criteria.some(c => c.acceptance !== undefined))) &&
+        evidence.taskContractHash !== taskContractHash(context.records.find(r => r.task.id === (owner?.taskId ?? context.taskId))!.task))
     ) {
       stale = true;
       continue;
@@ -325,7 +348,11 @@ async function preflightReview(
   const configHash = calculateConfigHash(options.config);
   const commands: ReviewVerificationCommandSummary[] = [];
   for (const criterion of context.criteria) {
-    for (const commandId of criterion.verifierIds ?? []) {
+    const owner = context.criterionOwners?.get(criterion.id);
+    const typed = context.records.find(r => r.task.id === (owner?.taskId ?? context.taskId))?.task.criteria
+      .find(c => c.id === (owner?.criterionId ?? criterion.id))?.acceptance !== undefined;
+    for (const commandId of new Set([...(criterion.verifierIds ?? []),
+      ...(typed ? options.config.verification.commands.filter(c => c.required).map(c => c.id) : [])])) {
       const command = options.config.verification.commands.find(
         (candidate) => candidate.id === commandId
       );
@@ -341,7 +368,7 @@ async function preflightReview(
         sourceFingerprint
       );
       const compatible = command.evidence.kind === "test-count"
-        ? found.current.filter(({ evidence }) => evidence.schemaVersion === 3)
+        ? found.current.filter(({ evidence }) => evidence.schemaVersion >= 3)
         : found.current;
       if (command.required && found.current.length > 0 && compatible.length === 0) {
         return { ok: false, reason: "stale-verification" };
@@ -410,6 +437,7 @@ export async function hasFreshVerification(
   const scope = await resolveReviewScope({
     root: options.root,
     runner: options.gitRunner,
+    ...(options.noChangePaths === undefined ? {} : {noChangePaths: options.noChangePaths}),
     ...(base === undefined ? {} : { base })
   });
   const fingerprint = await calculateSourceFingerprint(options.root, scope, options.gitRunner);
@@ -526,7 +554,10 @@ async function reusableReview(
     sourceFingerprint,
     context?.taskId
   );
-  if (attestation === null || attestation.taskId !== context?.taskId) {
+  if (attestation === null || attestation.taskId !== context?.taskId ||
+      (context?.binding !== undefined && (attestation.schemaVersion !== 3 ||
+       JSON.stringify(attestation.taskContracts) !== JSON.stringify(context.binding.taskContracts) ||
+       attestation.coverageDigest !== context.binding.coverageDigest))) {
     return null;
   }
   if (context?.treeTasks !== undefined &&
@@ -610,7 +641,8 @@ async function persistReviewEvidence(
     for (const taskId of taskIds) {
       reportArtifacts.push({ taskId, path: await saveReviewReportArtifact(
         options.root, artifactResult, sourceFingerprint, taskId,
-        complete ? tree : undefined
+        complete ? tree : undefined,
+        context?.binding === undefined ? undefined : {...context.binding, taskContractHash: context.binding.taskContracts[taskId ?? context.taskId]!}
       ) });
     }
   } catch {
@@ -631,7 +663,8 @@ async function persistReviewEvidence(
     const plannedTargets = result.plannedTargets;
     for (const artifact of reportArtifacts) {
       await saveReviewAttestation(options.root, {
-        schemaVersion: 2,
+        schemaVersion: context?.binding === undefined ? 2 : 3,
+        ...(context?.binding === undefined ? {} : {...context.binding, taskContractHash: context.binding.taskContracts[artifact.taskId ?? context.taskId]!}),
         ...(artifact.taskId === undefined ? {} : { taskId: artifact.taskId }),
         ...(tree === undefined ? {} : { tree }),
         harness: result.harness,
@@ -722,6 +755,7 @@ export async function runReviewCommand(
       scope = await resolveReviewScope({
         root: options.root,
         runner: options.gitRunner,
+        ...(options.noChangePaths === undefined ? {} : {noChangePaths: options.noChangePaths}),
         ...(options.args.base === undefined ? {} : { base: options.args.base })
       });
     } catch (error) {
@@ -786,7 +820,8 @@ export async function runReviewCommand(
       // source was reviewed; it says nothing about the policy in force now or
       // about verification that has failed since, and both of those are
       // decided above.
-      const reused = options.args.rerun || context?.treeTasks !== undefined
+      const reused = options.args.rerun || context?.treeTasks !== undefined || context?.records.some(r =>
+        r.task.goal !== undefined || r.task.criteria.some(c => c.acceptance !== undefined) || (r.task.contractRevision ?? 0) > 0)
         ? null
         : await reusableReview(options, sourceFingerprint, context);
       if (reused !== null) {
@@ -805,6 +840,23 @@ export async function runReviewCommand(
       pendingInvalidation = false;
     }
   }
+  if (context !== undefined && sourceFingerprint !== undefined && options.config !== undefined &&
+      options.evidenceStore !== undefined && options.gitRunner !== undefined) {
+    const rows: CriterionCoverage[] = [];
+    for (const record of context.records) {
+      const coverage = await acceptanceCoverage(record, options.config, sourceFingerprint, options.evidenceStore);
+      rows.push(...coverage.map(row => ({...row, criterionId: context.treeTasks === undefined
+        ? row.criterionId : record.task.id + ":" + row.criterionId})));
+    }
+    context.coverage = rows;
+    context.binding = {
+      taskContractHash: taskContractHash(context.records.find(r => r.task.id === context.taskId)!.task),
+      taskContracts: Object.fromEntries(context.records.map(r => [r.task.id, taskContractHash(r.task)])),
+      ...(context.treeTasks === undefined ? {} : {treeContractHash: treeContractHash(context.records.map(r => r.task))}),
+      goalHash: goalHash(context.records.find(r => r.task.id === context.taskId)!.task),
+      candidateCommit: await resolveGitCommit(options.gitRunner, "HEAD"), coverageDigest: coverageDigest(rows)
+    };
+  }
   const criteria: ReviewCriterion[] = [
     ...(context?.criteria ?? GENERIC_CRITERIA)
   ];
@@ -813,7 +865,33 @@ export async function runReviewCommand(
   }
   let packet;
   try {
+    let contractManifest;
+    const contractArtifacts: Array<{path: string; digest: string; content: string}> = [];
+    if (context?.binding !== undefined && options.root !== undefined) {
+      const refs = new Set([...context.records, ...(context.historyRecords ?? [])].flatMap(r => [r.evidence, ...(r.revisions ?? []).map(revision => revision.previousEvidence)].flatMap(evidence => Object.values(evidence).flat())).filter(ref => !ref.startsWith("review:")));
+      for (const path of refs) {
+        const loaded = await options.evidenceStore?.load(path);
+        if (loaded == null) continue;
+        const content = await readPrivateFile(options.root + "/" + path, options.root);
+        if (content !== null) contractArtifacts.push({path, digest: sha256(content), content});
+        const executionPath = (loaded as VerificationEvidence).acceptance?.executionArtifact;
+        if (executionPath !== undefined && !contractArtifacts.some(artifact => artifact.path === executionPath)) {
+          const execution = await readPrivateFile(options.root + "/" + executionPath, options.root);
+          if (execution !== null) contractArtifacts.push({path: executionPath, digest: sha256(execution), content: execution});
+        }
+      }
+      const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
+        tasks: context.records.map(r => ({task: r.task, revisions: r.revisions ?? []})),
+        superseded: context.historyRecords ?? []}, null, 2));
+      const digest = sha256(content);
+      const path = ".agent-ops/tasks/review-contracts/" + digest + ".json";
+      contractManifest = {path, digest, content};
+      // Validated before any manifest is written or handed to a snapshot.
+      buildReviewPacket({request: context.title, criteria, artifactRefs: [], evidenceRequirements, contractManifest, contractArtifacts});
+      await writePrivateFile(options.root + "/" + path, content, options.root);
+    }
     packet = buildReviewPacket({
+      ...(contractManifest === undefined ? {} : {contractManifest, contractArtifacts}),
       request: context?.title ?? GENERIC_REQUEST,
       criteria,
       artifactRefs: scope?.changedFiles ?? [],
@@ -890,6 +968,7 @@ export async function runReviewCommand(
       const postflight = await resolveReviewScope({
         root: options.root,
         runner: options.gitRunner as GitRunner,
+        ...(options.noChangePaths === undefined ? {} : {noChangePaths: options.noChangePaths}),
         ...(options.args.base === undefined ? {} : { base: options.args.base })
       });
       const currentHash = options.currentPolicyConfigHash === undefined
@@ -903,7 +982,10 @@ export async function runReviewCommand(
       if (
         reviewScopeSignature(scope) !== reviewScopeSignature(postflight) ||
         (options.policyConfigHash !== undefined && currentHash !== options.policyConfigHash) ||
-        postflightFingerprint !== sourceFingerprint
+        postflightFingerprint !== sourceFingerprint ||
+        (context !== undefined && options.tasks !== undefined &&
+          (await Promise.all(context.records.map(async r => taskContractHash((await options.tasks!.status({taskId: r.task.id})).task))))
+            .some((hash, i) => hash !== taskContractHash(context.records[i]!.task)))
       ) {
         const changed = await persistReviewEvidence(
           options,
@@ -951,7 +1033,8 @@ export async function runReviewCommand(
           const result = finalResult.results?.find((item) => item.criterionId === id);
           return [criterion.id, (result?.evidence ?? []).map((reference) => `review:${finalResult.harness}:${reference}`)];
         })),
-        scope?.mode === "base" ? scope.resolvedBase : null
+        scope?.mode === "base" ? scope.resolvedBase : null,
+        scope?.mode === "base" && scope.noChange === true ? scope.changedFiles : undefined
       );
     }
   }
