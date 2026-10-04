@@ -6,14 +6,17 @@ import test from "node:test";
 import { calculateConfigHash } from "../../runtime/src/config/hash.js";
 import { runAdvanceCommand, type AdvanceStep } from "../../packages/cli/src/commands/advance.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
+import { sha256 } from "../../runtime/src/fs/hash.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
 import { integrateSessionChildren, writeNoChangeDelivery, type NoChangeDelivery } from "../../runtime/src/parallel/integrate.js";
-import { addWorktree, sessionWorktreeName, writeWorktreeRecord, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
+import { addWorktree, removeCheckout, sessionWorktreeName, writeWorktreeRecord, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
 import {FileRunRepository, createRunState} from "../../runtime/src/run/service.js";
+import { integrationReceiptBinding, markRunIntegration, prepareRunIntegration, recoverRunIntegrationAfterCleanup } from "../../runtime/src/run/integration.js";
 import { reviewReportDigest, saveReviewAttestation, saveReviewReportArtifact } from "../../runtime/src/review/attestation.js";
 import { resolveReviewScope } from "../../runtime/src/review/scope.js";
 import type { ReviewRunResult } from "../../runtime/src/review/runner.js";
 import { finishWorktree, type FinishDependencies } from "../../runtime/src/parallel/finish.js";
+import { writePrivateFile } from "../../runtime/src/security/permissions.js";
 import { TaskService } from "../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../runtime/src/task/store.js";
 import { collectBaseChangePaths } from "../../runtime/src/verify/change-surface.js";
@@ -38,6 +41,62 @@ function service(root: string, base?: string): TaskService {
 function finishDeps(): FinishDependencies {
   return { ...deps(), tasks: (root, base) => service(root, base) };
 }
+
+async function preparedRunIntegration(root: string, d: FinishDependencies): Promise<{
+  readonly commonDir: string;
+  readonly record: WorktreeRecord;
+  readonly runId: string;
+  readonly target: string;
+  readonly receiptPath: string;
+  readonly receiptDigest: string;
+}> {
+  const coordinator = (await addWorktree(d, { cwd: root, name: "coordinator", sessionId: SESSION })).record;
+  const commonDir = await git(root, "rev-parse", "--path-format=absolute", "--git-common-dir");
+  const runState = createRunState({ root, commonDir, targetBranch: "main", goal: "Parent objective", host: "codex", ownerSessionId: SESSION });
+  const repository = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
+  await repository.create(runState);
+  const record = {...coordinator, runId: runState.runId, coordinatorId: runState.coordinatorId,
+    workerId: runState.coordinatorId, ownerSessionId: SESSION, workerGeneration: 1};
+  await writeWorktreeRecord(record);
+  const target = await git(root, "rev-parse", "HEAD");
+  await prepareRunIntegration(commonDir, record, {target, head: target, sourceFingerprint: "f".repeat(64), children: []});
+  const integration = (await repository.read(runState.runId))!.integration!;
+  const binding = integrationReceiptBinding(integration);
+  const receiptPath = join(commonDir, "agent-ops", "receipts", "integration.json");
+  const content = `${JSON.stringify({schemaVersion: 1, sessionId: SESSION, candidateHead: target, targetCommit: target,
+    integrationJournal: binding})}\n`;
+  await writePrivateFile(receiptPath, content, commonDir);
+  const receiptDigest = sha256(content);
+  await markRunIntegration(commonDir, record, "target-moved", "target");
+  await markRunIntegration(commonDir, record, "tasks-completed", "tasks");
+  await markRunIntegration(commonDir, record, "receipt-written", "receipt", {path: receiptPath, digest: receiptDigest});
+  await markRunIntegration(commonDir, record, "receipt-written", "note");
+  return {commonDir, record, runId: runState.runId, target, receiptPath, receiptDigest};
+}
+
+test("run integration never replaces an already sealed final proof", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const coordinator = (await addWorktree(d, { cwd: root, name: "coordinator", sessionId: SESSION })).record;
+    const commonDir = await git(root, "rev-parse", "--path-format=absolute", "--git-common-dir");
+    const runState = createRunState({root, commonDir, targetBranch: "main", goal: "Fixed objective", host: "codex", ownerSessionId: SESSION});
+    const repository = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
+    await repository.create(runState);
+    const record = {...coordinator, runId: runState.runId, coordinatorId: runState.coordinatorId,
+      workerId: runState.coordinatorId, ownerSessionId: SESSION, workerGeneration: 1};
+    await writeWorktreeRecord(record);
+    const target = await git(root, "rev-parse", "HEAD");
+    const proof = {target, head: target, sourceFingerprint: "f".repeat(64), children: []};
+    await prepareRunIntegration(commonDir, record, proof);
+    await assert.rejects(
+      prepareRunIntegration(commonDir, record, {...proof, sourceFingerprint: "0".repeat(64)}),
+      (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_INTEGRATION_RECOVERY_REQUIRED"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 async function deliver(record: WorktreeRecord, file: string, content: string,
   intent = `Add ${file} without changing unrelated files.`, taskCriteria = criteria): Promise<string> {
@@ -177,6 +236,44 @@ test("integrates a run-owned no-change child only with an explicit supporting re
     assert.deepEqual(integrated[0]?.sourceArtifacts, ["review-artifact.json"]);
     assert.deepEqual((await service(coordinator.path).status({ taskId: task.task.id })).evidence, {});
     assert.deepEqual(await integrateSessionChildren(d, coordinator, parent.task.id), integrated);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup recovery seals receipt, note, digest and target before marking the run cleaned", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const prepared = await preparedRunIntegration(root, d);
+    await git(root, "notes", "--ref=agent-ops", "add", "-f", "-m",
+      `session: ${SESSION}\nreceipt: ${prepared.receiptPath}\nreceipt-sha256: ${prepared.receiptDigest}`, prepared.target);
+    await removeCheckout(d, prepared.record, true, prepared.target);
+
+    const recovered = await recoverRunIntegrationAfterCleanup(prepared.commonDir, prepared.runId, d.git);
+    assert.equal(recovered.receiptPath, prepared.receiptPath);
+    const repositoryState = await new FileRunRepository(join(prepared.commonDir, "agent-ops", "runs"), prepared.commonDir)
+      .read(prepared.runId);
+    assert.equal(repositoryState?.integration?.status, "cleaned");
+    assert.equal(await git(root, "rev-parse", "main"), prepared.target);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup recovery refuses a receipt whose Git note is not sealed", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const prepared = await preparedRunIntegration(root, d);
+    await removeCheckout(d, prepared.record, true, prepared.target);
+    await assert.rejects(
+      recoverRunIntegrationAfterCleanup(prepared.commonDir, prepared.runId, d.git),
+      (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_INTEGRATION_RECOVERY_REQUIRED"
+    );
+    const repositoryState = await new FileRunRepository(join(prepared.commonDir, "agent-ops", "runs"), prepared.commonDir)
+      .read(prepared.runId);
+    assert.equal(repositoryState?.integration?.status, "receipt-written");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
