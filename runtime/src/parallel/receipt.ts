@@ -32,6 +32,19 @@ export interface FinishReceipt {
   readonly reviews: Readonly<Record<string, { readonly attestation: SealedValue; readonly report: SealedValue }>>;
   readonly residualRisks: readonly string[];
   readonly createdAt: string;
+  /** Present only for the explicit verified-no-change final proof path. */
+  readonly noChange?: {
+    readonly sourceCommit: string;
+    readonly contractDigest: string;
+    readonly reviewScope: string;
+    readonly artifactRefs: readonly string[];
+  };
+  readonly integrationJournal?: {
+    readonly transactionId: string;
+    readonly expectedTarget: string;
+    readonly status: string;
+    readonly digest: string;
+  };
 }
 
 function seal(value: unknown): SealedValue {
@@ -57,9 +70,24 @@ export async function prepareFinishReceipt(options: {
   readonly children: readonly IntegratedChild[];
   readonly config: AgentOpsConfig;
   readonly gitRunner: GitRunner;
+  readonly noChange?: {
+    readonly sourceCommit: string;
+    readonly contractDigest: string;
+    readonly reviewScope: import("../review/scope.js").ReviewScope;
+    readonly artifactRefs: readonly string[];
+  };
+  readonly integrationJournal?: {
+    readonly transactionId: string;
+    readonly expectedTarget: string;
+    readonly status: string;
+    readonly digest: string;
+  };
 }): Promise<{ readonly path: string; readonly digest: string; readonly receipt: FinishReceipt }> {
   const { record, candidateHead, targetCommit, tasks, config } = options;
-  const scope = await resolveReviewScope({ root: record.path, runner: options.gitRunner, base: targetCommit });
+  const scope = options.noChange?.reviewScope ?? await resolveReviewScope({ root: record.path, runner: options.gitRunner, base: targetCommit });
+  if (options.noChange !== undefined && options.noChange.sourceCommit !== candidateHead) {
+    throw new AgentOpsError("WORKTREE_NO_CHANGE_SOURCE_MISMATCH", "Verified-no-change receipt must pin the current candidate commit.");
+  }
   const sourceFingerprint = await calculateSourceFingerprint(record.path, scope, options.gitRunner);
   if (sourceFingerprint !== options.expectedFingerprint) {
     throw new AgentOpsError("WORKTREE_FINAL_SOURCE_CHANGED", "The final candidate no longer matches the reviewed fingerprint.");
@@ -111,7 +139,16 @@ export async function prepareFinishReceipt(options: {
     verification,
     reviews,
     residualRisks: [...residualRisks],
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(options.noChange === undefined ? {} : {
+      noChange: {
+        sourceCommit: options.noChange.sourceCommit,
+        contractDigest: options.noChange.contractDigest,
+        reviewScope: JSON.stringify(options.noChange.reviewScope),
+        artifactRefs: options.noChange.artifactRefs
+      }
+    }),
+    ...(options.integrationJournal === undefined ? {} : { integrationJournal: options.integrationJournal })
   };
   const content = `${JSON.stringify(receipt, null, 2)}\n`;
   const path = receiptPath(options.commonDir, record, candidateHead);
