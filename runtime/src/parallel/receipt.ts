@@ -14,6 +14,7 @@ import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { GitRunner } from "../verify/change-surface.js";
 import type { IntegratedChild } from "./integrate.js";
 import type { WorktreeRecord } from "./service.js";
+import { validateRunIntegrationReceipt, type IntegrationReceiptBinding } from "../run/integration.js";
 
 interface SealedValue {
   readonly digest: string;
@@ -42,12 +43,7 @@ export interface FinishReceipt {
     readonly reviewScope: string;
     readonly artifactRefs: readonly string[];
   };
-  readonly integrationJournal?: {
-    readonly transactionId: string;
-    readonly expectedTarget: string;
-    readonly status: string;
-    readonly digest: string;
-  };
+  readonly integrationJournal?: IntegrationReceiptBinding;
 }
 
 function seal(value: unknown): SealedValue {
@@ -79,14 +75,14 @@ export async function prepareFinishReceipt(options: {
     readonly reviewScope: import("../review/scope.js").ReviewScope;
     readonly artifactRefs: readonly string[];
   };
-  readonly integrationJournal?: {
-    readonly transactionId: string;
-    readonly expectedTarget: string;
-    readonly status: string;
-    readonly digest: string;
-  };
+  readonly integrationJournal?: IntegrationReceiptBinding;
 }): Promise<{ readonly path: string; readonly digest: string; readonly receipt: FinishReceipt }> {
   const { record, candidateHead, targetCommit, tasks, config } = options;
+  if (options.integrationJournal !== undefined) {
+    validateRunIntegrationReceipt(options.integrationJournal, {
+      candidateHead, targetCommit, integrationJournal: options.integrationJournal
+    });
+  }
   const scope = options.noChange?.reviewScope ?? await resolveReviewScope({ root: record.path, runner: options.gitRunner, base: targetCommit });
   if (options.noChange !== undefined && options.noChange.sourceCommit !== candidateHead) {
     throw new AgentOpsError("WORKTREE_NO_CHANGE_SOURCE_MISMATCH", "Verified-no-change receipt must pin the current candidate commit.");

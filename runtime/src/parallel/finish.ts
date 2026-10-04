@@ -13,7 +13,8 @@ import {
 } from "../verify/command-executor.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
 import { prepareFinishReceipt } from "./receipt.js";
-import {readRunIntegrationProof, markRunIntegration} from "../run/integration.js";
+import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration} from "../run/integration.js";
+import type {IntegrationReceiptBinding} from "../run/integration.js";
 import {canonicalJson} from "../config/hash.js";
 import { listWorktrees } from "./manage.js";
 import type { IntegratedChild } from "./integrate.js";
@@ -73,7 +74,7 @@ export interface FinalCandidateProof {
   readonly integrationJournal?: {
     readonly transactionId: string;
     readonly expectedTarget: string;
-    readonly status: string;
+    readonly candidate: string;
     readonly digest: string;
   };
 }
@@ -458,6 +459,15 @@ export async function finishWorktree(
       }
     }
 
+    const sealedIntegration = options.finalProof === undefined || record.runId === undefined
+      ? null
+      : await readRunIntegrationReceiptBinding(commonDir, record, {target, candidate: head});
+    const requestedIntegration = options.finalProof?.integrationJournal;
+    if (requestedIntegration !== undefined && sealedIntegration !== null &&
+        canonicalJson(requestedIntegration) !== canonicalJson(sealedIntegration)) {
+      throw finishError("RUN_INTEGRATION_PROOF_CHANGED", "The requested receipt binding differs from the sealed integration transaction.");
+    }
+    const integrationJournal: IntegrationReceiptBinding | undefined = sealedIntegration ?? requestedIntegration;
     const receiptOptions = options.finalProof === undefined ? undefined : {
       commonDir,
       record,
@@ -468,7 +478,7 @@ export async function finishWorktree(
       config: worktreeConfig,
       gitRunner: worktreeRunner,
       ...(noChangeProof === undefined ? {} : { noChange: noChangeProof }),
-      ...(options.finalProof?.integrationJournal === undefined ? {} : { integrationJournal: options.finalProof.integrationJournal })
+      ...(integrationJournal === undefined ? {} : { integrationJournal })
     };
     let receipt = receiptOptions === undefined ? undefined : await prepareFinishReceipt({
       ...receiptOptions,
