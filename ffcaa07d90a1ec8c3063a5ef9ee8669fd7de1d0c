@@ -1,0 +1,7 @@
+worktree: session-01a104e8 (agent-ops/session-01a104e8)
+session: 01a104e8-8c65-7f23-85f2-71d24357330b
+agent-ops task task-f58d71ff-3291-4290-b591-cf3b284380f9: close: one-command verify-review-complete loop
+criteria:
+- close-registered: close command is registered and close --help explains task base yes json options
+- close-sequence: close runs verify then review then task complete in order and aborts on first failure
+- close-suite-green: full npm test suite passes with no regressions
