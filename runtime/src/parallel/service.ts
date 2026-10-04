@@ -69,7 +69,22 @@ export interface WorktreeRecord {
   readonly sessionId: string;
   /** The subagent that owns this worktree; absent for the session's own. */
   readonly agentId?: string;
+  /** F run identity; absent on legacy worktrees. */
+  readonly runId?: string;
+  /** F worker identity; never inferred from a native session id. */
+  readonly workerId?: string;
+  /** Coordinator-issued owner session for an F worker. */
+  readonly ownerSessionId?: string;
+  /** F worker lease generation. */
+  readonly workerGeneration?: number;
   readonly createdAt: string;
+}
+
+export interface RunWorktreeOwnership {
+  readonly runId: string;
+  readonly workerId: string;
+  readonly ownerSessionId: string;
+  readonly generation: number;
 }
 
 /** The session's own worktree is open to its main thread; a subagent's only to that subagent. */
@@ -79,6 +94,40 @@ export function mayUseWorktree(
   agentId: string | undefined
 ): boolean {
   return record.sessionId === sessionId && (agentId === undefined || record.agentId === agentId);
+}
+
+/**
+ * Run workers use an explicit coordinator mapping in addition to the legacy
+ * session/agent guard. A native session id alone cannot claim a worktree.
+ */
+export function mayUseRunWorktree(
+  record: WorktreeRecord,
+  ownership: RunWorktreeOwnership,
+  sessionId: string,
+  agentId: string | undefined
+): boolean {
+  return mayUseWorktree(record, sessionId, agentId) &&
+    record.runId === ownership.runId &&
+    record.workerId === ownership.workerId &&
+    record.ownerSessionId === ownership.ownerSessionId &&
+    record.workerGeneration === ownership.generation;
+}
+
+export function assertRunWorktreeOwnership(
+  record: WorktreeRecord,
+  ownership: RunWorktreeOwnership
+): void {
+  if (
+    record.runId !== ownership.runId ||
+    record.workerId !== ownership.workerId ||
+    record.ownerSessionId !== ownership.ownerSessionId ||
+    record.workerGeneration !== ownership.generation
+  ) {
+    throw worktreeError(
+      "WORKTREE_RUN_OWNERSHIP_MISMATCH",
+      `Worktree ${record.name} is not owned by run ${ownership.runId}, worker ${ownership.workerId}, generation ${ownership.generation}.`
+    );
+  }
 }
 
 export interface WorktreeAddResult {
@@ -288,6 +337,10 @@ export async function readWorktreeRecord(root: string): Promise<WorktreeRecord |
     const value = JSON.parse(source) as Partial<WorktreeRecord>;
     return value.schemaVersion === 1 && typeof value.name === "string" &&
       (value.agentId === undefined || typeof value.agentId === "string") &&
+      (value.runId === undefined || typeof value.runId === "string") &&
+      (value.workerId === undefined || typeof value.workerId === "string") &&
+      (value.ownerSessionId === undefined || typeof value.ownerSessionId === "string") &&
+      (value.workerGeneration === undefined || (typeof value.workerGeneration === "number" && Number.isSafeInteger(value.workerGeneration) && value.workerGeneration > 0)) &&
       typeof value.branch === "string" && typeof value.path === "string" &&
       typeof value.mainRoot === "string" && typeof value.targetBranch === "string" &&
       typeof value.base === "string" && typeof value.sessionId === "string" &&
@@ -356,6 +409,7 @@ export async function addWorktree(
     readonly name: string | undefined;
     readonly sessionId: string | undefined;
     readonly agentId?: string;
+    readonly runOwnership?: RunWorktreeOwnership;
     readonly from?: string;
     readonly targetBranch?: string;
   }
@@ -441,6 +495,12 @@ export async function addWorktree(
     base,
     sessionId,
     ...(options.agentId === undefined ? {} : { agentId: options.agentId }),
+    ...(options.runOwnership === undefined ? {} : {
+      runId: options.runOwnership.runId,
+      workerId: options.runOwnership.workerId,
+      ownerSessionId: options.runOwnership.ownerSessionId,
+      workerGeneration: options.runOwnership.generation
+    }),
     createdAt: deps.now?.() ?? new Date().toISOString()
   };
   let trusted = false;

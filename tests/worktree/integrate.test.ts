@@ -7,7 +7,7 @@ import { calculateConfigHash } from "../../runtime/src/config/hash.js";
 import { runAdvanceCommand, type AdvanceStep } from "../../packages/cli/src/commands/advance.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
-import { integrateSessionChildren } from "../../runtime/src/parallel/integrate.js";
+import { integrateSessionChildren, writeNoChangeDelivery, type NoChangeDelivery } from "../../runtime/src/parallel/integrate.js";
 import { addWorktree, sessionWorktreeName, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { reviewReportDigest, saveReviewAttestation, saveReviewReportArtifact } from "../../runtime/src/review/attestation.js";
 import { resolveReviewScope } from "../../runtime/src/review/scope.js";
@@ -121,6 +121,60 @@ test("merge conflict restores the coordinator commit and preserves child worktre
     assert.equal(await readFile(join(a.path, "source.txt"), "utf8"), "A\n");
     assert.equal(await readFile(join(b.path, "source.txt"), "utf8"), "B\n");
     assert.deepEqual((await service(coordinator.path).list()).map(({ task }) => task.id), [parent.task.id]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("integrates a run-owned no-change child only with an explicit supporting review scope", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const runId = "run-integration-no-change";
+    const coordinator = (await addWorktree(d, {
+      cwd: root, name: "coordinator", sessionId: SESSION,
+      runOwnership: { runId, workerId: "coordinator", ownerSessionId: SESSION, generation: 1 }
+    })).record;
+    const parent = await service(coordinator.path).create({
+      title: "Parent objective", intent: "Accept an already-satisfied child with auditable evidence.", criteria,
+      policyConfigHash: calculateConfigHash(CONFIG), sessionId: SESSION
+    });
+    const child = (await addWorktree(d, {
+      cwd: root, name: "child-no-change", sessionId: SESSION, agentId: "agent-a",
+      runOwnership: { runId, workerId: "worker-a", ownerSessionId: SESSION, generation: 1 }
+    })).record;
+    const tasks = service(child.path);
+    const task = await tasks.create({
+      title: "Preserve existing behavior", intent: "Prove the existing source already satisfies this invariant.",
+      criteria, policyConfigHash: calculateConfigHash(CONFIG), sessionId: SESSION
+    });
+    const scope = { mode: "worktree" as const, changedFiles: ["source.txt"] };
+    const fingerprint = await calculateSourceFingerprint(child.path, scope, gitRunner(child.path));
+    const evidence = new FileEvidenceStore(child.path, child.path);
+    const refs: Record<string, string[]> = {};
+    for (const criterion of criteria) {
+      refs[criterion.id] = [await evidence.save(buildVerificationEvidence({
+        taskId: task.task.id, criterionId: criterion.id, command: CONFIG.verification.commands[0]!, scope: "project",
+        startedAt: "2026-10-03T00:00:00.000Z", finishedAt: "2026-10-03T00:00:01.000Z",
+        exitCode: 0, testCount: null, status: "PASS", failureClass: "none", sourceFingerprint: fingerprint,
+        toolVersions: {}, config: CONFIG
+      }))];
+    }
+    await tasks.recordEvidence(task.task.id, refs);
+    const sourceCommit = await git(child.path, "rev-parse", "HEAD");
+    const delivery: NoChangeDelivery = {
+      schemaVersion: 1, deliveryKind: "no-change", sourceCommit,
+      deliveryDigest: "a".repeat(64), contractDigest: "b".repeat(64), artifactRefs: ["review-artifact.json"],
+      reviewScope: JSON.stringify(scope), runId, workerId: "worker-a", generation: 1
+    };
+    await writeNoChangeDelivery(child, delivery);
+    const targetBefore = await git(coordinator.path, "rev-parse", "HEAD");
+    const integrated = await integrateSessionChildren(d, coordinator, parent.task.id);
+    assert.equal(await git(coordinator.path, "rev-parse", "HEAD"), targetBefore);
+    assert.equal(integrated[0]?.deliveryKind, "no-change");
+    assert.deepEqual(integrated[0]?.sourceArtifacts, ["review-artifact.json"]);
+    assert.deepEqual((await service(coordinator.path).status({ taskId: task.task.id })).evidence, {});
+    assert.deepEqual(await integrateSessionChildren(d, coordinator, parent.task.id), integrated);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
