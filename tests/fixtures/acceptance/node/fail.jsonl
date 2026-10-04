@@ -1,0 +1,2 @@
+{"type":"test:fail","data":{"file":"tests/session-start.test.js","ancestorNames":["SessionStart"],"name":"writes once","error":{"name":"AssertionError"},"sequence":1}}
+{"type":"test:complete","data":{"completed":true}}

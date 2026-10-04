@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "filepath": "tests/parameterized.test.ts",
+      "tasks": [
+        {
+          "name": "session",
+          "tasks": [
+            {"name":"writes once [1]","state":"pass","attempts":1},
+            {"name":"writes once [2]","state":"pass","attempts":1}
+          ]
+        }
+      ]
+    }
+  ]
+}

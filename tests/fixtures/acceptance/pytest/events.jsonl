@@ -1,0 +1,4 @@
+{"type":"test-report","nodeid":"tests/test_session.py::test_writes_once","phase":"setup","outcome":"passed","attempts":1}
+{"type":"test-report","nodeid":"tests/test_session.py::test_writes_once","phase":"call","outcome":"passed","assertion":true,"attempts":1}
+{"type":"test-report","nodeid":"tests/test_session.py::test_writes_once","phase":"teardown","outcome":"passed","attempts":1}
+{"type":"session-finished","completed":true}
