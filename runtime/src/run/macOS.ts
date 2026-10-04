@@ -222,9 +222,12 @@ export class LaunchdController {
 
   async bootout(descriptor: LaunchdDescriptor): Promise<void> {
     this.assertSupported();
-    await this.run("launchctl", ["bootout", `${descriptor.domain}/${descriptor.label}`], {
-      cwd: descriptor.privateDirectory
-    });
+    try {
+      await this.run("launchctl", ["bootout", `${descriptor.domain}/${descriptor.label}`], {cwd: descriptor.privateDirectory});
+    } catch (cause) {
+      const failure = cause as {stderr?: unknown; code?: unknown};
+      if (failure.code !== 3 || typeof failure.stderr !== "string" || !failure.stderr.includes("No such process")) throw cause;
+    }
   }
 
   async disableRestart(descriptor: LaunchdDescriptor, reason: string): Promise<void> {

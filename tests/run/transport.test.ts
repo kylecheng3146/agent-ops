@@ -34,6 +34,9 @@ test("native activation requires a persisted lease and rejects a stop racing act
   const action = {actionId: "action", accepted: true, nativeStatus: "active" as const, payload: null};
   const host: NativeGoalHost = {kind: "codex", start: async input => {
     assert.equal(input.objective, undefined);
+    assert.equal(input.env?.AGENT_OPS_SESSION_ID, "owner-one");
+    assert.equal(input.env?.CODEX_THREAD_ID, undefined);
+    assert.equal(input.env?.AGENT_OPS_RUN_ID, state.runId);
     return {...input, kind: "codex", sessionId: "native-one", threadId: "native-one", nativeVersion: "test", processId: child.pid!,
       process: child, startedAt: new Date().toISOString(), goalStatus: "unknown"};
   }, activate: async () => {activated++; return action;}, update: async () => action,

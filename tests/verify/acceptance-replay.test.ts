@@ -29,7 +29,7 @@ async function fixture() {
     acceptanceRunners: [{id: "acceptance", command: process.execPath, args: ["tests/check.mjs"], cwd: ".", adapter: "generic"}]},
     features: {completionGate: {enabled: false}, stopVerification: {enabled: false}}, pathMappings: [], securityExceptions: []};
   const store = new FileTaskStore(join(root, ".agent-ops/tasks/state.json"), root);
-  const tasks = new TaskService(store, {completion: {root, gitRunner, loadConfig: async () => config}});
+  const tasks = new TaskService(store, {completion: {root, gitRunner, base: baseline, loadConfig: async () => config}});
   const materials = [{path: "tests/check.mjs", role: "test" as const}];
   const record = await tasks.create({title: "Fix value", goal: "Value equals one and remains numeric", policyConfigHash: calculateConfigHash(config), criteria: [
     {id: "behavior", description: "Value equals one", verifierIds: [], acceptance: {mode: "behavioral", baselineCommit: baseline,
@@ -82,5 +82,30 @@ test("setup failure persists UNKNOWN and never becomes red", async () => {
     const record = await f.tasks.status({taskId: f.record.task.id});
     assert.equal(record.evidence.behavior?.length, 2);
     assert.ok(record.failureFingerprint);
+  } finally {await rm(f.root, {recursive: true, force: true});}
+});
+
+
+test("completed typed task reverification preserves completion and requires original paired artifacts", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.verify();
+    assert.equal(first.status, "PASS");
+    const original = await f.tasks.status({taskId: f.record.task.id});
+    // Seed a previously completed record to exercise the immutable reverification path.
+    const completedAt = "2026-10-05T00:00:00.000Z";
+    await new FileTaskStore(join(f.root, ".agent-ops/tasks/state.json"), f.root).mutate(state => {
+      state.tasks[0] = {...state.tasks[0]!, status: "complete", completedAt};
+    });
+    assert.equal((await f.verify()).status, "PASS");
+    const refreshed = await f.tasks.status({taskId: f.record.task.id});
+    assert.equal(refreshed.status, "complete");
+    assert.equal(refreshed.completedAt, completedAt);
+    assert.ok(original.evidence.behavior!.every(ref => refreshed.evidence.behavior!.includes(ref)));
+    assert.ok(refreshed.evidence.behavior!.length > original.evidence.behavior!.length);
+    const old = await f.evidenceStore.load(refreshed.evidence.behavior!.at(-1)!) as {acceptance: {executionArtifact: string}};
+    await writeFile(join(f.root, old.acceptance.executionArtifact), "changed original execution artifact");
+    await assert.rejects(f.verify(), {code: "TASK_REVERIFICATION_CHANGED"});
+    assert.equal((await f.tasks.status({taskId: f.record.task.id})).completedAt, completedAt);
   } finally {await rm(f.root, {recursive: true, force: true});}
 });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
+import {budgetExpired} from "./scheduler.js";
 import {
   MAX_ACTIVE_WORKERS,
   type RunFailure,
@@ -233,6 +234,10 @@ export class RunSupervisor {
     if (worker === undefined) throw error("RUN_WORKER_NOT_FOUND", `Worker not found: ${workerId}`);
     if (worker.generation !== generation || worker.status !== "assigned") throw error("RUN_WORKER_STALE", `Worker ${workerId} is no longer assigned at generation ${generation}.`);
     const starting = await this.#repository.mutate(runId, (current) => {
+      if (current.status !== "active" || current.disableRestart || current.awaitingResume)
+        throw error("RUN_START_DISABLED", "Run state no longer permits starting a writer.");
+      if (budgetExpired(current, Date.parse(this.#now())))
+        throw error("RUN_BUDGET_EXHAUSTED", "The cumulative run budget cannot be reset by starting another worker.");
       const currentWorker = current.workers.find((candidate) => candidate.workerId === workerId);
       if (currentWorker === undefined || currentWorker.generation !== generation || currentWorker.status !== "assigned") {
         throw error("RUN_WORKER_STALE", `Worker ${workerId} changed before native start.`);
@@ -276,6 +281,8 @@ export class RunSupervisor {
     }
     try {
       return (await this.#repository.mutate(runId, (current) => {
+        if (current.status !== "active" || current.disableRestart || current.awaitingResume || budgetExpired(current, Date.parse(this.#now())))
+          throw error("RUN_START_DISABLED", "Run stopped or exhausted its budget during native registration.");
         const currentWorker = current.workers.find((candidate) => candidate.workerId === workerId);
         if (currentWorker === undefined || currentWorker.generation !== generation || currentWorker.status !== "starting") {
           throw error("RUN_WORKER_STALE", `Worker ${workerId} changed while native session started.`);
@@ -579,8 +586,11 @@ export class RunSupervisor {
   async publishDelivery(runId: string, request: HandoffRequest, input: { readonly noChange: boolean; readonly artifactRefs: readonly string[] }): Promise<RunWorkerRecord> {
     const state = await this.#repository.mutate(runId, (current) => {
       const worker = current.workers.find((candidate) => candidate.workerId === request.workerId);
-      if (worker === undefined || worker.generation !== request.generation ||
-          worker.stopIntent?.confirmedDeadAt === null || worker.stopIntent?.deliveryDigest !== request.deliveryDigest) {
+      if (current.status !== "active" || current.disableRestart || current.awaitingResume ||
+          worker === undefined || worker.generation !== request.generation ||
+          worker.stopIntent == null || worker.stopIntent.confirmedDeadAt === null ||
+          worker.stopIntent.deliveryDigest !== request.deliveryDigest ||
+          worker.stopIntent.contractDigest !== request.contractDigest || worker.stopIntent.sourceCommit !== request.sourceCommit) {
         throw error("RUN_DELIVERY_UNFENCED", `Worker ${request.workerId} must be fenced before delivery.`);
       }
       if (worker.status === "delivered") return current;

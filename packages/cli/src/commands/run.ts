@@ -80,6 +80,7 @@ function textFor(action: RunAction, state: RunState, message: string): string {
     `Host: ${state.host}`,
     `Workers: ${active}/${state.jobs}`,
     `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining`,
+    `Usage: ${state.budget.usage.tokens ?? "unknown"} tokens; ${state.budget.usage.usd === null ? "unknown" : "$" + state.budget.usage.usd} cost (${state.budget.usage.completeness})`,
     action === "logs" ? "" : "Native goal completion is not final proof; verify, review, task state, and receipt are still required."
   ].filter((line) => line.length > 0).join("\n");
 }

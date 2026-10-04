@@ -129,6 +129,14 @@ test("supervisor fences a worker before publishing delivery and requires final p
       sourceCommit: "c".repeat(40)
     });
     assert.equal(repeated.confirmedDeadAt, delivery.worker.stopIntent?.confirmedDeadAt);
+    await assert.rejects(supervisor.publishDelivery(fixture.state.runId, {
+      workerId: registration.workerId, generation: registration.generation, deliveryDigest: delivery.deliveryDigest,
+      contractDigest: "f".repeat(64), sourceCommit: delivery.sourceCommit
+    }, {noChange: false, artifactRefs: []}), {code: "RUN_DELIVERY_UNFENCED"});
+    await assert.rejects(supervisor.publishDelivery(fixture.state.runId, {
+      workerId: registration.workerId, generation: registration.generation, deliveryDigest: delivery.deliveryDigest,
+      contractDigest: "b".repeat(64), sourceCommit: "f".repeat(40)
+    }, {noChange: false, artifactRefs: []}), {code: "RUN_DELIVERY_UNFENCED"});
     await supervisor.publishDelivery(fixture.state.runId, {
       workerId: registration.workerId,
       generation: registration.generation,
@@ -265,4 +273,27 @@ test("worker Stop gate accepts only a fenced coordinator handoff", async () => {
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
+});
+
+
+test("expired whole-run budget refuses native startup and answers cannot revive a stopped run", async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await fixture.repository.mutate(fixture.state.runId, current => ({...current,
+      budget: {...current.budget, limitMs: 1000, activeIntervals: [{startMs: Date.parse(current.createdAt), endMs: null}]},
+      tasks: [{taskId: "a", dependencies: [], status: "ready", workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null}]}));
+    let starts = 0;
+    const host: NativeGoalHost = {host: "codex", async start() {starts++; throw new Error("must not start");},
+      async inspect() {throw new Error("must not inspect");}, async resume() {}, async send() {}, async stop() {}};
+    const supervisor = new RunSupervisor({repository: fixture.repository, host, now: () => "2026-10-04T00:00:02.000Z"});
+    const worker = await supervisor.registerWorker(fixture.state.runId, {taskId: "a", ownerSessionId: "owner"});
+    await assert.rejects(supervisor.startWorker(fixture.state.runId, worker.workerId, worker.generation, "Goal"), {code: "RUN_BUDGET_EXHAUSTED"});
+    assert.equal(starts, 0);
+    const service = new RunService(fixture.repository);
+    await fixture.repository.mutate(fixture.state.runId, current => ({...current, status: "awaiting-input",
+      questions: [{questionId: "question-one", prompt: "Which scope?", askedAt: current.createdAt, answeredAt: null, answerDigest: null}]}));
+    await service.stop(fixture.state.runId);
+    await assert.rejects(service.respond(fixture.state.runId, "question-one", "Continue"), {code: "RUN_NOT_AWAITING_INPUT"});
+    assert.equal((await service.status(fixture.state.runId)).disableRestart, true);
+  } finally {await rm(fixture.root, {recursive: true, force: true});}
 });

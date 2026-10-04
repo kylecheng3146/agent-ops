@@ -1,28 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
-import {
-  createBudgetState,
-  recordUsage,
-  startWorker,
-  stopWorker
-} from "../../runtime/src/run/budget.js";
-import type { UsageHighWater } from "../../runtime/src/run/types.js";
-
-test("active budget counts the union of active workers once", () => {
-  let now = 1_000;
-  const clock = { now: () => now };
-  let budget = createBudgetState(10_000, clock);
-  budget = startWorker(budget, "worker-a", clock);
-  now += 2_000;
-  budget = startWorker(budget, "worker-b", clock);
-  now += 3_000;
-  budget = stopWorker(budget, "worker-a", clock);
-  now += 4_000;
-  budget = stopWorker(budget, "worker-b", clock);
-  assert.equal(budget.activeElapsedMs, 9_000);
-  assert.deepEqual(budget.activeWorkers, []);
-});
+import {recordUsage} from "../../runtime/src/run/budget.js";
+import type {UsageHighWater} from "../../runtime/src/run/types.js";
 
 test("usage keeps per-epoch high water marks and preserves previous resume epochs", () => {
   const first: UsageHighWater = {

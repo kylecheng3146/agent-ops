@@ -583,8 +583,7 @@ export class RunService {
 
   async resume(runId: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, (current) => {
-      if (current.status === "complete" || (current.status === "blocked" &&
-        (current.integration === null || current.integration.status === "prepared"))) {
+      if (current.status === "complete" || (current.status === "blocked" && current.integration?.proofDigest === undefined)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
       return {
@@ -605,6 +604,8 @@ export class RunService {
     const cleanAnswer = bounded(answer.trim(), "answer", MAX_GOAL_LENGTH);
     const state = await this.#repository.mutate(runId, (current) => {
       const question = current.questions.find((item) => item.questionId === cleanQuestion);
+      if (current.status !== "awaiting-input" || current.disableRestart)
+        throw new AgentOpsError("RUN_NOT_AWAITING_INPUT", "Respond cannot restart a stopped or terminal run.");
       if (question === undefined) throw new AgentOpsError("RUN_QUESTION_NOT_FOUND", `Question not found: ${cleanQuestion}`);
       if (question.answeredAt !== null) throw new AgentOpsError("RUN_QUESTION_ANSWERED", `Question already answered: ${cleanQuestion}`);
       const answeredAt = this.#now();
