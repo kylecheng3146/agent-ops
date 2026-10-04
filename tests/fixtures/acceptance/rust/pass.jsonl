@@ -1,0 +1,2 @@
+{"type":"check","checkId":"acceptance::assertion","status":"PASS","failureClass":"none","attempts":1,"evidence":["rust:harness:acceptance::assertion"]}
+{"type":"completed","completed":true}

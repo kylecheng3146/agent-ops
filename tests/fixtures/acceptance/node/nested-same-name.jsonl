@@ -1,0 +1,4 @@
+{"type":"test:pass","data":{"file":"tests/nested.test.js","name":"same","nesting":1,"line":3,"column":10,"testNumber":1}}
+{"type":"test:pass","data":{"file":"tests/nested.test.js","name":"same","nesting":1,"line":4,"column":10,"testNumber":2}}
+{"type":"test:plan","data":{"nesting":1,"count":2}}
+{"type":"test:plan","data":{"nesting":0,"count":1}}

@@ -1,0 +1,3 @@
+{"type":"test:start","data":{"file":"tests/session-start.test.js","ancestorNames":["SessionStart"],"name":"writes once"}}
+{"type":"test:pass","data":{"file":"tests/session-start.test.js","ancestorNames":["SessionStart"],"name":"writes once","details":{"type":"assertion"},"sequence":1}}
+{"type":"test:complete","data":{"completed":true}}
