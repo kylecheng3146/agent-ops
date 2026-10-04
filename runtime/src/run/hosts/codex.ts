@@ -9,7 +9,7 @@ import {
   event,
   assertProcessRunning,
   spawnNative,
-  waitForExit
+  stopNativeProcess
 } from "./util.js";
 import type {
   NativeGoalActionResult,
@@ -221,10 +221,7 @@ export class CodexGoalHost implements NativeGoalHost {
     } catch {
       // A crashed or already closed native process is already stopped.
     }
-    if (handle.process.exitCode === null && handle.process.signalCode === null) {
-      handle.process.kill(signal);
-      await waitForExit(handle.process);
-    }
+    await stopNativeProcess(handle.process, signal);
     return actionResult(true, "paused", payload);
   }
 

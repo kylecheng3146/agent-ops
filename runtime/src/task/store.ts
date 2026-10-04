@@ -12,7 +12,7 @@ import {
   writePrivateFile
 } from "../security/permissions.js";
 import { taskContractHash } from "./contract.js";
-import { materialPath, commitIdentity } from "../schema/acceptance.js";
+import { materialPath, commitIdentity, acceptanceSourcePath } from "../schema/acceptance.js";
 import type {
   FailureFingerprintState
 } from "../verify/fingerprint.js";
@@ -288,7 +288,7 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
     return invalidState("Task state contains an invalid review base.");
   }
   if (value.noChangePaths !== undefined && (!Array.isArray(value.noChangePaths) || value.noChangePaths.length === 0 || value.noChangePaths.length > 128 ||
-    value.noChangePaths.some(p => typeof p !== "string" || !materialPath(p)) || new Set(value.noChangePaths).size !== value.noChangePaths.length)) return invalidState("Invalid no-change scope.");
+    value.noChangePaths.some(p => typeof p !== "string" || !acceptanceSourcePath(p)) || new Set(value.noChangePaths).size !== value.noChangePaths.length)) return invalidState("Invalid no-change scope.");
   if (value.supersededBy !== undefined && (!Array.isArray(value.supersededBy) || value.supersededBy.length === 0 || value.supersededBy.length > 128 ||
     value.supersededBy.some(v => typeof v !== "string" || !/^[a-z][a-z0-9-]{0,127}$/u.test(v)) || new Set(value.supersededBy).size !== value.supersededBy.length || status !== "archived"))
     return invalidState("Invalid supersession mapping.");

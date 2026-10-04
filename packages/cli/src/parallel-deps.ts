@@ -82,12 +82,13 @@ export function worktreeDependencies(): FinishDependencies {
       }
     },
     gate: gateFor,
-    tasks: (root, base) => new TaskService(
+    tasks: (root, base, noChangePaths) => new TaskService(
       new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
       base === undefined ? {} : { completion: {
         root,
         gitRunner: gitRunner(root),
         base,
+        ...(noChangePaths === undefined ? {} : {noChangePaths}),
         loadConfig: async () => (await loadEffectiveConfig(root, "project")).config
       } }
     ),

@@ -1,5 +1,21 @@
 # 迴圈工程
 
+## LOOP-RUN-001
+
+`run` MUST 保留原始使用者目標，並要求目前有效的 agent-ops 證據。
+
+- Trigger: 啟動、修復或恢復 native goal run。
+- Action: writer 綁定目前 lease，並要求最終 verify、雙 review 與 receipt 證據。
+- Evidence: run ledger 與封存 receipt 綁定目前 candidate 及原始目標。
+- Positive: 恢復未完成清理時，保留 target 與已保存的 final proof。
+- Negative: 只因 native goal completion 就把 run 標為 complete。
+
+- macOS supervisor 在啟動 goal 前保存 Claude／Codex native 身份。同 host writers 使用獨立 worktrees 與目前 generation lease；coordinator 計入最多兩個 writer。依賴以固定交付提供，child baseline 在依賴 commits 進入 checkout 後建立。
+- 預設 60 分鐘預算計算 active intervals 聯集，包含 setup、verify、review、整合。resume 保留時間與 usage epochs；缺少計數維持 UNKNOWN，partial usage 不算完整成本。
+- 實質疑問暫停並要求明確回答。修復保留目標與失敗紀錄；連續兩次相同失敗且無進展停止該 worker 及其依賴，獨立 task 仍可執行。review findings 在下次 final gate 前必須有回歸 pin 或記錄 review-only fallback。
+- native completion 僅是觀察。完成必須有必要驗證、兩輪 fresh review、完成的 task state、綁定 target 的 receipt。整合在移動 target 前封存 candidate，記錄 task、receipt、note、cleanup 進度；恢復驗證封存證據，不重做成功的 target mutation。不一致的 target 維持 blocked。
+- Stop 先保存禁止續跑，再確認受管 process group 死亡。crash recovery 不得取代仍存活或身份不明的 writer。dirty checkout、版本漂移、restart storm 保留現場。重開機／login 改變必須明確 resume；不修改全域 host policy。
+
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 
 ## LOOP-START-001

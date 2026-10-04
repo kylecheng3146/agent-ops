@@ -8,8 +8,16 @@ import {
   compareBootLogin,
   createLaunchdDescriptor,
   LaunchdController,
-  readBootIdentity
+  readBootIdentity,
+  readGuiLoginIdentity
 } from "../../runtime/src/run/macOS.js";
+
+test("GUI login identity changes across audit sessions and rejects unavailable login metadata", async () => {
+  const identity = (id: number) => async () => ({stdout: `gui/501 = {\n\tsecurity context = {\n\t\tuid = 501\n\t\tasid = ${id}\n\t}\n}`});
+  assert.equal(await readGuiLoginIdentity(501, identity(100)), "gui:501:asid:100");
+  assert.notEqual(await readGuiLoginIdentity(501, identity(100)), await readGuiLoginIdentity(501, identity(101)));
+  await assert.rejects(readGuiLoginIdentity(501, async () => ({stdout: "type = login"})), {code: "LAUNCHD_LOGIN_IDENTITY_UNAVAILABLE"});
+});
 
 test("macOS primitive is transient, private, and explicit about reboot resume", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-launchd-"));

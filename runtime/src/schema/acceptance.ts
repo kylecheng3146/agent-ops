@@ -13,19 +13,25 @@ const strings = (v: unknown): v is string[] =>
   dense(v) && v.length <= 512 && v.every(text) && new Set(v).size === v.length;
 export const commitIdentity = (v: unknown): v is string =>
   typeof v === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v);
+export function acceptanceSourcePath(v: unknown): v is string {
+  return text(v) && !v.startsWith("/") && !/[\\<>:"|?*\x00-\x1f\x7f]/u.test(v) &&
+    v.split("/").every(p => p !== "" && p !== "." && p !== ".." && !/[. ]$/u.test(p) &&
+      !/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/iu.test(p) &&
+      ![".git", ".agent-ops"].includes(p.toLowerCase()));
+}
 export function materialPath(v: unknown): v is string {
-  return text(v) && !v.startsWith("/") && !v.includes("\\") &&
-    v.split("/").every(p => p !== "" && p !== "." && p !== ".." &&
-      ![".git", ".agent-ops", "node_modules"].includes(p)) &&
+  return acceptanceSourcePath(v) && !v.split("/").includes("node_modules") &&
     !/^(?:dist|build|\.tmp)\//u.test(v) &&
     !/^(?:package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.(?:toml|lock)|pyproject\.toml)$/u.test(v);
 }
 export function acceptanceError(v: unknown): string | undefined {
-  if (!record(v) || !keys(v, ["mode", "baselineCommit", "bindings"]) ||
+  if (!record(v) || !keys(v, ["mode", "baselineCommit", "bindings", "reviewOnlyReason"]) ||
     !["behavioral", "invariant", "review-only"].includes(String(v.mode)) ||
     !commitIdentity(v.baselineCommit) || !dense(v.bindings) || v.bindings.length > 64)
     return "Acceptance requires a mode, immutable commit SHA and bounded bindings.";
-  if (v.mode === "review-only") return v.bindings.length === 0 ? undefined : "Review-only has no mechanical bindings.";
+  if (v.mode === "review-only") return v.bindings.length === 0 && text(v.reviewOnlyReason)
+    ? undefined : "Review-only requires an explicit bounded reason and no mechanical bindings.";
+  if (v.reviewOnlyReason !== undefined) return "Only review-only contracts carry a fallback reason.";
   if (v.bindings.length === 0) return "Mechanical acceptance requires a binding.";
   const identities = new Set<string>();
   let red = 0;

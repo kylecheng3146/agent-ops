@@ -914,6 +914,9 @@ export function validateCriterion(
       !Number.isSafeInteger(f.findingIndex) || (f.findingIndex as number) < 0 || !commitIdentity(f.candidateCommit) ||
       !isStringArray(f.criterionIds) || !f.criterionIds.every(id => typeof id === "string" && id.split(":").length <= 2 && id.split(":").every(isIdentifier)) || !hasUniqueStrings(f.criterionIds))
       return failure("INVALID_FINDING_REFERENCE", path + ".finding", "Invalid immutable finding identity.");
+    if (value.acceptance === undefined || !isRecord(value.acceptance) || value.acceptance.mode === "invariant" ||
+      value.acceptance.baselineCommit !== f.candidateCommit)
+      return failure("INVALID_FINDING_BASELINE", path + ".finding", "A finding retains its failed-candidate baseline and behavioral or explicit review-only mode.");
   }
   return success(value as unknown as AcceptanceCriterion);
 }

@@ -1,3 +1,4 @@
+import {coverageDigest, type CriterionCoverage} from "../verify/acceptance-coverage.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -86,6 +87,7 @@ export interface ReviewAttestation extends Partial<ReviewContractBinding> {
 }
 
 export interface ReviewReportArtifact extends Partial<ReviewContractBinding> {
+  readonly coverage?: readonly CriterionCoverage[];
   readonly schemaVersion: 1 | 2;
   readonly sourceFingerprint: string;
   readonly taskId?: string;
@@ -166,11 +168,13 @@ function reportArtifact(
   sourceFingerprint: string,
   taskId?: string,
   tree?: TreeReviewScope,
-  binding?: ReviewContractBinding
+  binding?: ReviewContractBinding,
+  coverage?: readonly CriterionCoverage[]
 ): ReviewReportArtifact {
   return {
     schemaVersion: binding === undefined ? 1 : 2,
     ...binding,
+    ...(coverage === undefined ? {} : {coverage: structuredClone(coverage)}),
     sourceFingerprint,
     ...(taskId === undefined ? {} : { taskId }),
     ...(tree === undefined ? {} : { tree }),
@@ -221,6 +225,7 @@ function matchingReportArtifact(
     ![1, 2].includes(record.schemaVersion as number) ||
     (attestation.schemaVersion === 3 && (record.schemaVersion !== 2 ||
       !validContractBinding(record) || JSON.stringify(contractBinding(record)) !== JSON.stringify(contractBinding(attestation as unknown as Record<string, unknown>)))) ||
+    (record.coverage !== undefined && (!Array.isArray(record.coverage) || coverageDigest(record.coverage as CriterionCoverage[]) !== attestation.coverageDigest)) ||
     record.sourceFingerprint !== attestation.sourceFingerprint ||
     record.status !== "PASS" ||
     record.harness !== attestation.harness ||
@@ -302,7 +307,8 @@ export async function saveReviewReportArtifact(
   sourceFingerprint: string,
   taskId?: string,
   tree?: TreeReviewScope,
-  binding?: ReviewContractBinding
+  binding?: ReviewContractBinding,
+  coverage?: readonly CriterionCoverage[]
 ): Promise<string> {
   if (!FINGERPRINT_PATTERN.test(sourceFingerprint)) {
     throw new AgentOpsError(
@@ -316,7 +322,9 @@ export async function saveReviewReportArtifact(
       "Review report artifact has an invalid task id."
     );
   }
-  const value = reportArtifact(result, sourceFingerprint, taskId, tree, binding);
+  if (coverage !== undefined && (binding === undefined || coverageDigest(coverage) !== binding.coverageDigest))
+    throw new AgentOpsError("REVIEW_COVERAGE_INVALID", "Coverage summary must match the sealed contract digest.");
+  const value = reportArtifact(result, sourceFingerprint, taskId, tree, binding, coverage);
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(serialized, "utf8") > REPORT_ARTIFACT_MAX_BYTES) {
     throw new AgentOpsError(

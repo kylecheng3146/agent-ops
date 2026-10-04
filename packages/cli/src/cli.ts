@@ -48,10 +48,11 @@ Commands:
   doctor     Diagnose an installation
   update     Update managed artifacts
   uninstall  Remove managed artifacts
-  task <create|status|attach|complete|archive|export>
+  task <create|status|attach|revise|replan|pin-finding|advance|complete|archive|export>
              Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review or show recorded reports
+  run        Start or control a supervised Claude/Codex native goal
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -95,6 +96,14 @@ Options:
  * rejected.
  */
 export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
+  run: `Usage: agent-ops run [start] "<goal>" --host <claude|codex> [--jobs <1|2>] [--time-budget <60m>] [--wait] [--json]
+       agent-ops run [start] --goal-file <path> --host <claude|codex>
+       agent-ops run <status|logs|resume|stop> <run-id> [--json]
+       agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
+
+Native goal state is observational. Completion requires current verification,
+two fresh reviews, task completion and a target-bound integration receipt.
+`,
   init: `Usage: agent-ops init [options]
 
 Plan or install agent-ops into this repository.

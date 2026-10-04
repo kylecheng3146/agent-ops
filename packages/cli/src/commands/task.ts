@@ -41,6 +41,7 @@ export interface TaskCommandOptions {
 export interface TaskCommandData {
   readonly action: TaskAction;
   readonly message: string;
+  readonly pendingCriterion?: AcceptanceCriterion;
   readonly record?: StoredTaskRecord;
   readonly contractHash?: string;
   readonly treeContractHash?: string;
@@ -235,7 +236,14 @@ export async function runTaskCommand(
       });
       return okEnvelope("TASK_REPLANNED", {action, message: "Task tree split atomically; reverify and review.", records, text: renderTaskList(records)});
     }
-    if (action === "pin-finding") throw new AgentOpsError("TASK_PIN_REQUIRED", "Pin requires a persisted contract-bound failed review artifact.");
+    if (action === "pin-finding") {
+      const criterion = parseCriterion(JSON.stringify(await jsonFile(options.args.criterionFiles![0]!)));
+      const pinned = await options.service.pinFinding(requireTaskId(options.args), options.args.expectedContract!, options.args.findingReference!, criterion, options.args.reason);
+      if (pinned.record === null) return {code: "NEEDS_REPLAN", status: "error",
+        data: {action, message: "Pin requires atomic replan to retain two to five criteria.", pendingCriterion: pinned.pendingCriterion, text: "NEEDS_REPLAN: include the pending criterion in task replan; no task was changed."},
+        errors: [{code: "NEEDS_REPLAN", message: "Replan the full current tree and pending pin."}]};
+      return taskEnvelope(action, "TASK_FINDING_PINNED", "Pinned saved finding; reverify and review the new contract.", pinned.record);
+    }
     if (action === "status") {
       if (options.args.taskId === undefined && sessionId === undefined) {
         const parentTaskId = options.args.parentTaskId;

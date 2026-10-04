@@ -24,7 +24,7 @@ test("active budget counts the union of active workers once", () => {
   assert.deepEqual(budget.activeWorkers, []);
 });
 
-test("usage keeps a per-epoch high water mark and resets after resume epoch", () => {
+test("usage keeps per-epoch high water marks and preserves previous resume epochs", () => {
   const first: UsageHighWater = {
     source: "claude",
     epoch: "process-1",
@@ -39,6 +39,9 @@ test("usage keeps a per-epoch high water mark and resets after resume epoch", ()
   const resumed: UsageHighWater = { ...first, epoch: "process-2", totalTokens: 4, completeness: "complete" };
   const merged = recordUsage(recordUsage([], first), lowered);
   assert.equal(merged[0]?.totalTokens, 15);
-  assert.equal(recordUsage(merged, resumed)[0]?.epoch, "process-2");
-  assert.equal(recordUsage(merged, resumed)[0]?.totalTokens, 4);
+  const epochs = recordUsage(merged, resumed);
+  assert.equal(epochs[0]?.epoch, "process-1");
+  assert.equal(epochs[0]?.totalTokens, 15);
+  assert.equal(epochs[1]?.totalTokens, 4);
+  assert.equal(epochs.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0), 19);
 });

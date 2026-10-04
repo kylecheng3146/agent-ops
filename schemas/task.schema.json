@@ -76,6 +76,12 @@
                 "type": "string",
                 "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
               },
+              "reviewOnlyReason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "\\S"
+              },
               "bindings": {
                 "type": "array",
                 "maxItems": 64,
@@ -174,7 +180,9 @@
                   "type": "object"
                 },
                 "then": {
+                  "required": ["reviewOnlyReason"],
                   "properties": {
+                    "reviewOnlyReason": {"type": "string"},
                     "bindings": {
                       "maxItems": 0,
                       "type": "array"
@@ -184,6 +192,7 @@
                 },
                 "else": {
                   "properties": {
+                    "reviewOnlyReason": false,
                     "bindings": {
                       "minItems": 1,
                       "type": "array"

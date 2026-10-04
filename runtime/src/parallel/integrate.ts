@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { calculateConfigHash } from "../config/hash.js";
@@ -10,7 +10,9 @@ import type { ReviewScope } from "../review/scope.js";
 import { readPrivateFile, writePrivateFile } from "../security/permissions.js";
 import { checkTaskVerificationEvidence } from "../task/completion.js";
 import type { StoredTaskRecord } from "../task/store.js";
+import {validateEvidence} from "../schema/validate.js";
 import { FileEvidenceStore } from "../verify/evidence.js";
+import {REVIEW_ATTESTATION_DIRECTORY} from "../review/attestation.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import { collectChangeSurface, type GitRunner } from "../verify/change-surface.js";
 import { listWorktrees } from "./manage.js";
@@ -264,7 +266,8 @@ export async function integrateSessionChildren(
     const manifest = noChange ? await readNoChangeDelivery(record) : null;
     if (noChange && manifest === null) throw error("WORKTREE_CHILD_EMPTY", `Child ${record.name} has no committed delivery.`);
     if (coordinator.runId !== undefined &&
-        (record.runId !== coordinator.runId || record.workerId === undefined || record.ownerSessionId !== coordinator.ownerSessionId || record.workerGeneration === undefined)) {
+        (record.runId !== coordinator.runId || record.workerId === undefined || record.ownerSessionId === undefined || record.workerGeneration === undefined ||
+          (coordinator.coordinatorId !== undefined && record.coordinatorId !== coordinator.coordinatorId))) {
       throw error("WORKTREE_CHILD_RUN_OWNERSHIP", `Child ${record.name} is not explicitly registered to run ${coordinator.runId}.`);
     }
     if (manifest !== null && (manifest.runId !== coordinator.runId || manifest.workerId !== record.workerId || manifest.generation !== record.workerGeneration || manifest.sourceCommit !== head)) {
@@ -276,14 +279,17 @@ export async function integrateSessionChildren(
     }
     const tasks = await deps.tasks(record.path).list();
     const roots = tasks.filter(({ task }) => task.parentTaskId === undefined);
-    if (roots.length !== 1 || tasks.some(({ status }) => status === "archived")) {
+    if (roots.length !== 1 || tasks.some(record => record.status === "archived" && record.supersededBy === undefined)) {
       throw error("WORKTREE_CHILD_TASK_INVALID", `Child ${record.name} must deliver one active task tree.`);
     }
+    const suppliedScope = manifest === null ? undefined : parseNoChangeReviewScope(manifest.reviewScope);
     const scope = manifest === null
       ? await resolveReviewScope({ root: record.path, runner: runner(deps, record.path), base: record.base })
-      : parseNoChangeReviewScope(manifest.reviewScope);
+      : await resolveReviewScope({root: record.path, runner: runner(deps, record.path), base: head,
+        noChangePaths: suppliedScope!.changedFiles});
     const fingerprint = await calculateSourceFingerprint(record.path, scope, runner(deps, record.path));
     for (const task of tasks) {
+      if (task.supersededBy !== undefined) continue;
       if (task.task.intent === undefined || task.task.intent.trim() === "") {
         throw error("WORKTREE_CHILD_INTENT_MISSING", `Child task ${task.task.id} needs its pre-work modification intent.`);
       }
@@ -371,6 +377,7 @@ export async function integrateSessionChildren(
     }
     journal = { ...journal, status: "importing", updatedAt: new Date().toISOString() };
     await writeJournal(coordinator, journal);
+    for (const delivery of deliveries) await copyDeliveryHistory(delivery.record, coordinator, delivery.tasks);
     await deps.tasks(coordinator.path).importDelivery(parentTaskId, deliveries.flatMap(({ tasks }) => tasks));
     for (const delivery of deliveries) {
       if (delivery.sourceArtifacts.length > 0) {
@@ -409,5 +416,51 @@ export async function integrateSessionChildren(
     await deps.git(coordinator.path, ["reset", "--hard", before]);
     await writeJournal(coordinator, { ...journal, status: "rolled-back", updatedAt: new Date().toISOString() });
     throw failure;
+  }
+}
+
+/** Preserve immutable local proof for historical review; import never promotes it to final proof. */
+async function copyDeliveryHistory(child: WorktreeRecord, coordinator: WorktreeRecord, tasks: readonly StoredTaskRecord[]): Promise<void> {
+  const source = new FileEvidenceStore(child.path, child.path);
+  const target = new FileEvidenceStore(coordinator.path, coordinator.path);
+  const references = new Set(tasks.flatMap(record => [record.evidence,
+    ...(record.revisions ?? []).map(revision => revision.previousEvidence)].flatMap(evidence => Object.values(evidence).flat())));
+  for (const reference of references) {
+    if (reference.startsWith("review:")) continue;
+    const checked = validateEvidence(await source.load(reference));
+    if (!checked.ok || !tasks.some(record => record.task.id === checked.value.taskId))
+      throw error("WORKTREE_CHILD_HISTORY_INVALID", "Historical evidence must resolve to the delivered task tree.");
+    const saved = await target.save(checked.value);
+    if (saved !== reference) throw error("WORKTREE_CHILD_HISTORY_INVALID", "Historical evidence has a noncanonical identity.");
+    const artifact = checked.value.acceptance?.executionArtifact;
+    if (artifact === undefined) continue;
+    const content = await readPrivateFile(join(child.path, artifact), child.path);
+    if (content === null || Buffer.byteLength(content) > 4 * 1024 * 1024 ||
+      artifact !== ".agent-ops/tasks/acceptance/" + sha256(content) + ".json")
+      throw error("WORKTREE_CHILD_HISTORY_INVALID", "Acceptance execution history is missing or changed.");
+    const destination = join(coordinator.path, artifact);
+    const existing = await readPrivateFile(destination, coordinator.path);
+    if (existing !== null && existing !== content) throw error("WORKTREE_CHILD_HISTORY_INVALID", "Acceptance artifact collision.");
+    if (existing === null) await writePrivateFile(destination, content, coordinator.path);
+  }
+  const directory = join(child.path, REVIEW_ATTESTATION_DIRECTORY);
+  let names: string[];
+  try {names = await readdir(directory);} catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    names = [];
+  }
+  for (const name of names.filter(name => /^[a-f0-9]{64}\.[a-z][a-z0-9-]{0,127}\.reports\.json$/u.test(name))) {
+    const content = await readPrivateFile(join(directory, name), child.path);
+    if (content === null || Buffer.byteLength(content) > 512 * 1024) continue;
+    let value: unknown;
+    try {value = JSON.parse(content);} catch {continue;}
+    if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+    const artifact = value as {taskId?: string; status?: string; sourceFingerprint?: string};
+    if (artifact.status !== "FAIL" || !tasks.some(task => task.task.id === artifact.taskId) ||
+      name !== artifact.sourceFingerprint + "." + artifact.taskId + ".reports.json") continue;
+    const destination = join(coordinator.path, REVIEW_ATTESTATION_DIRECTORY, name);
+    const existing = await readPrivateFile(destination, coordinator.path);
+    if (existing !== null && existing !== content) throw error("WORKTREE_CHILD_HISTORY_INVALID", "Failed review history collision.");
+    if (existing === null) await writePrivateFile(destination, content, coordinator.path);
   }
 }

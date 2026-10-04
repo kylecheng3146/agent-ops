@@ -434,13 +434,14 @@ export async function hasFreshVerification(
   if (context === undefined) {
     return false;
   }
+  options = {...options, noChangePaths: options.noChangePaths ?? context.records.find(r => r.task.id === context.taskId)?.noChangePaths};
   const scope = await resolveReviewScope({
-    root: options.root,
-    runner: options.gitRunner,
+    root: options.root!,
+    runner: options.gitRunner!,
     ...(options.noChangePaths === undefined ? {} : {noChangePaths: options.noChangePaths}),
     ...(base === undefined ? {} : { base })
   });
-  const fingerprint = await calculateSourceFingerprint(options.root, scope, options.gitRunner);
+  const fingerprint = await calculateSourceFingerprint(options.root!, scope, options.gitRunner!);
   return (await preflightReview(options, context, fingerprint)).ok;
 }
 
@@ -642,7 +643,8 @@ async function persistReviewEvidence(
       reportArtifacts.push({ taskId, path: await saveReviewReportArtifact(
         options.root, artifactResult, sourceFingerprint, taskId,
         complete ? tree : undefined,
-        context?.binding === undefined ? undefined : {...context.binding, taskContractHash: context.binding.taskContracts[taskId ?? context.taskId]!}
+        context?.binding === undefined ? undefined : {...context.binding, taskContractHash: context.binding.taskContracts[taskId ?? context.taskId]!},
+        context?.coverage
       ) });
     }
   } catch {
@@ -738,6 +740,7 @@ export async function runReviewCommand(
   const context = options.args.tree === true
     ? await treeContext(options)
     : await taskContext(options);
+  options = {...options, noChangePaths: options.noChangePaths ?? context?.records.find(r => r.task.id === context.taskId)?.noChangePaths};
   const evidenceRequirements: ReviewEvidenceRequirement[] = (
     options.args.evidence ?? []
   ).map((value) => {
@@ -983,6 +986,8 @@ export async function runReviewCommand(
         reviewScopeSignature(scope) !== reviewScopeSignature(postflight) ||
         (options.policyConfigHash !== undefined && currentHash !== options.policyConfigHash) ||
         postflightFingerprint !== sourceFingerprint ||
+        (context?.binding?.treeContractHash !== undefined && options.tasks !== undefined &&
+          await options.tasks.treeContract(context.taskId) !== context.binding.treeContractHash) ||
         (context !== undefined && options.tasks !== undefined &&
           (await Promise.all(context.records.map(async r => taskContractHash((await options.tasks!.status({taskId: r.task.id})).task))))
             .some((hash, i) => hash !== taskContractHash(context.records[i]!.task)))

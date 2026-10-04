@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {productionRunContext} from "./run-deps.js";
+import {runRunCommand} from "./commands/run.js";
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -330,6 +332,10 @@ process.exitCode = await runCli(
             !args.json &&
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true;
+          if (args.command === "run") {
+            const context = await productionRunContext(root);
+            return await runRunCommand({args, ...context, root: context.mainRoot});
+          }
           if (args.command === "init") {
             const store = trustStore();
             return await runInitCommand({

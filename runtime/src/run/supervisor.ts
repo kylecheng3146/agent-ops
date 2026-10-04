@@ -316,6 +316,30 @@ export class RunSupervisor {
     }
   }
 
+  /** Issue a new lease only after the prior registered process is confirmed dead. */
+  async reassignWorker(runId: string, workerId: string, generation: number): Promise<RunWorkerRecord> {
+    const state = await this.#repository.read(runId);
+    const worker = state?.workers.find(w => w.workerId === workerId);
+    if (state === null || state === undefined || worker === undefined || worker.generation !== generation ||
+      state.status !== "active" || state.disableRestart || state.awaitingResume ||
+      !["stopped", "fenced", "running", "idle", "starting"].includes(worker.status))
+      throw error("RUN_WORKER_STALE", "A new lease requires the current active run and writer generation.");
+    if (worker.nativeSessionId !== null) {
+      const observation = await this.#host.inspect({nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId,
+        processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance});
+      if (observation.processAlive) throw error("RUN_WRITER_STILL_ALIVE", "Confirm the old writer and its process identity are dead before takeover.");
+    }
+    return (await this.#repository.mutate(runId, current => {
+      const saved = current.workers.find(w => w.workerId === workerId);
+      if (current.status !== "active" || current.disableRestart || saved?.generation !== generation || saved.status !== worker.status)
+        throw error("RUN_WORKER_STALE", "The run changed while confirming process death.");
+      const active = current.workers.filter(w => w.workerId !== workerId && activeWorker(w)).length;
+      if (active >= current.jobs) throw error("RUN_WORKER_LIMIT", "No writer slot is available for recovery.");
+      return replaceWorker(current, {...saved, generation: saved.generation + 1, status: "assigned", processId: null,
+        processIdentity: null, leaseExpiresAt: null, heartbeatAt: this.#now(), stopIntent: null, nativeGoalState: "inactive"});
+    })).workers.find(w => w.workerId === workerId)!;
+  }
+
   async heartbeat(runId: string, workerId: string, generation: number): Promise<RunWorkerRecord> {
     return (await this.#repository.mutate(runId, (current) => {
       const worker = current.workers.find((candidate) => candidate.workerId === workerId);
@@ -389,12 +413,14 @@ export class RunSupervisor {
     const failureEventId = randomUUID();
     const saved = await this.#repository.mutate(runId, (current) => {
       const worker = current.workers.find((candidate) => candidate.workerId === workerId);
-      if (worker === undefined || worker.generation !== generation || !activeWorker(worker)) {
+      if (worker === undefined || worker.generation !== generation ||
+        (!activeWorker(worker) && !["fenced", "stopped"].includes(worker.status))) {
         throw error("RUN_WORKER_STALE", `Failure report rejected for stale worker ${workerId}.`);
       }
       const previous = worker.lastFailure;
       const noProgress = previous !== null && !previous.usefulProgress && !failure.usefulProgress &&
-        previous.failureClass === failure.failureClass && previous.checkId === failure.checkId && previous.pinId === failure.pinId;
+        previous.failureClass === failure.failureClass && previous.checkId === failure.checkId && previous.pinId === failure.pinId &&
+        previous.fingerprint === failure.fingerprint && previous.diagnosticDigest === failure.diagnosticDigest;
       const next = replaceWorker(current, {
         ...worker,
         lastFailure: failure
@@ -468,7 +494,7 @@ export class RunSupervisor {
         processIdentity: observation.processIdentity ?? currentWorker.processIdentity,
         heartbeatAt: this.#now(),
         leaseExpiresAt: observation.processAlive ? new Date(Date.parse(this.#now()) + this.#leaseMs).toISOString() : null,
-        ...(stoppedUnexpectedly ? { generation: currentWorker.generation + 1, nativeSessionId: null, nativeJobId: null } : {})
+        // Preserve the durable native identity; reassignWorker increments the lease only after confirmed death.
       });
       return stoppedUnexpectedly
         ? replaceTask(observed, currentWorker.taskId, { status: "ready", workerId: null, blockedReason: "native-process-exited" })
@@ -531,7 +557,7 @@ export class RunSupervisor {
           worker.stopIntent === null || worker.stopIntent.deliveryDigest !== request.deliveryDigest || worker.stopIntent.contractDigest !== request.contractDigest) {
         throw error("RUN_HANDOFF_MISMATCH", `Worker ${request.workerId} handoff does not match its current stop intent.`);
       }
-      if (worker.status === "fenced" && worker.stopIntent.confirmedDeadAt !== null) return current;
+      if (["fenced", "stopped"].includes(worker.status) && worker.stopIntent.confirmedDeadAt !== null) return current;
       if (worker.status !== "handing-off") throw error("RUN_HANDOFF_MISMATCH", `Worker ${request.workerId} is not awaiting handoff confirmation.`);
       const confirmedAt = this.#now();
       const intent = { ...worker.stopIntent, confirmedDeadAt: confirmedAt };
@@ -596,6 +622,8 @@ export class RunSupervisor {
       throw error("RUN_FINAL_PROOF_REQUIRED", "Run finalization requires verification, dual review, complete task state, and a receipt.");
     }
     return await this.#repository.mutate(runId, (current) => {
+      if (current.status !== "active" || current.disableRestart)
+        throw error("RUN_FINAL_PROOF_STOPPED", "A stopped or disabled run cannot accept a delayed completion result.");
       if (current.workers.some((worker) => activeWorker(worker))) throw error("RUN_WRITERS_ACTIVE", "Stop and fence every writer before finalization.");
       return { ...current, status: "complete", disableRestart: true, awaitingResume: false };
     });
@@ -609,10 +637,30 @@ export class RunSupervisor {
     const request: HandoffRequest = {
       workerId, generation, deliveryDigest: worker.stopIntent?.deliveryDigest ?? "0".repeat(64),
       contractDigest: worker.stopIntent?.contractDigest ?? "0".repeat(64),
-      sourceCommit: worker.stopIntent?.deliveryDigest ?? "0".repeat(40), reason
+      sourceCommit: worker.stopIntent?.sourceCommit ?? state.tasks.find(task => task.taskId === worker.taskId)?.sourceCommit ?? "0".repeat(40), reason
     };
     if (!["running", "idle"].includes(worker.status)) {
-      return (await this.#repository.mutate(runId, (current) => replaceWorker(current, { ...worker, status: "stopped", leaseExpiresAt: null }))).workers.find((candidate) => candidate.workerId === workerId)!;
+      await this.#repository.mutate(runId, current => {
+        const saved = current.workers.find(w => w.workerId === workerId);
+        if (saved?.generation !== generation) throw error("RUN_WORKER_STALE", "Writer generation changed before stop intent.");
+        return replaceWorker(current, {...saved, stopIntent: saved.stopIntent ?? {
+          runId, workerId, generation, nativeSessionId: saved.nativeSessionId, reason,
+          deliveryDigest: request.deliveryDigest, contractDigest: request.contractDigest, sourceCommit: request.sourceCommit,
+          expiresAt: new Date(Date.parse(this.#now()) + this.#leaseMs).toISOString(), confirmedDeadAt: null}});
+      });
+      if (worker.nativeSessionId !== null) {
+        await this.#host.stop({nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId,
+          processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance, reason, generation});
+        const observed = await this.#host.inspect({nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId,
+          processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance});
+        if (observed.processAlive) throw error("RUN_WRITER_STILL_ALIVE", "Native process death is required before recording stopped.");
+      }
+      return (await this.#repository.mutate(runId, current => {
+        const saved = current.workers.find(w => w.workerId === workerId);
+        if (saved?.generation !== generation) throw error("RUN_WORKER_STALE", "Writer generation changed during stop.");
+        return replaceWorker(current, {...saved, status: "stopped", leaseExpiresAt: null,
+          stopIntent: saved.stopIntent === null ? null : {...saved.stopIntent, confirmedDeadAt: this.#now()}});
+      })).workers.find(candidate => candidate.workerId === workerId)!;
     }
     await this.beginHandoff(runId, request);
     const fencedState = await this.#repository.read(runId);

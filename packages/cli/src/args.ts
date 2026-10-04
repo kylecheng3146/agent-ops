@@ -23,7 +23,8 @@ export const COMMAND_NAMES = [
   "review",
   "batch",
   "allow-stop",
-  "worktree"
+  "worktree",
+  "run"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -50,10 +51,22 @@ export type TaskAction =
 export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
-export type CliAction = ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
+export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond";
+export type CliAction = RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
   command: CliCommand;
+  runAction?: RunAction;
+  runId?: string;
+  goal?: string;
+  goalFile?: string;
+  host?: "claude" | "codex";
+  timeBudgetMs?: number;
+  jobs?: number;
+  questionId?: string;
+  answer?: string;
+  answerFile?: string;
+  wait?: boolean;
   action?: CliAction;
   /** `help` only: the command `<command> --help` asked about. */
   helpTopic?: TopLevelCommand;
@@ -188,6 +201,7 @@ function parseHookTarget(
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
+  if (argv[0] === "run") return parseRunArgs(argv.slice(1));
   let command: CliCommand | undefined;
   let action: CliAction | undefined;
   let scope: InstallScope | undefined;
@@ -1068,4 +1082,63 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     yes,
     ...(worktree === undefined ? {} : { worktree })
   };
+}
+
+function parseRunArgs(argv: readonly string[]): ParsedArgs {
+  const actions: readonly RunAction[] = ["start", "status", "logs", "resume", "stop", "respond"];
+  if (argv.includes("--help") || argv.includes("-h")) return {command: "help", helpTopic: "run", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
+  const action = actions.includes(argv[0] as RunAction) ? argv[0] as RunAction : "start";
+  const args: ParsedArgs = {command: "run", action, runAction: action, profiles: [], dryRun: false, json: false, yes: false, rerun: false};
+  const seen = new Set<string>();
+  let positional: string | undefined;
+  for (let i = actions.includes(argv[0] as RunAction) ? 1 : 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (!token.startsWith("-")) {
+      if (positional !== undefined) throw new CliArgumentError("CLI_UNEXPECTED_ARGUMENT", "Quote the goal as one argument; control actions take one run ID.");
+      positional = token; continue;
+    }
+    if (seen.has(token)) duplicate(token);
+    seen.add(token);
+    if (token === "--json") {args.json = true; continue;}
+    if (token === "--wait") {args.wait = true; continue;}
+    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file"].includes(token))
+      throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown run option: ${token}`, token);
+    const value = readOptionValue(argv, i++, token);
+    switch (token) {
+      case "--host":
+        if (value !== "claude" && value !== "codex") invalidValue(token, value);
+        args.host = value as "claude" | "codex"; break;
+      case "--goal-file": args.goalFile = value; break;
+      case "--question-id": args.questionId = value; break;
+      case "--answer": args.answer = value; break;
+      case "--answer-file": args.answerFile = value; break;
+      case "--jobs":
+        if (value !== "1" && value !== "2") invalidValue(token, value);
+        args.jobs = Number(value); break;
+      case "--time-budget": {
+        const match = value.match(/^([1-9][0-9]*)(s|m|h)$/u);
+        if (match === null) invalidValue(token, value);
+        const ms = Number(match![1]) * ({s: 1000, m: 60000, h: 3600000}[match![2] as "s" | "m" | "h"]);
+        if (!Number.isSafeInteger(ms) || ms > 86400000) invalidValue(token, value);
+        args.timeBudgetMs = ms; break;
+      }
+    }
+  }
+  if (action === "start") {
+    args.goal = positional;
+    if ((args.goal === undefined) === (args.goalFile === undefined)) throw new CliArgumentError("RUN_GOAL_REQUIRED", "Provide exactly one quoted goal or --goal-file.");
+    if (args.host === undefined) throw new CliArgumentError("RUN_HOST_REQUIRED", "Choose --host claude or --host codex.");
+    if (args.questionId !== undefined || args.answer !== undefined || args.answerFile !== undefined) throw new CliArgumentError("CLI_INVALID_OPTION", "Answer options require run respond.");
+  } else {
+    if (positional === undefined || !/^[a-z][a-z0-9-]{7,63}$/u.test(positional)) throw new CliArgumentError("RUN_ID_REQUIRED", "Control actions require a valid run ID.");
+    args.runId = positional;
+    if (args.host !== undefined || args.goalFile !== undefined || args.jobs !== undefined || args.timeBudgetMs !== undefined || args.wait)
+      throw new CliArgumentError("CLI_INVALID_OPTION", "Start options are not accepted by run control actions.");
+    if (action === "respond") {
+      if (args.questionId === undefined || (args.answer === undefined) === (args.answerFile === undefined))
+        throw new CliArgumentError("RUN_ANSWER_REQUIRED", "Respond requires --question-id and exactly one --answer or --answer-file.");
+    } else if (args.questionId !== undefined || args.answer !== undefined || args.answerFile !== undefined)
+      throw new CliArgumentError("CLI_INVALID_OPTION", "Answer options require run respond.");
+  }
+  return args;
 }

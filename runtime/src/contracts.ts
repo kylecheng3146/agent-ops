@@ -80,6 +80,7 @@ export interface CriterionAcceptance {
   mode: "behavioral" | "invariant" | "review-only";
   baselineCommit: string;
   bindings: AcceptanceBinding[];
+  reviewOnlyReason?: string;
 }
 
 export interface PathMapping {

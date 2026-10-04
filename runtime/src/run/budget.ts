@@ -144,7 +144,7 @@ export function recordUsage(
   usage: readonly UsageHighWater[],
   incoming: UsageHighWater
 ): UsageHighWater[] {
-  const index = usage.findIndex((value) => value.source === incoming.source);
+  const index = usage.findIndex((value) => value.source === incoming.source && value.epoch === incoming.epoch);
   if (index < 0) {
     return [...usage, incoming];
   }

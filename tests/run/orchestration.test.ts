@@ -73,6 +73,17 @@ test("scheduler validates DAGs and counts overlapping writer time once", async (
     const plan = await scheduler.plan(fixture.state.runId);
     assert.deepEqual(plan.ready.map((task) => task.taskId), ["a", "c"]);
     assert.equal(plan.availableSlots, 2);
+    await scheduler.addTasks(fixture.state.runId, [
+      { taskId: "d", dependencies: ["c"], status: "planned", workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null }
+    ]);
+    assert.equal((await fixture.repository.read(fixture.state.runId))!.tasks.length, 4);
+    assert.deepEqual((await scheduler.plan(fixture.state.runId)).ready.map(task => task.taskId), ["a", "c"]);
+    await assert.rejects(scheduler.addTasks(fixture.state.runId, [
+      { taskId: "d", dependencies: [], status: "planned", workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null }
+    ]), (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_DAG_INVALID");
+    await assert.rejects(scheduler.addTasks(fixture.state.runId, [
+      { taskId: "e", dependencies: ["missing"], status: "planned", workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null }
+    ]), (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_DAG_MISSING_DEPENDENCY");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -177,7 +188,10 @@ test("supervisor records structured failures and fences a worker after two stagn
       checkId: "check-a", pinId: "pin-a", failureClass: "assertion", fingerprint: "c".repeat(64), diagnosticDigest: "d".repeat(64), usefulProgress: false
     };
     assert.equal((await supervisor.recordFailure(fixture.state.runId, registration.workerId, registration.generation, { ...failure, round: 1 })).noProgress, false);
-    const result = await supervisor.recordFailure(fixture.state.runId, registration.workerId, registration.generation, { ...failure, round: 2 });
+    assert.equal((await supervisor.recordFailure(fixture.state.runId, registration.workerId, registration.generation,
+      { ...failure, fingerprint: "e".repeat(64), round: 2 })).noProgress, false, "different failing behavior is not a repeated failure");
+    const result = await supervisor.recordFailure(fixture.state.runId, registration.workerId, registration.generation,
+      { ...failure, fingerprint: "e".repeat(64), round: 3 });
     assert.equal(result.noProgress, true);
     assert.equal(result.state.workers[0]?.status, "blocked");
     assert.equal(result.state.tasks[0]?.status, "blocked");
@@ -232,6 +246,16 @@ test("worker Stop gate accepts only a fenced coordinator handoff", async () => {
       deliveryDigest: "a".repeat(64), contractDigest: "b".repeat(64)
     }, async () => record);
     assert.equal(blockedResult?.code, "RUN_WORKER_HANDOFF_PENDING");
+    const liveHandoff = await validateWorkerStopHandoff(repository, {
+      root: fixture.root, sessionId: "native-a", agentId: "agent-a", runId, workerId: "worker-a", generation: 1,
+      deliveryDigest: "a".repeat(64), contractDigest: "b".repeat(64), nowMs: Date.parse("2026-10-04T00:00:30Z")
+    }, async () => record);
+    assert.equal(liveHandoff?.code, "RUN_WORKER_HANDOFF_ALLOWED", "Stop can close a fenced live child; delivery still waits for confirmed death");
+    const wrongActor = await validateWorkerStopHandoff(repository, {
+      root: fixture.root, sessionId: "unregistered", runId, workerId: "worker-a", generation: 1,
+      nowMs: Date.parse("2026-10-04T00:00:30Z")
+    }, async () => record);
+    assert.equal(wrongActor?.code, "RUN_WORKER_HANDOFF_UNREGISTERED");
     await repository.mutate(runId, (state) => ({ ...state, workers: state.workers.map((worker) => ({ ...worker, status: "fenced" as const, stopIntent: worker.stopIntent === null ? null : { ...worker.stopIntent, confirmedDeadAt: "2026-10-04T00:00:02.000Z" } })) }));
     const allowed = await validateWorkerStopHandoff(repository, {
       root: fixture.root, sessionId: "session-run", agentId: "agent-a", runId, workerId: "worker-a", generation: 1,

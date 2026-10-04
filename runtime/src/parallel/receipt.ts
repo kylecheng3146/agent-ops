@@ -9,6 +9,7 @@ import { readPrivateFile, writePrivateFile } from "../security/permissions.js";
 import { checkTaskCompletionEvidence } from "../task/completion.js";
 import type { StoredTaskRecord } from "../task/store.js";
 import { FileEvidenceStore } from "../verify/evidence.js";
+import {validateEvidence} from "../schema/validate.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import type { GitRunner } from "../verify/change-surface.js";
 import type { IntegratedChild } from "./integrate.js";
@@ -29,6 +30,8 @@ export interface FinishReceipt {
   readonly tasks: readonly StoredTaskRecord[];
   readonly children: readonly IntegratedChild[];
   readonly verification: Readonly<Record<string, SealedValue>>;
+  /** Raw paired execution artifacts survive checkout cleanup with exact bytes. */
+  readonly executionArtifacts?: Readonly<Record<string, SealedValue>>;
   readonly reviews: Readonly<Record<string, { readonly attestation: SealedValue; readonly report: SealedValue }>>;
   readonly residualRisks: readonly string[];
   readonly createdAt: string;
@@ -94,6 +97,7 @@ export async function prepareFinishReceipt(options: {
   }
   const evidenceStore = new FileEvidenceStore(record.path, record.path);
   const verification: Record<string, SealedValue> = {};
+  const executionArtifacts: Record<string, SealedValue> = {};
   const reviews: Record<string, { attestation: SealedValue; report: SealedValue }> = {};
   const residualRisks = new Set<string>();
   const modes = new Set<"tree" | "per-task-fallback">();
@@ -104,12 +108,23 @@ export async function prepareFinishReceipt(options: {
     if (problem !== null) {
       throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Task ${task.task.id}: ${problem.remedy}`);
     }
-    for (const references of Object.values(task.evidence)) {
+    for (const references of [task.evidence, ...(task.revisions ?? []).map(revision => revision.previousEvidence)]
+      .flatMap(evidence => Object.values(evidence))) {
       for (const reference of references) {
         if (reference.startsWith("review:")) continue;
         const value = await evidenceStore.load(reference);
         if (value === null) throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Missing ${reference}.`);
         verification[reference] = seal(value);
+        const checked = validateEvidence(value);
+        if (!checked.ok) throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", "Historical verification evidence is invalid.");
+        const artifact = checked.value.acceptance?.executionArtifact;
+        if (artifact !== undefined) {
+          const content = await readPrivateFile(join(record.path, artifact), record.path);
+          if (content === null || Buffer.byteLength(content) > 4 * 1024 * 1024 ||
+            artifact !== ".agent-ops/tasks/acceptance/" + sha256(content) + ".json")
+            throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", "Paired execution artifact is missing or changed.");
+          executionArtifacts[artifact] = seal(content);
+        }
       }
     }
     const attestation = await findReviewAttestation(record.path, sourceFingerprint, task.task.id);
@@ -137,6 +152,7 @@ export async function prepareFinishReceipt(options: {
     tasks,
     children: options.children,
     verification,
+    executionArtifacts,
     reviews,
     residualRisks: [...residualRisks],
     createdAt: new Date().toISOString(),
@@ -155,6 +171,7 @@ export async function prepareFinishReceipt(options: {
   await writePrivateFile(path, content, options.commonDir);
   const reread = await readPrivateFile(path, options.commonDir);
   if (reread !== content || Object.values(verification).some((item) => !validSeal(item)) ||
+      Object.values(executionArtifacts).some(item => !validSeal(item)) ||
       Object.values(reviews).some(({ attestation, report }) => !validSeal(attestation) || !validSeal(report))) {
     throw new AgentOpsError("WORKTREE_RECEIPT_INVALID", "The local finish receipt could not be read back intact.");
   }

@@ -11,6 +11,7 @@ import { calculateSourceFingerprint } from "../../../../runtime/src/verify/sourc
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 import { readFinishedReview } from "./review-show.js";
+import {prepareRunIntegration, readRunIntegrationProof} from "../../../../runtime/src/run/integration.js";
 
 interface StepEnvelope {
   readonly code: string;
@@ -106,6 +107,11 @@ export async function runAdvanceCommand(options: {
   if (record === null || record.sessionId !== options.sessionId || record.agentId !== undefined) {
     throw new AgentOpsError("ADVANCE_WORKTREE_MISSING", `No coordinator worktree for session ${options.sessionId}.`);
   }
+  const savedProof = await readRunIntegrationProof(commonDir, record);
+  if (savedProof !== null && await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]) === savedProof.head) {
+    const finished = await finishWorktree(deps, {cwd: mainRoot, name, finalProof: {...savedProof, recovery: true}});
+    return okEnvelope("TASK_ADVANCED", { ...finished, text: "Recovered the sealed integration without moving the target again." });
+  }
   const parent = await deps.tasks(record.path).status({ taskId: options.parentTaskId });
   if (parent.status !== "active" || parent.task.parentTaskId !== undefined) {
     throw new AgentOpsError("ADVANCE_PARENT_INVALID", "Advance requires an active root task in the coordinator worktree.");
@@ -139,17 +145,26 @@ export async function runAdvanceCommand(options: {
       throw new AgentOpsError("ADVANCE_TASK_TREE_INVALID", "The candidate has unrelated or already completed tasks; final proof must cover one active tree.");
     }
     const ordered = all.filter(({ task }) => selected.has(task.id));
+    const noChangePaths = head === target ? parent.noChangePaths : undefined;
+    if (noChangePaths !== undefined) for (const task of ordered)
+      await deps.tasks(record.path).recordEvidence(task.task.id, {}, undefined, noChangePaths);
     for (const task of ordered) {
       requirePass(await step(record.path, ["verify", "--task", task.task.id, "--base", target]), `Verify ${task.task.id}`);
     }
     const reviewMode = await reviewFinalTree(step, record.path, parent.task.id,
       ordered.map(({ task }) => task.id), target);
-    const scope = await resolveReviewScope({ root: record.path, runner: runner(deps, record.path), base: target });
+    const scope = await resolveReviewScope({ root: record.path, runner: runner(deps, record.path), base: target,
+      ...(noChangePaths === undefined ? {} : {noChangePaths}) });
     const sourceFingerprint = await calculateSourceFingerprint(record.path, scope, runner(deps, record.path));
+    const finalProof = {target, head, sourceFingerprint, children,
+      ...(noChangePaths === undefined ? {} : {noChange: {sourceCommit: head,
+        contractDigest: await deps.tasks(record.path).treeContract(parent.task.id), reviewScope: scope,
+        artifactRefs: Object.values((await deps.tasks(record.path).status({taskId: parent.task.id})).evidence).flat()}})};
+    await prepareRunIntegration(commonDir, record, finalProof);
     try {
       const finished = await finishWorktree(deps, {
         cwd: mainRoot, name,
-        finalProof: { target, head, sourceFingerprint, children }
+        finalProof
       });
       if (finished.receipt === undefined) throw new AgentOpsError("WORKTREE_RECEIPT_MISSING", "Finish returned without a final review receipt.");
       const review = await readFinishedReview(deps, mainRoot, commonDir, finished.receipt);

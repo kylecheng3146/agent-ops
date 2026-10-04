@@ -8,7 +8,7 @@ import {
   assertProcessRunning,
   event,
   spawnNative,
-  waitForExit
+  stopNativeProcess
 } from "./util.js";
 import type {
   NativeGoalActionResult,
@@ -143,10 +143,7 @@ export class ClaudeGoalHost implements NativeGoalHost {
     signal: NodeJS.Signals = "SIGTERM"
   ): Promise<NativeGoalActionResult> {
     assertContext(handle, context);
-    if (handle.process.exitCode === null && handle.process.signalCode === null) {
-      handle.process.kill(signal);
-      await waitForExit(handle.process);
-    }
+    await stopNativeProcess(handle.process, signal);
     return actionResult(true, "paused", { signal });
   }
 

@@ -32,7 +32,7 @@ function invalid(message: string): never {
 function checkedArtifact(value: unknown, fingerprint: string, taskId: string): ReviewReportArtifact {
   if (typeof value !== "object" || value === null) invalid("Review artifact is unreadable.");
   const artifact = value as ReviewReportArtifact;
-  if (artifact.schemaVersion !== 1 || artifact.sourceFingerprint !== fingerprint ||
+  if (!([1, 2] as const).includes(artifact.schemaVersion) || artifact.sourceFingerprint !== fingerprint ||
       artifact.taskId !== taskId || !["PASS", "FAIL", "NOT_RUN"].includes(artifact.status) ||
       !Array.isArray(artifact.attempts) ||
       (artifact.report !== undefined && !validReport(artifact.report, artifact)) ||

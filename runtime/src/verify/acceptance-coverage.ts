@@ -62,7 +62,9 @@ export async function acceptanceCoverage(
     const row: Pick<CriterionCoverage, "criterionId" | "mode" | "evidenceReferences"> = {criterionId: criterion.id, mode: definition?.mode ?? "legacy",
       evidenceReferences: matching.map(item => item.reference)};
     if (definition === undefined || definition.mode === "review-only") {
-      rows.push({...row, status: "undischarged", reason: "Requires independent review against the original goal."});
+      rows.push({...row, status: "undischarged", reason: definition?.mode === "review-only"
+        ? "Review-only: " + definition.reviewOnlyReason + "; requires independent review against the original goal."
+        : "Requires independent review against the original goal."});
       continue;
     }
     let proven = true;

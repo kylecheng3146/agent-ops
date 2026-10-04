@@ -25,7 +25,8 @@ export function spawnNative(
   const child = spawn(command, args, {
     cwd,
     env: { ...process.env, ...options.env, ...env },
-    stdio: ["pipe", "pipe", "pipe"]
+    stdio: ["pipe", "pipe", "pipe"],
+    detached: process.platform !== "win32"
   });
   // Native clients can emit diagnostics independently of their structured
   // stdout protocol. Drain stderr so a long-lived writer cannot deadlock on a
@@ -121,4 +122,33 @@ export function commandParts(
     command: options.command ?? fallbackCommand,
     args: options.args ?? fallbackArgs
   };
+}
+
+/** Native writers own a process group, including their managed command children. */
+export function nativeProcessGroupAlive(pid: number): boolean {
+  try {process.kill(-pid, 0); return true;} catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ESRCH") return false;
+    // Permission errors cannot establish death.
+    return true;
+  }
+}
+export async function stopNativeProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): Promise<void> {
+  const pid = child.pid;
+  if (pid === undefined) throw new AgentOpsError("NATIVE_PROCESS_UNKNOWN", "Native process has no registered PID.");
+  const send = (s: NodeJS.Signals): void => {
+    try {
+      if (process.platform === "win32") child.kill(s);
+      else process.kill(-pid, s);
+    } catch (cause) {if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause;}
+  };
+  send(signal);
+  await waitForExit(child, 3000);
+  if (process.platform !== "win32" && nativeProcessGroupAlive(pid)) {
+    send("SIGKILL");
+    for (let i = 0; i < 30 && nativeProcessGroupAlive(pid); i++)
+      await new Promise(resolve => setTimeout(resolve, 100));
+    if (nativeProcessGroupAlive(pid)) throw new AgentOpsError("NATIVE_PROCESS_STILL_ALIVE", "Managed native descendants have not stopped; takeover is refused.");
+  }
+  if (child.exitCode === null && child.signalCode === null)
+    throw new AgentOpsError("NATIVE_PROCESS_STILL_ALIVE", "Native stop did not confirm process death.");
 }

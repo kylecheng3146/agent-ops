@@ -1,3 +1,4 @@
+import {canonicalJson} from "../config/hash.js";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -15,6 +16,7 @@ import type { GitRunner } from "../verify/change-surface.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {acceptanceCoverage, type CriterionCoverage} from "../verify/acceptance-coverage.js";
+import {loadFindingPin} from "./pin-finding.js";
 import {findReviewAttestation} from "../review/attestation.js";
 import {
   advanceFailureFingerprint,
@@ -67,6 +69,7 @@ export interface TaskServiceOptions {
     readonly gitRunner: GitRunner;
     readonly loadConfig: () => Promise<AgentOpsConfig>;
     readonly base?: string;
+    readonly noChangePaths?: readonly string[];
   };
 }
 
@@ -238,6 +241,8 @@ export class TaskService {
         validation.errors[0]?.message ?? "Task input is invalid."
       );
     }
+    if (validation.value.criteria.some(c => c.finding !== undefined))
+      throw taskError("TASK_PIN_REQUIRED", "New finding identities must be validated with pin-finding against a saved failed review.");
     if (validation.value.criteria.some(c => c.acceptance !== undefined)) {
       if (this.#completion === undefined) throw taskError("TASK_BASELINE_CONTEXT_REQUIRED", "Typed acceptance requires repository context.");
       const configured = validateTaskAgainstConfig(validation.value, await this.#completion.loadConfig());
@@ -354,6 +359,8 @@ export class TaskService {
       contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria};
     const checked = validateTask(next);
     if (!checked.ok) throw taskError("TASK_INVALID", checked.errors[0]?.message ?? "Invalid criterion revision.");
+    const records = (await this.#store.read()).tasks;
+    for (const criterion of next.criteria) await this.#validateFindingSource(previous, criterion, records);
     let policyConfigHash = previous.policyConfigHash;
     if (this.#completion !== undefined) {
       const config = await this.#completion.loadConfig();
@@ -409,6 +416,25 @@ export class TaskService {
         const originals = planned.replaces.map(ref => sources.get(ref)!).filter(old => old.id === c.id);
         if (originals.some(original => original.acceptance !== undefined && c.acceptance?.baselineCommit !== original.acceptance.baselineCommit))
           throw taskError("BASELINE_IMMUTABLE", "Replan must preserve criterion baselines.");
+      }
+      for (const criterion of planned.criteria) {
+        if (criterion.finding === undefined) continue;
+        const inherited = planned.replaces.map(ref => sources.get(ref)!).find(c => c.finding?.pinId === criterion.finding!.pinId);
+        if (inherited !== undefined) {
+          if (canonicalJson(inherited.finding) !== canonicalJson(criterion.finding))
+            throw taskError("TASK_PIN_IMMUTABLE", "Replan must retain immutable finding identity.");
+        } else {
+          let authorized = false;
+          for (const record of previous.filter(r => planned.replaces.some(ref => ref.startsWith(r.task.id + ":")))) {
+            try {await this.#validateFindingSource(record, criterion, snapshot.tasks); authorized = true; break;} catch {}
+          }
+          if (!authorized) throw taskError("TASK_PIN_REQUIRED", "New replan pins require a saved failed report bound to the replaced contracts.");
+        }
+      }
+      for (const ref of planned.replaces) {
+        const pin = sources.get(ref)!.finding?.pinId;
+        if (pin !== undefined && !planned.criteria.some(c => c.finding?.pinId === pin))
+          throw taskError("TASK_REPLAN_PIN_REQUIRED", "Split contracts must preserve mapped regression pin identities.");
       }
       const task: AgentTask = {schemaVersion: TASK_SCHEMA_VERSION, id: planned.id ?? this.#generateId(),
         title: planned.title, intent: planned.intent, goal: root.task.goal ?? root.task.intent ?? root.task.title,
@@ -648,7 +674,7 @@ export class TaskService {
       try {
         const scope = await resolveReviewScope({ root: completion.root, runner: completion.gitRunner,
           ...(completion.base === undefined ? {} : { base: completion.base }),
-          ...(current.noChangePaths === undefined ? {} : {noChangePaths: current.noChangePaths}) });
+          ...((current.noChangePaths ?? completion.noChangePaths) === undefined ? {} : {noChangePaths: current.noChangePaths ?? completion.noChangePaths}) });
         // Recorded so the completion gate can recompute this exact range once
         // the work is committed and the worktree has nothing left to measure.
         completionBase = scope.mode === "base" ? scope.resolvedBase : null;
@@ -802,12 +828,16 @@ export class TaskService {
       const validation = validateEvidence(value);
       return validation.ok && validation.value.taskId === snapshot.task.id &&
         validation.value.criterionId === criterionId && validation.value.commandId === commandId &&
-        validation.value.configHash === configHash && validation.value.sourceFingerprint === sourceFingerprint
+        validation.value.configHash === configHash && validation.value.sourceFingerprint === sourceFingerprint &&
+        (!(snapshot.task.goal !== undefined || (snapshot.task.contractRevision ?? 0) > 0 || snapshot.task.criteria.some(c => c.acceptance !== undefined)) ||
+          validation.value.taskContractHash === taskContractHash(snapshot.task))
         ? validation.value : null;
     };
     for (const criterion of snapshot.task.criteria) {
-      const commands = config.verification.commands.filter(({ id, required }) => required && criterion.verifierIds.includes(id));
-      if (commands.length === 0) throw taskError("TASK_REVERIFICATION_CHANGED", "Completed task criteria lack required coverage.");
+      const commands = config.verification.commands.filter(({ id, required }) => required &&
+        (criterion.acceptance !== undefined || criterion.verifierIds.includes(id)));
+      if (commands.length === 0 && criterion.acceptance === undefined)
+        throw taskError("TASK_REVERIFICATION_CHANGED", "Completed task criteria lack required coverage.");
       for (const command of commands) {
         let original = false;
         let fresh = false;
@@ -829,10 +859,21 @@ export class TaskService {
     for (const [criterionId, references] of Object.entries(appended)) {
       for (const reference of references) {
         const validation = validateEvidence(await store.load(reference));
-        if (!validation.ok || !snapshot.task.criteria.find(({ id }) => id === criterionId)?.verifierIds.includes(validation.value.commandId) || matches(validation.value, criterionId, validation.value.commandId) === null) {
+        const criterion = snapshot.task.criteria.find(({id}) => id === criterionId);
+        const permitted = validation.ok && criterion !== undefined && (criterion.acceptance === undefined
+          ? criterion.verifierIds.includes(validation.value.commandId)
+          : validation.value.acceptance === undefined
+            ? config.verification.commands.some(command => command.id === validation.value.commandId)
+            : criterion.acceptance.bindings.some(binding => binding.runnerId === validation.value.commandId));
+        if (!validation.ok || !permitted || matches(validation.value, criterionId, validation.value.commandId) === null) {
           throw taskError("TASK_EVIDENCE_INVALID", "Fresh verification references must belong to this task, criterion, source and config.");
         }
       }
+    }
+    for (const record of [snapshot, {...snapshot, evidence: appended}]) {
+      const rows = await acceptanceCoverage(record, config, sourceFingerprint, store);
+      if (rows.some(row => (row.mode === "behavioral" || row.mode === "invariant") && row.status !== "proven"))
+        throw taskError("TASK_REVERIFICATION_CHANGED", "Completed mechanical contracts require both original and fresh paired acceptance proof.");
     }
     const scope = await resolveReviewScope({ root: completion.root, runner: completion.gitRunner,
       ...(completion.base === undefined ? {} : { base: completion.base }),
@@ -943,6 +984,40 @@ export class TaskService {
         record.task.goal === undefined && (record.task.contractRevision ?? 0) === 0 && record.task.criteria.every(c => c.acceptance === undefined));
       return {rows, reviewed, originalMechanical};
     } catch {return unavailable();}
+  }
+
+  async #validateFindingSource(record: StoredTaskRecord, criterion: AcceptanceCriterion, records: readonly StoredTaskRecord[]): Promise<void> {
+    const finding = criterion.finding;
+    if (finding === undefined) return;
+    const existing = record.task.criteria.find(c => c.finding?.pinId === finding.pinId);
+    if (existing !== undefined) {
+      if (canonicalJson(existing.finding) !== canonicalJson(finding))
+        throw taskError("TASK_PIN_IMMUTABLE", "Finding source identity cannot change.");
+      return;
+    }
+    if (this.#completion === undefined) throw taskError("TASK_PIN_REQUIRED", "New pins require a saved review source.");
+    const {finding: _finding, ...unbound} = criterion;
+    const resolved = await loadFindingPin(this.#completion.root, record, finding.reportDigest + ":" + finding.findingIndex, unbound, records);
+    if (canonicalJson(resolved.finding) !== canonicalJson(finding) || resolved.acceptance?.baselineCommit !== criterion.acceptance?.baselineCommit)
+      throw taskError("TASK_PIN_REQUIRED", "Pin identity and baseline must match the saved failed report.");
+  }
+
+  async pinFinding(taskId: string, expectedContractHash: string, reference: string, criterion: AcceptanceCriterion, reason?: string):
+    Promise<{record: StoredTaskRecord | null; pendingCriterion: AcceptanceCriterion}> {
+    if (this.#completion === undefined) throw taskError("TASK_COMPLETION_UNAVAILABLE", "Pin requires a repository and saved review artifacts.");
+    const state = await this.#store.read();
+    const record = findTask(state, taskId);
+    if (record.status !== "active" || taskContractHash(record.task) !== expectedContractHash)
+      throw taskError("TASK_CONTRACT_CHANGED", "Pin requires the current active contract.");
+    const pinned = await loadFindingPin(this.#completion.root, record, reference, criterion, state.tasks);
+    const existing = record.task.criteria.find(c => c.finding?.pinId === pinned.finding?.pinId);
+    if (existing === undefined && record.task.criteria.length === 5) return {record: null, pendingCriterion: pinned};
+    if (existing === undefined && record.task.criteria.some(c => c.id === pinned.id))
+      throw taskError("TASK_CRITERION_ID_CONFLICT", "A new pin requires a new criterion ID.");
+    const criteria = existing === undefined ? [...record.task.criteria, pinned] : record.task.criteria.map(c => c.id === existing.id ? pinned : c);
+    const updated = await this.revise(taskId, {expectedContractHash, criteria,
+      reason: reason ?? "Pin saved review finding " + reference + " against the immutable original goal.", diagnostics: ["finding:" + reference, "pin:" + pinned.finding!.pinId]});
+    return {record: updated, pendingCriterion: pinned};
   }
 
   async treeContract(taskId: string): Promise<string> {

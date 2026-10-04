@@ -120,7 +120,7 @@ export function budgetExpired(state: RunState, now = Date.now()): boolean {
   return activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
 }
 
-/** Two consecutive same-class rounds without a useful change stop one child. */
+/** Two consecutive identical failure rounds without a useful change stop one child. */
 export function noProgressForTwoRounds(rounds: readonly FailureRound[]): boolean {
   if (rounds.length < 2) return false;
   const current = rounds[rounds.length - 1]!;
@@ -128,7 +128,8 @@ export function noProgressForTwoRounds(rounds: readonly FailureRound[]): boolean
   return !current.usefulProgress && !previous.usefulProgress &&
     current.taskId === previous.taskId &&
     current.failureClass === previous.failureClass &&
-    current.failureId === previous.failureId;
+    current.failureId === previous.failureId &&
+    current.diagnosticDigest === previous.diagnosticDigest;
 }
 
 export interface SchedulerOptions {
@@ -147,10 +148,12 @@ export class RunScheduler {
   }
 
   async addTasks(runId: string, tasks: readonly RunTaskNode[]): Promise<RunState> {
-    validateRunDag(tasks);
     return await this.#repository.mutate(runId, (current) => {
-      if (current.tasks.length > 0) throw error("RUN_TASKS_ALREADY_PLANNED", "Run task DAG is immutable after planning; revise through a contract revision.");
-      return { ...current, tasks: tasks.map((task) => ({ ...task, status: task.status === "planned" ? "planned" : task.status, workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null })) };
+      if (current.status !== "active" || current.disableRestart) throw error("RUN_NOT_ACTIVE", "Only an active run can plan workers.");
+      const combined = [...current.tasks, ...tasks.map((task) => ({ ...task, status: "planned" as const, workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null }))];
+      validateRunDag(combined);
+      if (combined.length > 512) throw error("RUN_DAG_INVALID", "Run task limit exceeded.");
+      return { ...current, tasks: combined };
     });
   }
 
@@ -178,6 +181,7 @@ export class RunScheduler {
     return await this.#repository.mutate(runId, (current) => {
       const task = current.tasks.find((candidate) => candidate.taskId === taskId);
       if (task === undefined) throw error("RUN_TASK_NOT_FOUND", `Run task not found: ${taskId}`);
+      if (task.status === "delivered" && task.deliveryDigest === deliveryDigest && task.sourceCommit === sourceCommit) return current;
       if (!["running", "awaiting-delivery", "ready"].includes(task.status)) throw error("RUN_TASK_STATE_INVALID", `Task ${taskId} cannot be delivered from ${task.status}.`);
       return replaceTask(current, taskId, { status: "delivered", deliveryDigest, sourceCommit });
     });

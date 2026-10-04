@@ -8,7 +8,8 @@ import { runAdvanceCommand, type AdvanceStep } from "../../packages/cli/src/comm
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
 import { integrateSessionChildren, writeNoChangeDelivery, type NoChangeDelivery } from "../../runtime/src/parallel/integrate.js";
-import { addWorktree, sessionWorktreeName, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
+import { addWorktree, sessionWorktreeName, writeWorktreeRecord, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
+import {FileRunRepository, createRunState} from "../../runtime/src/run/service.js";
 import { reviewReportDigest, saveReviewAttestation, saveReviewReportArtifact } from "../../runtime/src/review/attestation.js";
 import { resolveReviewScope } from "../../runtime/src/review/scope.js";
 import type { ReviewRunResult } from "../../runtime/src/review/runner.js";
@@ -148,7 +149,9 @@ test("integrates a run-owned no-change child only with an explicit supporting re
       title: "Preserve existing behavior", intent: "Prove the existing source already satisfies this invariant.",
       criteria, policyConfigHash: calculateConfigHash(CONFIG), sessionId: SESSION
     });
-    const scope = { mode: "worktree" as const, changedFiles: ["source.txt"] };
+    const sourceCommit = await git(child.path, "rev-parse", "HEAD");
+    const scope = { mode: "base" as const, baseRef: sourceCommit, resolvedBase: sourceCommit,
+      noChange: true as const, changedFiles: ["source.txt"] };
     const fingerprint = await calculateSourceFingerprint(child.path, scope, gitRunner(child.path));
     const evidence = new FileEvidenceStore(child.path, child.path);
     const refs: Record<string, string[]> = {};
@@ -161,7 +164,6 @@ test("integrates a run-owned no-change child only with an explicit supporting re
       }))];
     }
     await tasks.recordEvidence(task.task.id, refs);
-    const sourceCommit = await git(child.path, "rev-parse", "HEAD");
     const delivery: NoChangeDelivery = {
       schemaVersion: 1, deliveryKind: "no-change", sourceCommit,
       deliveryDigest: "a".repeat(64), contractDigest: "b".repeat(64), artifactRefs: ["review-artifact.json"],
@@ -204,7 +206,9 @@ test("final finish preserves a child that changes after integration", async () =
   }
 });
 
-test("task advance finishes an eight-criterion parent tree with one final review chain", async () => {
+for (const interrupted of [false, true]) test(interrupted
+  ? "run integration recovers after target and receipt commit without repeating verification, review or merge"
+  : "task advance finishes an eight-criterion parent tree with one final review chain", async () => {
   const root = await repository();
   try {
     const d = finishDeps();
@@ -215,6 +219,16 @@ test("task advance finishes an eight-criterion parent tree with one final review
     });
     const a = (await addWorktree(d, { cwd: root, name: "child-a", sessionId: SESSION, agentId: "agent-a" })).record;
     const b = (await addWorktree(d, { cwd: root, name: "child-b", sessionId: SESSION, agentId: "agent-b" })).record;
+    const commonDir = await git(root, "rev-parse", "--path-format=absolute", "--git-common-dir");
+    const runRepository = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
+    const runState = createRunState({root, commonDir, targetBranch: "main", goal: "Parent objective", host: "codex", ownerSessionId: SESSION});
+    if (interrupted) {
+      await runRepository.create(runState);
+      await writeWorktreeRecord({...coordinator, runId: runState.runId, coordinatorId: runState.coordinatorId,
+        workerId: runState.coordinatorId, ownerSessionId: SESSION, workerGeneration: 1});
+      for (const child of [a, b]) await writeWorktreeRecord({...child, runId: runState.runId, coordinatorId: runState.coordinatorId,
+        workerId: child.name, ownerSessionId: SESSION, workerGeneration: 1});
+    }
     const childCriteria = [...criteria,
       { id: "integration", description: "Integrates with the parent goal", verifierIds: ["node-test"] }];
     await deliver(a, "a.txt", "A\n", "Add A and preserve public behavior.", childCriteria);
@@ -274,7 +288,26 @@ test("task advance finishes an eight-criterion parent tree with one final review
       }
       return { code: "REVIEW_RESULT", status: "ok", data: { result: { status: "PASS" } } };
     };
+    let fault = interrupted;
+    const failing = {...d, git: async (cwd: string, args: readonly string[]) => {
+      if (fault && args[0] === "notes" && args.includes("add")) {
+        fault = false;
+        return {exitCode: 1, stdout: "", stderr: "Injected note failure after target/receipt."};
+      }
+      return await d.git(cwd, args);
+    }};
+    if (interrupted) {
+      await assert.rejects(runAdvanceCommand({cwd: root, sessionId: SESSION, parentTaskId: parent.task.id, deps: failing, step}),
+        (cause: unknown) => cause instanceof AgentOpsError && cause.code === "WORKTREE_FINISH_PARTIAL");
+      assert.equal((await runRepository.read(runState.runId))!.integration?.status, "receipt-written");
+      assert.equal((await service(coordinator.path).status({taskId: parent.task.id})).status, "complete");
+    }
+    const targetAfterFailure = await git(root, "rev-parse", "HEAD");
     const result = await runAdvanceCommand({ cwd: root, sessionId: SESSION, parentTaskId: parent.task.id, deps: d, step });
+    if (interrupted) {
+      assert.equal(await git(root, "rev-parse", "HEAD"), targetAfterFailure);
+      assert.equal((await runRepository.read(runState.runId))!.integration?.status, "cleaned");
+    }
     assert.equal(result.status, "ok");
     assert.equal(verifications, 3);
     assert.equal(reviews, 1);

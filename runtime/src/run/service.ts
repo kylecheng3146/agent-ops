@@ -1,3 +1,4 @@
+import type {UsageHighWater} from "./types.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -67,6 +68,7 @@ export interface RunBudgetState {
 export interface RunTaskNode {
   readonly taskId: string;
   readonly dependencies: readonly string[];
+  readonly planDigest?: string;
   readonly status: RunTaskStatus;
   readonly workerId: string | null;
   readonly deliveryDigest: string | null;
@@ -146,6 +148,7 @@ export interface RunQuestion {
 
 export interface RunState {
   readonly schemaVersion: 1;
+  readonly revision?: number;
   readonly runId: string;
   readonly root: string;
   readonly commonDir: string;
@@ -167,6 +170,8 @@ export interface RunState {
   readonly awaitingResume: boolean;
   readonly disableRestart: boolean;
   readonly budget: RunBudgetState;
+  readonly usage?: readonly UsageHighWater[];
+  readonly proofProcess?: {readonly processId: number; readonly processIdentity: string} | null;
   readonly jobs: number;
   readonly tasks: readonly RunTaskNode[];
   readonly workers: readonly RunWorkerRecord[];
@@ -194,6 +199,7 @@ export interface RunIntegrationState {
   readonly childDeliveries: readonly string[];
   readonly receiptPath: string | null;
   readonly receiptDigest: string | null;
+  readonly proofDigest?: string;
   readonly updatedAt: string;
 }
 
@@ -260,6 +266,8 @@ function validUsage(value: unknown): RunUsage {
   };
 }
 
+const plain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const boundedArray = (value: unknown, limit: number): value is unknown[] => Array.isArray(value) && value.length <= limit;
 function validStateShape(value: unknown): value is RunState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const item = value as Partial<RunState>;
@@ -283,6 +291,13 @@ function validStateShape(value: unknown): value is RunState {
 export function assertRunState(value: unknown): asserts value is RunState {
   if (!validStateShape(value)) return invalid("Persisted run state has an unsupported shape.");
   const state = value as RunState;
+  if ((state.revision !== undefined && (!Number.isSafeInteger(state.revision) || state.revision < 0)) ||
+      !boundedArray(state.tasks, 512) || !boundedArray(state.workers, 512) || !boundedArray(state.questions, 128) ||
+      !boundedArray(state.controls, 4096) || state.tasks.some(task => !plain(task) || !Array.isArray(task.dependencies) ||
+        task.dependencies.length > 512 || !["planned", "ready", "running", "awaiting-delivery", "delivered", "blocked", "complete"].includes(String(task.status))) ||
+      state.workers.some(worker => !plain(worker) || !["assigned", "starting", "running", "idle", "handing-off", "fenced", "delivered", "stopped", "blocked"].includes(String(worker.status))) ||
+      state.events.some(event => !plain(event)) || !Array.isArray(state.budget.activeIntervals) ||
+      state.budget.activeIntervals.some(interval => !plain(interval))) return invalid("Run state contains malformed nested records.");
   if (!RUN_ID.test(state.runId) || !SHA.test(state.goalHash) || state.goal.length > MAX_GOAL_LENGTH ||
       sha256(state.goal) !== state.goalHash || !Number.isSafeInteger(state.budget.limitMs) ||
       state.budget.limitMs <= 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS ||
@@ -298,6 +313,24 @@ export function assertRunState(value: unknown): asserts value is RunState {
     return invalid("Persisted run state failed identity, budget, or ownership validation.");
   }
   validUsage(state.budget.usage);
+  if (state.proofProcess != null && (!plain(state.proofProcess) || !Number.isSafeInteger(state.proofProcess.processId) ||
+    state.proofProcess.processId < 1 || typeof state.proofProcess.processIdentity !== "string" ||
+    state.proofProcess.processIdentity.length === 0 || state.proofProcess.processIdentity.length > 256))
+    return invalid("Invalid proof process ownership.");
+  if (state.integration !== null && (!plain(state.integration) || !ID.test(state.integration.transactionId) ||
+    !["prepared", "target-moved", "tasks-completed", "receipt-written", "cleaned", "blocked"].includes(state.integration.status) ||
+    !/^[a-f0-9]{40,64}$/u.test(state.integration.expectedTarget) || !/^[a-f0-9]{40,64}$/u.test(state.integration.candidate) ||
+    !boundedArray(state.integration.completedSteps, 1024) || state.integration.completedSteps.some(step => typeof step !== "string" || step.length > 256) ||
+    !boundedArray(state.integration.childDeliveries, 512) || state.integration.childDeliveries.some(commit => typeof commit !== "string" || !/^[a-f0-9]{40,64}$/u.test(commit)) ||
+    (state.integration.proofDigest !== undefined && !SHA.test(state.integration.proofDigest)) ||
+    (state.integration.receiptDigest !== null && !SHA.test(state.integration.receiptDigest)) ||
+    (state.integration.receiptPath !== null && typeof state.integration.receiptPath !== "string") ||
+    !Number.isFinite(Date.parse(state.integration.updatedAt)))) return invalid("Invalid integration transaction.");
+  if (state.usage !== undefined && (!Array.isArray(state.usage) || state.usage.length > 4096 || state.usage.some(item =>
+    !plain(item) || !["claude", "codex", "review", "verify"].includes(String(item.source)) || typeof item.epoch !== "string" || item.epoch.length > 256 ||
+    !["complete", "partial", "unknown"].includes(String(item.completeness)) || (typeof item.observedAt !== "string" || !Number.isFinite(Date.parse(item.observedAt))) ||
+    [item.inputTokens, item.outputTokens, item.totalTokens, item.costUsd].some(n => n !== null && (typeof n !== "number" || !Number.isFinite(n) || n < 0)))))
+    return invalid("Invalid usage epoch ledger.");
 }
 
 function event(input: Omit<RunEvent, "id" | "at">, now: string): RunEvent {
@@ -334,6 +367,7 @@ export function createRunState(input: {
   const usage: RunUsage = { tokens: null, usd: null, completeness: "unknown", source: null, epoch: 0, highWaterMark: 0 };
   const state: RunState = {
     schemaVersion: 1,
+    revision: 0,
     runId,
     root: bounded(input.root, "root", 4096),
     commonDir: bounded(input.commonDir, "commonDir", 4096),
@@ -362,6 +396,7 @@ export function createRunState(input: {
       lastObservedAt: iso(now, "budget.lastObservedAt"),
       usage
     },
+    usage: [],
     jobs: input.jobs ?? 2,
     tasks: [],
     workers: [],
@@ -405,7 +440,18 @@ export class FileRunRepository implements RunRepository {
   async write(state: RunState): Promise<void> {
     assertRunState(state);
     await mkdir(this.#directory, { recursive: true });
-    await writePrivateFile(this.#path(state.runId), `${JSON.stringify(state, null, 2)}\n`, this.#anchor);
+    const path = this.#path(state.runId);
+    await withPrivateFileLock(path, this.#anchor, async () => {
+      const current = await this.read(state.runId);
+      if (current !== null && (current.revision ?? 0) !== (state.revision ?? 0))
+        throw new AgentOpsError("RUN_STATE_STALE", "Run changed since this snapshot was read.");
+      if (current !== null && (state.root !== current.root || state.commonDir !== current.commonDir ||
+        state.targetBranch !== current.targetBranch || state.goal !== current.goal || state.host !== current.host ||
+        state.ownerSessionId !== current.ownerSessionId || state.coordinatorId !== current.coordinatorId))
+        throw new AgentOpsError("RUN_IDENTITY_IMMUTABLE", "Run goal, target and ownership cannot change in a snapshot write.");
+      const updated = {...state, revision: current === null ? (state.revision ?? 0) : (current.revision ?? 0) + 1};
+      await writePrivateFile(path, `${JSON.stringify(updated, null, 2)}\n`, this.#anchor);
+    });
   }
 
   async create(state: RunState): Promise<void> {
@@ -427,7 +473,11 @@ export class FileRunRepository implements RunRepository {
       if (current === null) throw new AgentOpsError("RUN_NOT_FOUND", `Run not found: ${runId}`);
       const next = await action(current);
       assertRunState(next);
-      const updated = { ...next, updatedAt: iso(this.#now(), "updatedAt") };
+      if (next.runId !== current.runId || next.root !== current.root || next.commonDir !== current.commonDir ||
+        next.targetBranch !== current.targetBranch || next.goal !== current.goal || next.goalHash !== current.goalHash ||
+        next.host !== current.host || next.ownerSessionId !== current.ownerSessionId || next.coordinatorId !== current.coordinatorId)
+        throw new AgentOpsError("RUN_IDENTITY_IMMUTABLE", "Run goal, target and ownership cannot change during a mutation.");
+      const updated = { ...next, revision: (current.revision ?? 0) + 1, updatedAt: iso(this.#now(), "updatedAt") };
       await writePrivateFile(path, `${JSON.stringify(updated, null, 2)}\n`, this.#anchor);
       return clone(updated);
     });
@@ -505,7 +555,9 @@ export class RunService {
   }
 
   async stop(runId: string, reason = "user requested stop"): Promise<RunLifecycleResult> {
-    const state = await this.#repository.mutate(runId, (current) => ({
+    const state = await this.#repository.mutate(runId, (current) => {
+      if (current.status === "complete") throw new AgentOpsError("RUN_ALREADY_COMPLETE", "A completed run cannot be changed into a stopped run.");
+      return {
       ...current,
       status: "stopping",
       disableRestart: true,
@@ -513,7 +565,8 @@ export class RunService {
         action: "stop", actor: "user", reason, requestedAt: this.#now(), expiresAt: null, appliedAt: null
       }],
       events: [...current.events, event({ type: "control", code: "RUN_STOP_REQUESTED", workerId: null, taskId: null, detail: reason }, this.#now())].slice(-MAX_EVENTS)
-    }));
+      };
+    });
     return { state, message: `Run ${runId} is stopping; native sessions remain pending until reconciled.` };
   }
 
@@ -530,7 +583,8 @@ export class RunService {
 
   async resume(runId: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, (current) => {
-      if (current.status === "complete" || current.status === "blocked") {
+      if (current.status === "complete" || (current.status === "blocked" &&
+        (current.integration === null || current.integration.status === "prepared"))) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
       return {

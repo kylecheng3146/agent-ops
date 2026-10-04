@@ -24,6 +24,7 @@ export interface LaunchdDescriptorInput {
   readonly stdoutPath?: string;
   readonly stderrPath?: string;
   readonly uid?: number;
+  readonly pathEnvironment?: string;
 }
 
 export interface LaunchdDescriptor {
@@ -121,6 +122,7 @@ export function createLaunchdDescriptor(input: LaunchdDescriptorInput): LaunchdD
 ${argumentsXml}
   </array>
   <key>WorkingDirectory</key><string>${xml(input.cwd)}</string>
+${input.pathEnvironment === undefined ? "" : "  <key>EnvironmentVariables</key><dict><key>PATH</key><string>" + xml(input.pathEnvironment) + "</string></dict>"}
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key>
   <dict><key>SuccessfulExit</key><false/></dict>
@@ -174,6 +176,17 @@ export function readLoginIdentity(uid = defaultUid()): string {
   return `uid:${uid}:${process.env.LOGNAME ?? process.env.USER ?? "unknown"}`;
 }
 
+/** A uid alone survives logout/login; the GUI audit session identifies this login. */
+export async function readGuiLoginIdentity(uid = defaultUid(),
+  run: LaunchdControllerOptions["execFile"] = defaultExecFile): Promise<string> {
+  if (!Number.isSafeInteger(uid) || uid < 0) throw new AgentOpsError("LAUNCHD_UID_INVALID", "Invalid macOS login user id.");
+  const result = await run("launchctl", ["print", `gui/${uid}`], {});
+  const security = result.stdout?.match(/^\tsecurity context = \{[\s\S]*?^\t\}/mu)?.[0];
+  const auditSession = security?.match(/^\s*asid = ([0-9]+)$/mu)?.[1];
+  if (auditSession === undefined) throw new AgentOpsError("LAUNCHD_LOGIN_IDENTITY_UNAVAILABLE", "Cannot identify the current GUI audit session.");
+  return `gui:${uid}:asid:${auditSession}`;
+}
+
 export class LaunchdController {
   private readonly platform: NodeJS.Platform;
   private readonly uid: number;
@@ -199,6 +212,12 @@ export class LaunchdController {
     await this.run("launchctl", ["bootstrap", descriptor.domain, descriptor.path], {
       cwd: descriptor.privateDirectory
     });
+  }
+
+  async wake(descriptor: LaunchdDescriptor): Promise<void> {
+    this.assertSupported();
+    try {await this.bootstrap(descriptor);}
+    catch {await this.run("launchctl", ["kickstart", `${descriptor.domain}/${descriptor.label}`], {cwd: descriptor.privateDirectory});}
   }
 
   async bootout(descriptor: LaunchdDescriptor): Promise<void> {

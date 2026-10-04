@@ -4,6 +4,24 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Executable acceptance contracts distinguish behavioral red→green checks,
+  invariants and explicit review-only requirements. Trusted repository runners
+  replay committed test materials against isolated baseline and candidate
+  checkouts. Node, Jest, Vitest, pytest and Rust adapters reject incomplete,
+  skipped, retried and infrastructure-failed checks as proof.
+- Criteria revisions and mapped replans preserve the original goal, immutable
+  baselines and full evidence history. `task pin-finding` binds a regression
+  criterion to a saved FAIL report and its failed candidate. Current contracts,
+  coverage and revision history enter both fresh reviewer packets.
+- `run` adds Claude/Codex native goal orchestration, isolated worker leases,
+  dependency deliveries, bounded repair and a macOS launchd supervisor. The
+  default 60-minute active budget includes verification, review and integration;
+  native completion alone cannot finish a run. Integration seals its proof and
+  records progress so interrupted bookkeeping can resume without another merge.
+- Explicit no-change deliveries and finishes retain committed supporting paths
+  and final proof without an empty commit. Ordinary empty-diff review and direct
+  empty-branch finish retain their existing refusal behavior.
+
 ## [0.5.3] - 2026-10-03
 
 - `task advance` integrates committed child worktrees and their recorded

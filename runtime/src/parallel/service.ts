@@ -71,6 +71,7 @@ export interface WorktreeRecord {
   readonly agentId?: string;
   /** F run identity; absent on legacy worktrees. */
   readonly runId?: string;
+  readonly coordinatorId?: string;
   /** F worker identity; never inferred from a native session id. */
   readonly workerId?: string;
   /** Coordinator-issued owner session for an F worker. */
@@ -81,6 +82,7 @@ export interface WorktreeRecord {
 }
 
 export interface RunWorktreeOwnership {
+  readonly coordinatorId?: string;
   readonly runId: string;
   readonly workerId: string;
   readonly ownerSessionId: string;
@@ -339,6 +341,7 @@ export async function readWorktreeRecord(root: string): Promise<WorktreeRecord |
       (value.agentId === undefined || typeof value.agentId === "string") &&
       (value.runId === undefined || typeof value.runId === "string") &&
       (value.workerId === undefined || typeof value.workerId === "string") &&
+      (value.coordinatorId === undefined || typeof value.coordinatorId === "string") &&
       (value.ownerSessionId === undefined || typeof value.ownerSessionId === "string") &&
       (value.workerGeneration === undefined || (typeof value.workerGeneration === "number" && Number.isSafeInteger(value.workerGeneration) && value.workerGeneration > 0)) &&
       typeof value.branch === "string" && typeof value.path === "string" &&
@@ -497,6 +500,7 @@ export async function addWorktree(
     ...(options.agentId === undefined ? {} : { agentId: options.agentId }),
     ...(options.runOwnership === undefined ? {} : {
       runId: options.runOwnership.runId,
+      ...(options.runOwnership.coordinatorId === undefined ? {} : {coordinatorId: options.runOwnership.coordinatorId}),
       workerId: options.runOwnership.workerId,
       ownerSessionId: options.runOwnership.ownerSessionId,
       workerGeneration: options.runOwnership.generation

@@ -46,12 +46,15 @@ test("recognizes every top-level command", () => {
     "review",
     "batch",
     "allow-stop",
-    "worktree"
+    "worktree",
+    "run"
   ]);
 
   for (const command of COMMAND_NAMES) {
     const argv =
-      command === "trust" || command === "task"
+      command === "run"
+        ? [command, "status", "run-12345678"]
+        : command === "trust" || command === "task"
         ? [command, "status"]
         : command === "allow-stop"
           ? [command, "--session", "session-one"]
