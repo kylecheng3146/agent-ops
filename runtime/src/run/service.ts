@@ -231,6 +231,7 @@ const RUN_ID = /^[a-z][a-z0-9-]{7,63}$/u;
 const ID = /^[A-Za-z0-9._:/-]{1,256}$/u;
 const SHA = /^[a-f0-9]{40,64}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u;
 const MAX_EVENTS = 2_000;
 const MAX_GOAL_LENGTH = 64_000;
 const MAX_TIME_BUDGET_MS = 24 * 60 * 60 * 1_000;
@@ -287,7 +288,8 @@ function validPolicyBinding(value: unknown): value is RunPolicyBinding {
   if (!plain(value) || Object.keys(value).sort().join(",") !== "artifactDigest,configHash,expiresAt,runtimeHash") return false;
   return SHA256.test(String(value.configHash)) && SHA256.test(String(value.runtimeHash)) &&
     SHA256.test(String(value.artifactDigest)) && typeof value.expiresAt === "string" &&
-    value.expiresAt.length <= 64 && Number.isFinite(Date.parse(value.expiresAt));
+    value.expiresAt.length <= 64 && ISO_TIMESTAMP.test(value.expiresAt) &&
+    Number.isFinite(Date.parse(value.expiresAt));
 }
 function validStateShape(value: unknown): value is RunState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;

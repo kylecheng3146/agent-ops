@@ -164,4 +164,8 @@ test("run policy binding is optional for legacy state and strict when present", 
     () => assertRunState({ ...state, policyBinding: { ...binding, extra: "field" } as RunPolicyBinding & { extra: string } }),
     { code: "RUN_STATE_INVALID" }
   );
+  assert.throws(
+    () => assertRunState({ ...state, policyBinding: { ...binding, expiresAt: "10/06/2026" } }),
+    { code: "RUN_STATE_INVALID" }
+  );
 });
