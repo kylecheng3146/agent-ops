@@ -205,9 +205,6 @@ export async function recoverRunIntegrationAfterCleanup(
        !integration.completedSteps.includes("note"))) {
     throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recovery requires a recorded receipt and Git note before cleanup can be completed.");
   }
-  const target = await git(state.root, ["rev-parse", state.targetBranch + "^{commit}"]);
-  if (target.exitCode !== 0 || target.stdout.trim() !== integration.candidate)
-    throw new AgentOpsError("RUN_INTEGRATION_TARGET_CHANGED", "The target does not contain the sealed integration candidate.");
   if (integration.receiptPath === null || integration.receiptDigest === null)
     throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "The integration has no sealed receipt.");
   const source = await readPrivateFile(integration.receiptPath, commonDir);
@@ -230,6 +227,13 @@ export async function recoverRunIntegrationAfterCleanup(
       !noteText.includes(`receipt-sha256: ${integration.receiptDigest}`)) {
     throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "The sealed receipt is not bound by the Git note for the candidate.");
   }
+  const target = await git(state.root, ["rev-parse", state.targetBranch + "^{commit}"]);
+  const exact = target.exitCode === 0 && target.stdout.trim() === integration.candidate;
+  const historic = !exact && target.exitCode === 0 && integration.completedSteps.includes("target") &&
+    integration.completedSteps.includes("receipt") && integration.completedSteps.includes("note") &&
+    (await git(state.root, ["merge-base", "--is-ancestor", integration.candidate, target.stdout.trim()])).exitCode === 0;
+  if (!exact && !historic)
+    throw new AgentOpsError("RUN_INTEGRATION_TARGET_CHANGED", "The target is inconsistent with the sealed, receipt-bound integration history.");
   await repository.mutate(runId, current => {
     if (current.integration === null || current.integration.transactionId !== integration.transactionId ||
         current.integration.candidate !== integration.candidate || current.integration.expectedTarget !== integration.expectedTarget)

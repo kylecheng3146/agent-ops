@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {mkdtemp, readFile, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {nativeProcessIdentity} from "../../runtime/src/run/transport.js";
 
 import { ClaudeGoalHost } from "../../runtime/src/run/hosts/claude.js";
 import { CodexGoalHost } from "../../runtime/src/run/hosts/codex.js";
@@ -73,4 +77,16 @@ test("Claude host uses stream-json input, native /goal, and signal lifecycle", a
   }
   assert.equal(observed.some((item) => item.type === "completed"), true);
   await host.stop(handle, context);
+});
+
+test("Codex initialization timeout cancels the unopened detached process group", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-native-timeout-"));
+  try {
+    const marker = join(root, "native-pids.json");
+    const script = "const fs=require('node:fs'),cp=require('node:child_process');const child=cp.spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(process.argv[1],JSON.stringify([process.pid,child.pid]));setInterval(()=>{},1000);";
+    const host = new CodexGoalHost({command: process.execPath, args: ["-e", script, marker], requestTimeoutMs: 1000});
+    await assert.rejects(host.start(startInput()), {code: "NATIVE_REQUEST_TIMEOUT"});
+    for (const pid of JSON.parse(await readFile(marker, "utf8")) as number[])
+      assert.equal(await nativeProcessIdentity(pid), null, "failed startup must not leave an unregistered native process or descendant");
+  } finally {await rm(root, {recursive: true, force: true});}
 });

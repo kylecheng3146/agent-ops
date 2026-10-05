@@ -313,6 +313,27 @@ test("cleanup recovery refuses a receipt whose Git note is not sealed", async ()
   }
 });
 
+test("cleanup recovery preserves a sealed historical receipt after a later target commit", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps(), prepared = await preparedRunIntegration(root, d);
+    await git(root, "notes", "--ref=agent-ops", "add", "-f", "-m",
+      `session: ${SESSION}\nreceipt: ${prepared.receiptPath}\nreceipt-sha256: ${prepared.receiptDigest}`, prepared.target);
+    await removeCheckout(d, prepared.record, true, prepared.target);
+    await write(root, "later.txt", "Independent later target change\n");
+    await git(root, "add", "."); await git(root, "commit", "-m", "Later target work");
+    const later = await git(root, "rev-parse", "HEAD");
+    const recovered = await recoverRunIntegrationAfterCleanup(prepared.commonDir, prepared.runId, d.git);
+    assert.equal(recovered.receiptDigest, prepared.receiptDigest);
+    assert.equal(await git(root, "rev-parse", "HEAD"), later, "bookkeeping recovery cannot overwrite later work");
+    const runs = new FileRunRepository(join(prepared.commonDir, "agent-ops/runs"), prepared.commonDir);
+    assert.equal((await runs.read(prepared.runId))!.integration!.status, "cleaned");
+    await git(root, "notes", "--ref=agent-ops", "remove", prepared.target);
+    await assert.rejects(recoverRunIntegrationAfterCleanup(prepared.commonDir, prepared.runId, d.git), {code: "RUN_INTEGRATION_RECOVERY_REQUIRED"},
+      "ancestry alone cannot replace the exact sealed receipt and Git note");
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
 test("final finish preserves a child that changes after integration", async () => {
   const root = await repository();
   try {

@@ -79,7 +79,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const savedTransport = new NativeRunTransport(state.host === "codex"
         ? new CodexGoalHost({nativeVersion: state.nativeInstance}) : new ClaudeGoalHost({nativeVersion: state.nativeInstance}), repository);
       const savedSupervisor = new RunSupervisor({repository, host: savedTransport});
-      for (const worker of state.workers.filter(worker => worker.nativeSessionId !== null))
+      for (const worker of state.workers)
         await savedSupervisor.stopWorker(runId, worker.workerId, worker.generation, "crash");
       if (state.proofProcess != null) await savedTransport.stop({nativeSessionId: "run-proof", nativeJobId: null,
         ...state.proofProcess, instance: state.nativeInstance, generation: 1, reason: code});
@@ -212,7 +212,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           const from = (await deps.git(coordinator.worktree!, ["rev-parse", "HEAD"])).stdout.trim();
           const name = runId + "-" + sha256(node.taskId).slice(0, 8);
           const plannedRoot = join(root, ".worktrees", name);
-          await repository.mutate(runId, saved => ({...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, worktree: plannedRoot} : w)}));
+          await repository.mutate(runId, saved => {
+            if (saved.status !== "active" || saved.disableRestart)
+              throw new AgentOpsError("RUN_START_DISABLED", "Stop fenced child provisioning before checkout creation.");
+            return {...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, worktree: plannedRoot} : w)};
+          });
           const preserved = await readWorktreeRecord(plannedRoot);
           if (preserved !== null && (preserved.runId !== runId || preserved.workerId !== registration.workerId))
             throw new AgentOpsError("RUN_WORKTREE_OWNERSHIP", "Preserved child checkout belongs to another worker.");
@@ -233,10 +237,17 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             sessionId: ownerSessionId, policyConfigHash: calculateConfigHash(config)});
           await start((await repository.read(runId))!.workers.find(w => w.workerId === registration.workerId)!);
         } catch (cause) {
+          const latest = (await repository.read(runId))!;
+          if (latest.status !== "active" || latest.disableRestart) {
+            const saved = latest.workers.find(w => w.workerId === registration.workerId)!;
+            await supervisor.stopWorker(runId, saved.workerId, saved.generation, "stop");
+            return;
+          }
           await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_WORKER_START_FAILED",
             workerId: registration.workerId, taskId: node.taskId, detail: "Child provisioning failed; the registered checkout and setup artifacts are preserved."});
-          await scheduler.blockTaskAndDependents(runId, node.taskId, cause instanceof AgentOpsError ? cause.code : "RUN_WORKER_START_FAILED");
-          await repository.mutate(runId, saved => ({...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, status: "blocked"} : w)}));
+          await scheduler.blockTaskAndDependents(runId, node.taskId, cause instanceof AgentOpsError ? cause.code : "RUN_WORKER_START_FAILED", true);
+          await repository.mutate(runId, saved => saved.status !== "active" || saved.disableRestart ? saved :
+            {...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, status: "blocked"} : w)});
         }
       }
     }
@@ -331,7 +342,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     async function stopAll(reason: "stop" | "budget" | "crash", closeBudget = true): Promise<void> {
       const current = (await repository.read(runId))!;
       for (const worker of current.workers.filter(active))
-        if (worker.nativeSessionId !== null) await supervisor.stopWorker(runId, worker.workerId, worker.generation, reason);
+        await supervisor.stopWorker(runId, worker.workerId, worker.generation, reason);
       if (!closeBudget) return;
       await repository.mutate(runId, saved => ({...saved, budget: {...saved.budget,
         accumulatedMs: activeWallTimeMs(saved.budget.activeIntervals, Date.now()), lastObservedAt: new Date().toISOString(),
@@ -482,8 +493,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       if (latest.integration === null || latest.integration.receiptPath !== path || latest.integration.receiptDigest !== sha256(source))
         throw new AgentOpsError("RUN_INTEGRATION_RECEIPT_INVALID", "Receipt must be the exact sealed receipt of the current run transaction.");
       validateRunIntegrationReceipt(latest.integration, receipt);
-      const target = await deps.git(root, ["rev-parse", current.targetBranch + "^{commit}"]);
-      if (target.exitCode !== 0 || target.stdout.trim() !== receipt.candidateHead || receipt.sessionId !== current.ownerSessionId ||
+      await recoverRunIntegrationAfterCleanup(commonDir, runId, deps.git);
+      if (receipt.sessionId !== current.ownerSessionId ||
         !receipt.tasks.some(record => record.task.id === current.rootTaskId && record.task.goal === current.goal) ||
         receipt.tasks.some(record => record.status !== "complete") ||
         Object.values(receipt.verification).some(seal => sha256(JSON.stringify(seal.value)) !== seal.digest) ||
@@ -501,7 +512,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const finalContract = treeContractHash(receipt.tasks.map(record => record.task));
       await repository.mutate(runId, current => ({...current, currentContractHash: finalContract,
         contractRevision: current.contractRevision + (current.currentContractHash === finalContract ? 0 : 1)}));
-      await supervisor.finalize(runId, {targetCommit: target.stdout.trim(), candidateCommit: receipt.candidateHead,
+      await supervisor.finalize(runId, {targetCommit: receipt.candidateHead, candidateCommit: receipt.candidateHead,
         verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: sha256(source)});
       try {
         await stopAll("stop");
@@ -612,10 +623,27 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               "Native completion has no agent-ops delivery or final receipt. Read run-instructions.json, complete the evidence loop and submit handoff or finalize.");
             continue;
           }
+          async function rejectRequest(code: string): Promise<void> {
+            const digest = sha256(source!);
+            const diagnostic = join(directory, runId, "invalid-requests", worker.workerId + "-" + worker.generation + "-" + digest + ".json");
+            if (await readPrivateFile(diagnostic, commonDir) === null) {
+              await writePrivateFile(diagnostic, canonicalJson({code, workerId: worker.workerId, generation: worker.generation, requestDigest: digest}), commonDir);
+              await repository.appendEvent(runId, {type: "diagnostic", code, workerId: worker.workerId, taskId: worker.taskId,
+                detail: "Supervisor request is malformed or stale; a diagnostic response is available in the current checkout."});
+            }
+            await writePrivateFile(join(worker.worktree!, ".agent-ops/tasks/run-response.json"), JSON.stringify({code,
+              workerId: worker.workerId, generation: worker.generation, error: "Read current run-instructions.json and replace the malformed or stale request atomically."}), worker.worktree!);
+            if (observation.nativeGoalState === "complete") await repair(worker, code,
+              "A malformed or stale request cannot establish completion. Read current run-instructions.json and replace run-request.json atomically.");
+          }
           let request: unknown;
-          try {request = JSON.parse(source);} catch {continue;}
-          if (!plain(request) || typeof request.requestId !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(request.requestId) ||
-            request.workerId !== worker.workerId || request.generation !== worker.generation) continue;
+          try {request = JSON.parse(source);} catch {await rejectRequest("RUN_REQUEST_INVALID"); continue;}
+          if (!plain(request) || typeof request.requestId !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(request.requestId)) {
+            await rejectRequest("RUN_REQUEST_INVALID"); continue;
+          }
+          if (request.workerId !== worker.workerId || request.generation !== worker.generation) {
+            await rejectRequest("RUN_REQUEST_STALE"); continue;
+          }
           const donePath = join(directory, runId, "requests", sha256(request.requestId) + ".json");
           const requestDigest = sha256(canonicalJson(request));
           const completed = await readPrivateFile(donePath, commonDir);

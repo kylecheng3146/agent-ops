@@ -151,7 +151,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     const version = before.integration !== null ? before.nativeInstance : (await promisify(execFile)(before.host, ["--version"], {timeout: 5000, maxBuffer: 8192})).stdout.trim();
     const transport = new NativeRunTransport(before.host === "codex" ? new CodexGoalHost() : new ClaudeGoalHost(), repository);
     const supervisor = new RunSupervisor({repository, host: transport});
-    for (const worker of before.workers.filter(w => w.nativeSessionId !== null)) await supervisor.stopWorker(runId, worker.workerId, worker.generation, "stop");
+    for (const worker of before.workers) await supervisor.stopWorker(runId, worker.workerId, worker.generation, "stop");
     if (before.proofProcess != null) {
       await transport.stop({nativeSessionId: "run-proof", nativeJobId: null, ...before.proofProcess, instance: before.nativeInstance, generation: 1, reason: "explicit resume reconciliation"});
       await repository.mutate(runId, s => ({...s, proofProcess: null}));
@@ -187,7 +187,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     // supervisor must not leave an owned native group alive after user Stop.
     const transport = new NativeRunTransport(result.state.host === "codex" ? new CodexGoalHost() : new ClaudeGoalHost(), repository);
     const supervisor = new RunSupervisor({repository, host: transport});
-    for (const worker of result.state.workers.filter(worker => worker.nativeSessionId !== null)) {
+    for (const worker of result.state.workers) {
       try {await supervisor.stopWorker(runId, worker.workerId, worker.generation, "stop");}
       catch (cause) {
         const current = (await repository.read(runId))!;

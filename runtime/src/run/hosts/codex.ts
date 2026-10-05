@@ -233,6 +233,7 @@ export class CodexGoalHost implements NativeGoalHost {
     const parts = commandParts(this.options, "codex", ["app-server", "--listen", "stdio://"]);
     const process = spawnNative(parts.command, parts.args, input.cwd, input.env, this.options);
     const channel = new JsonRpcSession(process, input.timeoutMs ?? this.options.requestTimeoutMs ?? 30_000);
+    try {
     await this.sendInitialize(channel);
     let nativeThreadId: string;
     if (resume) {
@@ -272,6 +273,11 @@ export class CodexGoalHost implements NativeGoalHost {
     };
     this.sessions.set(handle, channel);
     return handle;
+    } catch (cause) {
+      channel.close(cause);
+      await stopNativeProcess(process, "SIGKILL");
+      throw cause;
+    }
   }
 
   private async sendInitialize(session: JsonRpcSession): Promise<void> {

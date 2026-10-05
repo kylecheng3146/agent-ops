@@ -89,6 +89,22 @@ test("scheduler validates DAGs and counts overlapping writer time once", async (
   }
 });
 
+test("a late provisioning failure cannot block a stopped task or its dependents", async () => {
+  const fixture = await repositoryFixture();
+  try {
+    const scheduler = new RunScheduler({repository: fixture.repository});
+    await scheduler.addTasks(fixture.state.runId, [
+      {taskId: "a", dependencies: [], status: "ready", workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null},
+      {taskId: "b", dependencies: ["a"], status: "planned", workerId: null, deliveryDigest: null, sourceCommit: null, blockedReason: null}
+    ]);
+    const before = (await fixture.repository.read(fixture.state.runId))!.tasks;
+    await new RunService(fixture.repository).stop(fixture.state.runId);
+    const result = await scheduler.blockTaskAndDependents(fixture.state.runId, "a", "RUN_SETUP_STALE", true);
+    assert.equal(result.disableRestart, true);
+    assert.deepEqual(result.tasks, before);
+  } finally {await rm(fixture.root, {recursive: true, force: true});}
+});
+
 test("supervisor fences a worker before publishing delivery and requires final proof", async () => {
   const fixture = await repositoryFixture();
   try {

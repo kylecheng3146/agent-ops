@@ -31,6 +31,27 @@ The artifact recorded Claude Code `2.1.289` and Codex `0.160.0`. Claude emitted 
 
 This demonstrates transport and lifecycle reachability for the installed versions. It does not demonstrate task completion, criterion evidence, reviewer approval, or a successful file change.
 
+## 2026-10-05 complete invariant fixture runs
+
+The toolkit built from `9d90e40264668cf41ec83c922bd8a10def27b546` completed
+two private macOS fixture runs through the background `run` command:
+
+| Host | Run | Receipt digest | Active time |
+| --- | --- | --- | --- |
+| Claude | `run-59de4e32135349dd` | `df489b6ab511f0cca411929e34de223dded9e8af444d943efb6e2c8010743872` | 273670 ms |
+| Codex | `run-cb18cbe900db462c` | `5de16b64ea0af74a967127edeaaa62080a68df2bc62d15229ac07f61f16b7c45` | 423538 ms |
+
+Each run used a ten-minute budget and one coordinator slot. The immutable goal
+required two invariant checks (`equals-one` and `numeric`), mandatory `npm test`,
+and completion without source edits or an empty commit. Both recorded paired
+baseline/candidate checks, two different fresh reviewer sessions with PASS,
+completed task state, exact candidate/target equality, and cleaned integration.
+The summary and original receipt paths are saved in the private artifact
+`agent-ops-af-final-native-proof.json`; original receipts remain in each fixture's
+Git common directory. This establishes completion for these no-change fixtures,
+not behavioral red→green changes, parallel dependencies, recovery under faults,
+external adoption, or a reduction in review cost. Native cost remains partial.
+
 ## Framework execution conditions
 
 Node uses the structured test reporter; Jest/Vitest use their packaged collectors.

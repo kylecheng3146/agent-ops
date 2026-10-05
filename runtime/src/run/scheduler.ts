@@ -195,9 +195,10 @@ export class RunScheduler {
     });
   }
 
-  async blockTaskAndDependents(runId: string, taskId: string, reason: string): Promise<RunState> {
+  async blockTaskAndDependents(runId: string, taskId: string, reason: string, onlyWhileActive = false): Promise<RunState> {
     const boundedReason = reason.slice(0, 4096);
     return await this.#repository.mutate(runId, (current) => {
+      if (onlyWhileActive && (current.status !== "active" || current.disableRestart)) return current;
       const ids = new Set<string>([taskId]);
       let changed = true;
       while (changed) {
