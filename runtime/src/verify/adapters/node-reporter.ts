@@ -5,6 +5,7 @@ function errorData(value: unknown, seen = new Set<object>()): unknown {
   seen.add(value);
   if (value instanceof Error) return {name: value.name,
     code: (value as NodeJS.ErrnoException).code,
+    failureType: (value as Error & {failureType?: string}).failureType,
     cause: errorData(value.cause, seen)};
   if (Array.isArray(value)) return value.map(item => errorData(item, seen));
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, errorData(item, seen)]));
