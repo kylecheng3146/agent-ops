@@ -113,11 +113,23 @@ export interface RunFailure {
   readonly checkId: string | null;
   readonly pinId: string | null;
   readonly failureClass: string;
+  /** Semantic failure identity. Diagnostic text must not be used here. */
   readonly fingerprint: string | null;
   readonly diagnosticDigest: string | null;
+  /** Stable phase supplied by convergence observations, when available. */
+  readonly phase?: string | null;
+  /** Digest of the semantic PASS/FAIL vector, when available. */
+  readonly progressDigest?: string | null;
   readonly round: number;
   readonly observedAt: string;
   readonly usefulProgress: boolean;
+}
+
+export interface RunPolicyBinding {
+  readonly configHash: string;
+  readonly runtimeHash: string;
+  readonly artifactDigest: string;
+  readonly expiresAt: string;
 }
 
 export interface RunEvent {
@@ -179,6 +191,8 @@ export interface RunState {
   readonly controls: readonly RunControlRecord[];
   readonly events: readonly RunEvent[];
   readonly integration: RunIntegrationState | null;
+  /** Optional for legacy runs; new policy-aware runs bind all four digests. */
+  readonly policyBinding?: RunPolicyBinding;
 }
 
 export interface RunControlRecord {
@@ -216,6 +230,7 @@ export interface RunRepository {
 const RUN_ID = /^[a-z][a-z0-9-]{7,63}$/u;
 const ID = /^[A-Za-z0-9._:/-]{1,256}$/u;
 const SHA = /^[a-f0-9]{40,64}$/u;
+const SHA256 = /^[a-f0-9]{64}$/u;
 const MAX_EVENTS = 2_000;
 const MAX_GOAL_LENGTH = 64_000;
 const MAX_TIME_BUDGET_MS = 24 * 60 * 60 * 1_000;
@@ -268,6 +283,12 @@ function validUsage(value: unknown): RunUsage {
 
 const plain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const boundedArray = (value: unknown, limit: number): value is unknown[] => Array.isArray(value) && value.length <= limit;
+function validPolicyBinding(value: unknown): value is RunPolicyBinding {
+  if (!plain(value) || Object.keys(value).sort().join(",") !== "artifactDigest,configHash,expiresAt,runtimeHash") return false;
+  return SHA256.test(String(value.configHash)) && SHA256.test(String(value.runtimeHash)) &&
+    SHA256.test(String(value.artifactDigest)) && typeof value.expiresAt === "string" &&
+    value.expiresAt.length <= 64 && Number.isFinite(Date.parse(value.expiresAt));
+}
 function validStateShape(value: unknown): value is RunState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const item = value as Partial<RunState>;
@@ -313,6 +334,8 @@ export function assertRunState(value: unknown): asserts value is RunState {
     return invalid("Persisted run state failed identity, budget, or ownership validation.");
   }
   validUsage(state.budget.usage);
+  if (state.policyBinding !== undefined && !validPolicyBinding(state.policyBinding))
+    return invalid("Invalid run policy binding.");
   if (state.proofProcess != null && (!plain(state.proofProcess) || !Number.isSafeInteger(state.proofProcess.processId) ||
     state.proofProcess.processId < 1 || typeof state.proofProcess.processIdentity !== "string" ||
     state.proofProcess.processIdentity.length === 0 || state.proofProcess.processIdentity.length > 256))

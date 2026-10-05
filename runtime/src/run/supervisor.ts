@@ -93,6 +93,10 @@ export interface WorkerFailureInput {
   readonly failureClass: string;
   readonly fingerprint: string | null;
   readonly diagnosticDigest: string | null;
+  /** Optional semantic phase from convergence observations. */
+  readonly phase?: string | null;
+  /** Optional digest of the semantic PASS/FAIL vector. */
+  readonly progressDigest?: string | null;
   readonly round: number;
   readonly usefulProgress: boolean;
 }
@@ -403,6 +407,8 @@ export class RunSupervisor {
     if (input.pinId !== null) assertId(input.pinId, "pinId");
     if (input.fingerprint !== null) assertSha(input.fingerprint, "fingerprint");
     if (input.diagnosticDigest !== null) assertSha(input.diagnosticDigest, "diagnosticDigest");
+    if (input.phase !== undefined && input.phase !== null) assertId(input.phase, "phase");
+    if (input.progressDigest !== undefined && input.progressDigest !== null) assertSha(input.progressDigest, "progressDigest");
     if (!Number.isSafeInteger(input.round) || input.round < 0 || typeof input.usefulProgress !== "boolean") {
       throw error("RUN_FAILURE_INVALID", "Structured worker failure has invalid round or progress metadata.");
     }
@@ -413,6 +419,8 @@ export class RunSupervisor {
       failureClass: input.failureClass,
       fingerprint: input.fingerprint,
       diagnosticDigest: input.diagnosticDigest,
+      ...(input.phase === undefined ? {} : { phase: input.phase }),
+      ...(input.progressDigest === undefined ? {} : { progressDigest: input.progressDigest }),
       round: input.round,
       observedAt: this.#now(),
       usefulProgress: input.usefulProgress
@@ -425,9 +433,16 @@ export class RunSupervisor {
         throw error("RUN_WORKER_STALE", `Failure report rejected for stale worker ${workerId}.`);
       }
       const previous = worker.lastFailure;
+      const sameSemanticFailure = previous !== null &&
+        previous.failureClass === failure.failureClass &&
+        previous.checkId === failure.checkId &&
+        previous.pinId === failure.pinId &&
+        previous.fingerprint === failure.fingerprint &&
+        (previous.phase ?? null) === (failure.phase ?? null) &&
+        (previous.progressDigest === undefined || failure.progressDigest === undefined ||
+          previous.progressDigest === failure.progressDigest);
       const noProgress = previous !== null && !previous.usefulProgress && !failure.usefulProgress &&
-        previous.failureClass === failure.failureClass && previous.checkId === failure.checkId && previous.pinId === failure.pinId &&
-        previous.fingerprint === failure.fingerprint && previous.diagnosticDigest === failure.diagnosticDigest;
+        sameSemanticFailure;
       const next = replaceWorker(current, {
         ...worker,
         lastFailure: failure
@@ -437,7 +452,7 @@ export class RunSupervisor {
         events: [...next.events, {
           id: failureEventId, at: failure.observedAt, type: "diagnostic" as const, code: noProgress ? "RUN_NO_PROGRESS_REPEAT" : "RUN_FAILURE_RECORDED",
           workerId, taskId: worker.taskId,
-          detail: JSON.stringify({ checkId: failure.checkId, pinId: failure.pinId, failureClass: failure.failureClass, fingerprint: failure.fingerprint, diagnosticDigest: failure.diagnosticDigest, round: failure.round, usefulProgress: failure.usefulProgress })
+          detail: JSON.stringify({ checkId: failure.checkId, pinId: failure.pinId, phase: failure.phase ?? null, failureClass: failure.failureClass, fingerprint: failure.fingerprint, progressDigest: failure.progressDigest ?? null, diagnosticDigest: failure.diagnosticDigest, round: failure.round, usefulProgress: failure.usefulProgress })
         }].slice(-2_000),
         ...(noProgress ? { status: "active" as const } : {})
       };
