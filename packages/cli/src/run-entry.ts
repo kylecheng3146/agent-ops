@@ -35,7 +35,7 @@ import {FileTaskStore} from "../../../runtime/src/task/store.js";
 import {taskContractHash, treeContractHash} from "../../../runtime/src/task/contract.js";
 import {readWorktreeRecord, writeWorktreeRecord, addWorktree, ensureSessionWorktree} from "../../../runtime/src/parallel/service.js";
 import {collectChangeSurface} from "../../../runtime/src/verify/change-surface.js";
-import {runDescriptor, runWorktreeDependencies} from "./run-deps.js";
+import {runDescriptor, runWorktreeDependencies, renewPendingRunPolicy} from "./run-deps.js";
 import {worktreeDependencies, gitRunner} from "./parallel-deps.js";
 import {readFinishedReview} from "./commands/review-show.js";
 import type {FinishReceipt} from "../../../runtime/src/parallel/receipt.js";
@@ -388,7 +388,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           }
         }
         await ensureSetup(worker.worktree!);
-        const tasks = deps.tasks(worker.worktree!);
+        const tasks = new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops/tasks/state.json"), worker.worktree!), {
+          completion: {root: worker.worktree!, gitRunner: gitRunner(worker.worktree!), loadConfig: async () => policy.config}});
         for (const record of (await tasks.list()).filter(r => r.status === "active" && r.supersededBy === undefined))
           if (record.policyConfigHash !== current.policyBinding!.configHash) await tasks.revise(record.task.id, {
             expectedContractHash: taskContractHash(record.task), criteria: record.task.criteria,
@@ -419,12 +420,12 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       if (journal.stages.at(-1)!.stage === "fenced") {
         if (current.policyBinding!.artifactDigest === journal.oldPolicyArtifact!.artifactDigest) {
           const coordinator = current.workers.find(w => w.workerId === current.coordinatorId)!;
+          const old = (await readRunPolicy(current, await runRuntimeHash(), Date.now(), true))!;
           if (current.rootTaskId !== null && journal.deliveredMarkers.length > 0) {
             const record = await readWorktreeRecord(coordinator.worktree!);
             if (record === null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Policy transition requires the registered coordinator.");
-            await integrateSessionChildren(deps, record, current.rootTaskId, journal.deliveredMarkers.map(w => w.workerId));
+            await integrateSessionChildren({...deps, loadConfig: async () => old.config}, record, current.rootTaskId, journal.deliveredMarkers.map(w => w.workerId));
           }
-          const old = (await readRunPolicy(current, await runRuntimeHash()))!;
           await bindRunPolicy(repository, runId, {config: input.config, approvals: input.approvals, baseTrustBinding: old.baseTrustBinding,
             runtimeHash: old.runtimeHash, expectedDigest: current.policyBinding!.artifactDigest});
         } else if (current.policyBinding!.configHash !== calculateConfigHash(input.config))
@@ -432,6 +433,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         journal = await markPolicyTransitionStage(repository, runId, journal.transitionId, {stage: "bound"});
       }
       if (journal.stages.at(-1)!.stage === "bound") {
+        journal = await renewPendingRunPolicy(repository, runId, journal);
         await synchronizePolicy();
         current = (await repository.read(runId))!;
         const coordinator = current.workers.find(w => w.workerId === current.coordinatorId)!;
@@ -452,6 +454,12 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           contractHash: current.currentContractHash, contractRevision: current.contractRevision, taskIds: current.tasks.map(t => t.taskId)});
       }
       await completePolicyTransition(repository, runId, journal.transitionId);
+      current = (await repository.read(runId))!;
+      if (Date.parse(current.policyBinding!.expiresAt) <= Date.now()) {
+        const old = (await readRunPolicy(current, await runRuntimeHash(), Date.now(), true))!;
+        await bindRunPolicy(repository, runId, {config: old.config, runtimeHash: old.runtimeHash,
+          baseTrustBinding: old.baseTrustBinding, expectedDigest: current.policyBinding!.artifactDigest});
+      }
       return journal.resumeIds.map(w => w.workerId);
     }
     async function repair(worker: RunWorkerRecord, code: string, message: string): Promise<void> {

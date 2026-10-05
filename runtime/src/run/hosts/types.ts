@@ -25,6 +25,8 @@ export interface NativeGoalStartInput extends NativeGoalRequestContext {
   readonly nativeVersion?: string | null;
   readonly env?: NodeJS.ProcessEnv;
   readonly timeoutMs?: number;
+  /** Persist provisional ownership before a native handshake can wait or fail. */
+  readonly registerProcess?: (processId: number) => Promise<void>;
 }
 
 export interface NativeGoalUpdate extends NativeGoalRequestContext {

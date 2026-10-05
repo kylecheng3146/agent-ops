@@ -618,9 +618,12 @@ export class RunService {
   async resume(runId: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, (current) => {
       const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
-        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_SETUP_RECOVERY_REQUIRED"]);
+        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
       const blocker = [...current.events].reverse().find(e => recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
-      if (current.status === "complete" || (current.status === "blocked" && current.integration?.proofDigest === undefined && !recoverable.has(blocker?.code ?? ""))) {
+      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
+        current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
+      if (current.status === "complete" || (current.integration?.proofDigest === undefined &&
+          (terminalBlocker || (current.status === "blocked" && !recoverable.has(blocker?.code ?? ""))))) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
       if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
@@ -628,7 +631,7 @@ export class RunService {
       const recover = ["blocked", "paused"].includes(current.status) && recoverable.has(blocker?.code ?? "");
       return {
         ...current,
-        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && w.lastFailure === null ? {...w, status: "stopped" as const} : w),
+        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") ? {...w, status: "stopped" as const} : w),
           tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",
         awaitingResume: false,

@@ -176,6 +176,13 @@ export class ClaudeGoalHost implements NativeGoalHost {
     const args = this.options.args ?? defaultArgs;
     const process = spawnNative(command, args, input.cwd, input.env, this.options);
     const stream = new JsonLineStream(process);
+    try {
+      if (process.pid !== undefined) await input.registerProcess?.(process.pid);
+    } catch (cause) {
+      stream.close(cause);
+      if (process.pid !== undefined) await stopNativeProcess(process, "SIGKILL");
+      throw cause;
+    }
     const handle: NativeGoalHandle = {
       runId: input.runId,
       workerId: input.workerId,

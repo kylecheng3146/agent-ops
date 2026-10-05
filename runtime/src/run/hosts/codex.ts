@@ -234,6 +234,7 @@ export class CodexGoalHost implements NativeGoalHost {
     const process = spawnNative(parts.command, parts.args, input.cwd, input.env, this.options);
     const channel = new JsonRpcSession(process, input.timeoutMs ?? this.options.requestTimeoutMs ?? 30_000);
     try {
+    if (process.pid !== undefined) await input.registerProcess?.(process.pid);
     await this.sendInitialize(channel);
     let nativeThreadId: string;
     if (resume) {
@@ -275,7 +276,7 @@ export class CodexGoalHost implements NativeGoalHost {
     return handle;
     } catch (cause) {
       channel.close(cause);
-      await stopNativeProcess(process, "SIGKILL");
+      if (process.pid !== undefined) await stopNativeProcess(process, "SIGKILL");
       throw cause;
     }
   }

@@ -30,6 +30,8 @@
   death. Crash recovery cannot replace a live or unidentified writer. Dirty
   checkouts, version drift and restart storms preserve the scene for diagnosis.
   Reboot/login changes require explicit resume; no global host policy is changed.
+  Startup process identities are saved before the native handshake; a stopped,
+  unopened Codex session may initialize afresh only after process death is proved.
 
 - Setup and native-issued local proof commands MUST register dormant process
   groups before execution; Stop also reconciles their descendants. Interrupted
@@ -41,6 +43,9 @@
   synchronization before new generations acquire leases. This never grants global
   repository trust. Native decisions retain redacted command scope and rationale;
   absent provider evidence remains UNKNOWN.
+  Explicit resume renews expired authorization from the remaining budget and
+  reconciles immutable renewal lineage before policy synchronization. An answer
+  uses the same recovery checks; neither action can revive an explicit denial.
 - Convergence compares actual per-check statuses and outstanding finding pins.
   Source fingerprints, timing and diagnostics alone cannot establish progress.
 

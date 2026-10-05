@@ -271,6 +271,7 @@ export class RunSupervisor {
       await this.#repository.mutate(runId, (current) => {
         const currentWorker = current.workers.find((candidate) => candidate.workerId === workerId);
         if (currentWorker === undefined || currentWorker.generation !== generation) return current;
+        if (current.status !== "active" || current.disableRestart || currentWorker.status !== "starting") return current;
         return replaceWorker(replaceTask(current, currentWorker.taskId, { status: "ready", workerId: null }), {
           ...currentWorker,
           status: "blocked",
@@ -349,7 +350,8 @@ export class RunSupervisor {
       const active = current.workers.filter(w => w.workerId !== workerId && activeWorker(w)).length;
       if (active >= current.jobs) throw error("RUN_WORKER_LIMIT", "No writer slot is available for recovery.");
       return replaceWorker(current, {...saved, generation: saved.generation + 1, status: "assigned", processId: null,
-        processIdentity: null, leaseExpiresAt: null, heartbeatAt: this.#now(), stopIntent: null, nativeGoalState: "inactive"});
+        processIdentity: null, leaseExpiresAt: null, heartbeatAt: this.#now(), stopIntent: null, nativeGoalState: "inactive",
+        ...(saved.host === "codex" && saved.nativeJobId === null && saved.nativeGoalState === "inactive" ? {nativeSessionId: null} : {})});
     })).workers.find(w => w.workerId === workerId)!;
   }
 

@@ -15,9 +15,11 @@
 - 實質疑問暫停並要求明確回答。修復保留目標與失敗紀錄；連續兩次相同失敗且無進展停止該 worker 及其依賴，獨立 task 仍可執行。review findings 在下次 final gate 前必須有回歸 pin 或記錄 review-only fallback。
 - native completion 僅是觀察。完成必須有必要驗證、兩輪 fresh review、完成的 task state、綁定 target 的 receipt。整合在移動 target 前封存 candidate，記錄 task、receipt、note、cleanup 進度；恢復驗證封存證據，不重做成功的 target mutation。不一致的 target 維持 blocked。
 - Stop 先保存禁止續跑，再確認受管 process group 死亡。crash recovery 不得取代仍存活或身份不明的 writer。dirty checkout、版本漂移、restart storm 保留現場。重開機／login 改變必須明確 resume；不修改全域 host policy。
+- Native handshake 前先保存啟動程序身份；尚未開啟的 Codex session 必須證明程序死亡，才可在新 lease 重新初始化。
 
 - Setup 與 native agent 發起的 local proof MUST 先登記 dormant process group 再執行；Stop 也要取消子程序。中斷的 setup 必須明確 resume，保留 checkout 與失敗 artifact。
 - Coordinator 只能在綁定原始 repository trust、可執行 runtime、剩餘預算的 run-scoped policy 下，評估新增固定且非危險的能力。不得繞過 native 或組織的明確拒絕。Policy 變更先停止所有 writer，保留固定交付，以 journal 記錄 contract 同步，再啟動新 generation；不授予永久 repository trust。Native decision 保存遮罩後的命令範圍與理由，provider 未提供的證據維持 UNKNOWN。
+- 明確 resume 從剩餘預算續期過期授權，並先核對不可變 renewal lineage，再同步 policy。回答問題也沿用相同恢復檢查；兩者皆不得復活已被明確拒絕的工作。
 - 收斂判斷比較實際 per-check 狀態及未解除的 finding pins；source fingerprint、時間或診斷文字本身不能算進展。
 
 English source version: 2026-07-23. Revalidate: when the English specification changes.

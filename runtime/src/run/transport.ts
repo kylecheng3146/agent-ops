@@ -33,10 +33,22 @@ export class NativeRunTransport implements NativeGoalHost {
         CODEX_THREAD_ID: undefined, AGENT_OPS_AGENT_ID: undefined,
         AGENT_OPS_RUN_ID: input.runId, AGENT_OPS_WORKER_ID: input.workerId,
         AGENT_OPS_WORKER_GENERATION: String(input.generation)},
-      ...(this.host === "claude" ? {sessionId: input.ownerSessionId} : {})};
-    if (saved?.nativeSessionId != null && this.host === "codex" && saved.nativeJobId === null)
-      throw new AgentOpsError("RUN_NATIVE_THREAD_REQUIRED", "Codex recovery requires its saved native thread id.");
-    const handle = saved?.nativeSessionId == null ? await this.transport.start(request)
+      sessionId: saved?.nativeSessionId ?? input.ownerSessionId,
+      registerProcess: async (pid: number) => {
+        const identity = await this.processIdentity(pid);
+        if (identity === null) throw new AgentOpsError("RUN_PROCESS_IDENTITY_REQUIRED", "Cannot register provisional native process identity.");
+        await this.repository.mutate(input.runId, current => {
+          const worker = current.workers.find(w => w.workerId === input.workerId);
+          if (current.status !== "active" || current.disableRestart || worker?.status !== "starting" || worker.generation !== input.generation)
+            throw new AgentOpsError("RUN_START_DISABLED", "Stop fenced provisional native registration.");
+          return {...current, workers: current.workers.map(w => w.workerId === input.workerId ? {...w,
+            nativeSessionId: saved?.nativeSessionId ?? input.ownerSessionId, processId: pid, processIdentity: identity} : w)};
+        });
+      }};
+    const incompleteCodex = saved?.nativeSessionId != null && this.host === "codex" && saved.nativeJobId === null;
+    if (incompleteCodex && (saved.nativeGoalState !== "inactive" || saved.stopIntent?.confirmedDeadAt == null))
+      throw new AgentOpsError("RUN_NATIVE_THREAD_REQUIRED", "Missing Codex thread identity needs confirmed provisional process death before fresh initialization.");
+    const handle = saved?.nativeSessionId == null || incompleteCodex ? await this.transport.start(request)
       : await this.transport.resume(request, this.host === "codex" ? saved.nativeJobId! : saved.nativeSessionId);
     const identity = handle.processId === null ? null : await this.processIdentity(handle.processId);
     if (identity === null) {

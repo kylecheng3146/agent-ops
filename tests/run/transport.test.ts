@@ -4,10 +4,12 @@ import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
+import {setTimeout as delay} from "node:timers/promises";
+import {CodexGoalHost} from "../../runtime/src/run/hosts/codex.js";
 import {parseArgs} from "../../packages/cli/src/args.js";
-import {FileRunRepository, createRunState} from "../../runtime/src/run/service.js";
+import {FileRunRepository, createRunState, RunService} from "../../runtime/src/run/service.js";
 import {RunSupervisor} from "../../runtime/src/run/supervisor.js";
-import {NativeRunTransport} from "../../runtime/src/run/transport.js";
+import {NativeRunTransport, nativeProcessIdentity} from "../../runtime/src/run/transport.js";
 import type {NativeGoalHost, NativeGoalHandle} from "../../runtime/src/run/hosts/types.js";
 
 test("run parser separates native start options from persistent control actions", () => {
@@ -20,6 +22,43 @@ test("run parser separates native start options from persistent control actions"
     ["Goal", "--host", "codex", "--time-budget", "25h"], ["stop", "run-12345678", "--host", "codex"],
     ["respond", "run-12345678", "--question-id", "q1"], ["Goal", "--host", "codex", "--host", "claude"]])
     assert.throws(() => parseArgs(["run", ...invalid]));
+});
+
+test("Stop can reconcile a registered native group while the Codex handshake is still pending", {skip: process.platform === "win32"}, async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-startup-ownership-"));
+  const repository = new FileRunRepository(join(root, "runs"), root);
+  const state = createRunState({root, commonDir: root, targetBranch: "main", goal: "Own pending native startup", host: "codex", ownerSessionId: "owner", contractHash: "a".repeat(64)});
+  await repository.create({...state, tasks: [{taskId: "task-one", dependencies: [], status: "ready", workerId: null,
+    deliveryDigest: null, sourceCommit: null, blockedReason: null}]});
+  const host = new CodexGoalHost({command: process.execPath, args: ["-e", "setInterval(()=>{},1000)"], requestTimeoutMs: 5000});
+  const bridge = new NativeRunTransport(host, repository), supervisor = new RunSupervisor({repository, host: bridge});
+  try {
+    const registration = await supervisor.registerWorker(state.runId, {taskId: "task-one", ownerSessionId: "owner-one", worktree: root});
+    const starting = supervisor.startWorker(state.runId, registration.workerId, registration.generation, "Goal");
+    const rejected = assert.rejects(starting, {code: "RUN_NATIVE_START_FAILED"});
+    let provisional;
+    for (let i = 0; i < 100; i++) {
+      provisional = (await repository.read(state.runId))!.workers[0]!;
+      if (provisional.processId !== null) break;
+      await delay(20);
+    }
+    assert.ok(provisional?.processId); assert.equal(provisional.status, "starting");
+    assert.equal(provisional.nativeSessionId, "owner-one"); assert.equal(provisional.nativeJobId, null);
+    await new RunService(repository).stop(state.runId);
+    const recoveredBridge = new NativeRunTransport(new CodexGoalHost(), repository);
+    await new RunSupervisor({repository, host: recoveredBridge}).stopWorker(state.runId, registration.workerId, registration.generation, "stop");
+    await rejected;
+    assert.equal(await nativeProcessIdentity(provisional.processId), null);
+    assert.equal((await repository.read(state.runId))!.workers[0]!.status, "stopped", "late startup failure cannot overwrite the stopped worker");
+    await new RunService(repository).resume(state.runId);
+    const reassigned = await supervisor.reassignWorker(state.runId, registration.workerId, registration.generation);
+    assert.equal(reassigned.nativeSessionId, null, "a dead unopened Codex process must permit fresh initialization at the new lease");
+    assert.equal(reassigned.generation, registration.generation + 1);
+  } finally {
+    const saved = (await repository.read(state.runId))?.workers[0];
+    if (saved?.processId != null) try {process.kill(-saved.processId, "SIGKILL");} catch {}
+    await rm(root, {recursive: true, force: true});
+  }
 });
 
 test("native activation requires a persisted lease and rejects a stop racing activation", async () => {

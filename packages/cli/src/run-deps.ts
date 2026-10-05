@@ -24,7 +24,7 @@ import {repositoryTrustBinding} from "./context.js";
 import {CLI_VERSION} from "./version.js";
 import {calculateConfigHash, canonicalJson} from "../../../runtime/src/config/hash.js";
 import type {FinishDependencies} from "../../../runtime/src/parallel/finish.js";
-import {discoverPendingPolicyTransition} from "../../../runtime/src/run/policy-transition.js";
+import {discoverPendingPolicyTransition, renewBoundPolicyTransition, currentPolicyArtifact, type PolicyTransitionJournal} from "../../../runtime/src/run/policy-transition.js";
 import {nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {redactSecrets} from "../../../runtime/src/security/redact.js";
 import {RunControlService} from "../../../runtime/src/run/controls.js";
@@ -87,6 +87,43 @@ export async function runWorktreeDependencies(deps: FinishDependencies, state: R
     }, trust: {status,
     grant: async (root, config) => {if (await status(root, config) !== "TRUSTED") throw new AgentOpsError("RUN_POLICY_UNTRUSTED", "Cannot grant an unassessed worktree policy.");},
     revoke: async () => {}}};
+}
+
+/** Explicit recovery can renew an expired bound journal, including the bind-before-journal crash gap. */
+export async function renewPendingRunPolicy(repository: FileRunRepository, runId: string, journal: PolicyTransitionJournal): Promise<PolicyTransitionJournal> {
+  if (journal.stages.at(-1)!.stage !== "bound") return journal;
+  const now = Date.now(), runtimeHash = await runRuntimeHash();
+  let current = (await repository.read(runId))!;
+  const expected = journal.newPolicyArtifact!;
+  const policy = (await readRunPolicy(current, runtimeHash, now, true))!;
+  const bound = (await readRunPolicy({...current, policyBinding: expected}, runtimeHash, now, true))!;
+  let digest = current.policyBinding!.artifactDigest, ancestor = policy;
+  for (let depth = 0; digest !== expected.artifactDigest && depth < 128; depth++) {
+    if (calculateConfigHash(ancestor.config) !== expected.configHash || ancestor.runtimeHash !== expected.runtimeHash ||
+        canonicalJson(ancestor.baseTrustBinding) !== canonicalJson(bound.baseTrustBinding) || ancestor.previousDigest === null)
+      throw new AgentOpsError("RUN_POLICY_TRANSITION_STALE", "Pending renewal must match the exact immutable bound policy lineage.");
+    digest = ancestor.previousDigest;
+    const source = await readPrivateFile(join(current.commonDir, "agent-ops/runs", runId, "policies", digest + ".json"), current.commonDir);
+    if (source === null || sha256(source) !== digest)
+      throw new AgentOpsError("RUN_POLICY_CHANGED", "Historical renewal artifact is missing or changed.");
+    const {expiresAt} = JSON.parse(source) as {expiresAt: string};
+    ancestor = (await readRunPolicy({...current, policyBinding: {...expected, artifactDigest: digest, expiresAt}}, runtimeHash, now, true))!;
+  }
+  if (digest !== expected.artifactDigest)
+    throw new AgentOpsError("RUN_POLICY_TRANSITION_STALE", "Pending renewal lineage exceeds its recovery bound.");
+  if (Date.parse(current.policyBinding!.expiresAt) <= now) {
+    const lastResume = Math.max(0, ...current.controls.filter(c => c.action === "resume" && c.actor === "user").map(c => Date.parse(c.requestedAt)));
+    if (lastResume < Date.parse(journal.stages.at(-1)!.at))
+      throw new AgentOpsError("RUN_POLICY_RECOVERY_REQUIRED", "Expired transition execution requires explicit resume.");
+    const previousDigest = current.policyBinding!.artifactDigest;
+    current = await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash: policy.runtimeHash,
+      baseTrustBinding: policy.baseTrustBinding, expectedDigest: previousDigest, now});
+    const fresh = (await readRunPolicy(current, runtimeHash, now))!;
+    if (fresh.previousDigest !== previousDigest)
+      throw new AgentOpsError("RUN_POLICY_TRANSITION_STALE", "Renewal changed the immutable policy lineage.");
+  } else if (current.policyBinding!.artifactDigest === expected.artifactDigest) return journal;
+  return await renewBoundPolicyTransition(repository, runId, journal.transitionId, {
+    renewedPolicyArtifact: currentPolicyArtifact(current)!, expectedJournalDigest: journal.artifactDigest, now: new Date(now).toISOString()});
 }
 
 export const runEntry = fileURLToPath(new URL("./run-entry.js", import.meta.url));
@@ -164,6 +201,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     }
     const result = await service.resume(runId);
     try {
+    if (pending !== null) await renewPendingRunPolicy(repository, runId, pending);
     if (policy !== null && pending === null) await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash, resumeRuntime: true,
       baseTrustBinding: policy.baseTrustBinding, expectedDigest: before.policyBinding!.artifactDigest});
     const login = await readGuiLoginIdentity();
@@ -221,8 +259,13 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     await writePrivateFile(join(state.commonDir, "agent-ops", "runs", state.runId, "answers", sha256(questionId) + ".json"),
       JSON.stringify({questionId, answer: answer.trim()}), state.commonDir);
     const result = await service.respond(runId, questionId, answer);
-    await launchd.wake(runDescriptor(result.state));
-    return result;
+    try {
+      const resumed = await resume(runId);
+      return {...result, state: resumed.state};
+    } catch (cause) {
+      await repository.mutate(runId, saved => ({...saved, status: "paused", awaitingResume: true, disableRestart: true}));
+      throw cause;
+    }
   };
   return {...checkouts, targetBranch: target.stdout.trim(), ownerSessionId: randomUUID(), repository,
     service: {start, resume, stop, respond, status: service.status.bind(service), logs: service.logs.bind(service)},
