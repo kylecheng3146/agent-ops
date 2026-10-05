@@ -42,6 +42,21 @@ export interface PolicyTransitionArtifactRef {
   readonly expiresAt: string;
 }
 
+/**
+ * A renewed bound policy keeps the old reference in the journal instead of
+ * rewriting the bound stage.  The journal digest and renewal digest make a
+ * recovery step auditable even when a supervisor crashed after rebinding the
+ * run state but before it could synchronize worktrees.
+ */
+export interface PolicyTransitionArtifactRenewal {
+  readonly previousPolicyArtifact: PolicyTransitionArtifactRef;
+  readonly renewedPolicyArtifact: PolicyTransitionArtifactRef;
+  readonly at: string;
+  readonly previousJournalDigest: string;
+  readonly previousRenewalDigest: string | null;
+  readonly renewalDigest: string;
+}
+
 export interface PolicyTransitionWorkerGeneration {
   readonly workerId: string;
   readonly generation: number;
@@ -121,6 +136,8 @@ export interface PolicyTransitionJournal {
   readonly resumeIds: readonly PolicyTransitionResumeId[];
   readonly deliveredMarkers: readonly PolicyTransitionDeliveredMarker[];
   readonly stages: readonly PolicyTransitionStageRecord[];
+  /** Optional on legacy journals; readers normalize a missing value to []. */
+  readonly renewals: readonly PolicyTransitionArtifactRenewal[];
   readonly artifactDigest: string;
 }
 
@@ -146,6 +163,14 @@ export interface MarkPolicyTransitionStageInput {
 
 export interface CompletePolicyTransitionInput {
   readonly synchronizationDigest?: string;
+  readonly now?: string;
+}
+
+export interface RenewBoundPolicyTransitionInput {
+  /** The current, newly written run policy binding. */
+  readonly renewedPolicyArtifact: PolicyTransitionArtifactRef;
+  /** Fence against a journal read before the policy artifact was rebound. */
+  readonly expectedJournalDigest?: string;
   readonly now?: string;
 }
 
@@ -261,6 +286,25 @@ function artifactReference(value: unknown, label: string): PolicyTransitionArtif
     runtimeHash,
     expiresAt
   };
+}
+
+function renewalCore(input: Omit<PolicyTransitionArtifactRenewal, "renewalDigest">): Omit<PolicyTransitionArtifactRenewal, "renewalDigest"> {
+  return {
+    previousPolicyArtifact: input.previousPolicyArtifact,
+    renewedPolicyArtifact: input.renewedPolicyArtifact,
+    at: input.at,
+    previousJournalDigest: input.previousJournalDigest,
+    previousRenewalDigest: input.previousRenewalDigest
+  };
+}
+
+function sealRenewal(input: Omit<PolicyTransitionArtifactRenewal, "renewalDigest">): PolicyTransitionArtifactRenewal {
+  const core = renewalCore(input);
+  return {...core, renewalDigest: sha256(canonicalJson(core))};
+}
+
+function policyArtifactPath(runId: string, artifactDigest: string): string {
+  return policyPath(runId, artifactDigest);
 }
 
 function policyArtifactRefFromState(state: RunState): PolicyTransitionArtifactRef | null {
@@ -429,6 +473,47 @@ function withTransitionEvent(state: RunState, journal: PolicyTransitionJournal):
   };
 }
 
+function renewalEvent(journal: PolicyTransitionJournal): RunState["events"][number] {
+  const renewal = journal.renewals.at(-1);
+  if (renewal === undefined) return fail("RUN_POLICY_TRANSITION_INVALID", "Policy renewal event has no renewal record.");
+  return {
+    id: randomUUID(),
+    at: renewal.at,
+    type: "control",
+    code: "RUN_POLICY_TRANSITION_RENEWED",
+    workerId: null,
+    taskId: null,
+    detail: canonicalJson({
+      transitionId: journal.transitionId,
+      previousJournalDigest: renewal.previousJournalDigest,
+      previousPolicyArtifact: renewal.previousPolicyArtifact.artifactDigest,
+      renewedPolicyArtifact: renewal.renewedPolicyArtifact.artifactDigest,
+      renewalDigest: renewal.renewalDigest,
+      artifactDigest: journal.artifactDigest
+    })
+  };
+}
+
+function hasRenewalReference(state: RunState, journal: PolicyTransitionJournal): boolean {
+  const renewal = journal.renewals.at(-1);
+  if (renewal === undefined) return false;
+  return state.events.some(event => {
+    if (event.code !== "RUN_POLICY_TRANSITION_RENEWED" || event.detail === null) return false;
+    try {
+      const detail = JSON.parse(event.detail) as Record<string, unknown>;
+      return detail.transitionId === journal.transitionId && detail.renewalDigest === renewal.renewalDigest &&
+        detail.artifactDigest === journal.artifactDigest;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function withRenewalEvent(state: RunState, journal: PolicyTransitionJournal): RunState {
+  if (hasRenewalReference(state, journal)) return state;
+  return {...state, events: [...state.events, renewalEvent(journal)].slice(-2_000)};
+}
+
 function stageIndex(stage: PolicyTransitionStage): number {
   return POLICY_TRANSITION_STAGES.indexOf(stage);
 }
@@ -577,6 +662,45 @@ function validateDeliveredMarkers(value: unknown): readonly PolicyTransitionDeli
   });
 }
 
+function validateRenewals(value: unknown): readonly PolicyTransitionArtifactRenewal[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_ITEMS) {
+    return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Journal policy renewals are invalid.");
+  }
+  const renewals = value.map((raw, index) => {
+    if (!plain(raw) || Object.keys(raw).sort().join(",") !==
+        ["at", "previousJournalDigest", "previousPolicyArtifact", "previousRenewalDigest", "renewalDigest", "renewedPolicyArtifact"].sort().join(",")) {
+      return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", `Policy renewal ${index} is invalid.`);
+    }
+    const previousPolicyArtifact = artifactReference(raw.previousPolicyArtifact, `renewal[${index}].previousPolicyArtifact`);
+    const renewedPolicyArtifact = artifactReference(raw.renewedPolicyArtifact, `renewal[${index}].renewedPolicyArtifact`);
+    const at = timestamp(raw.at, `renewal[${index}].at`);
+    const previousJournalDigest = digest(raw.previousJournalDigest, `renewal[${index}].previousJournalDigest`);
+    const previousRenewalDigest = raw.previousRenewalDigest === null
+      ? null
+      : digest(raw.previousRenewalDigest, `renewal[${index}].previousRenewalDigest`);
+    const renewalDigest = digest(raw.renewalDigest, `renewal[${index}].renewalDigest`);
+    const core = renewalCore({previousPolicyArtifact, renewedPolicyArtifact, at, previousJournalDigest, previousRenewalDigest});
+    if (renewalDigest !== sha256(canonicalJson(core))) {
+      return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", `Policy renewal ${index} digest does not match its contents.`);
+    }
+    return { ...core, renewalDigest };
+  });
+  let previousArtifact: PolicyTransitionArtifactRef | undefined;
+  let previousRenewalDigest: string | null = null;
+  for (const renewal of renewals) {
+    if (previousArtifact !== undefined && !artifactMatches(renewal.previousPolicyArtifact, previousArtifact)) {
+      return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Policy renewal artifact chain is broken.");
+    }
+    if (renewal.previousRenewalDigest !== previousRenewalDigest) {
+      return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Policy renewal digest chain is broken.");
+    }
+    previousArtifact = renewal.renewedPolicyArtifact;
+    previousRenewalDigest = renewal.renewalDigest;
+  }
+  return renewals;
+}
+
 function validateJournal(value: unknown, expectedRunId: string, expectedTransitionId?: string): PolicyTransitionJournal {
   if (!plain(value) || value.schemaVersion !== 1 || value.runId !== expectedRunId ||
       (expectedTransitionId !== undefined && value.transitionId !== expectedTransitionId)) {
@@ -599,6 +723,7 @@ function validateJournal(value: unknown, expectedRunId: string, expectedTransiti
   const workerGenerations = validateWorkerGenerations(value.workerGenerations);
   const resumeIds = validateResumeIds(value.resumeIds);
   const deliveredMarkers = validateDeliveredMarkers(value.deliveredMarkers);
+  const renewals = validateRenewals(value.renewals);
   if (!sameJson(tasks.map(task => task.taskId).sort(), taskIds) ||
       !sameJson(workerGenerations, workers.map(worker => ({workerId: worker.workerId, generation: worker.generation})).sort((left, right) => left.workerId.localeCompare(right.workerId)))) {
     return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Transition snapshot indexes do not match their records.");
@@ -621,8 +746,19 @@ function validateJournal(value: unknown, expectedRunId: string, expectedTransiti
   if (boundStage !== undefined && (boundStage.newPolicyArtifact === undefined || newPolicyArtifact === null)) {
     return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Bound transition is missing its new policy artifact.");
   }
-  if (newPolicyArtifact !== null && boundStage !== undefined && !artifactMatches(newPolicyArtifact, boundStage.newPolicyArtifact!)) {
-    return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "New policy artifact does not match the bound stage.");
+  if (boundStage !== undefined) {
+    const boundArtifact = boundStage.newPolicyArtifact!;
+    if (renewals.length === 0 && newPolicyArtifact !== null && !artifactMatches(newPolicyArtifact, boundArtifact)) {
+      return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "New policy artifact does not match the bound stage.");
+    }
+    if (renewals.length > 0) {
+      if (!artifactMatches(renewals[0]!.previousPolicyArtifact, boundArtifact) ||
+          newPolicyArtifact === null || !artifactMatches(newPolicyArtifact, renewals.at(-1)!.renewedPolicyArtifact)) {
+        return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Policy renewal history does not match the bound artifact.");
+      }
+    }
+  } else if (renewals.length > 0) {
+    return fail("RUN_POLICY_TRANSITION_ARTIFACT_CHANGED", "Policy renewal history requires a bound transition.");
   }
   if (synchronizedStage !== undefined &&
       (synchronizedStage.contractHash === undefined || synchronizedStage.contractRevision === undefined ||
@@ -652,6 +788,7 @@ function validateJournal(value: unknown, expectedRunId: string, expectedTransiti
     resumeIds: resumeIds as unknown as readonly PolicyTransitionResumeId[],
     deliveredMarkers: deliveredMarkers as unknown as readonly PolicyTransitionDeliveredMarker[],
     stages,
+    renewals: renewals as unknown as readonly PolicyTransitionArtifactRenewal[],
     artifactDigest
   };
 }
@@ -848,6 +985,7 @@ export async function beginPolicyTransition(
     workers,
     resumeIds: resumeIds(state),
     deliveredMarkers: deliveredMarkers(state),
+    renewals: [],
     stages: [stageCore({stage: "prepared", at: createdAt, previousStageDigest: null})]
   });
   await repository.mutate(runId, async current => {
@@ -947,6 +1085,89 @@ export async function markPolicyTransitionStage(
   const id = transitionId(transitionIdValue);
   if (input.stage === "complete") return await completePolicyTransition(repository, runId, id, input);
   return await markStageInternal(repository, runId, id, input);
+}
+
+/**
+ * Rebind a bound transition after its newly selected policy expired while the
+ * supervisor was down.  The caller must first create the renewed policy
+ * artifact through the normal policy binder; this operation only records that
+ * already-written identity and never executes a capability or setup command.
+ */
+export async function renewBoundPolicyTransition(
+  repository: RunRepository,
+  runId: string,
+  transitionIdValue: string,
+  input: RenewBoundPolicyTransitionInput
+): Promise<PolicyTransitionJournal> {
+  const id = transitionId(transitionIdValue);
+  const state = await repository.read(runId);
+  if (state === null) return fail("RUN_NOT_FOUND", `Run not found: ${runId}`);
+  const journal = await readJournal(state, id);
+  if (journal === null) return fail("RUN_POLICY_TRANSITION_NOT_FOUND", `Transition not found: ${id}`);
+  if (stageAt(journal) !== "bound") {
+    return fail("RUN_POLICY_TRANSITION_STAGE_ORDER", "Only a bound policy transition can be renewed.");
+  }
+  if (state.status !== "active" || state.disableRestart || state.awaitingResume) {
+    return fail("RUN_POLICY_TRANSITION_DISABLED", "Policy renewal requires an explicitly resumed active run.");
+  }
+  if (input.expectedJournalDigest !== undefined && input.expectedJournalDigest !== journal.artifactDigest) {
+    return fail("RUN_POLICY_TRANSITION_STALE", "The policy transition journal changed before renewal.");
+  }
+  const previousPolicyArtifact = journal.newPolicyArtifact;
+  if (previousPolicyArtifact === null) {
+    return fail("RUN_POLICY_TRANSITION_RENEWAL_REQUIRED", "A bound transition has no policy artifact to renew.");
+  }
+  const renewedPolicyArtifact = artifactReference(input.renewedPolicyArtifact, "renewed policy artifact");
+  if (renewedPolicyArtifact.artifactPath !== policyArtifactPath(runId, renewedPolicyArtifact.artifactDigest)) {
+    return fail("RUN_POLICY_TRANSITION_INVALID", "Renewed policy artifact path is not bound to this run.");
+  }
+  const currentPolicy = policyArtifactRefFromState(state);
+  if (currentPolicy === null || !artifactMatches(currentPolicy, renewedPolicyArtifact)) {
+    return fail("RUN_POLICY_TRANSITION_STALE", "The renewed policy artifact is not the current run binding.");
+  }
+  const at = nowIso(input.now);
+  const nowMs = Date.parse(at);
+  if (Date.parse(previousPolicyArtifact.expiresAt) > nowMs) {
+    return fail("RUN_POLICY_TRANSITION_RENEWAL_NOT_NEEDED", "The bound policy artifact has not expired.");
+  }
+  if (Date.parse(renewedPolicyArtifact.expiresAt) <= nowMs) {
+    return fail("RUN_POLICY_TRANSITION_RENEWAL_EXPIRED", "The renewed policy artifact is already expired.");
+  }
+  if (renewedPolicyArtifact.artifactDigest === previousPolicyArtifact.artifactDigest ||
+      renewedPolicyArtifact.configHash !== previousPolicyArtifact.configHash ||
+      renewedPolicyArtifact.runtimeHash !== previousPolicyArtifact.runtimeHash) {
+    return fail("RUN_POLICY_TRANSITION_STALE", "Renewal must preserve the bound policy definition and executable runtime.");
+  }
+  const renewals = journal.renewals;
+  const previousRenewalDigest = renewals.at(-1)?.renewalDigest ?? null;
+  const renewal = sealRenewal({
+    previousPolicyArtifact,
+    renewedPolicyArtifact,
+    at,
+    previousJournalDigest: journal.artifactDigest,
+    previousRenewalDigest
+  });
+  const {artifactDigest: _journalDigest, ...withoutDigest} = journal;
+  const next = sealJournal({
+    ...withoutDigest,
+    newPolicyArtifact: renewedPolicyArtifact,
+    renewals: [...renewals, renewal]
+  });
+  await repository.mutate(runId, async current => {
+    if ((current.revision ?? 0) !== (state.revision ?? 0) || current.status !== "active" || current.disableRestart || current.awaitingResume) {
+      return fail("RUN_POLICY_TRANSITION_STALE", "The run changed before policy renewal was recorded.");
+    }
+    const latest = await readJournal(current, id);
+    if (latest === null || latest.artifactDigest !== journal.artifactDigest || stageAt(latest) !== "bound") {
+      return fail("RUN_POLICY_TRANSITION_STALE", "The policy transition journal changed before renewal was recorded.");
+    }
+    if (!artifactMatches(policyArtifactRefFromState(current), renewedPolicyArtifact)) {
+      return fail("RUN_POLICY_TRANSITION_STALE", "The renewed policy binding changed before journal renewal was recorded.");
+    }
+    await writeJournal(current, next);
+    return withRenewalEvent(current, next);
+  });
+  return next;
 }
 
 /** Complete only after the synchronized policy/task proof is durable. */
