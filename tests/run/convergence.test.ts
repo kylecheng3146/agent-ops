@@ -63,6 +63,66 @@ test("derives semantic failure identity and recognizes check or pin progress", (
   assert.equal(compareFailureObservations(first, otherCheck).sameFailure, false);
 });
 
+test("normalizes acceptance checks while preserving candidate failures and expected baseline red", () => {
+  const baseline = deriveFailureObservation({
+    taskId: "task-acceptance",
+    status: "PASS",
+    results: [],
+    acceptance: [{
+      criterionId: "criterion-behavior",
+      runnerId: "acceptance",
+      phase: "baseline",
+      status: "PASS",
+      failureClass: "none",
+      requiredCheckIds: ["red-check"],
+      redCheckIds: ["red-check"],
+      checks: [{checkId: "red-check", status: "FAIL", failureClass: "assertion"}]
+    }]
+  });
+  assert.deepEqual(baseline.checks, [{
+    criterionId: "criterion-behavior", runnerId: "acceptance", checkId: "red-check",
+    phase: "baseline", status: "PASS", failureClass: "none", pinId: null
+  }]);
+
+  const candidate = deriveFailureObservation({
+    taskId: "task-acceptance",
+    status: "FAIL",
+    results: [],
+    acceptance: [{
+      criterionId: "criterion-behavior",
+      runnerId: "acceptance",
+      phase: "candidate",
+      status: "FAIL",
+      failureClass: "assertion",
+      requiredCheckIds: ["red-check", "green-check"],
+      checks: [
+        {checkId: "red-check", status: "PASS", failureClass: "none"},
+        {checkId: "green-check", status: "FAIL", failureClass: "assertion"}
+      ]
+    }]
+  });
+  assert.equal(candidate.checks.find((check) => check.checkId === "green-check")?.status, "FAIL");
+  assert.equal(candidate.checks.find((check) => check.checkId === "green-check")?.failureClass, "assertion");
+
+  const badBaseline = deriveFailureObservation({
+    taskId: "task-acceptance",
+    status: "FAIL",
+    results: [],
+    acceptance: [{
+      criterionId: "criterion-behavior",
+      runnerId: "acceptance",
+      phase: "baseline",
+      status: "FAIL",
+      failureClass: "non-discriminating",
+      requiredCheckIds: ["red-check"],
+      redCheckIds: ["red-check"],
+      checks: [{checkId: "red-check", status: "PASS", failureClass: "none"}]
+    }]
+  });
+  assert.equal(badBaseline.checks[0]?.status, "FAIL");
+  assert.equal(badBaseline.checks[0]?.failureClass, "non-discriminating");
+});
+
 async function supervisorFixture(): Promise<{
   readonly root: string;
   readonly repository: FileRunRepository;
