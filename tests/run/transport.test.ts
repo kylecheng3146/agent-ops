@@ -37,12 +37,12 @@ test("native activation requires a persisted lease and rejects a stop racing act
     assert.equal(input.env?.AGENT_OPS_SESSION_ID, "owner-one");
     assert.equal(input.env?.CODEX_THREAD_ID, undefined);
     assert.equal(input.env?.AGENT_OPS_RUN_ID, state.runId);
-    return {...input, kind: "codex", sessionId: "native-one", threadId: "native-one", nativeVersion: "test", processId: child.pid!,
+    return {...input, kind: "codex", sessionId: "native-one", threadId: "thread-one", nativeVersion: "test", processId: child.pid!,
       process: child, startedAt: new Date().toISOString(), goalStatus: "unknown"};
   }, activate: async () => {activated++; return action;}, update: async () => action,
     observe: async function* () {}, interrupt: async () => action, stop: async () => {
       child.kill("SIGTERM"); await new Promise(resolve => child.once("exit", resolve)); return action;
-    }, resume: async () => {throw new Error("Not used");}};
+    }, resume: async (_input, threadId) => {assert.equal(threadId, "thread-one"); throw new Error("resume observed");}};
   const bridge = new NativeRunTransport(host, repository, async () => {}, async () => child.exitCode === null && child.signalCode === null ? "process-instance-one" : null);
   const supervisor = new RunSupervisor({repository, host: bridge});
   try {
@@ -51,6 +51,9 @@ test("native activation requires a persisted lease and rejects a stop racing act
     assert.equal(activated, 0);
     assert.ok((await repository.read(state.runId))!.workers[0]!.processIdentity);
     await bridge.activateRegistered(state.runId, worker, "Goal"); assert.equal(activated, 1);
+    await assert.rejects(bridge.start({runId: state.runId, workerId: worker.workerId, taskId: worker.taskId,
+      ownerSessionId: worker.ownerSessionId, generation: worker.generation + 1, worktree: root,
+      contractHash: state.currentContractHash, goal: "Goal"}), /resume observed/u);
     await repository.mutate(state.runId, current => ({...current, status: "stopping", disableRestart: true}));
     await assert.rejects(bridge.activateRegistered(state.runId, worker, "Goal"), {code: "RUN_WORKER_STALE"});
     assert.equal(activated, 1);

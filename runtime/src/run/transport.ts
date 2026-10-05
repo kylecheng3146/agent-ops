@@ -34,8 +34,10 @@ export class NativeRunTransport implements NativeGoalHost {
         AGENT_OPS_RUN_ID: input.runId, AGENT_OPS_WORKER_ID: input.workerId,
         AGENT_OPS_WORKER_GENERATION: String(input.generation)},
       ...(this.host === "claude" ? {sessionId: input.ownerSessionId} : {})};
+    if (saved?.nativeSessionId != null && this.host === "codex" && saved.nativeJobId === null)
+      throw new AgentOpsError("RUN_NATIVE_THREAD_REQUIRED", "Codex recovery requires its saved native thread id.");
     const handle = saved?.nativeSessionId == null ? await this.transport.start(request)
-      : await this.transport.resume(request, saved.nativeSessionId);
+      : await this.transport.resume(request, this.host === "codex" ? saved.nativeJobId! : saved.nativeSessionId);
     const identity = handle.processId === null ? null : await this.processIdentity(handle.processId);
     if (identity === null) {
       await this.transport.stop(handle, handle);

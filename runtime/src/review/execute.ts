@@ -35,6 +35,7 @@ import {
   type ReviewExecutionRequest,
   type ReviewExecutionResult,
   type ReviewIndependence,
+  type ReviewInvocation,
   type ReviewPreflightAttempt,
   type ReviewUnavailableReason
 } from "./runner.js";
@@ -113,7 +114,7 @@ export interface ReviewExecutorOptions {
     budget?: { readonly timeoutMs: number }
   ) => Promise<ReviewTargetPreflightResult | ReviewTargetPreflightOutcome>;
   /** Re-checks the source before the adversarial session starts. */
-  readonly verifySourceFingerprint?: (expected: string) => Promise<boolean>;
+  readonly verifySourceFingerprint?: (expected: string, scope?: ReviewInvocation["scope"]) => Promise<boolean>;
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
@@ -1157,7 +1158,7 @@ export function createReviewExecutor(
       let unchanged = false;
       try {
         unchanged = await options.verifySourceFingerprint(
-          request.invocation.sourceFingerprint
+          request.invocation.sourceFingerprint, request.invocation.scope
         );
       } catch {
         unchanged = false;

@@ -705,10 +705,11 @@ process.exitCode = await runCli(
                   ? {}
                   : { timeoutMs: reviewRole.timeoutMs }),
                 preflightTarget,
-                verifySourceFingerprint: async (expected) => {
+                verifySourceFingerprint: async (expected, scope) => {
                   const currentScope = await resolveReviewScope({
                     root,
                     runner: reviewGit,
+                    ...(scope?.mode === "base" && scope.noChange === true ? {noChangePaths: scope.changedFiles} : {}),
                     ...(reviewArgs.base === undefined ? {} : { base: reviewArgs.base })
                   });
                   return await calculateSourceFingerprint(
