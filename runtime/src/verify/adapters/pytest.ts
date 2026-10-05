@@ -13,7 +13,6 @@ import {
   result,
   run,
   string,
-  terminal,
   terminalEvidence,
   type AcceptanceAdapterOptions
 } from "./shared.js";
@@ -34,25 +33,23 @@ interface PhaseRecord {
 function inputEvents(input: unknown): {
   readonly events: readonly unknown[];
   readonly diagnostics: readonly string[];
-  readonly finalReport: boolean;
 } {
-  if (Array.isArray(input)) return { events: input, diagnostics: [], finalReport: false };
+  if (Array.isArray(input)) return { events: input, diagnostics: [] };
   if (typeof input !== "string") {
     const value = object(input);
-    if (value === undefined) return { events: [], diagnostics: ["malformed-output"], finalReport: false };
-    return { events: [value], diagnostics: [], finalReport: Array.isArray(value.tests) };
+    if (value === undefined) return { events: [], diagnostics: ["malformed-output"] };
+    return { events: [value], diagnostics: [] };
   }
   const document = parseJsonDocument(input);
-  if (Array.isArray(document)) return { events: document, diagnostics: [], finalReport: false };
+  if (Array.isArray(document)) return { events: document, diagnostics: [] };
   if (object(document) !== undefined) {
     const value = object(document)!;
-    return { events: [value], diagnostics: [], finalReport: Array.isArray(value.tests) };
+    return { events: [value], diagnostics: [] };
   }
   const lines = parseJsonLines(input);
   return {
     events: lines.values,
-    diagnostics: lines.invalidLines.map((line) => `invalid-json-line:${line}`),
-    finalReport: false
+    diagnostics: lines.invalidLines.map((line) => `invalid-json-line:${line}`)
   };
 }
 
@@ -69,7 +66,7 @@ function phaseValue(value: Record<string, unknown>): Record<string, unknown> | u
 }
 
 function phaseName(value: Record<string, unknown>): string {
-  return lower(value.when ?? value.phase ?? value.stage) ?? "call";
+  return lower(value.when ?? value.phase ?? value.stage) ?? "unknown";
 }
 
 function outcome(value: Record<string, unknown>): string | undefined {
@@ -101,6 +98,7 @@ function addRecord(
   }
   const phase = phaseValue(raw) ?? raw;
   const evidenceId = string(raw.id ?? raw.reportId ?? raw.nodeid ?? raw.nodeId) ?? stable;
+  const attemptCount = number(raw.attempts ?? phase.attempts);
   const list = grouped.get(stable) ?? [];
   list.push({
     phase: phaseName(phase),
@@ -110,7 +108,7 @@ function addRecord(
       (typeof phase.wasxfail === "string" && phase.wasxfail.length > 0) ||
       phase.xfail === true || outcome(phase) === "xfailed" || outcome(phase) === "xpassed",
     retry: hasRetry(raw) || hasRetry(phase),
-    attempts: number(raw.attempts ?? phase.attempts) ?? 1,
+    attempts: attemptCount !== undefined && attemptCount > 0 ? attemptCount : null,
     evidence: `pytest:${stable}:${evidenceId}`,
     infrastructure: (phase.error !== undefined && phase.error !== null) ||
       (phase.crash !== undefined && phase.crash !== null && phase.crash !== false)
@@ -148,8 +146,8 @@ export function collectPytestAcceptance(
   const parsed = inputEvents(input);
   const grouped = new Map<string, PhaseRecord[]>();
   const diagnostics = [...parsed.diagnostics];
-  let completed = parsed.finalReport;
-  let completionEvidence: string[] = parsed.finalReport ? ["pytest:report:complete"] : [];
+  let completed = false;
+  let completionEvidence: string[] = [];
   for (const raw of parsed.events) {
     const value = object(raw);
     if (value === undefined) {
@@ -165,7 +163,8 @@ export function collectPytestAcceptance(
       continue;
     }
     const type = eventType(value);
-    if (terminal(value) || type === "session-finished" || type === "session-finish") {
+    if (["session-finished", "session-finish", "complete", "completed", "finished", "run-complete"].includes(type ?? "") &&
+        value.completed !== false && value.interrupted !== true) {
       completed = true;
       completionEvidence = [terminalEvidence(value, options.executionId)];
       continue;
@@ -174,11 +173,11 @@ export function collectPytestAcceptance(
       diagnostics.push(`pytest:${type}`);
       continue;
     }
-    if (type === undefined || type === "test-report" || type === "runtest" || type === "test") {
+    if (type === "test-report" || type === "runtest" || type === "test") {
       addRecord(grouped, value, diagnostics);
       continue;
     }
-    diagnostics.push(`unsupported-event:${type}`);
+    diagnostics.push(`unsupported-event:${type ?? "unknown"}`);
   }
 
   const results = [] as ReturnType<typeof result>[];
@@ -188,21 +187,26 @@ export function collectPytestAcceptance(
       if (max === null || record.attempts === null) return null;
       return Math.max(max, record.attempts);
     }, 1);
-    if (records.some((record) => record.retry) || records.length > 3) {
+    if (records.some((record) => record.retry || (record.attempts !== null && record.attempts > 1))) {
       results.push(result(options, "pytest", id, "UNKNOWN", refs, "retry", attemptsCount === null ? null : Math.max(attemptsCount, 2)));
       continue;
     }
     const setupOrTeardownFailure = records.some((record) =>
       (record.phase === "setup" || record.phase === "teardown") &&
-      record.outcome !== undefined && record.outcome !== "passed" && record.outcome !== "pass"
+      record.outcome !== "passed" && record.outcome !== "pass"
     );
     if (setupOrTeardownFailure || records.some((record) => record.infrastructure)) {
       results.push(result(options, "pytest", id, "UNKNOWN", refs, "fixture-error", attemptsCount));
       continue;
     }
-    const call = records.find((record) => record.phase === "call") ?? records[0];
-    if (call === undefined) {
-      results.push(result(options, "pytest", id, "UNKNOWN", refs, "incomplete-output", null));
+    const phases = records.map(record => record.phase);
+    if (new Set(phases).size !== phases.length) {
+      results.push(result(options, "pytest", id, "UNKNOWN", refs, "duplicate-check", attemptsCount));
+      continue;
+    }
+    const call = records.find((record) => record.phase === "call");
+    if (phases.join(",") !== "setup,call,teardown" || call === undefined) {
+      results.push(result(options, "pytest", id, "UNKNOWN", refs, "incomplete-output", attemptsCount));
       continue;
     }
     if (call.xfail) {

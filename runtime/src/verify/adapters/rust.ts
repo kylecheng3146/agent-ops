@@ -101,7 +101,7 @@ export function collectRustAcceptance(
         checkStatus,
         evidence,
         failureClass,
-        attempts(value.attempts, 1)
+        attempts(value.attempts, null)
       ));
     } catch {
       diagnostics.push(`malformed-result:${checkId}`);

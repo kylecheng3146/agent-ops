@@ -100,6 +100,8 @@ export function hasRetry(value: Record<string, unknown>): boolean {
   if (value.retry === true || value.retried === true) return true;
   const retryCount = number(value.retryCount);
   if (retryCount !== undefined && retryCount > 0) return true;
+  const repeatCount = number(value.repeatCount);
+  if (repeatCount !== undefined && repeatCount > 0) return true;
   const rerun = number(value.rerun);
   if (rerun !== undefined && rerun > 0) return true;
   const invocations = number(value.invocations);

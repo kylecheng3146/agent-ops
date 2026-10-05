@@ -71,7 +71,8 @@ function infrastructure(suite: Record<string, unknown>, report: Record<string, u
   const present = (value: unknown): boolean => value !== undefined && value !== null &&
     (!Array.isArray(value) || value.length > 0);
   if (present(suite.testExecError) || present(suite.runtimeError) ||
-      present(report.runExecError) || report.wasInterrupted === true) return true;
+      present(report.runExecError) || present(report.unhandledErrors) || present(report.errors) ||
+      report.wasInterrupted === true) return true;
   const runtimeSuites = number(report.numRuntimeErrorTestSuites);
   return runtimeSuites !== undefined && runtimeSuites > 0;
 }
@@ -123,16 +124,29 @@ export function collectJestAcceptance(
         continue;
       }
       const status = lower(assertion.status ?? assertion.state);
-      const attemptCount = number(assertion.attempts) ?? (hasRetry(assertion) ? 2 : 1);
+      const observedAttempts = number(assertion.attempts ?? assertion.invocations);
+      const attemptCount = observedAttempts !== undefined && observedAttempts > 0 ? observedAttempts : null;
       const evidenceRefs = evidence(suite, id);
+      const hooks = object(assertion.hooks);
+      const hookFailure = (Array.isArray(assertion.hookErrors) && assertion.hookErrors.length > 0) ||
+        (assertion.hookErrors !== undefined && assertion.hookErrors !== null && !Array.isArray(assertion.hookErrors)) ||
+        (hooks !== undefined && Object.values(hooks).some(state => state !== "pass" && state !== "passed"));
       if (hasRetry(assertion)) {
         results.push(result(options, "jest", id, "UNKNOWN", evidenceRefs, "retry", attemptCount));
       } else if (suiteHasInfrastructure) {
         results.push(result(options, "jest", id, "UNKNOWN", evidenceRefs, "infrastructure-error", attemptCount));
+      } else if (hookFailure) {
+        results.push(result(options, "jest", id, "UNKNOWN", evidenceRefs, "hook-error", attemptCount));
       } else if (status === "passed" || status === "pass") {
         results.push(result(options, "jest", id, "PASS", evidenceRefs, "none", attemptCount));
       } else if (status === "failed" || status === "fail") {
-        results.push(result(options, "jest", id, "FAIL", evidenceRefs, "assertion-failed", attemptCount));
+        // Native Jest JSON does not distinguish a test-call assertion from an
+        // assertion thrown by before/after hooks. Only classified collector
+        // metadata can establish behavioral red; failureMessages cannot.
+        const assertionFailure = assertion.assertion === true || assertion.failureClass === "assertion-failed";
+        results.push(assertionFailure
+          ? result(options, "jest", id, "FAIL", evidenceRefs, "assertion-failed", attemptCount)
+          : result(options, "jest", id, "UNKNOWN", evidenceRefs, "infrastructure-error", attemptCount));
       } else if (status === "pending" || status === "todo" || status === "skipped" || status === "disabled") {
         results.push(result(options, "jest", id, "UNKNOWN", evidenceRefs, status === "todo" ? "todo" : "skipped", attemptCount));
       } else {
@@ -140,6 +154,8 @@ export function collectJestAcceptance(
       }
     }
   }
+  if ((report.success === false || (number(report.numFailedTestSuites) ?? 0) > 0) &&
+      !results.some(item => item.status !== "PASS")) diagnostics.push("unexplained-failed-report");
   const completed = report.completed !== false && report.interrupted !== true;
   return run(options, "jest", results, completed, completed ? ["jest:report:complete"] : [], diagnostics);
 }

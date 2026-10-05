@@ -220,6 +220,116 @@ test("pytest hook collector distinguishes call assertions from lifecycle failure
   assert.equal(aggregateAcceptanceRun(xfailed, ["tests/test.py::test_xfail"]).status, "UNKNOWN");
 });
 
+test("pytest proof requires one complete explicit single-attempt lifecycle", () => {
+  const id = "tests/test.py::test_one";
+  const lifecycle = (outcome = "passed") => ["setup", "call", "teardown"].map(when => ({
+    type: "test-report", nodeid: id, when, outcome: when === "call" ? outcome : "passed",
+    assertion: when === "call" && outcome === "failed", attempts: 1
+  }));
+  const end = {type: "session-finished", completed: true};
+  for (const outcome of ["passed", "failed"]) {
+    const valid = lifecycle(outcome);
+    assert.equal(aggregateAcceptanceRun(collectPytestAcceptance([...valid, end], OPTIONS), [id]).status,
+      outcome === "passed" ? "PASS" : "FAIL");
+    const invalid = [
+      [valid[1]], [valid[1], valid[1], valid[1]], [valid[0], valid[1], valid[1], valid[2]],
+      valid.map(({type: _type, ...record}) => record),
+      valid.map(({attempts: _attempts, ...record}) => record),
+      valid.map(record => ({...record, when: "unknown"})),
+      valid.map(record => ({...record, attempts: 2})),
+      [...valid].reverse(), valid.map(record => ({...record, attempts: 0}))
+    ];
+    for (const records of invalid) {
+      assert.equal(aggregateAcceptanceRun(collectPytestAcceptance([...records, end], OPTIONS), [id]).status,
+        "UNKNOWN", JSON.stringify(records));
+    }
+  }
+});
+
+test("Rust protocol never defaults absent attempt evidence to one", () => {
+  for (const status of ["PASS", "FAIL"]) {
+    const check = {type: "check", checkId: "assertion", status,
+      failureClass: status === "PASS" ? "none" : "assertion-failed"};
+    assert.equal(aggregateAcceptanceRun(collectRustAcceptance([
+      check, {type: "complete", completed: true}
+    ], OPTIONS), ["assertion"]).status, "UNKNOWN");
+  }
+});
+
+test("Vitest malformed and repeated output cannot establish acceptance proof", () => {
+  const end = {type: "finished", completed: true};
+  const event = {type: "test-end", file: "t.js", name: "x", status: "pass", attempts: 1};
+  const malformed = [JSON.stringify(event), "not-json", JSON.stringify(end)].join("\n");
+  assert.equal(aggregateAcceptanceRun(collectVitestAcceptance(malformed, OPTIONS), ["t.js::x"]).status, "UNKNOWN");
+  for (const state of ["pass", "fail"]) {
+    for (const metadata of [{retryCount: 1}, {repeatCount: 1}]) {
+      const report = {files: [{filepath: "t.js", tasks: [{name: "x", attempts: 1,
+        result: {state, errors: [{name: "AssertionError"}], ...metadata}}]}]};
+      assert.equal(aggregateAcceptanceRun(collectVitestAcceptance(report, OPTIONS), ["t.js::x"]).status, "UNKNOWN");
+    }
+  }
+  const invalidTask = {files: [{filepath: "t.js", tasks: [null, {name: "x", state: "pass", attempts: 1}]}]};
+  assert.equal(aggregateAcceptanceRun(collectVitestAcceptance(invalidTask, OPTIONS), ["t.js::x"]).status, "UNKNOWN");
+});
+
+test("Vitest hook and non-assertion failures never become behavioral red", () => {
+  for (const metadata of [
+    {hooks: {beforeEach: "fail"}, errors: [{name: "AssertionError"}]},
+    {hooks: {afterEach: "fail"}, errors: [{name: "AssertionError"}]},
+    {hookErrors: [{name: "AssertionError"}]},
+    {errors: [{name: "Error", message: "database unavailable"}]},
+    {hooks: {beforeEach: "run"}, errors: [{name: "AssertionError"}]},
+    {hooks: {beforeEach: "pass", afterEach: "pass"}, errors: [{name: "AssertionError"}]}
+  ]) {
+    const report = {files: [{filepath: "t.js", tasks: [{name: "x", attempts: 1,
+      result: {state: "fail", ...metadata}}]}]};
+    assert.equal(aggregateAcceptanceRun(collectVitestAcceptance(report, OPTIONS), ["t.js::x"]).status, "UNKNOWN");
+  }
+});
+
+test("Jest and Vitest require classified assertion and explicit attempts", () => {
+  for (const collect of [collectJestAcceptance, collectVitestAcceptance]) {
+    for (const status of ["passed", "failed"]) {
+      const row = {title: "x", status, invocations: 1,
+        failureDetails: [{matcherResult: {pass: false}}]};
+      const report = {testResults: [{testFilePath: "t.js", assertionResults: [row]}]};
+      assert.equal(aggregateAcceptanceRun(collect(report, OPTIONS), ["t.js::x"]).status,
+        status === "passed" ? "PASS" : "UNKNOWN");
+      assert.equal(aggregateAcceptanceRun(collect({...report, success: false,
+        testResults: [{testFilePath: "t.js", assertionResults: [{...row, status: "passed"}]}]}, OPTIONS), ["t.js::x"]).status, "UNKNOWN");
+      const {invocations: _invocations, ...withoutAttempts} = row;
+      assert.equal(aggregateAcceptanceRun(collect({testResults: [{testFilePath: "t.js",
+        assertionResults: [withoutAttempts]}]}, OPTIONS), ["t.js::x"]).status, "UNKNOWN");
+    }
+    const report = {testResults: [{testFilePath: "t.js", assertionResults: [
+      {title: "x", status: "failed", assertion: true, attempts: 1}
+    ]}]};
+    assert.equal(aggregateAcceptanceRun(collect(report, OPTIONS), ["t.js::x"]).status, "FAIL");
+  }
+  const valid = {name: "x", result: {state: "fail", assertion: true, retryCount: 0, repeatCount: 0}};
+  assert.equal(aggregateAcceptanceRun(collectVitestAcceptance({files: [{filepath: "t.js", tasks: [valid]}]}, OPTIONS), ["t.js::x"]).status, "FAIL");
+  const suite = {name: "suite", tasks: [{...valid, result: {...valid.result, state: "pass"}}],
+    result: {state: "fail", errors: [{name: "AssertionError"}]}};
+  assert.equal(aggregateAcceptanceRun(collectVitestAcceptance({files: [{filepath: "t.js", tasks: [suite]}]}, OPTIONS), ["t.js::suite::x"]).status, "UNKNOWN");
+});
+
+test("native Jest 29 and Vitest 2 task fixtures preserve ambiguous cleanup failures", async () => {
+  const jest = collectJestAcceptance(await fixture("jest/native-report.json"), {...OPTIONS, frameworkVersion: "29.7.0"});
+  assert.equal(jest.results.length, 4);
+  assert.equal(jest.results.find(row => row.checkId.endsWith("::green"))?.status, "PASS");
+  assert.ok(jest.results.filter(row => !row.checkId.endsWith("::green")).every(row => row.status === "UNKNOWN"));
+  const vitest = collectVitestAcceptance(await fixture("vitest/native-report.json"), {...OPTIONS, frameworkVersion: "2.1.9"});
+  assert.equal(vitest.results.length, 8);
+  assert.equal(vitest.results.find(row => row.checkId.endsWith("::green"))?.status, "PASS");
+  assert.ok(vitest.results.filter(row => !row.checkId.endsWith("::green")).every(row => row.status === "UNKNOWN"));
+  for (const name of ["fixture", "finished"]) {
+    assert.equal(vitest.results.find(row => row.checkId.endsWith(`::cleanup::${name}`))?.failureClass, "infrastructure-error");
+  }
+  for (const name of ["retried", "repeated"]) {
+    assert.equal(vitest.results.find(row => row.checkId.endsWith(`::${name}`))?.failureClass, "retry");
+  }
+});
+
 test("Rust stdlib harness fixtures emit real protocol pass and assertion red", async () => {
   const pass = collectRustAcceptance(await fixture("rust/pass.jsonl"), OPTIONS);
   const fail = collectRustAcceptance(await fixture("rust/fail.jsonl"), OPTIONS);

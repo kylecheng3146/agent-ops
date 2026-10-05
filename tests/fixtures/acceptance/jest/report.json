@@ -13,6 +13,7 @@
           "ancestorTitles": ["session"],
           "title": "rejects duplicate",
           "status": "failed",
+          "assertion": true,
           "failureMessages": ["expected two events to be one"],
           "attempts": 1
         }

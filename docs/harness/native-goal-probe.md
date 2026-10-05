@@ -54,7 +54,24 @@ external adoption, or a reduction in review cost. Native cost remains partial.
 
 ## Framework execution conditions
 
-Node uses the structured test reporter; Jest/Vitest use their packaged collectors.
+Node uses the structured test reporter; Jest/Vitest reports use their packaged
+normalizers. Native Jest JSON and Vitest task results do not preserve enough
+provenance to distinguish test-call assertions from every hook or fixture
+cleanup assertion. Failed native rows therefore remain UNKNOWN, even when the
+error is AssertionError or contains matcher metadata. Behavioral red requires
+explicit classified `assertion: true` or `failureClass: "assertion-failed"`
+metadata from the repository's reviewed collector, with no lifecycle errors.
+Passing reports still require observed single-attempt evidence (`attempts`,
+Jest `invocations`, or both Vitest result `retryCount` and `repeatCount`). Reports
+without this metadata remain UNKNOWN; success cannot imply one attempt.
+Pytest requires an explicit setup/call/teardown sequence for each nodeid, and
+the Rust harness requires its explicit attempt count.
+On 2026-10-05 actual Jest 29.7.0 and Vitest 2.1.9 executions reproduced assertion,
+before/after hook, Vitest fixture-cleanup/onTestFinished, retry and repeat
+boundaries. Their reduced native reports and executing sources are preserved
+under `tests/fixtures/acceptance/`; original reports remain in the private
+temporary probe directory. In particular, Vitest cleanup assertion errors
+retained both hook states as `pass`, confirming the provenance limitation.
 The local adapter workstream exercised Node, Jest `29.7.0` and Vitest `2.1.9` in
 temporary installations. Protocol fixture tests also cover missing/duplicate IDs,
 retry, skip, collection and hook errors. Fixture normalization is separate from
