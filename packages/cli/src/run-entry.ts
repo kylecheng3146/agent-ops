@@ -1,3 +1,5 @@
+import {stat} from "node:fs/promises";
+import {recoverRunIntegrationAfterCleanup, validateRunIntegrationReceipt} from "../../../runtime/src/run/integration.js";
 import {pendingFindingPins} from "../../../runtime/src/run/ratchet.js";
 import {resolveReviewScope} from "../../../runtime/src/review/scope.js";
 import {writeNoChangeDelivery} from "../../../runtime/src/parallel/integrate.js";
@@ -85,8 +87,6 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       return;
     }
     const restarts = state.events.filter(e => e.code === "RUN_SUPERVISOR_START" && Date.now() - Date.parse(e.at) < 300000).length;
-    const integrationAtTarget = state.integration !== null &&
-      (await deps.git(root, ["rev-parse", state.targetBranch + "^{commit}"])).stdout.trim() === state.integration.candidate;
     if (restarts >= 3) {
       await blockStartup("RUN_RESTART_STORM");
       return;
@@ -94,7 +94,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     await repository.appendEvent(runId, {type: "status", code: "RUN_SUPERVISOR_START", workerId: null, taskId: null, detail: null});
     let version: string;
     try {
-      version = state.integration !== null && (state.integration.status !== "prepared" || integrationAtTarget) ? state.nativeInstance ?? "recovery"
+      version = state.integration !== null ? state.nativeInstance ?? "recovery"
         : (await exec(state.host, ["--version"], {timeout: 5000, maxBuffer: 8192})).stdout.trim();
       if (version.length === 0 || (state.nativeInstance !== null && state.nativeInstance !== version))
         throw new AgentOpsError("RUN_NATIVE_VERSION_CHANGED", "Native version drift prevents automatic writer restart.");
@@ -128,12 +128,13 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         answers.push({questionId: question.questionId, prompt: question.prompt, answer: answer.answer});
       }
       const content = {runId, workerId: worker.workerId, generation: worker.generation, contractHash: current.currentContractHash,
-        originalGoal: current.goal, answers, rootTaskId: current.rootTaskId, taskId: worker.taskId, cli, ownerSessionId: current.ownerSessionId,
+        originalGoal: current.goal, answers, rootTaskId: current.rootTaskId, taskId: worker.taskId, cli, ownerSessionId: worker.ownerSessionId,
         instructions: ["Keep the original goal fixed. Read this repository's AGENTS.md and use its existing verifier authority.",
           "Plan 2–5 substantive acceptance criteria. Submit a plan request before changing product files; the supervisor creates the task with the fixed goal.",
           "For every mechanically testable requirement use a configured acceptance runner; explicit review-only fallback requires a recorded reason and fresh goal review.",
           "Implement, commit and verify. Repair failed checks and pin mechanically testable review findings into regression criteria. Never disable a mandatory policy verifier.",
           "Only registered run workers may write. Use isolated worktrees and supervisor-issued leases; do not launch an unregistered writing subagent.",
+          "Commit product changes before revising the contract. A contract revision stops existing generations; dirty recovery preserves the checkout and blocks takeover.",
           "Write one request atomically to .agent-ops/tasks/run-request.json; wait for matching run-response.json before another request.",
           "Requests require requestId (unique alphanumeric or hyphen, max 64), workerId, generation and current contractHash.",
           "Plan fields: action=plan,title,intent,criteria. Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered).",
@@ -207,6 +208,18 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     async function advance(saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
       return await step(root, ["task", "advance", "--task", saved.rootTaskId!, "--session", saved.ownerSessionId, "--yes"], saved);
     }
+    async function recoverIntegration(saved: RunState): Promise<string> {
+      const coordinator = saved.workers.find(worker => worker.workerId === saved.coordinatorId);
+      if (coordinator?.worktree == null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Recovery requires the saved coordinator identity.");
+      let absent = false;
+      try {await stat(coordinator.worktree);}
+      catch (cause) {if ((cause as NodeJS.ErrnoException).code === "ENOENT") absent = true; else throw cause;}
+      if (absent) return (await recoverRunIntegrationAfterCleanup(commonDir, runId, deps.git)).receiptPath;
+      const result = await advance(saved);
+      if (result.status !== "ok" || !plain(result.data) || typeof result.data.receipt !== "string")
+        throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recover the sealed transaction before allowing any writer to resume.");
+      return result.data.receipt;
+    }
     async function step(cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
       const remaining = saved.budget.limitMs - activeWallTimeMs(saved.budget.activeIntervals, Date.now());
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
@@ -216,8 +229,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         delete env.CODEX_THREAD_ID;
         delete env.AGENT_OPS_AGENT_ID;
         delete env.CODEX_SANDBOX_NETWORK_DISABLED;
-        const child = spawn(process.execPath, [cli, ...args, "--json"],
-          {cwd, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"]});
+        const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)), cli, ...args, "--json"],
+          {cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"]});
         let output = "";
         let closed = false;
         let escalation: ReturnType<typeof setTimeout> | undefined;
@@ -238,7 +251,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             }
             return {...current, proofProcess: {processId: child.pid!, processIdentity: identity}};
           });
+          child.stdin.end("start\n");
         })();
+        child.stdin.on("error", terminate);
         void registration.catch(() => terminate());
         let checking = false;
         const control = setInterval(() => {
@@ -310,6 +325,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const source = await readPrivateFile(path, commonDir);
       if (source === null) throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Final receipt is missing.");
       const receipt = JSON.parse(source) as FinishReceipt;
+      const latest = (await repository.read(runId))!;
+      if (latest.integration === null || latest.integration.receiptPath !== path || latest.integration.receiptDigest !== sha256(source))
+        throw new AgentOpsError("RUN_INTEGRATION_RECEIPT_INVALID", "Receipt must be the exact sealed receipt of the current run transaction.");
+      validateRunIntegrationReceipt(latest.integration, receipt);
       const target = await deps.git(root, ["rev-parse", current.targetBranch + "^{commit}"]);
       if (target.exitCode !== 0 || target.stdout.trim() !== receipt.candidateHead || receipt.sessionId !== current.ownerSessionId ||
         !receipt.tasks.some(record => record.task.id === current.rootTaskId && record.task.goal === current.goal) ||
@@ -317,12 +336,18 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         Object.values(receipt.verification).some(seal => sha256(JSON.stringify(seal.value)) !== seal.digest) ||
         Object.entries(receipt.executionArtifacts ?? {}).some(([path, seal]) => typeof seal.value !== "string" ||
           sha256(JSON.stringify(seal.value)) !== seal.digest || path !== ".agent-ops/tasks/acceptance/" + sha256(seal.value) + ".json") ||
+        Object.values(receipt.historicalReviews ?? {}).some(seal => typeof seal.value !== "string" || sha256(JSON.stringify(seal.value)) !== seal.digest) ||
         Object.values(receipt.reviews).some(seals => sha256(JSON.stringify(seals.attestation.value)) !== seals.attestation.digest ||
           sha256(JSON.stringify(seals.report.value)) !== seals.report.digest))
         throw new AgentOpsError("RUN_RECEIPT_TARGET_CHANGED", "Receipt is not complete proof for the current run and target.");
       await readFinishedReview(deps, root, commonDir, path);
+      for (const history of Object.values(receipt.historicalReviews ?? {}))
+        await recordReviewRunUsage(repository, runId, JSON.parse(history.value as string) as ReviewReportArtifact);
       for (const review of Object.values(receipt.reviews))
         await recordReviewRunUsage(repository, runId, review.report.value as ReviewReportArtifact);
+      const finalContract = treeContractHash(receipt.tasks.map(record => record.task));
+      await repository.mutate(runId, current => ({...current, currentContractHash: finalContract,
+        contractRevision: current.contractRevision + (current.currentContractHash === finalContract ? 0 : 1)}));
       await supervisor.finalize(runId, {targetCommit: target.stdout.trim(), candidateCommit: receipt.candidateHead,
         verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: sha256(source)});
       try {
@@ -337,22 +362,19 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       if (!state.budget.activeIntervals.some(interval => interval.endMs === null))
         await repository.mutate(runId, current => ({...current, budget: {...current.budget,
           activeIntervals: [...current.budget.activeIntervals, {startMs: Date.now(), endMs: null}]}}));
-      if (state.integration !== null && (state.integration.status !== "prepared" || integrationAtTarget)) {
-        let receipt = state.integration.receiptPath;
-        if (state.integration.status !== "cleaned") {
-          const result = await advance(state);
-          if (result.status !== "ok" || !plain(result.data) || typeof result.data.receipt !== "string")
-            throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_FAILED", "Recover the sealed integration before allowing any writer to resume.");
-          receipt = result.data.receipt;
-        }
-        if (receipt === null) throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Recovered integration has no final receipt.");
-        await acceptReceipt(state, receipt);
-        return;
-      }
       if (state.proofProcess != null) {
         await transport.stop({nativeSessionId: "run-proof", nativeJobId: null, ...state.proofProcess,
           instance: state.nativeInstance, generation: 1, reason: "reconcile interrupted evidence process"});
         await repository.mutate(runId, current => ({...current, proofProcess: null}));
+      }
+      if (state.integration !== null) {
+        let receipt = state.integration.receiptPath;
+        if (state.integration.status !== "cleaned") {
+          receipt = await recoverIntegration(state);
+        }
+        if (receipt === null) throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Recovered integration has no final receipt.");
+        await acceptReceipt(state, receipt);
+        return;
       }
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
         try {await start(worker);}
@@ -373,8 +395,13 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           if (rootTask.task.goal !== state.goal) throw new AgentOpsError("RUN_GOAL_CHANGED", "The task tree no longer binds the immutable user goal.");
           const contract = await tasks.treeContract(state.rootTaskId);
           if (contract !== state.currentContractHash) {
+            const writers = state.workers.filter(active).map(worker => worker.workerId);
+            await stopAll("stop", false);
             state = await repository.mutate(runId, current => ({...current, currentContractHash: contract, contractRevision: current.contractRevision + 1}));
-            for (const worker of state.workers.filter(active)) await instructions(worker, "Contract changed. Preserve the original goal and rerun proof for the current criteria. Old native completion is unproven.");
+            for (const id of writers) {
+              const worker = state.workers.find(worker => worker.workerId === id)!;
+              await start(worker, "Contract changed. Preserve the original goal and rerun proof for the current criteria. Old generations and native completion are unproven.");
+            }
           }
         }
         if (state.disableRestart || ["stopping", "paused", "budget-limited", "blocked"].includes(state.status)) {
@@ -534,12 +561,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             response = {requestId: request.requestId, code: cause instanceof AgentOpsError ? cause.code : "RUN_REQUEST_FAILED", error: cause instanceof AgentOpsError ? cause.message : "Request failed; inspect local diagnostics."};
             const latest = (await repository.read(runId))!;
             const stopped = latest.workers.find(w => w.workerId === worker.workerId);
-            if (request.action === "finalize" && latest.integration !== null && latest.integration.status !== "prepared") {
-              const recovered = await advance(latest);
-              if (recovered.status !== "ok" || !plain(recovered.data) || typeof recovered.data.receipt !== "string")
-                throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Integration crossed the target boundary; preserve the sealed proof and recover bookkeeping before resuming writers.");
-              await acceptReceipt(latest, recovered.data.receipt);
-              response = {requestId: request.requestId, code: "RUN_COMPLETE", receipt: recovered.data.receipt};
+            if (request.action === "finalize" && latest.integration !== null && (latest.integration.status !== "prepared" ||
+              (await deps.git(root, ["rev-parse", latest.targetBranch + "^{commit}"])).stdout.trim() === latest.integration.candidate)) {
+              const recovered = await recoverIntegration(latest);
+              await acceptReceipt(latest, recovered);
+              response = {requestId: request.requestId, code: "RUN_COMPLETE", receipt: recovered};
             } else if (["handoff", "finalize"].includes(String(request.action)) && latest.status === "active" && stopped !== undefined &&
               ["stopped", "fenced"].includes(stopped.status)) {
               await writePrivateFile(join(worker.worktree!, ".agent-ops", "tasks", "run-last-failure.json"), JSON.stringify(response), worker.worktree!);

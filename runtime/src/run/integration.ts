@@ -119,6 +119,32 @@ export async function readRunIntegrationProof(commonDir: string, record: Worktre
   return await readSealedProof(commonDir, record.runId, state.integration);
 }
 
+/** A failed pre-merge CAS may be retried only after archiving the unused sealed transaction. */
+export async function abandonPreparedRunIntegration(commonDir: string, record: WorktreeRecord, git: IntegrationGit): Promise<void> {
+  if (record.runId === undefined) return;
+  const repository = ledger(commonDir);
+  const state = await repository.read(record.runId);
+  const transaction = state?.integration;
+  if (state === null || transaction == null) return;
+  if (transaction.status !== "prepared" || state.ownerSessionId !== record.sessionId || state.coordinatorId !== record.workerId ||
+      state.workers.some(worker => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status)))
+    throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Only a stopped, unused prepared transaction may be superseded.");
+  const target = await git(state.root, ["rev-parse", state.targetBranch + "^{commit}"]);
+  const commit = target.stdout.trim();
+  const ancestry = await git(state.root, ["merge-base", "--is-ancestor", transaction.candidate, commit]);
+  if (target.exitCode !== 0 || commit === transaction.expectedTarget || commit === transaction.candidate || ancestry.exitCode !== 1)
+    throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "The old candidate may have reached the target; preserve and recover its sealed transaction.");
+  const proof = await readSealedProof(commonDir, record.runId, transaction);
+  await repository.mutate(record.runId, async current => {
+    const actual = await git(state.root, ["rev-parse", state.targetBranch + "^{commit}"]);
+    if (current.revision !== state.revision || actual.exitCode !== 0 || actual.stdout.trim() !== commit)
+      throw new AgentOpsError("RUN_INTEGRATION_STALE", "Run or target changed while superseding an unused transaction.");
+    const path = join(commonDir, "agent-ops", "runs", record.runId!, "integration-history", transaction.transactionId + ".json");
+    await writePrivateFile(path, JSON.stringify({transaction, proof, observedTarget: commit}), commonDir);
+    return {...current, integration: null};
+  });
+}
+
 /** Read the binding used by a finish receipt without trusting caller-supplied transaction fields. */
 export async function readRunIntegrationReceiptBinding(
   commonDir: string,

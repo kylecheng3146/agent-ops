@@ -11,7 +11,7 @@ import { calculateSourceFingerprint } from "../../../../runtime/src/verify/sourc
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 import { readFinishedReview } from "./review-show.js";
-import {prepareRunIntegration, readRunIntegrationProof} from "../../../../runtime/src/run/integration.js";
+import {prepareRunIntegration, readRunIntegrationProof, abandonPreparedRunIntegration} from "../../../../runtime/src/run/integration.js";
 
 interface StepEnvelope {
   readonly code: string;
@@ -112,6 +112,8 @@ export async function runAdvanceCommand(options: {
     const finished = await finishWorktree(deps, {cwd: mainRoot, name, finalProof: {...savedProof, recovery: true}});
     return okEnvelope("TASK_ADVANCED", { ...finished, text: "Recovered the sealed integration without moving the target again." });
   }
+  if (savedProof !== null && await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]) !== savedProof.target)
+    await abandonPreparedRunIntegration(commonDir, record, deps.git);
   const parent = await deps.tasks(record.path).status({ taskId: options.parentTaskId });
   if (parent.status !== "active" || parent.task.parentTaskId !== undefined) {
     throw new AgentOpsError("ADVANCE_PARENT_INVALID", "Advance requires an active root task in the coordinator worktree.");
@@ -177,7 +179,10 @@ export async function runAdvanceCommand(options: {
         text: `Final candidate ${head} passed all task verifiers and ${reviewMode} review, then finished into ${record.targetBranch}. Receipt: ${finished.receipt}.\n${highlights}Full reports: agent-ops review show --task ${parent.task.id}`
       });
     } catch (failure) {
-      if (failure instanceof AgentOpsError && failure.code === "WORKTREE_TARGET_MOVED" && attempt === 0) continue;
+      if (failure instanceof AgentOpsError && failure.code === "WORKTREE_TARGET_MOVED" && attempt === 0) {
+        await abandonPreparedRunIntegration(commonDir, record, deps.git);
+        continue;
+      }
       throw failure;
     }
   }

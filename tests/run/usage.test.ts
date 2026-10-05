@@ -1,10 +1,11 @@
+import {writePrivateFile} from "../../runtime/src/security/permissions.js";
 import assert from "node:assert/strict";
 import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
 import {createRunState, FileRunRepository} from "../../runtime/src/run/service.js";
-import {recordNativeRunUsage, recordReviewRunUsage} from "../../runtime/src/run/usage.js";
+import {recordNativeRunUsage, recordReviewRunUsage, recordSavedReviewRunUsage} from "../../runtime/src/run/usage.js";
 import type {ReviewReportArtifact} from "../../runtime/src/review/attestation.js";
 import type {NativeGoalEvent} from "../../runtime/src/run/hosts/types.js";
 
@@ -40,6 +41,15 @@ test("native usage deduplicates thread totals, preserves resumed sessions and re
     await recordReviewRunUsage(repository, state.runId, {...report, taskId: "copied-tree-report"});
     assert.equal((await repository.read(state.runId))!.budget.usage.tokens, 18);
     assert.equal((await repository.read(state.runId))!.budget.usage.usd, null);
+    const failed: ReviewReportArtifact = {...report, schemaVersion: 2, goalHash: state.goalHash, taskId: "task-one", status: "FAIL",
+      createdAt: new Date(Date.parse(state.createdAt) + 1000).toISOString(),
+      attempts: [{target: "codex", status: "FAIL", sessionId: "review-failed", metrics: {promptBytes: 20, durationMs: 100, usage: {totalTokens: 4}}}],
+      report: {summary: "Failure", results: [{criterionId: "one", status: "FAIL", summary: "Failure", evidence: []}], findings: [], residualRisks: [],
+        changedFilesInspected: ["product.ts"], supportingFilesInspected: []}};
+    await writePrivateFile(join(root, ".agent-ops/reviews", "a".repeat(64) + ".task-one.reports.json"), JSON.stringify(failed), root);
+    await recordSavedReviewRunUsage(repository, state.runId, root);
+    await recordSavedReviewRunUsage(repository, state.runId, root);
+    assert.equal((await repository.read(state.runId))!.budget.usage.tokens, 22, "a failed review session is charged once as well");
     await repository.mutate(state.runId, current => ({...current, status: "paused"}));
     await assert.rejects(repository.write(saved), {code: "RUN_STATE_STALE"});
     assert.equal((await repository.read(state.runId))!.status, "paused", "stale snapshot cannot resurrect an active writer");

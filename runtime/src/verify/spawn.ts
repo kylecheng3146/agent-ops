@@ -50,6 +50,8 @@ export interface VerificationProcessRunner {
 }
 
 export interface NodeVerificationProcessRunnerOptions {
+  /** F proof commands inherit the already registered supervisor process group. */
+  readonly processGroupId?: number;
   readonly platform?: NodeJS.Platform;
   readonly terminateWindowsTree?: (
     processId: number,
@@ -295,6 +297,7 @@ async function defaultTerminateWindowsTree(
 export class NodeVerificationProcessRunner
 implements VerificationProcessRunner {
   readonly #platform: NodeJS.Platform;
+  readonly #processGroupId: number | undefined;
   readonly #terminateWindowsTree: (
     processId: number,
     graceMs: number
@@ -302,6 +305,9 @@ implements VerificationProcessRunner {
 
   constructor(options: NodeVerificationProcessRunnerOptions = {}) {
     this.#platform = options.platform ?? process.platform;
+    this.#processGroupId = options.processGroupId;
+    if (this.#processGroupId !== undefined && (!Number.isSafeInteger(this.#processGroupId) || this.#processGroupId < 1 || this.#platform === "win32"))
+      throw new Error("Registered proof group must be a positive POSIX process group ID.");
     this.#terminateWindowsTree =
       options.terminateWindowsTree ?? defaultTerminateWindowsTree;
   }
@@ -309,7 +315,7 @@ implements VerificationProcessRunner {
   start(request: ProcessRequest): RunningVerificationProcess {
     const child = spawn(request.command, [...request.args], {
       cwd: request.cwd,
-      detached: this.#platform !== "win32",
+      detached: this.#platform !== "win32" && this.#processGroupId === undefined,
       env: {
         ...(request.replaceEnv === true ? {} : process.env),
         ...(request.env ?? {})
@@ -359,7 +365,7 @@ implements VerificationProcessRunner {
           await this.#terminateWindowsTree(processId, graceMs);
           return;
         }
-        await terminatePosixTree(processId, completion, graceMs);
+        await terminatePosixTree(this.#processGroupId ?? processId, completion, graceMs);
       }
     };
   }
@@ -575,4 +581,11 @@ export async function runVerificationCommand(
     stdoutTruncated: capturedStdout.truncated,
     stderrTruncated: capturedStderr.truncated
   };
+}
+
+/** CLI-only opt-in. The dormant entry sets this after the supervisor records its PID. */
+export function registeredRunProofRunner(): NodeVerificationProcessRunner {
+  const value = process.env.AGENT_OPS_RUN_PROOF_PID;
+  if (value !== undefined && !/^[1-9][0-9]{0,9}$/u.test(value)) throw new Error("Invalid registered run proof PID.");
+  return new NodeVerificationProcessRunner(value === undefined ? {} : {processGroupId: Number(value)});
 }

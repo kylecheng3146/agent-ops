@@ -10,7 +10,7 @@ import { FileTrustStore } from "../../../runtime/src/security/trust.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
-import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
+import { registeredRunProofRunner } from "../../../runtime/src/verify/spawn.js";
 import {
   loadEffectiveConfig,
   repositoryTrust,
@@ -92,7 +92,7 @@ export function worktreeDependencies(): FinishDependencies {
         loadConfig: async () => (await loadEffectiveConfig(root, "project")).config
       } }
     ),
-    processRunner: new NodeVerificationProcessRunner(),
+    processRunner: registeredRunProofRunner(),
     runSetup: async (cwd, step) => await new Promise((resolve) => {
       execFile(step.command, [...step.args], {
         cwd,

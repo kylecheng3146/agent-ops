@@ -540,9 +540,8 @@ export async function readReviewReportArtifact(
     try {
       const value = JSON.parse(source) as ReviewReportArtifact;
       if (value.sourceFingerprint === sourceFingerprint &&
-        value.status === "PASS" &&
-        value.report !== undefined &&
-        value.adversarial !== undefined) {
+        ((value.status === "PASS" && value.report !== undefined && value.adversarial !== undefined) ||
+         (value.status === "FAIL" && value.report !== undefined))) {
         return value;
       }
     } catch {

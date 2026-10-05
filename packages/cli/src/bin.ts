@@ -42,7 +42,7 @@ import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { calculateSourceFingerprint } from "../../../runtime/src/verify/source-fingerprint.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
-import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
+import { registeredRunProofRunner } from "../../../runtime/src/verify/spawn.js";
 import { COMMAND_NAMES, parseArgs, type ParsedArgs } from "./args.js";
 import { runCli } from "./cli.js";
 import {
@@ -692,6 +692,7 @@ process.exitCode = await runCli(
               config: reviewConfig,
               evidenceStore: new FileEvidenceStore(root, root),
               execute: inSlot(createReviewExecutor({
+                runner: registeredRunProofRunner(),
                 targets: configuredReviewTargets,
                 cwd: root,
                 ...(reviewRole?.model === undefined
@@ -791,7 +792,7 @@ process.exitCode = await runCli(
                     scope: batchScope,
                     config: batchConfig,
                     gitRunner: batchGit,
-                    processRunner: new NodeVerificationProcessRunner(),
+                    processRunner: registeredRunProofRunner(),
                     taskService,
                     evidenceStore: new FileEvidenceStore(root, root),
                     trusted,
@@ -854,7 +855,7 @@ process.exitCode = await runCli(
                 scope: args.scope === "user" ? "user" : "project",
                 config,
                 gitRunner: gitRunner(root),
-                processRunner: new NodeVerificationProcessRunner(),
+                processRunner: registeredRunProofRunner(),
                 taskService,
                 evidenceStore: new FileEvidenceStore(root, root),
                 trusted: trustStatus === "TRUSTED",

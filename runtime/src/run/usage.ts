@@ -22,8 +22,8 @@ function appendUsage(current: RunState, incoming: UsageHighWater): RunState {
 
 /** Copies of a tree report charge each fresh reviewer session only once. */
 export async function recordReviewRunUsage(repository: RunRepository, runId: string, report: ReviewReportArtifact): Promise<void> {
-  for (const attempt of report.attempts) {
-    if (attempt.sessionId === undefined || attempt.metrics?.usage === undefined) continue;
+  for (const attempt of Array.isArray(report.attempts) ? report.attempts : []) {
+    if (typeof attempt.sessionId !== "string" || !plain(attempt.metrics?.usage)) continue;
     const value = attempt.metrics.usage;
     await repository.mutate(runId, current => appendUsage(current, {source: "review",
       epoch: sha256(attempt.target + ":" + attempt.sessionId), observedAt: report.createdAt,

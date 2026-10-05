@@ -1,9 +1,10 @@
+import {readdir} from "node:fs/promises";
 import { join } from "node:path";
 
 import type { AgentOpsConfig } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
-import { findReviewAttestation, readReviewReportArtifact } from "../review/attestation.js";
+import { findReviewAttestation, readReviewReportArtifact, REVIEW_ATTESTATION_DIRECTORY } from "../review/attestation.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { readPrivateFile, writePrivateFile } from "../security/permissions.js";
 import { checkTaskCompletionEvidence } from "../task/completion.js";
@@ -33,6 +34,8 @@ export interface FinishReceipt {
   readonly verification: Readonly<Record<string, SealedValue>>;
   /** Raw paired execution artifacts survive checkout cleanup with exact bytes. */
   readonly executionArtifacts?: Readonly<Record<string, SealedValue>>;
+  /** Failed reports remain historical source material, never final PASS evidence. */
+  readonly historicalReviews?: Readonly<Record<string, SealedValue>>;
   readonly reviews: Readonly<Record<string, { readonly attestation: SealedValue; readonly report: SealedValue }>>;
   readonly residualRisks: readonly string[];
   readonly createdAt: string;
@@ -125,7 +128,7 @@ export async function prepareFinishReceipt(options: {
     }
     const attestation = await findReviewAttestation(record.path, sourceFingerprint, task.task.id);
     const report = await readReviewReportArtifact(record.path, sourceFingerprint, task.task.id);
-    if (attestation === null || report === null || report.taskId !== task.task.id) {
+    if (attestation === null || report === null || report.status !== "PASS" || report.taskId !== task.task.id) {
       throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Missing review for ${task.task.id}.`);
     }
     modes.add(attestation.tree === undefined ? "per-task-fallback" : "tree");
@@ -138,6 +141,21 @@ export async function prepareFinishReceipt(options: {
     .map(({ attestation }) => JSON.stringify((attestation.value as { tree?: unknown }).tree))).size !== 1)) {
     throw new AgentOpsError("WORKTREE_FINAL_REVIEW_MISMATCH", "Final tasks do not share one complete review mode and tree scope.");
   }
+  const historicalReviews: Record<string, SealedValue> = {};
+  let names: string[];
+  try {names = await readdir(join(record.path, REVIEW_ATTESTATION_DIRECTORY));}
+  catch (cause) {if ((cause as NodeJS.ErrnoException).code === "ENOENT") names = []; else throw cause;}
+  for (const name of names.filter(name => /^[a-f0-9]{64}\.[a-z][a-z0-9-]{0,127}\.reports\.json$/u.test(name))) {
+    const path = REVIEW_ATTESTATION_DIRECTORY + "/" + name;
+    const content = await readPrivateFile(join(record.path, path), record.path);
+    if (content === null || Buffer.byteLength(content) > 512 * 1024) continue;
+    let artifact: {status?: string; taskId?: string; sourceFingerprint?: string};
+    try {artifact = JSON.parse(content);} catch {continue;}
+    if (artifact === null || typeof artifact !== "object" || artifact.status !== "FAIL" ||
+      !tasks.some(task => task.task.id === artifact.taskId) ||
+      name !== artifact.sourceFingerprint + "." + artifact.taskId + ".reports.json") continue;
+    historicalReviews[path] = seal(content);
+  }
   const receipt: FinishReceipt = {
     schemaVersion: 1,
     sessionId: record.sessionId,
@@ -149,6 +167,7 @@ export async function prepareFinishReceipt(options: {
     children: options.children,
     verification,
     executionArtifacts,
+    historicalReviews,
     reviews,
     residualRisks: [...residualRisks],
     createdAt: new Date().toISOString(),
@@ -168,6 +187,7 @@ export async function prepareFinishReceipt(options: {
   const reread = await readPrivateFile(path, options.commonDir);
   if (reread !== content || Object.values(verification).some((item) => !validSeal(item)) ||
       Object.values(executionArtifacts).some(item => !validSeal(item)) ||
+      Object.values(historicalReviews).some(item => !validSeal(item)) ||
       Object.values(reviews).some(({ attestation, report }) => !validSeal(attestation) || !validSeal(report))) {
     throw new AgentOpsError("WORKTREE_RECEIPT_INVALID", "The local finish receipt could not be read back intact.");
   }

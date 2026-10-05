@@ -156,6 +156,10 @@ test("supervisor fences a worker before publishing delivery and requires final p
       reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: "e".repeat(64)
     });
     assert.equal(final.status, "complete");
+    await assert.rejects(fixture.repository.mutate(fixture.state.runId, current => ({...current, status: "blocked"})), {code: "RUN_ALREADY_COMPLETE"});
+    await assert.rejects(fixture.repository.write({...final, status: "active", disableRestart: false}), {code: "RUN_ALREADY_COMPLETE"});
+    await fixture.repository.appendEvent(fixture.state.runId, {type: "diagnostic", code: "RUN_COMPLETE_CLEANUP_PENDING", workerId: null, taskId: null, detail: "Cleanup failed after receipt."});
+    assert.equal((await fixture.repository.read(fixture.state.runId))!.status, "complete");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

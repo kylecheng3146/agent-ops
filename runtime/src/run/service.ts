@@ -449,6 +449,8 @@ export class FileRunRepository implements RunRepository {
         state.targetBranch !== current.targetBranch || state.goal !== current.goal || state.host !== current.host ||
         state.ownerSessionId !== current.ownerSessionId || state.coordinatorId !== current.coordinatorId))
         throw new AgentOpsError("RUN_IDENTITY_IMMUTABLE", "Run goal, target and ownership cannot change in a snapshot write.");
+      if (current?.status === "complete" && (state.status !== "complete" || !state.disableRestart || state.awaitingResume))
+        throw new AgentOpsError("RUN_ALREADY_COMPLETE", "Final completion is immutable; cleanup cannot revive or downgrade this run.");
       const updated = {...state, revision: current === null ? (state.revision ?? 0) : (current.revision ?? 0) + 1};
       await writePrivateFile(path, `${JSON.stringify(updated, null, 2)}\n`, this.#anchor);
     });
@@ -477,6 +479,8 @@ export class FileRunRepository implements RunRepository {
         next.targetBranch !== current.targetBranch || next.goal !== current.goal || next.goalHash !== current.goalHash ||
         next.host !== current.host || next.ownerSessionId !== current.ownerSessionId || next.coordinatorId !== current.coordinatorId)
         throw new AgentOpsError("RUN_IDENTITY_IMMUTABLE", "Run goal, target and ownership cannot change during a mutation.");
+      if (current.status === "complete" && (next.status !== "complete" || !next.disableRestart || next.awaitingResume))
+        throw new AgentOpsError("RUN_ALREADY_COMPLETE", "Final completion is immutable; cleanup cannot revive or downgrade this run.");
       const updated = { ...next, revision: (current.revision ?? 0) + 1, updatedAt: iso(this.#now(), "updatedAt") };
       await writePrivateFile(path, `${JSON.stringify(updated, null, 2)}\n`, this.#anchor);
       return clone(updated);
