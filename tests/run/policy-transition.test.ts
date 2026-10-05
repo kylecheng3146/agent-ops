@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdtemp, rm} from "node:fs/promises";
+import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   policyTransitionAllowsRestart,
   policyTransitionBlocksWorker,
   readPolicyTransition,
+  renewBoundPolicyTransition,
   type PolicyTransitionArtifactRef,
   type PolicyTransitionJournal
 } from "../../runtime/src/run/policy-transition.js";
@@ -29,6 +30,18 @@ const NEW_POLICY = {
   configHash: "d".repeat(64),
   runtimeHash: "b".repeat(64),
   artifactDigest: "e".repeat(64),
+  expiresAt: "2026-10-07T00:00:00.000Z"
+};
+const RENEWED_POLICY = {
+  configHash: NEW_POLICY.configHash,
+  runtimeHash: NEW_POLICY.runtimeHash,
+  artifactDigest: "6".repeat(64),
+  expiresAt: "2026-10-09T00:00:00.000Z"
+};
+const EXPIRED_RENEWED_POLICY = {
+  configHash: NEW_POLICY.configHash,
+  runtimeHash: NEW_POLICY.runtimeHash,
+  artifactDigest: "7".repeat(64),
   expiresAt: "2026-10-07T00:00:00.000Z"
 };
 const CONTRACT = "f".repeat(64);
@@ -106,6 +119,32 @@ async function stopWorker(repository: FileRunRepository, runId: string): Promise
 
 async function bindNewPolicy(repository: FileRunRepository, runId: string): Promise<void> {
   await repository.mutate(runId, current => ({...current, policyBinding: NEW_POLICY} as PolicyState));
+}
+
+async function boundFixture(): Promise<{
+  readonly f: Awaited<ReturnType<typeof fixture>>;
+  readonly prepared: PolicyTransitionJournal;
+  readonly bound: PolicyTransitionJournal;
+}> {
+  const f = await fixture();
+  const prepared = await beginPolicyTransition(f.repository, f.state.runId, {
+    transitionId: "policy-transition-renewal",
+    now: "2026-10-05T00:00:03.000Z"
+  });
+  await stopWorker(f.repository, f.state.runId);
+  await markPolicyTransitionStage(f.repository, f.state.runId, prepared.transitionId, {
+    stage: "fenced",
+    now: "2026-10-05T00:00:04.000Z"
+  });
+  await bindNewPolicy(f.repository, f.state.runId);
+  const boundState = await f.repository.read(f.state.runId);
+  assert.ok(boundState);
+  const bound = await markPolicyTransitionStage(f.repository, f.state.runId, prepared.transitionId, {
+    stage: "bound",
+    newPolicyArtifact: artifactFor(boundState),
+    now: "2026-10-05T00:00:05.000Z"
+  });
+  return {f, prepared, bound};
 }
 
 test("policy transition journals fencing, binding, synchronization and historical delivery", async () => {
@@ -189,6 +228,99 @@ test("pending journal recovery is visible after a crash and rejects unsafe stage
     const repaired = await discoverPendingPolicyTransition(f.repository, f.state.runId);
     assert.ok(repaired);
     assert.equal((await f.repository.read(f.state.runId))?.events.some(event => event.code === "RUN_POLICY_TRANSITION_FENCED"), true);
+  } finally {
+    await rm(f.root, {recursive: true, force: true});
+  }
+});
+
+test("expired bound policy renewal preserves a digest-linked history and resumes synchronization", async () => {
+  const {f, prepared, bound} = await boundFixture();
+  try {
+    await f.repository.mutate(f.state.runId, current => ({...current, policyBinding: RENEWED_POLICY} as PolicyState));
+    const renewedState = await f.repository.read(f.state.runId);
+    assert.ok(renewedState);
+    const renewed = await renewBoundPolicyTransition(f.repository, f.state.runId, prepared.transitionId, {
+      renewedPolicyArtifact: artifactFor(renewedState),
+      expectedJournalDigest: bound.artifactDigest,
+      now: "2026-10-08T00:00:00.000Z"
+    });
+
+    assert.equal(renewed.newPolicyArtifact?.artifactDigest, RENEWED_POLICY.artifactDigest);
+    assert.equal(renewed.renewals.length, 1);
+    assert.equal(renewed.renewals[0]?.previousPolicyArtifact.artifactDigest, NEW_POLICY.artifactDigest);
+    assert.equal(renewed.renewals[0]?.renewedPolicyArtifact.artifactDigest, RENEWED_POLICY.artifactDigest);
+    assert.equal(renewed.renewals[0]?.previousJournalDigest, bound.artifactDigest);
+    assert.equal(renewed.renewals[0]?.previousRenewalDigest, null);
+    assert.equal(renewed.renewals[0]?.renewalDigest.length, 64);
+
+    const reread = await readPolicyTransition(f.repository, f.state.runId, prepared.transitionId);
+    assert.deepEqual(reread?.renewals, renewed.renewals);
+    assert.equal((await f.repository.read(f.state.runId))?.events.some(event => event.code === "RUN_POLICY_TRANSITION_RENEWED"), true);
+
+    await f.repository.mutate(f.state.runId, current => ({...current, currentContractHash: NEW_CONTRACT, contractRevision: 1}));
+    const synchronized = await markPolicyTransitionStage(f.repository, f.state.runId, prepared.transitionId, {
+      stage: "synchronized",
+      contractHash: NEW_CONTRACT,
+      contractRevision: 1,
+      taskIds: ["task-a", "task-b"],
+      now: "2026-10-08T00:00:01.000Z"
+    });
+    assert.equal(synchronized.stages.at(-1)?.stage, "synchronized");
+
+    const path = join(f.root, "agent-ops", "runs", f.state.runId, "policy-transitions", `${prepared.transitionId}.json`);
+    const source = await readFile(path, "utf8");
+    const tampered = JSON.parse(source) as {renewals: Array<{renewalDigest: string}>};
+    tampered.renewals[0]!.renewalDigest = "0".repeat(64);
+    await writeFile(path, JSON.stringify(tampered));
+    await assert.rejects(
+      readPolicyTransition(f.repository, f.state.runId, prepared.transitionId),
+      (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_POLICY_TRANSITION_ARTIFACT_CHANGED"
+    );
+  } finally {
+    await rm(f.root, {recursive: true, force: true});
+  }
+});
+
+test("policy renewal fails closed for stale, unexpired and expired candidates", async () => {
+  const {f, prepared} = await boundFixture();
+  try {
+    const boundState = await f.repository.read(f.state.runId);
+    assert.ok(boundState);
+    const staleCandidate: PolicyTransitionArtifactRef = {
+      ...artifactFor(boundState),
+      artifactDigest: RENEWED_POLICY.artifactDigest,
+      artifactPath: `agent-ops/runs/${f.state.runId}/policies/${RENEWED_POLICY.artifactDigest}.json`,
+      expiresAt: RENEWED_POLICY.expiresAt
+    };
+    await assert.rejects(
+      renewBoundPolicyTransition(f.repository, f.state.runId, prepared.transitionId, {
+        renewedPolicyArtifact: staleCandidate,
+        now: "2026-10-08T00:00:00.000Z"
+      }),
+      (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_POLICY_TRANSITION_STALE"
+    );
+
+    await f.repository.mutate(f.state.runId, current => ({...current, policyBinding: RENEWED_POLICY} as PolicyState));
+    const renewedState = await f.repository.read(f.state.runId);
+    assert.ok(renewedState);
+    await assert.rejects(
+      renewBoundPolicyTransition(f.repository, f.state.runId, prepared.transitionId, {
+        renewedPolicyArtifact: artifactFor(renewedState),
+        now: "2026-10-06T00:00:00.000Z"
+      }),
+      (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_POLICY_TRANSITION_RENEWAL_NOT_NEEDED"
+    );
+
+    await f.repository.mutate(f.state.runId, current => ({...current, policyBinding: EXPIRED_RENEWED_POLICY} as PolicyState));
+    const expiredState = await f.repository.read(f.state.runId);
+    assert.ok(expiredState);
+    await assert.rejects(
+      renewBoundPolicyTransition(f.repository, f.state.runId, prepared.transitionId, {
+        renewedPolicyArtifact: artifactFor(expiredState),
+        now: "2026-10-08T00:00:00.000Z"
+      }),
+      (cause: unknown) => cause instanceof AgentOpsError && cause.code === "RUN_POLICY_TRANSITION_RENEWAL_EXPIRED"
+    );
   } finally {
     await rm(f.root, {recursive: true, force: true});
   }
