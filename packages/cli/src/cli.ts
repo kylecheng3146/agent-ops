@@ -174,7 +174,7 @@ Options:
   --json
   --yes
 `,
-  task: `Usage: agent-ops task <create|status|attach|complete|archive|export|advance> [options]
+  task: `Usage: agent-ops task <create|status|attach|revise|replan|pin-finding|advance|complete|archive|export> [options]
 
 Manage independent task acceptance state. Task commands accept none of
 --harness, --profile or --dry-run. Only advance accepts --yes.
@@ -183,20 +183,38 @@ Options:
   --title <text>                        create
   --intent <text>                       create: intended behavior and constraints before editing
   --criterion <json>                    create, repeatable, two to five total
+  --criterion-file <path>               create: one criterion object, repeatable; pin-finding: exactly one
+  --criteria-file <path>                revise: replacement criterion array
+  --plan-file <path>                    replan: split-task array with requirement mappings
+  --expected-contract <hash>            revise, pin-finding: current task contract from status
+  --expected-tree-contract <hash>       replan: current tree contract from status
+  --reason <text>                       required for revise/replan; optional for pin-finding
+  --baseline <git-ref>                  create/revise: baseline for new mechanical requirements
   --parent <task-id>                    create: record a subtask; status: list subtasks
-  --task <id>                           status, attach, complete, archive, export, advance
+  --task <id>                           status, attach, revise, replan, pin-finding, complete, archive, export, advance
   --session <id>                        create, attach, status, advance
   --evidence <criterion-id=reference>   complete, repeatable
   --base <git-ref>                      complete: a clean committed range
   --yes                                 advance: authorize the two review sessions
   --json
 
-Each --criterion is one JSON object with exactly these keys:
+Each --criterion or --criterion-file supplies one criterion object. Legacy example:
 
   {"id":"kebab-id","description":"what must hold","verifierIds":["node-test"]}
 
-Every criterion needs at least one verifierIds entry naming a verification
-command id configured in .agent-ops/config.json. No other key is accepted.
+Each legacy criterion needs at least one verifierIds entry naming a verification
+command id configured in .agent-ops/config.json. Typed criteria additionally
+accept an acceptance object: mode (behavioral, invariant or review-only),
+bindings and optional baselineCommit/reviewOnlyReason. Mechanical bindings name
+configured acceptance runner IDs, checkIds, committed materials and optional
+redCheckIds; tasks cannot supply commands. Creation freezes the baseline.
+Review-only example (mandatory repository policy commands still run):
+
+  {"id":"judgment","description":"Meets the original goal","verifierIds":[],"acceptance":{"mode":"review-only","bindings":[],"reviewOnlyReason":"Requires independent judgment"}}
+
+Pin a saved finding with task pin-finding --task <id> <report-digest:index>
+--expected-contract <hash> --criterion-file <path>. Revise/replan preserve the
+original goal and immutable existing baselines; obtain new verify and review.
 `,
   verify: `Usage: agent-ops verify [options]
 

@@ -21,6 +21,15 @@ Executable acceptance MUST bind the current contract to immutable replay evidenc
 - Fixture, collection, build, timeout, cancellation, truncated output, missing or
   duplicate IDs, retries and skips MUST NOT establish red or green. Complete raw
   execution artifacts are digest-bound to the contract, materials and commits.
+- Native Jest JSON and Vitest task errors lack complete test-call versus
+  hook/fixture-cleanup provenance. Failed rows MUST remain UNKNOWN unless a
+  reviewed repository collector supplies explicit assertion classification;
+  AssertionError names, matcher details and passing hook states are insufficient.
+  Green requires explicit single-attempt evidence: attempts, Jest invocations,
+  or both Vitest retryCount and repeatCount. Native Vitest JSON omits these
+  counters and cannot supply mechanical proof by itself. Pytest requires one
+  ordered setup/call/teardown lifecycle per nodeid; the Rust protocol requires
+  explicit attempts. Missing metadata MUST NOT default to a successful attempt.
 - Baselines are immutable creation commits, or failed candidates for finding pins.
   Revise/replan preserve the original goal, every mapped requirement and previous
   contracts/evidence. New contracts require new proof and both fresh reviews.
