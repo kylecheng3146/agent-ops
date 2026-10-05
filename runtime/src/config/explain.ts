@@ -50,6 +50,7 @@ export interface ConfigExplanation {
   };
   profiles: ProfileExplanation[];
   verificationCommands: CommandExplanation[];
+  acceptanceRunners?: (SourceExplanation & {id: string; adapter: string})[];
   pathMappings: MappingExplanation[];
   securityExceptions: SecurityExceptionExplanation[];
 }
@@ -86,6 +87,12 @@ export function explainConfig(merged: MergedConfig): ConfigExplanation {
         source: entry.source,
         sourcePath: entry.sourcePath
       })),
+    ...(merged.provenance.acceptanceRunners === undefined ? {} : {
+      acceptanceRunners: merged.provenance.acceptanceRunners.map(entry => ({
+        id: entry.value.id, adapter: entry.value.adapter,
+        source: entry.source, sourcePath: entry.sourcePath
+      }))
+    }),
     pathMappings: merged.provenance.pathMappings.map((entry) => ({
       path: entry.value.path,
       verifierIds: [...entry.value.verifierIds],

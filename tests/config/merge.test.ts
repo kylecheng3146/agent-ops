@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {mkdtemp, mkdir, writeFile, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {loadEffectiveConfig} from "../../packages/cli/src/context.js";
+import {calculateConfigHash} from "../../runtime/src/config/hash.js";
+import {explainConfig} from "../../runtime/src/config/explain.js";
 
 import type {
   AgentOpsConfig,
@@ -61,6 +67,32 @@ function layer(
     config: value
   };
 }
+
+test("effective project config preserves acceptance runners, trust identity and provenance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-config-acceptance-"));
+  const previousHome = process.env.AGENT_OPS_HOME;
+  process.env.AGENT_OPS_HOME = join(root, "user-home");
+  try {
+    const runner = {id: "acceptance", command: process.execPath, args: ["tests/check.mjs"], cwd: ".", adapter: "generic" as const};
+    const project = config({verification: {commands: [], acceptanceRunners: [runner]}});
+    await mkdir(join(root, ".agent-ops"));
+    await writeFile(join(root, ".agent-ops/config.json"), JSON.stringify(project));
+    const loaded = await loadEffectiveConfig(root, "project");
+    assert.deepEqual(loaded.config.verification.acceptanceRunners, [runner]);
+    assert.equal(calculateConfigHash(loaded.config), calculateConfigHash(project));
+    assert.notEqual(calculateConfigHash(loaded.config), calculateConfigHash(config()));
+    assert.deepEqual(explainConfig(loaded).acceptanceRunners, [{id: runner.id, adapter: runner.adapter,
+      source: "project", sourcePath: join(root, ".agent-ops/config.json")}]);
+    const userRunner = {...runner, id: "user-only", args: ["tests/user-check.mjs"]};
+    const merged = mergeConfigLayers([layer("user", config({verification: {commands: [], acceptanceRunners: [userRunner, {...runner, args: ["tests/old.mjs"]}]}})), layer("project", project)]);
+    assert.deepEqual(merged.config.verification.acceptanceRunners, [userRunner, runner]);
+    assert.equal(merged.provenance.acceptanceRunners?.find(entry => entry.value.id === runner.id)?.source, "project");
+    assert.equal(mergeConfigLayers([layer("project", config())]).config.verification.acceptanceRunners, undefined);
+  } finally {
+    if (previousHome === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = previousHome;
+    await rm(root, {recursive: true, force: true});
+  }
+});
 
 test("merges stable IDs with provenance and monotonic guardrails", () => {
   const allowedException = exception("fixtures/synthetic");

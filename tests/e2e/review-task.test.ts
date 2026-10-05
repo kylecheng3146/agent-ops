@@ -23,7 +23,7 @@ test("review routes an explicit task through real Git preflight", () => {
     "--profile", "core", "--yes", "--json"
   ]);
   try {
-    assert.equal(initialized.status, 0);
+    assert.equal(initialized.status, 0, initialized.stdout + initialized.stderr);
     const created = runBuiltCli([
       "task", "create", "--json", "--title", "Review wiring",
       "--criterion", JSON.stringify({
