@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
+import {budgetExpired} from "./scheduler.js";
 
 /** Hosts with a writer transport in the first run release. */
 export type RunHost = "claude" | "codex";
@@ -86,6 +87,7 @@ export interface RunWorkerRecord {
   readonly worktree: string | null;
   readonly processId: number | null;
   readonly processIdentity: string | null;
+  readonly proofProcess?: {readonly processId: number; readonly processIdentity: string} | null;
   readonly generation: number;
   readonly status: RunWorkerStatus;
   readonly leaseExpiresAt: string | null;
@@ -342,6 +344,9 @@ export function assertRunState(value: unknown): asserts value is RunState {
     state.proofProcess.processId < 1 || typeof state.proofProcess.processIdentity !== "string" ||
     state.proofProcess.processIdentity.length === 0 || state.proofProcess.processIdentity.length > 256))
     return invalid("Invalid proof process ownership.");
+  if (state.workers.some(w => w.proofProcess != null && (!plain(w.proofProcess) || !Number.isSafeInteger(w.proofProcess.processId) ||
+    w.proofProcess.processId < 1 || typeof w.proofProcess.processIdentity !== "string" || w.proofProcess.processIdentity.length === 0 || w.proofProcess.processIdentity.length > 256)))
+    return invalid("Invalid worker proof process ownership.");
   if (state.integration !== null && (!plain(state.integration) || !ID.test(state.integration.transactionId) ||
     !["prepared", "target-moved", "tasks-completed", "receipt-written", "cleaned", "blocked"].includes(state.integration.status) ||
     !/^[a-f0-9]{40,64}$/u.test(state.integration.expectedTarget) || !/^[a-f0-9]{40,64}$/u.test(state.integration.candidate) ||
@@ -612,11 +617,19 @@ export class RunService {
 
   async resume(runId: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, (current) => {
-      if (current.status === "complete" || (current.status === "blocked" && current.integration?.proofDigest === undefined)) {
+      const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
+        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_SETUP_RECOVERY_REQUIRED"]);
+      const blocker = [...current.events].reverse().find(e => recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
+      if (current.status === "complete" || (current.status === "blocked" && current.integration?.proofDigest === undefined && !recoverable.has(blocker?.code ?? ""))) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
+      if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
+        throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
+      const recover = ["blocked", "paused"].includes(current.status) && recoverable.has(blocker?.code ?? "");
       return {
         ...current,
+        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && w.lastFailure === null ? {...w, status: "stopped" as const} : w),
+          tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",
         awaitingResume: false,
         disableRestart: false,

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import {productionRunContext} from "./run-deps.js";
+import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
+import {recordRunVerification} from "../../../runtime/src/run/verification.js";
+import {runOwnedLocalProof} from "./owned-run-step.js";
 import {runRunCommand} from "./commands/run.js";
 
 import { readFile, readdir, stat } from "node:fs/promises";
@@ -47,6 +50,7 @@ import { COMMAND_NAMES, parseArgs, type ParsedArgs } from "./args.js";
 import { runCli } from "./cli.js";
 import {
   loadEffectiveConfig,
+  runPolicyContext,
   repositoryTrust,
   repositoryTrustBinding
 } from "./context.js";
@@ -262,7 +266,17 @@ function runAgy(
   });
 }
 
-if (argv[0] === "agy-run") {
+let ownedProofExit: number | null = null;
+try {ownedProofExit = await runOwnedLocalProof(argv);}
+catch (cause) {
+  const code = cause instanceof AgentOpsError ? cause.code : "RUN_LOCAL_PROOF_FAILED";
+  const message = cause instanceof AgentOpsError ? cause.message : "Local proof could not be registered safely.";
+  if (argv.includes("--json")) process.stdout.write(JSON.stringify(errorEnvelope(code, message)) + "\n");
+  else process.stderr.write(message + "\n");
+  ownedProofExit = 2;
+}
+if (ownedProofExit !== null) process.exitCode = ownedProofExit;
+else if (argv[0] === "agy-run") {
   try {
     const root = process.cwd();
     const config = (await loadEffectiveConfig(root, "project")).config;
@@ -332,6 +346,9 @@ process.exitCode = await runCli(
             !args.json &&
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true;
+          if ((["init", "update"].includes(args.command) || (args.command === "trust" && args.action !== "status")) &&
+            (process.env.AGENT_OPS_RUN_ID !== undefined || await runPolicyContext(process.cwd()) !== null))
+            throw new AgentOpsError("RUN_POLICY_COORDINATOR_REQUIRED", "Run workers must request scoped policy review from the coordinator; permanent trust and host rules cannot be changed by the run.");
           if (args.command === "run") {
             const context = await productionRunContext(root);
             return await runRunCommand({args, ...context, root: context.mainRoot});
@@ -851,7 +868,9 @@ process.exitCode = await runCli(
             return await runVerifyCommand({
               args,
               taskService,
-              service: new VerificationService({
+              service: {verify: async taskId => {
+                const run = await runPolicyContext(root);
+                const report = await new VerificationService({
                 root,
                 scope: args.scope === "user" ? "user" : "project",
                 config,
@@ -861,7 +880,11 @@ process.exitCode = await runCli(
                 evidenceStore: new FileEvidenceStore(root, root),
                 trusted: trustStatus === "TRUSTED",
                 ...(args.base === undefined ? {} : { base: args.base })
-              })
+                }).verify(taskId);
+                if (run !== null) await recordRunVerification(run.repository, run.state, run.worker?.workerId ?? run.state.coordinatorId,
+                  await taskService.status({taskId}), report);
+                return report;
+              }}
             });
           }
           if (args.command === "trust") {

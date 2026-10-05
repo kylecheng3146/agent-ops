@@ -88,6 +88,15 @@ export class NativeRunTransport implements NativeGoalHost {
     entry.observation = {...entry.observation, nativeGoalState: "active"};
   }
   async stop(input: Parameters<NativeGoalHost["stop"]>[0]): Promise<void> {
+    const runId = input.runId ?? this.#sessions.get(input.nativeSessionId)?.handle.runId;
+    const state = runId === undefined ? null : await this.repository.read(runId);
+    const worker = state?.workers.find(w => w.nativeSessionId === input.nativeSessionId && w.generation === input.generation);
+    if (worker?.proofProcess != null) {
+      const proof = worker.proofProcess;
+      await this.stop({...input, nativeSessionId: "worker-proof:" + worker.workerId, nativeJobId: null, ...proof});
+      await this.repository.mutate(state!.runId, current => ({...current, workers: current.workers.map(w => w.workerId === worker.workerId &&
+        w.generation === input.generation && w.proofProcess?.processId === proof.processId ? {...w, proofProcess: null} : w)}));
+    }
     const entry = this.#sessions.get(input.nativeSessionId);
     if (entry === undefined) {
       const observation = await this.inspect(input);
@@ -121,7 +130,11 @@ export class NativeRunTransport implements NativeGoalHost {
     for await (const event of this.transport.observe(entry.handle)) {
       const state = await this.repository.read(event.runId);
       const worker = state?.workers.find(w => w.workerId === event.workerId);
-      if (worker?.generation !== event.generation || worker.nativeSessionId !== entry.handle.sessionId || worker.status === "fenced") continue;
+      if (worker?.generation !== event.generation || worker.nativeSessionId !== entry.handle.sessionId || worker.status === "fenced") {
+        await this.repository.appendEvent(event.runId, {type: "diagnostic", code: "RUN_NATIVE_STALE_EVENT", workerId: event.workerId,
+          taskId: null, detail: "Late native event rejected; no usage, authorization or delivery was accepted."});
+        continue;
+      }
       entry.observation = {...entry.observation,
         nativeGoalState: ["active", "paused", "complete"].includes(event.nativeStatus)
           ? event.nativeStatus as NativeSessionObservation["nativeGoalState"] : "unknown",

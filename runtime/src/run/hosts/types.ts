@@ -54,6 +54,7 @@ export type NativeGoalEventType =
   | "closed";
 
 export interface NativeGoalEvent {
+  readonly transportMethod?: string;
   readonly type: NativeGoalEventType;
   readonly host: NativeHostKind;
   readonly runId: string;

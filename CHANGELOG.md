@@ -18,6 +18,12 @@ All notable changes to the project are documented here.
   default 60-minute active budget includes verification, review and integration;
   native completion alone cannot finish a run. Integration seals its proof and
   records progress so interrupted bookkeeping can resume without another merge.
+- Run-scoped command assessments retain original repository trust, executable
+  runtime identity and expiry. Policy journals fence writers before synchronizing
+  contracts. Background setup and native-issued proof commands register their
+  process groups before execution, so Stop also cancels descendants. Native
+  authorization scope, rationale and actual verification check outcomes are saved
+  as private diagnostics; missing provider decisions remain unknown.
 - Explicit no-change deliveries and finishes retain committed supporting paths
   and final proof without an empty commit. Ordinary empty-diff review and direct
   empty-branch finish retain their existing refusal behavior.

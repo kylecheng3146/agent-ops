@@ -33,6 +33,7 @@ export interface NativeGoalHost {
 }
 
 export interface NativeSessionIdentity {
+  readonly runId?: string;
   readonly nativeSessionId: string;
   readonly nativeJobId: string | null;
   readonly processId: number | null;
@@ -311,6 +312,7 @@ export class RunSupervisor {
       // not leave that unregistered process writing into the worktree.
       try {
         await this.#host.stop({
+          runId,
           nativeSessionId: native.nativeSessionId,
           nativeJobId: native.nativeJobId,
           processId: native.processId,
@@ -566,7 +568,7 @@ export class RunSupervisor {
     const intent = worker.stopIntent;
     if (intent === null) throw error("RUN_HANDOFF_MISSING", `Worker ${request.workerId} did not receive a stop intent.`);
     if (worker.nativeSessionId !== null) {
-      await this.#host.stop({ nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId, processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance, reason: "atomic delivery handoff", generation: request.generation });
+      await this.#host.stop({runId, nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId, processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance, reason: "atomic delivery handoff", generation: request.generation });
     }
     return intent;
   }
@@ -674,7 +676,7 @@ export class RunSupervisor {
           expiresAt: new Date(Date.parse(this.#now()) + this.#leaseMs).toISOString(), confirmedDeadAt: null}});
       });
       if (worker.nativeSessionId !== null) {
-        await this.#host.stop({nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId,
+        await this.#host.stop({runId, nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId,
           processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance, reason, generation});
         const observed = await this.#host.inspect({nativeSessionId: worker.nativeSessionId, nativeJobId: worker.nativeJobId,
           processId: worker.processId, processIdentity: worker.processIdentity, instance: state.nativeInstance});
@@ -683,7 +685,7 @@ export class RunSupervisor {
       return (await this.#repository.mutate(runId, current => {
         const saved = current.workers.find(w => w.workerId === workerId);
         if (saved?.generation !== generation) throw error("RUN_WORKER_STALE", "Writer generation changed during stop.");
-        return replaceWorker(current, {...saved, status: "stopped", leaseExpiresAt: null,
+        return replaceWorker(current, {...saved, status: ["delivered", "blocked"].includes(saved.status) ? saved.status : "stopped", leaseExpiresAt: null,
           stopIntent: saved.stopIntent === null ? null : {...saved.stopIntent, confirmedDeadAt: this.#now()}});
       })).workers.find(candidate => candidate.workerId === workerId)!;
     }

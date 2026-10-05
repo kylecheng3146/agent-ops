@@ -149,9 +149,7 @@ export interface CompletePolicyTransitionInput {
   readonly now?: string;
 }
 
-interface PolicyAwareRunState extends RunState {
-  readonly policyBinding?: unknown;
-}
+type PolicyAwareRunState = RunState;
 
 interface StageCore {
   readonly stage: PolicyTransitionStage;
@@ -725,10 +723,10 @@ function assertWritersFenced(state: RunState, journal: PolicyTransitionJournal):
     if (ACTIVE_WORKER_STATUSES.has(worker.status) || !FENCED_WORKER_STATUSES.has(worker.status)) {
       fail("RUN_POLICY_TRANSITION_FENCE_REQUIRED", `Worker ${worker.workerId} is not fenced.`);
     }
-    if (worker.processId !== null && worker.status !== "delivered" && worker.status !== "blocked" &&
-        worker.stopIntent?.confirmedDeadAt === null) {
+    if (worker.processId !== null && worker.stopIntent?.confirmedDeadAt == null) {
       fail("RUN_POLICY_TRANSITION_FENCE_REQUIRED", `Worker ${worker.workerId} has no confirmed process death.`);
     }
+    if (worker.proofProcess != null) fail("RUN_POLICY_TRANSITION_FENCE_REQUIRED", "Worker proof process death must be confirmed before policy changes.");
   }
 }
 

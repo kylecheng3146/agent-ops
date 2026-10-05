@@ -3,7 +3,9 @@ import {fileURLToPath} from "node:url";
 
 /** Dormant process group: the supervisor records this PID before releasing the CLI. */
 const cli = fileURLToPath(new URL("./bin.js", import.meta.url));
-if (process.argv[2] !== cli) throw new Error("Run proof entry must use its own installed CLI.");
+const setup = fileURLToPath(new URL("./run-setup-entry.js", import.meta.url));
+const target = process.argv[2];
+if (target !== cli && target !== setup) throw new Error("Run proof entry must use its own installed execution entry.");
 let input = "";
 let started = false;
 process.stdin.setEncoding("utf8");
@@ -18,7 +20,7 @@ process.stdin.on("data", chunk => {
   process.on("SIGINT", () => {});
   process.stdin.pause();
   process.env.AGENT_OPS_RUN_PROOF_PID = String(process.pid);
-  const child = spawn(process.execPath, [cli, ...process.argv.slice(3)], {env: process.env, stdio: ["ignore", "inherit", "inherit"]});
+  const child = spawn(process.execPath, [target!, ...process.argv.slice(3)], {env: process.env, stdio: ["ignore", "inherit", "inherit"]});
   child.once("error", () => process.exit(1));
   child.once("close", (code, signal) => {
     const deadline = Date.now() + 3000;

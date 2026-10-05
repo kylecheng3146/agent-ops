@@ -31,6 +31,19 @@
   checkouts, version drift and restart storms preserve the scene for diagnosis.
   Reboot/login changes require explicit resume; no global host policy is changed.
 
+- Setup and native-issued local proof commands MUST register dormant process
+  groups before execution; Stop also reconciles their descendants. Interrupted
+  setup requires explicit resume and retains its checkout and failure artifact.
+- A coordinator may assess additional fixed non-dangerous capabilities only under
+  a run-scoped policy bound to the original repository trust, executable runtime
+  and remaining budget. Explicit native or organization denial cannot be bypassed.
+  Policy changes fence all writers, preserve frozen deliveries and journal contract
+  synchronization before new generations acquire leases. This never grants global
+  repository trust. Native decisions retain redacted command scope and rationale;
+  absent provider evidence remains UNKNOWN.
+- Convergence compares actual per-check statuses and outstanding finding pins.
+  Source fingerprints, timing and diagnostics alone cannot establish progress.
+
 This module defines the bounded loop used to plan, implement, verify, and hand off work.
 
 ## LOOP-START-001

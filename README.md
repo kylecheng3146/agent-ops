@@ -46,6 +46,16 @@ under current leases in separate worktrees. Active time counts once across paral
 workers and continues through proof and integration; resume retains earlier usage
 epochs. Missing token or cost counters remain unknown. Completion requires current
 verification, two fresh reviews, completed tasks and a receipt bound to the target.
+Setup runs in the background under registered process groups. Stop cancels native
+writers, local verification and setup; interrupted setup requires explicit resume.
+The coordinator can assess additional non-dangerous fixed commands through a
+policy request. This authorization is bound to the run, runtime, lease and budget;
+it creates no permanent repository trust. Policy transitions fence writers and
+journal delivery imports and contract synchronization before starting new leases.
+Native authorization decisions retain redacted command scope and rationale;
+missing provider decisions remain unknown. Repair compares actual check outcomes
+and outstanding finding pins rather than source fingerprints.
+
 Native lifecycle reachability and framework probe conditions are recorded in
 [the capability probe](docs/harness/native-goal-probe.md); these observations do not
 establish external adoption or a reduction in review cost.

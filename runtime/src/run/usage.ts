@@ -54,13 +54,14 @@ export async function recordNativeRunUsage(repository: RunRepository, event: Nat
   const worker = state?.workers.find(w => w.workerId === event.workerId);
   if (state === null || state === undefined || worker === undefined || worker.generation !== event.generation || worker.nativeSessionId === null) return;
   let incoming: UsageHighWater | undefined;
+  const payload = plain(event.payload.params) ? event.payload.params : event.payload;
   if (event.host === "claude" && event.payload.type === "result" && typeof event.payload.uuid === "string") {
     const usage = extractUsage("claude", JSON.stringify(event.payload), "");
     if (usage !== undefined) incoming = {source: "claude", epoch: `${worker.workerId}:${worker.nativeSessionId}:${event.payload.uuid}`,
       inputTokens: usage.inputTokens ?? null, outputTokens: usage.outputTokens ?? null, totalTokens: usage.totalTokens ?? null,
       costUsd: usage.costUsd ?? null, completeness: "partial", observedAt: event.at};
-  } else if (event.host === "codex" && plain(event.payload.params) && plain(event.payload.params.tokenUsage) && plain(event.payload.params.tokenUsage.total)) {
-    const usage = event.payload.params.tokenUsage.total;
+  } else if (event.host === "codex" && plain(payload.tokenUsage) && plain(payload.tokenUsage.total)) {
+    const usage = payload.tokenUsage.total;
     incoming = {source: "codex", epoch: `${worker.workerId}:${worker.nativeSessionId}:thread`, inputTokens: count(usage.inputTokens),
       outputTokens: count(usage.outputTokens), totalTokens: count(usage.totalTokens), costUsd: null,
       completeness: "partial", observedAt: event.at};

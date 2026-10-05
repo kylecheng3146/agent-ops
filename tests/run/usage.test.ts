@@ -19,7 +19,7 @@ test("native usage deduplicates thread totals, preserves resumed sessions and re
       generation: 1, status: "running", leaseExpiresAt: null, heartbeatAt: null, stopIntent: null, nativeGoalState: "active", lastFailure: null}]});
     const event = (total: number, generation = 1): NativeGoalEvent => ({runId: state.runId, workerId: "worker", generation,
       contractHash: state.goalHash, host: "codex", type: "usage", at: "2026-10-04T00:00:00Z", nativeStatus: "active", proof: false,
-      payload: {params: {tokenUsage: {total: {inputTokens: total - 1, outputTokens: 1, totalTokens: total}}}}});
+      payload: {tokenUsage: {total: {inputTokens: total - 1, outputTokens: 1, totalTokens: total}}}});
     await recordNativeRunUsage(repository, event(10));
     await recordNativeRunUsage(repository, event(10));
     await recordNativeRunUsage(repository, event(4));

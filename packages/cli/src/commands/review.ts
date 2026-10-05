@@ -884,6 +884,7 @@ export async function runReviewCommand(
         }
       }
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
+        executionPolicy: options.config,
         tasks: context.records.map(r => ({task: r.task, revisions: r.revisions ?? []})),
         superseded: context.historyRecords ?? []}, null, 2));
       const digest = sha256(content);

@@ -509,6 +509,7 @@ export async function addWorktree(
   };
   let trusted = false;
   try {
+    if (options.runOwnership !== undefined) await writeWorktreeRecord(record);
     const copied = await copyMissing(mainRoot, record.path, await carriedFiles(deps, mainRoot));
     const worktreeConfig = await deps.loadConfig(record.path);
     // The same commands the user already trusted, and nothing else: any
@@ -518,6 +519,8 @@ export async function addWorktree(
       trusted = true;
     }
     const setup: string[] = [];
+    if (options.runOwnership !== undefined) await writePrivateFile(join(record.path, ".agent-ops/tasks/run-setup-attempt.json"),
+      JSON.stringify({startedAt: deps.now?.() ?? new Date().toISOString()}), record.path);
     for (const step of setupSteps) {
       const result = await deps.runSetup(record.path, {
         ...step,
@@ -525,15 +528,18 @@ export async function addWorktree(
       });
       const label = [step.command, ...step.args].join(" ");
       if (result.exitCode !== 0) {
-        throw worktreeError("WORKTREE_SETUP_FAILED",
-          `Setup step failed (${label}, exit ${String(result.exitCode)}); the worktree was removed. ${result.output.trim().split("\n").slice(-5).join("\n")}`.trim());
+        throw worktreeError(options.runOwnership === undefined ? "WORKTREE_SETUP_FAILED" : "RUN_SETUP_RECOVERY_REQUIRED",
+          `Setup step failed (${label}, exit ${String(result.exitCode)}); ${options.runOwnership === undefined ? "the worktree was removed" : "the run checkout was preserved"}. ${result.output.trim().split("\n").slice(-5).join("\n")}`.trim());
       }
       setup.push(label);
     }
+    if (options.runOwnership !== undefined) await writePrivateFile(join(record.path, ".agent-ops/tasks/run-setup-complete.json"),
+      JSON.stringify({setupHash: sha256(JSON.stringify(setupSteps))}), record.path);
     await writeWorktreeRecord(record);
     await bindSession(deps, record, mainConfig);
     return { record, copied, trusted, setup };
   } catch (error) {
+    if (options.runOwnership !== undefined) throw error;
     if (mainConfig.features.completionGate.enabled) {
       const mainGate = await deps.gate(mainRoot, mainConfig);
       await (options.agentId === undefined ? mainGate.redirect(sessionId, null) : mainGate.removeRoot(sessionId, path))
@@ -564,7 +570,7 @@ export function agentWorktreeName(sessionId: string, agentId: string): string {
  */
 export async function ensureSessionWorktree(
   deps: WorktreeDependencies,
-  options: { readonly cwd: string; readonly sessionId: string; readonly agentId?: string }
+  options: { readonly cwd: string; readonly sessionId: string; readonly agentId?: string; readonly runOwnership?: RunWorktreeOwnership }
 ): Promise<WorktreeRecord> {
   const { mainRoot } = await resolveCheckouts(deps, options.cwd);
   const { agentId } = options;
@@ -577,6 +583,7 @@ export async function ensureSessionWorktree(
     cwd: mainRoot,
     name,
     sessionId: options.sessionId,
+    ...(options.runOwnership === undefined ? {} : {runOwnership: options.runOwnership}),
     ...(agentId === undefined ? {} : { agentId })
   })).record;
 }

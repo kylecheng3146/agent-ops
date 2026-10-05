@@ -2,15 +2,22 @@ import {stat} from "node:fs/promises";
 import {recoverRunIntegrationAfterCleanup, validateRunIntegrationReceipt} from "../../../runtime/src/run/integration.js";
 import {pendingFindingPins} from "../../../runtime/src/run/ratchet.js";
 import {resolveReviewScope} from "../../../runtime/src/review/scope.js";
-import {writeNoChangeDelivery} from "../../../runtime/src/parallel/integrate.js";
+import {writeNoChangeDelivery, integrateSessionChildren} from "../../../runtime/src/parallel/integrate.js";
 import {recordNativeRunUsage, recordReviewRunUsage, recordSavedReviewRunUsage} from "../../../runtime/src/run/usage.js";
+import {recordNativeRunAuthorization} from "../../../runtime/src/run/authorization.js";
+import {observeRunFailure} from "../../../runtime/src/run/verification.js";
+import {compareFailureObservations, type FailureObservation} from "../../../runtime/src/run/convergence.js";
+import {RunControlService} from "../../../runtime/src/run/controls.js";
+import {beginPolicyTransition, markPolicyTransitionStage, completePolicyTransition, discoverPendingPolicyTransition,
+  type PolicyTransitionJournal} from "../../../runtime/src/run/policy-transition.js";
 import {readReviewReportArtifact, type ReviewReportArtifact} from "../../../runtime/src/review/attestation.js";
 import {execFile, spawn} from "node:child_process";
 import {promisify} from "node:util";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {setTimeout as delay} from "node:timers/promises";
-import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
+import {AgentOpsError, resolveContainedPath} from "../../../runtime/src/fs/paths.js";
+import {bindRunPolicy, readRunPolicy, runRuntimeHash, validateRunPolicyChange, type RunPolicyApproval} from "../../../runtime/src/run/policy.js";
 import {sha256} from "../../../runtime/src/fs/hash.js";
 import {calculateConfigHash, canonicalJson} from "../../../runtime/src/config/hash.js";
 import {ClaudeGoalHost} from "../../../runtime/src/run/hosts/claude.js";
@@ -26,9 +33,9 @@ import {readPrivateFile, writePrivateFile, withPrivateFileLock} from "../../../r
 import {TaskService} from "../../../runtime/src/task/service.js";
 import {FileTaskStore} from "../../../runtime/src/task/store.js";
 import {taskContractHash, treeContractHash} from "../../../runtime/src/task/contract.js";
-import {readWorktreeRecord, writeWorktreeRecord, addWorktree} from "../../../runtime/src/parallel/service.js";
+import {readWorktreeRecord, writeWorktreeRecord, addWorktree, ensureSessionWorktree} from "../../../runtime/src/parallel/service.js";
 import {collectChangeSurface} from "../../../runtime/src/verify/change-surface.js";
-import {runDescriptor} from "./run-deps.js";
+import {runDescriptor, runWorktreeDependencies} from "./run-deps.js";
 import {worktreeDependencies, gitRunner} from "./parallel-deps.js";
 import {readFinishedReview} from "./commands/review-show.js";
 import type {FinishReceipt} from "../../../runtime/src/parallel/receipt.js";
@@ -62,11 +69,13 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
   await withPrivateFileLock(join(directory, runId, "supervisor.lock"), commonDir, async () => {
     let state = (await repository.read(runId))!;
     const launchd = new LaunchdController();
-    async function blockStartup(code: string, paused = false, closedAt = Date.now()): Promise<void> {
-      await repository.mutate(runId, current => ({...current, status: paused ? "paused" : "blocked", awaitingResume: paused, disableRestart: true}));
+    async function blockStartup(code: string, paused = false, closedAt = Date.now(), preserveStatus = false): Promise<void> {
+      await repository.mutate(runId, current => ({...current, ...(preserveStatus ? {} : {status: paused ? "paused" as const : "blocked" as const, awaitingResume: paused}), disableRestart: true}));
       await repository.appendEvent(runId, {type: "diagnostic", code, workerId: null, taskId: null,
         detail: "Startup refused; current native ownership and worktrees are preserved for reconciliation."});
-      await launchd.disableRestart(runDescriptor(state), code);
+      try {await launchd.disableRestart(runDescriptor(state), code);}
+      catch {await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_SUPERVISOR_DISABLE_FAILED",
+        workerId: null, taskId: null, detail: "Launchd disable failed; stopping registered executors under the persisted disabled intent."});}
       const savedTransport = new NativeRunTransport(state.host === "codex"
         ? new CodexGoalHost({nativeVersion: state.nativeInstance}) : new ClaudeGoalHost({nativeVersion: state.nativeInstance}), repository);
       const savedSupervisor = new RunSupervisor({repository, host: savedTransport});
@@ -78,7 +87,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         accumulatedMs: activeWallTimeMs(current.budget.activeIntervals, closedAt), lastObservedAt: new Date().toISOString(),
         activeIntervals: current.budget.activeIntervals.map(interval => ({...interval, endMs: interval.endMs ?? Math.max(interval.startMs, closedAt)}))}}));
     }
-    if (state.disableRestart || state.status === "complete") return;
+    if (state.disableRestart || state.status === "complete") {
+      await blockStartup("RUN_DISABLED_RECONCILED", false, Date.now(), true);
+      return;
+    }
     const boot = await readBootIdentity();
     const login = await readGuiLoginIdentity();
     if (state.bootIdentity !== boot || state.loginDomain !== login) {
@@ -86,7 +98,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         state.bootIdentity !== boot ? Date.parse(state.budget.lastObservedAt) : Date.now());
       return;
     }
-    const restarts = state.events.filter(e => e.code === "RUN_SUPERVISOR_START" && Date.now() - Date.parse(e.at) < 300000).length;
+    const lastResume = Math.max(0, ...state.controls.filter(c => c.action === "resume" && c.actor === "user").map(c => Date.parse(c.requestedAt)));
+    const restarts = state.events.filter(e => e.code === "RUN_SUPERVISOR_START" && Date.parse(e.at) >= lastResume && Date.now() - Date.parse(e.at) < 300000).length;
     if (restarts >= 3) {
       await blockStartup("RUN_RESTART_STORM");
       return;
@@ -105,6 +118,12 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     const transport = new NativeRunTransport(state.host === "codex" ? new CodexGoalHost({nativeVersion: version}) : new ClaudeGoalHost({nativeVersion: version}), repository,
       async event => {
         await recordNativeRunUsage(repository, event);
+        try {await recordNativeRunAuthorization(repository, event);}
+        catch (cause) {
+          await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_AUTHORIZATION_FAILED",
+            workerId: event.workerId, taskId: null, detail: "Native authorization could not be accepted; no alternate permission path is allowed."});
+          await repository.mutate(runId, current => ({...current, status: "blocked", disableRestart: true}));
+        }
         if (event.nativeStatus === "usageLimited" || event.nativeStatus === "budgetLimited") {
           await repository.mutate(runId, current => ({...current,
             status: event.nativeStatus === "usageLimited" || event.nativeStatus === "budgetLimited" ? "budget-limited" : "blocked",
@@ -129,6 +148,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       }
       const content = {runId, workerId: worker.workerId, generation: worker.generation, contractHash: current.currentContractHash,
         originalGoal: current.goal, answers, rootTaskId: current.rootTaskId, taskId: worker.taskId, cli, ownerSessionId: worker.ownerSessionId,
+        policyConfigHash: current.policyBinding?.configHash,
         instructions: ["Keep the original goal fixed. Read this repository's AGENTS.md and use its existing verifier authority.",
           "Plan 2–5 substantive acceptance criteria. Submit a plan request before changing product files; the supervisor creates the task with the fixed goal.",
           "For every mechanically testable requirement use a configured acceptance runner; explicit review-only fallback requires a recorded reason and fresh goal review.",
@@ -138,6 +158,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           "Write one request atomically to .agent-ops/tasks/run-request.json; wait for matching run-response.json before another request.",
           "Requests require requestId (unique alphanumeric or hyphen, max 64), workerId, generation and current contractHash.",
           "Plan fields: action=plan,title,intent,criteria. Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered).",
+          "Only the coordinator may change execution policy: submit action=policy, configFile (relative proposed JSON), expectedPolicyHash, approvals (each changed capabilityId command:<id>/runner:<id>/setup:<index>, classification=non-dangerous, reason assessing the entire fixed definition including setup/build). Commit source changes and wait until every writer is clean before requesting policy synchronization. Never use init/update/trust grant to create permanent execution authorization. Explicit native or organization denial must not be bypassed.",
           "Worker task baselines are frozen after dependency commits enter its checkout. Handoff fields: action=handoff,sourceFiles (explicit existing source paths when unchanged). Question fields: action=question,prompt. Coordinator finalize fields: action=finalize.",
           "The supervisor, after stopping writers, runs final verification, two fresh reviews and finish. A native completed goal is never final proof."], diagnostic};
       const path = join(worker.worktree!, ".agent-ops", "tasks", "run-instructions.json");
@@ -145,7 +166,12 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child requests handoff after local green; the coordinator waits for all child deliveries, then requests finalization. Never substitute native goal completion for agent-ops evidence.";
     }
     async function start(worker: RunWorkerRecord, diagnostic?: string): Promise<void> {
+      if (await discoverPendingPolicyTransition(repository, runId) !== null)
+        throw new AgentOpsError("RUN_POLICY_TRANSITION_PENDING", "Finish policy synchronization before acquiring a new writer generation.");
       if (worker.worktree === null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Worker has no isolated checkout.");
+      const config = await deps.loadConfig(worker.worktree);
+      if (await deps.trust.status(worker.worktree, config) !== "TRUSTED")
+        throw new AgentOpsError("RUN_REPO_UNTRUSTED", "Native activation requires current run policy, runtime and repository trust.");
       if (worker.status !== "assigned") {
         if ((await collectChangeSurface(gitRunner(worker.worktree))).paths.length > 0)
           throw new AgentOpsError("RUN_RECOVERY_DIRTY", "A crashed writer left an uncommitted checkout; preserve it for explicit recovery.");
@@ -172,21 +198,28 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const current = (await repository.read(runId))!;
       for (const node of await scheduler.next(runId)) {
         if (node.planDigest === undefined || node.taskId === current.rootTaskId) continue;
-        if (current.workers.some(worker => worker.taskId === node.taskId)) continue;
+        const existing = current.workers.find(worker => worker.taskId === node.taskId);
+        if (existing !== undefined && existing.worktree !== null &&
+            (await deps.tasks(existing.worktree).list()).some(r => r.task.id === node.taskId)) continue;
         const planPath = join(directory, runId, "plans", node.taskId + ".json");
         const source = await readPrivateFile(planPath, commonDir);
         if (source === null || sha256(source) !== node.planDigest) throw new AgentOpsError("RUN_PLAN_CHANGED", "Deferred worker plan is missing or changed.");
         const plan = workerPlan(JSON.parse(source), node.taskId, current);
-        const ownerSessionId = (await import("node:crypto")).randomUUID();
-        const registration = await supervisor.registerWorker(runId, {taskId: node.taskId, ownerSessionId});
+        const ownerSessionId = existing?.ownerSessionId ?? (await import("node:crypto")).randomUUID();
+        const registration = existing ?? await supervisor.registerWorker(runId, {taskId: node.taskId, ownerSessionId});
         try {
           const coordinator = current.workers[0]!;
           const from = (await deps.git(coordinator.worktree!, ["rev-parse", "HEAD"])).stdout.trim();
-          const added = await addWorktree(deps, {cwd: root, name: runId + "-" + sha256(node.taskId).slice(0, 8),
+          const name = runId + "-" + sha256(node.taskId).slice(0, 8);
+          const plannedRoot = join(root, ".worktrees", name);
+          await repository.mutate(runId, saved => ({...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, worktree: plannedRoot} : w)}));
+          const preserved = await readWorktreeRecord(plannedRoot);
+          if (preserved !== null && (preserved.runId !== runId || preserved.workerId !== registration.workerId))
+            throw new AgentOpsError("RUN_WORKTREE_OWNERSHIP", "Preserved child checkout belongs to another worker.");
+          const workerRoot = preserved?.path ?? (await addWorktree(await runWorktreeDependencies(deps, (await repository.read(runId))!), {cwd: root, name,
             sessionId: current.ownerSessionId, agentId: registration.workerId, from, targetBranch: current.targetBranch,
-            runOwnership: {runId, coordinatorId: current.coordinatorId, workerId: registration.workerId, ownerSessionId, generation: 1}});
-          const workerRoot = added.record.path;
-          await repository.mutate(runId, saved => ({...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, worktree: workerRoot} : w)}));
+            runOwnership: {runId, coordinatorId: current.coordinatorId, workerId: registration.workerId, ownerSessionId, generation: registration.generation}})).record.path;
+          await ensureSetup(workerRoot);
           for (const dependency of node.dependencies) {
             const delivered = current.tasks.find(task => task.taskId === dependency);
             if (delivered?.sourceCommit == null || delivered.status !== "delivered") throw new AgentOpsError("RUN_DEPENDENCY_UNDELIVERED", "Dependency version is not a frozen delivery.");
@@ -200,6 +233,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             sessionId: ownerSessionId, policyConfigHash: calculateConfigHash(config)});
           await start((await repository.read(runId))!.workers.find(w => w.workerId === registration.workerId)!);
         } catch (cause) {
+          await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_WORKER_START_FAILED",
+            workerId: registration.workerId, taskId: node.taskId, detail: "Child provisioning failed; the registered checkout and setup artifacts are preserved."});
           await scheduler.blockTaskAndDependents(runId, node.taskId, cause instanceof AgentOpsError ? cause.code : "RUN_WORKER_START_FAILED");
           await repository.mutate(runId, saved => ({...saved, workers: saved.workers.map(w => w.workerId === registration.workerId ? {...w, status: "blocked"} : w)}));
         }
@@ -225,7 +260,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
       return await new Promise((resolve, reject) => {
         const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_HOST: saved.host,
-          AGENT_OPS_SESSION_ID: saved.workers.find(worker => worker.worktree === cwd)?.ownerSessionId ?? saved.ownerSessionId};
+          AGENT_OPS_SESSION_ID: saved.workers.find(worker => worker.worktree === cwd)?.ownerSessionId ?? saved.ownerSessionId,
+          AGENT_OPS_RUN_ID: saved.runId,
+          AGENT_OPS_WORKER_ID: saved.workers.find(worker => worker.worktree === cwd)?.workerId ?? saved.coordinatorId,
+          AGENT_OPS_WORKER_GENERATION: String(saved.workers.find(worker => worker.worktree === cwd)?.generation ?? saved.workers.find(worker => worker.workerId === saved.coordinatorId)?.generation)};
         delete env.CODEX_THREAD_ID;
         delete env.AGENT_OPS_AGENT_ID;
         delete env.CODEX_SANDBOX_NETWORK_DISABLED;
@@ -299,18 +337,133 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         accumulatedMs: activeWallTimeMs(saved.budget.activeIntervals, Date.now()), lastObservedAt: new Date().toISOString(),
         activeIntervals: saved.budget.activeIntervals.map(interval => ({...interval, endMs: interval.endMs ?? Date.now()}))}}));
     }
+    async function ensureSetup(workerRoot: string): Promise<void> {
+      const current = (await repository.read(runId))!;
+      const scoped = await runWorktreeDependencies(deps, current), config = await scoped.loadConfig(workerRoot);
+      const setupHash = sha256(JSON.stringify(config.worktree?.setup ?? []));
+      const complete = await readPrivateFile(join(workerRoot, ".agent-ops/tasks/run-setup-complete.json"), workerRoot);
+      if (complete !== null && JSON.parse(complete).setupHash === setupHash) return;
+      const attemptPath = join(workerRoot, ".agent-ops/tasks/run-setup-attempt.json");
+      const attempt = await readPrivateFile(attemptPath, workerRoot);
+      if (attempt !== null && (complete === null || JSON.parse(attempt).setupHash === setupHash) &&
+          lastResume <= Date.parse(JSON.parse(attempt).startedAt))
+        throw new AgentOpsError("RUN_SETUP_RECOVERY_REQUIRED", "Interrupted setup requires explicit resume before replaying commands.");
+      if ((await collectChangeSurface(gitRunner(workerRoot))).paths.length > 0)
+        throw new AgentOpsError("RUN_RECOVERY_DIRTY", "Preserve setup source changes before recovery.");
+      await writePrivateFile(attemptPath, JSON.stringify({startedAt: new Date().toISOString(), setupHash}), workerRoot);
+      for (const step of config.worktree?.setup ?? []) {
+        const result = await scoped.runSetup(workerRoot, {...step, timeoutMs: step.timeoutMs ?? 600000});
+        if (result.exitCode !== 0) throw new AgentOpsError("RUN_SETUP_RECOVERY_REQUIRED", "Registered setup failed; its artifact and checkout are preserved.");
+      }
+      await writePrivateFile(join(workerRoot, ".agent-ops/tasks/run-setup-complete.json"), JSON.stringify({setupHash}), workerRoot);
+    }
+    async function synchronizePolicy(): Promise<void> {
+      const current = (await repository.read(runId))!;
+      const policy = await readRunPolicy(current, await runRuntimeHash());
+      if (policy === null) return;
+      for (const worker of current.workers.filter(w => w.worktree !== null && w.status !== "delivered")) {
+        if (await readPrivateFile(join(worker.worktree!, ".agent-ops/tasks/worktree.json"), worker.worktree!) === null) continue;
+        const configPath = join(worker.worktree!, ".agent-ops/config.json");
+        const previous = await readPrivateFile(configPath, worker.worktree!);
+        if (previous === null || calculateConfigHash(JSON.parse(previous)) !== current.policyBinding!.configHash) {
+          if ((await collectChangeSurface(gitRunner(worker.worktree!))).paths.length > 0)
+            throw new AgentOpsError("RUN_POLICY_DIRTY", "Policy synchronization preserves uncommitted worker edits for explicit recovery.");
+          await writePrivateFile(configPath, JSON.stringify(policy.config, null, 2) + "\n", worker.worktree!);
+          const tracked = await deps.git(worker.worktree!, ["ls-files", "--error-unmatch", ".agent-ops/config.json"]);
+          if (tracked.exitCode === 0) {
+            if ((await deps.git(worker.worktree!, ["add", "--", ".agent-ops/config.json"])).exitCode !== 0 ||
+                (await deps.git(worker.worktree!, ["commit", "-m", "Synchronize run verifier policy", "--", ".agent-ops/config.json"])).exitCode !== 0)
+              throw new AgentOpsError("RUN_POLICY_SYNC_FAILED", "Could not commit the scoped policy synchronization.");
+          }
+        }
+        await ensureSetup(worker.worktree!);
+        const tasks = deps.tasks(worker.worktree!);
+        for (const record of (await tasks.list()).filter(r => r.status === "active" && r.supersededBy === undefined))
+          if (record.policyConfigHash !== current.policyBinding!.configHash) await tasks.revise(record.task.id, {
+            expectedContractHash: taskContractHash(record.task), criteria: record.task.criteria,
+            reason: "Run execution policy changed; preserve the original goal and baselines, and require fresh proof.",
+            diagnostics: ["run-policy:" + current.policyBinding!.artifactDigest]
+          });
+      }
+      if (current.rootTaskId !== null) {
+        const coordinator = current.workers.find(w => w.workerId === current.coordinatorId)!;
+        const contract = await deps.tasks(coordinator.worktree!).treeContract(current.rootTaskId);
+        await repository.mutate(runId, saved => ({...saved, currentContractHash: contract,
+          contractRevision: saved.contractRevision + (saved.currentContractHash === contract ? 0 : 1)}));
+      }
+    }
+    async function transitionPolicy(journal: PolicyTransitionJournal): Promise<readonly string[]> {
+      const proposal = await readPrivateFile(join(directory, runId, "policy-proposals", journal.transitionId + ".json"), commonDir);
+      if (proposal === null || "policy-" + sha256(proposal) !== journal.transitionId)
+        throw new AgentOpsError("RUN_POLICY_PROPOSAL_CHANGED", "Policy proposal is missing or changed; preserve the pending journal.");
+      const input = JSON.parse(proposal) as {config: import("../../../runtime/src/contracts.js").AgentOpsConfig; approvals: RunPolicyApproval[]};
+      await stopAll("stop", false);
+      let current = (await repository.read(runId))!;
+      for (const writer of current.workers.filter(w => w.worktree !== null && w.status !== "delivered"))
+        if ((await collectChangeSurface(gitRunner(writer.worktree!))).paths.length > 0)
+          throw new AgentOpsError("RUN_POLICY_DIRTY", "Every writer must commit before a policy transition.");
+      if (journal.stages.at(-1)!.stage === "prepared") {
+        journal = await markPolicyTransitionStage(repository, runId, journal.transitionId, {stage: "fenced"});
+      }
+      if (journal.stages.at(-1)!.stage === "fenced") {
+        if (current.policyBinding!.artifactDigest === journal.oldPolicyArtifact!.artifactDigest) {
+          const coordinator = current.workers.find(w => w.workerId === current.coordinatorId)!;
+          if (current.rootTaskId !== null && journal.deliveredMarkers.length > 0) {
+            const record = await readWorktreeRecord(coordinator.worktree!);
+            if (record === null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Policy transition requires the registered coordinator.");
+            await integrateSessionChildren(deps, record, current.rootTaskId, journal.deliveredMarkers.map(w => w.workerId));
+          }
+          const old = (await readRunPolicy(current, await runRuntimeHash()))!;
+          await bindRunPolicy(repository, runId, {config: input.config, approvals: input.approvals, baseTrustBinding: old.baseTrustBinding,
+            runtimeHash: old.runtimeHash, expectedDigest: current.policyBinding!.artifactDigest});
+        } else if (current.policyBinding!.configHash !== calculateConfigHash(input.config))
+          throw new AgentOpsError("RUN_POLICY_TRANSITION_STALE", "Policy no longer matches the pending assessment.");
+        journal = await markPolicyTransitionStage(repository, runId, journal.transitionId, {stage: "bound"});
+      }
+      if (journal.stages.at(-1)!.stage === "bound") {
+        await synchronizePolicy();
+        current = (await repository.read(runId))!;
+        const coordinator = current.workers.find(w => w.workerId === current.coordinatorId)!;
+        const control = new RunControlService(repository);
+        const policy = (await readRunPolicy(current, await runRuntimeHash()))!;
+        for (const assessment of policy.approvals) {
+          const [kind, id] = assessment.capabilityId.split(":");
+          const capability = kind === "command" ? policy.config.verification.commands.find(c => c.id === id) :
+            kind === "runner" ? policy.config.verification.acceptanceRunners?.find(c => c.id === id) : policy.config.worktree?.setup?.[Number(id)];
+          const command = canonicalJson(capability), resource = canonicalJson({repository: root, capabilityId: assessment.capabilityId});
+          await control.recordAuthorization(runId, {authorizationId: journal.transitionId + ":" + assessment.capabilityId,
+            workerId: coordinator.workerId, generation: coordinator.generation, nativeSessionId: coordinator.nativeSessionId,
+            operation: "policy-capability", command, resource, commandDigest: sha256(command), resourceDigest: sha256(resource),
+            reason: assessment.reason, result: "auto-approved", source: "coordinator-policy-review", policyConfigHash: current.policyBinding!.configHash,
+            runtimeHash: current.policyBinding!.runtimeHash, expiresAt: current.policyBinding!.expiresAt, policyArtifactDigest: current.policyBinding!.artifactDigest});
+        }
+        journal = await markPolicyTransitionStage(repository, runId, journal.transitionId, {stage: "synchronized",
+          contractHash: current.currentContractHash, contractRevision: current.contractRevision, taskIds: current.tasks.map(t => t.taskId)});
+      }
+      await completePolicyTransition(repository, runId, journal.transitionId);
+      return journal.resumeIds.map(w => w.workerId);
+    }
     async function repair(worker: RunWorkerRecord, code: string, message: string): Promise<void> {
       const current = (await repository.read(runId))!;
       const saved = current.workers.find(w => w.workerId === worker.workerId)!;
       const localTasks = await new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops", "tasks", "state.json"), worker.worktree!)).list();
-      const failures = localTasks.filter(task => task.supersededBy === undefined && task.status !== "archived" && task.failureFingerprint !== null)
-        .map(task => ({taskId: task.task.id, failure: task.failureFingerprint === null ? null : {value: task.failureFingerprint.value, commandId: task.failureFingerprint.commandId, failureClass: task.failureFingerprint.failureClass}})).sort((a, b) => a.taskId.localeCompare(b.taskId));
       const pins = await pendingFindingPins(worker.worktree!, localTasks, worker.taskId);
-      const identity = canonicalJson({code, failures, pins, fallback: failures.length === 0 && pins.length === 0 ? message : null});
+      const observation = await observeRunFailure(current, worker.worktree!, localTasks, worker.taskId, code, pins);
+      const failed = observation.checks.find(check => check.status !== "PASS");
+      const previousPath = join(directory, runId, "failure-observations", worker.workerId + ".json");
+      const previous = await readPrivateFile(previousPath, commonDir);
+      const priorDigest = previous === null ? null : JSON.parse(previous).digest as string;
+      if (priorDigest !== null && !/^[a-f0-9]{64}$/u.test(priorDigest)) throw new AgentOpsError("RUN_FAILURE_OBSERVATION_CHANGED", "Failure observation pointer is invalid.");
+      const prior = priorDigest === null ? null : await readPrivateFile(join(directory, runId, "failure-observations", priorDigest + ".json"), commonDir);
+      if (priorDigest !== null && (prior === null || sha256(prior) !== priorDigest)) throw new AgentOpsError("RUN_FAILURE_OBSERVATION_CHANGED", "Failure observation is missing or changed.");
+      const usefulProgress = prior !== null && compareFailureObservations(JSON.parse(prior) as FailureObservation, observation).usefulProgress;
+      const content = canonicalJson(observation), digest = sha256(content);
+      await writePrivateFile(join(directory, runId, "failure-observations", digest + ".json"), content, commonDir);
+      await writePrivateFile(previousPath, canonicalJson({digest}), commonDir);
       const result = await supervisor.recordFailure(runId, worker.workerId, worker.generation, {
-        checkId: failures[0]?.failure?.commandId ?? code, pinId: pins[0] ?? null, failureClass: failures[0]?.failure?.failureClass ?? code,
-        fingerprint: sha256(identity),
-        diagnosticDigest: sha256(identity), round: (saved.lastFailure?.round ?? 0) + 1, usefulProgress: false});
+        checkId: failed?.checkId ?? code, pinId: failed?.pinId ?? null, phase: failed?.phase ?? "native", failureClass: failed?.failureClass ?? code,
+        fingerprint: observation.failureKey ?? sha256(canonicalJson({taskId: worker.taskId, code})), progressDigest: observation.progressDigest,
+        diagnosticDigest: sha256(message), round: (saved.lastFailure?.round ?? 0) + 1, usefulProgress});
       if (result.noProgress) {
         await scheduler.blockTaskAndDependents(runId, worker.taskId, code);
         if (worker.workerId === current.coordinatorId)
@@ -367,6 +520,19 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           instance: state.nativeInstance, generation: 1, reason: "reconcile interrupted evidence process"});
         await repository.mutate(runId, current => ({...current, proofProcess: null}));
       }
+      await stopAll("crash", false);
+      state = (await repository.read(runId))!;
+      if (state.rootTaskId === null) {
+        const coordinator = state.workers.find(w => w.workerId === state.coordinatorId)!;
+        let record = await readWorktreeRecord(coordinator.worktree!);
+        if (record === null) {
+          record = await ensureSessionWorktree(await runWorktreeDependencies(deps, state), {cwd: root, sessionId: state.ownerSessionId,
+            runOwnership: {runId, coordinatorId: state.coordinatorId, workerId: coordinator.workerId, ownerSessionId: coordinator.ownerSessionId, generation: coordinator.generation}});
+        } else {await ensureSetup(record.path);}
+        await repository.mutate(runId, current => ({...current, workers: current.workers.map(w => w.workerId === coordinator.workerId ? {...w, worktree: record!.path} : w)}));
+        await writePrivateFile(join(record.path, ".agent-ops/tasks/run-goal.json"), JSON.stringify({runId, goal: state.goal, goalHash: state.goalHash}), record.path);
+        state = (await repository.read(runId))!;
+      }
       if (state.integration !== null) {
         let receipt = state.integration.receiptPath;
         if (state.integration.status !== "cleaned") {
@@ -376,9 +542,17 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         await acceptReceipt(state, receipt);
         return;
       }
+      const pendingPolicy = await discoverPendingPolicyTransition(repository, runId);
+      if (pendingPolicy !== null) await transitionPolicy(pendingPolicy);
+      else if (state.policyBinding !== undefined) await synchronizePolicy();
+      state = (await repository.read(runId))!;
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
+        if (worker.workerId !== state.coordinatorId && (worker.worktree === null ||
+            !(await deps.tasks(worker.worktree).list()).some(r => r.task.id === worker.taskId))) continue;
         try {await start(worker);}
         catch (cause) {
+          await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_RECOVERY_FAILED",
+            workerId: worker.workerId, taskId: worker.taskId, detail: "Writer recovery refused; preserve its checkout until the prerequisite is corrected."});
           if (worker.nativeSessionId !== null) await supervisor.stopWorker(runId, worker.workerId, worker.generation, "crash");
           await scheduler.blockTaskAndDependents(runId, worker.taskId, cause instanceof AgentOpsError ? cause.code : "RUN_RECOVERY_FAILED");
           await repository.mutate(runId, current => ({...current,
@@ -459,11 +633,32 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           try {
             if (current.status !== "active" || request.contractHash !== current.currentContractHash)
               throw new AgentOpsError("RUN_CONTRACT_CHANGED", "Request must bind the current run contract.");
-            const fields = request.action === "plan" ? ["title", "intent", "criteria"] : request.action === "question" ? ["prompt"] : request.action === "worker" ? ["title", "intent", "criteria", "dependencies"] :
+            const fields = request.action === "policy" ? ["configFile", "expectedPolicyHash", "approvals"] : request.action === "plan" ? ["title", "intent", "criteria"] : request.action === "question" ? ["prompt"] : request.action === "worker" ? ["title", "intent", "criteria", "dependencies"] :
               request.action === "handoff" || request.action === "finalize" ? ["sourceFiles"] : [];
             if (Object.keys(request).some(key => !["requestId", "workerId", "generation", "contractHash", "action", ...fields].includes(key)))
               throw new AgentOpsError("RUN_REQUEST_INVALID", "Unknown request fields are not accepted.");
-            if (request.action === "plan") {
+            if (request.action === "policy") {
+              if (worker.workerId !== current.coordinatorId || current.policyBinding === undefined ||
+                request.expectedPolicyHash !== current.policyBinding.configHash || typeof request.configFile !== "string" || !Array.isArray(request.approvals))
+                throw new AgentOpsError("RUN_POLICY_STALE", "Only the coordinator can assess the current run execution policy.");
+              const path = await resolveContainedPath(worker.worktree!, request.configFile);
+              const source = await readPrivateFile(path, worker.worktree!);
+              if (source === null || Buffer.byteLength(source) > 128 * 1024) throw new AgentOpsError("RUN_POLICY_INVALID", "Proposed policy must be bounded private JSON.");
+              const policy = await readRunPolicy(current, await runRuntimeHash());
+              if (policy === null) throw new AgentOpsError("RUN_POLICY_INVALID", "Run has no original policy binding.");
+              const candidate = validateRunPolicyChange(policy.config, JSON.parse(source), request.approvals as RunPolicyApproval[]);
+              const proposal = canonicalJson({config: candidate, approvals: request.approvals, oldArtifactDigest: current.policyBinding.artifactDigest});
+              const transitionId = "policy-" + sha256(proposal);
+              await writePrivateFile(join(directory, runId, "policy-proposals", transitionId + ".json"), proposal, commonDir);
+              const journal = await beginPolicyTransition(repository, runId, {transitionId,
+                expectedOldArtifactDigest: current.policyBinding.artifactDigest, expectedContractHash: current.currentContractHash});
+              const writers = await transitionPolicy(journal);
+              const changed = (await repository.read(runId))!;
+              for (const id of writers) await start(changed.workers.find(w => w.workerId === id)!,
+                "Execution policy was assessed and synchronized. Read the current instructions, preserve original baselines, and obtain fresh evidence. Authorization expires with this run.");
+              response = {requestId: request.requestId, code: "RUN_POLICY_SYNCHRONIZED", policyConfigHash: changed.policyBinding!.configHash,
+                contractHash: changed.currentContractHash};
+            } else if (request.action === "plan") {
               if (current.rootTaskId !== null || typeof request.title !== "string" || typeof request.intent !== "string" || !Array.isArray(request.criteria))
                 throw new AgentOpsError("RUN_PLAN_INVALID", "Initial plan requires a title, intent and valid criteria.");
               const config = await deps.loadConfig(worker.worktree!);
@@ -566,6 +761,12 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               const recovered = await recoverIntegration(latest);
               await acceptReceipt(latest, recovered);
               response = {requestId: request.requestId, code: "RUN_COMPLETE", receipt: recovered};
+            } else if (request.action === "policy" && await discoverPendingPolicyTransition(repository, runId) !== null) {
+              await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_POLICY_RECOVERY_REQUIRED", workerId: worker.workerId, taskId: worker.taskId,
+                detail: "Policy transition is preserved; explicit resume must reconcile the pending journal before any writer starts."});
+              await repository.mutate(runId, state => ({...state, status: "paused", awaitingResume: true, disableRestart: true}));
+              await stopAll("stop");
+              await launchd.disableRestart(runDescriptor(latest), "pending policy transition needs reconciliation");
             } else if (["handoff", "finalize"].includes(String(request.action)) && latest.status === "active" && stopped !== undefined &&
               ["stopped", "fenced"].includes(stopped.status)) {
               await writePrivateFile(join(worker.worktree!, ".agent-ops", "tasks", "run-last-failure.json"), JSON.stringify(response), worker.worktree!);

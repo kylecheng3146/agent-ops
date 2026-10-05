@@ -182,7 +182,7 @@ export class CodexGoalHost implements NativeGoalHost {
         return;
       }
       const mapped = this.mapEvent(handle, message);
-      yield mapped;
+      yield {...mapped, ...(typeof message.method === "string" ? {transportMethod: message.method} : {})};
       if (mapped.type === "completed" || mapped.type === "error" || mapped.type === "closed") {
         return;
       }
@@ -278,6 +278,7 @@ export class CodexGoalHost implements NativeGoalHost {
     // Keep the notification sequence in one helper so callers cannot send a
     // goal before the app-server handshake is complete.
     await session.request("initialize", {
+      capabilities: {experimentalApi: true},
       clientInfo: {
         name: "agent-ops",
         title: "agent-ops native goal host",

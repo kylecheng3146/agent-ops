@@ -233,12 +233,14 @@ interface Delivery {
 export async function integrateSessionChildren(
   deps: FinishDependencies,
   coordinator: WorktreeRecord,
-  parentTaskId: string
+  parentTaskId: string,
+  eligibleRunWorkerIds?: readonly string[]
 ): Promise<readonly IntegratedChild[]> {
   const statuses = await listWorktrees(deps, coordinator.mainRoot);
   const children = statuses.map(({ record }) => record)
     .filter((record) => record.name !== coordinator.name && record.sessionId === coordinator.sessionId &&
       (record.agentId !== undefined || (coordinator.runId !== undefined && record.runId === coordinator.runId)))
+    .filter(record => eligibleRunWorkerIds === undefined || (record.workerId !== undefined && eligibleRunWorkerIds.includes(record.workerId)))
     .sort((a, b) => a.name.localeCompare(b.name));
   const integrated = await previous(coordinator);
   if (children.length === 0) return integrated;
