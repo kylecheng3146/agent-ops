@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {randomUUID} from "node:crypto";
 import { join } from "node:path";
 
 import type { AgentOpsConfig } from "../contracts.js";
@@ -17,6 +18,7 @@ import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegr
 import type {IntegrationReceiptBinding} from "../run/integration.js";
 import {canonicalJson} from "../config/hash.js";
 import { listWorktrees } from "./manage.js";
+import {withPrivateFileLock} from "../security/permissions.js";
 import type { IntegratedChild } from "./integrate.js";
 import {
   assertWorktreeName,
@@ -180,27 +182,40 @@ export async function withFinishLock<T>(
   const path = join(commonDir, LOCK_NAME);
   const deadline = Date.now() + (deps.lockWaitMs ?? LOCK_WAIT_MS);
   const sleep = deps.sleep ?? (async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms)));
+  const token = randomUUID();
   for (;;) {
+    let claimed = false;
     try {
-      await mkdir(path);
-      await writeFile(join(path, "owner.json"), JSON.stringify({ pid: process.pid, at: Date.now() }));
-      break;
+      claimed = await withPrivateFileLock(path + ".state", commonDir, async () => {
+        for (;;) {
+          try {
+            await mkdir(path);
+            await writeFile(join(path, "owner.json"), JSON.stringify({pid: process.pid, at: Date.now(), token}));
+            return true;
+          } catch (error) {
+            if ((error as {code?: string}).code !== "EEXIST") throw error;
+            if (!await staleLock(path)) return false;
+            await rm(path, {recursive: true, force: true});
+          }
+        }
+      });
     } catch (error) {
-      if ((error as { code?: string }).code !== "EEXIST") throw error;
-      if (await staleLock(path)) {
-        await rm(path, { recursive: true, force: true });
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw finishError("WORKTREE_FINISH_BUSY", "Another worktree finish is still running; try again later.");
-      }
-      await sleep(LOCK_POLL_MS);
+      if (!(error instanceof AgentOpsError) || error.code !== "PRIVATE_STATE_LOCK_TIMEOUT") throw error;
     }
+    if (claimed) break;
+    if (Date.now() >= deadline) throw finishError("WORKTREE_FINISH_BUSY", "Another worktree finish is still running; try again later.");
+    await sleep(LOCK_POLL_MS);
   }
   try {
     return await action();
   } finally {
-    await rm(path, { recursive: true, force: true });
+    await withPrivateFileLock(path + ".state", commonDir, async () => {
+      const owner = await readFile(join(path, "owner.json"), "utf8").catch(error => {
+        if ((error as {code?: string}).code === "ENOENT") return null;
+        throw error;
+      });
+      if (owner !== null && JSON.parse(owner)?.token === token) await rm(path, {recursive: true, force: true});
+    });
   }
 }
 
