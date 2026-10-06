@@ -6,6 +6,9 @@ import {
   type ReviewCriterionResult
 } from "../../runtime/src/review/result.js";
 import { buildReviewPacket } from "../../runtime/src/review/packet.js";
+import { sha256 } from "../../runtime/src/fs/hash.js";
+import { buildReviewPrompt, buildAdversarialPrompt, type ReviewInvocation } from "../../runtime/src/review/runner.js";
+import { reportFor } from "./report-fixture.js";
 
 test("builds an isolated packet without rationale, logs, or credentials", () => {
   const packet = buildReviewPacket({
@@ -25,6 +28,38 @@ test("builds an isolated packet without rationale, logs, or credentials", () => 
     "request"
   ]);
   assert.doesNotMatch(JSON.stringify(packet), /hidden rationale|Authorization|credential-value/);
+});
+
+test("a complete sealed manifest index avoids duplicate metadata without hiding snapshot artifacts", () => {
+  const artifacts = Array.from({length: 500}, (_, i) => ({
+    path: `.agent-ops/tasks/evidence/task-packet/node-test-${i.toString(16).padStart(16, "0")}.json`,
+    content: "{}", digest: sha256("{}")
+  }));
+  const index = artifacts.map(({path, digest}) => ({path, digest}));
+  const manifest = (content: string) => {
+    const digest = sha256(content);
+    return {content, digest, path: `.agent-ops/tasks/review-contracts/${digest}.json`};
+  };
+  const input = {request: "Review.", criteria: [{id: "tests", description: "Tests pass."}], artifactRefs: [],
+    evidenceRequirements: [], contractArtifacts: artifacts};
+  const contractManifest = manifest(JSON.stringify({artifacts: index}));
+  const packet = buildReviewPacket({...input, contractManifest});
+  assert.deepEqual(packet.contractArtifacts, artifacts);
+  const invocation: ReviewInvocation = {harness: "codex", model: "configured-model", effort: "medium", packet};
+  for (const prompt of [buildReviewPrompt(invocation), buildAdversarialPrompt(invocation, reportFor(packet.criteria))]) {
+    const data = JSON.parse(prompt.split("BEGIN_TASK_DATA\n")[1]!.split("\n")[0]!);
+    assert.equal(data.contractArtifacts, undefined);
+    assert.deepEqual(data.contractManifest, {path: contractManifest.path, digest: contractManifest.digest});
+    assert.match(prompt, /complete.*artifact.*index/s);
+  }
+  for (const content of ["not JSON", "{}", JSON.stringify({artifacts: index.slice(1)})]) {
+    assert.throws(() => buildReviewPacket({...input, contractManifest: manifest(content)}), /64 KiB/);
+  }
+  assert.throws(() => buildReviewPacket(input), /64 KiB/);
+  assert.throws(() => buildReviewPacket({...input, contractManifest,
+    contractArtifacts: [{...artifacts[0]!, digest: "0".repeat(64)}]}), /artifact is invalid/);
+  const legacy = buildReviewPacket({...input, contractArtifacts: artifacts.slice(0, 1), contractManifest: manifest("{}")});
+  assert.ok(buildReviewPrompt({...invocation, packet: legacy}).includes(artifacts[0]!.path));
 });
 
 function result(

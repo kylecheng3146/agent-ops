@@ -27,6 +27,20 @@ export interface ReviewPacketInput extends ReviewPacket {
 
 const MAX_PACKET_BYTES = 64 * 1024;
 
+/** Keep artifact contents for snapshots; reference an exact sealed index once in prompts. */
+export function reviewPacketData(packet: ReviewPacket) {
+  const artifacts = packet.contractArtifacts?.map(({path, digest}) => ({path, digest}));
+  let indexed = false;
+  if (packet.contractManifest !== undefined && artifacts !== undefined) {
+    try {
+      const manifest = JSON.parse(packet.contractManifest.content) as {artifacts?: unknown} | null;
+      indexed = JSON.stringify(manifest?.artifacts) === JSON.stringify(artifacts);
+    } catch { /* Legacy manifests keep inline artifact metadata. */ }
+  }
+  return {...packet, contractArtifacts: indexed ? undefined : artifacts,
+    contractManifest: packet.contractManifest === undefined ? undefined : {path: packet.contractManifest.path, digest: packet.contractManifest.digest}};
+}
+
 function safe(value: string): string {
   return safeTaskText(redactSecrets(value));
 }
@@ -88,7 +102,7 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
       requirement: safe(requirement.requirement)
     }))
   };
-  if (Buffer.byteLength(JSON.stringify({...packet, contractArtifacts: packet.contractArtifacts?.map(({path, digest}) => ({path, digest})), contractManifest: packet.contractManifest === undefined ? undefined : {path: packet.contractManifest.path, digest: packet.contractManifest.digest}}), "utf8") > MAX_PACKET_BYTES) {
+  if (Buffer.byteLength(JSON.stringify(reviewPacketData(packet)), "utf8") > MAX_PACKET_BYTES) {
     throw new AgentOpsError(
       "REVIEW_SCOPE_TOO_LARGE",
       "Review packet exceeds the 64 KiB limit."
