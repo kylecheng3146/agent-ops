@@ -331,11 +331,18 @@ test("does not wait forever when termination and output draining both fail", asy
 
 test("POSIX timeout kills descendants after the group leader exits", {
   skip: process.platform === "win32"
-}, async () => {
+}, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-tree-"));
   const pidPath = join(root, "descendant.pid");
   const heartbeatPath = join(root, "heartbeat");
   let descendantPid: number | null = null;
+  let running: RunningVerificationProcess | undefined;
+  let pending: ReturnType<typeof runVerificationCommand> | undefined;
+  const controller = new AbortController();
+  const realSetTimeout = setTimeout;
+  const pause = (ms: number): Promise<void> => new Promise((resolve) => {
+    realSetTimeout(resolve, ms);
+  });
   const descendantSource = [
     'const { writeFileSync } = require("node:fs");',
     'process.on("SIGTERM", () => {});',
@@ -347,6 +354,7 @@ test("POSIX timeout kills descendants after the group leader exits", {
     'const { spawn } = require("node:child_process");',
     'const { writeFileSync } = require("node:fs");',
     `const descendantSource = ${JSON.stringify(descendantSource)};`,
+    "setTimeout(() => {",
     "const child = spawn(",
     "  process.execPath,",
     '  ["-e", descendantSource, process.argv[2]],',
@@ -354,47 +362,60 @@ test("POSIX timeout kills descendants after the group leader exits", {
     ");",
     "writeFileSync(process.argv[1], String(child.pid));",
     'process.on("SIGTERM", () => process.exit(0));',
-    "setInterval(() => {}, 1_000);"
+    "setInterval(() => {}, 1_000);",
+    "}, 600);"
   ].join("\n");
 
   try {
-    const result = await runVerificationCommand(command({
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    pending = runVerificationCommand(command({
       command: process.execPath,
       args: ["-e", leaderSource, pidPath, heartbeatPath],
       timeoutMs: 300
     }), {
       cwd: root,
-      terminationGraceMs: 100
+      terminationGraceMs: 100,
+      signal: controller.signal,
+      runner: runnerWith((request) => {
+        running = new NodeVerificationProcessRunner().start(request);
+        return running;
+      })
     });
-    descendantPid = Number(await readFile(pidPath, "utf8"));
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      try {
+        descendantPid = Number(await readFile(pidPath, "utf8"));
+        assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0);
+        assert.ok((await readFile(heartbeatPath, "utf8")).length > 0);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        assert.ok(Date.now() < deadline, "descendant must become ready before the real deadline");
+        await pause(20);
+      }
+    }
+    t.mock.timers.tick(300);
+    t.mock.timers.reset();
+    const result = await pending;
     const firstHeartbeat = await readFile(heartbeatPath, "utf8");
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 100);
-    });
+    await pause(100);
     const secondHeartbeat = await readFile(heartbeatPath, "utf8");
 
     assert.equal(result.timedOut, true);
+    assert.equal(result.failureClass, "timeout");
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.signal, null);
     assert.equal(secondHeartbeat, firstHeartbeat);
   } finally {
-    if (
-      descendantPid !== null &&
-      Number.isSafeInteger(descendantPid) &&
-      descendantPid > 0
-    ) {
-      try {
-        process.kill(descendantPid, "SIGKILL");
-      } catch (error) {
-        if (
-          typeof error !== "object" ||
-          error === null ||
-          !("code" in error) ||
-          error.code !== "ESRCH"
-        ) {
-          throw error;
-        }
-      }
+    t.mock.timers.reset();
+    controller.abort();
+    try {
+      const result = await pending;
+      if (result?.status !== "FAIL" || !["timeout", "aborted"].includes(result.failureClass))
+        await running?.terminateTree(100);
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
-    await rm(root, { recursive: true, force: true });
   }
 });
 
