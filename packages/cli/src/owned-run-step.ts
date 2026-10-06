@@ -13,7 +13,8 @@ export async function runOwnedLocalProof(argv: readonly string[]): Promise<numbe
   const context = await runPolicyContext(process.cwd());
   if (context === null) return null;
   const {repository, state, worker} = context;
-  if (worker === undefined) throw new AgentOpsError("RUN_WORKER_STALE", "Local proof requires the registered writer checkout.");
+  if (worker === undefined || !["running", "idle"].includes(worker.status) || worker.stopIntent !== null)
+    throw new AgentOpsError("RUN_WORKER_STALE", "Local proof requires an active registered writer checkout.");
   if (worker.proofProcess != null) {
     const transport = new NativeRunTransport(state.host === "codex" ? new CodexGoalHost() : new ClaudeGoalHost(), repository);
     const existing = await transport.inspect({nativeSessionId: "worker-proof", nativeJobId: null, ...worker.proofProcess, instance: state.nativeInstance});
@@ -33,7 +34,8 @@ export async function runOwnedLocalProof(argv: readonly string[]): Promise<numbe
     if (identity === null) throw new AgentOpsError("RUN_PROCESS_IDENTITY_REQUIRED", "Cannot register an unidentified local proof process.");
     await repository.mutate(state.runId, current => {
       const saved = current.workers.find(w => w.workerId === worker.workerId);
-      if (current.status !== "active" || current.disableRestart || saved?.generation !== worker.generation ||
+      if (current.status !== "active" || current.disableRestart || current.awaitingResume || saved?.generation !== worker.generation ||
+        !["running", "idle"].includes(saved.status) || saved.stopIntent !== null ||
         current.policyBinding?.artifactDigest !== state.policyBinding!.artifactDigest ||
         (saved.proofProcess != null && saved.proofProcess.processId !== worker.proofProcess?.processId))
         throw new AgentOpsError("RUN_WORKER_STALE", "Run stop or another proof command raced registration.");
