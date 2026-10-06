@@ -132,19 +132,34 @@ export function nativeProcessGroupAlive(pid: number): boolean {
     return true;
   }
 }
+export async function signalNativeProcessGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
+  try {process.kill(process.platform === "win32" ? pid : -pid, signal);}
+  catch (cause) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return;
+    if (code === "EPERM" && process.platform !== "win32") {
+      // macOS can report EPERM while an already-killed group is being reaped.
+      // Permission failure is safe to dismiss only after the kernel confirms absence.
+      for (let i = 0; i < 30 && nativeProcessGroupAlive(pid); i++)
+        await new Promise(resolve => setTimeout(resolve, 100));
+      if (!nativeProcessGroupAlive(pid)) return;
+    }
+    throw cause;
+  }
+}
 export async function stopNativeProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): Promise<void> {
   const pid = child.pid;
   if (pid === undefined) throw new AgentOpsError("NATIVE_PROCESS_UNKNOWN", "Native process has no registered PID.");
-  const send = (s: NodeJS.Signals): void => {
+  const send = async (s: NodeJS.Signals): Promise<void> => {
+    if (process.platform !== "win32") return await signalNativeProcessGroup(pid, s);
     try {
-      if (process.platform === "win32") child.kill(s);
-      else process.kill(-pid, s);
+      child.kill(s);
     } catch (cause) {if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause;}
   };
-  send(signal);
+  await send(signal);
   await waitForExit(child, 3000);
   if (process.platform !== "win32" && nativeProcessGroupAlive(pid)) {
-    send("SIGKILL");
+    await send("SIGKILL");
     for (let i = 0; i < 30 && nativeProcessGroupAlive(pid); i++)
       await new Promise(resolve => setTimeout(resolve, 100));
     if (nativeProcessGroupAlive(pid)) throw new AgentOpsError("NATIVE_PROCESS_STILL_ALIVE", "Managed native descendants have not stopped; takeover is refused.");

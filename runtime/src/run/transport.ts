@@ -1,4 +1,4 @@
-import {nativeProcessGroupAlive} from "./hosts/util.js";
+import {nativeProcessGroupAlive, signalNativeProcessGroup} from "./hosts/util.js";
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
 import {AgentOpsError} from "../fs/paths.js";
@@ -117,13 +117,11 @@ export class NativeRunTransport implements NativeGoalHost {
         throw new AgentOpsError("RUN_PROCESS_RECONCILE_REQUIRED", "Cannot identify surviving native descendants; takeover is refused.");
       // A crash lost the in-memory transport, but the saved PID/start time still identifies this owned group.
       const pid = input.processId;
-      try {process.kill(process.platform === "win32" ? pid : -pid, "SIGTERM");}
-      catch (cause) {if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause;}
+      await signalNativeProcessGroup(pid, "SIGTERM");
       for (let i = 0; i < 30 && (await this.inspect(input)).processAlive; i++)
         await new Promise(resolve => setTimeout(resolve, 100));
       if ((await this.inspect(input)).processAlive) {
-        try {process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL");}
-        catch (cause) {if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause;}
+        await signalNativeProcessGroup(pid, "SIGKILL");
         for (let i = 0; i < 30 && (await this.inspect(input)).processAlive; i++)
           await new Promise(resolve => setTimeout(resolve, 100));
       }

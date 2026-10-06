@@ -4,6 +4,8 @@ import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {nativeProcessIdentity} from "../../runtime/src/run/transport.js";
+import {stopNativeProcess} from "../../runtime/src/run/hosts/util.js";
+import type {ChildProcessWithoutNullStreams} from "node:child_process";
 
 import { ClaudeGoalHost } from "../../runtime/src/run/hosts/claude.js";
 import { CodexGoalHost } from "../../runtime/src/run/hosts/codex.js";
@@ -89,4 +91,20 @@ test("Codex initialization timeout cancels the unopened detached process group",
     for (const pid of JSON.parse(await readFile(marker, "utf8")) as number[])
       assert.equal(await nativeProcessIdentity(pid), null, "failed startup must not leave an unregistered native process or descendant");
   } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("transient signal EPERM requires confirmed process group disappearance", {skip: process.platform === "win32"}, async t => {
+  let probes = 0;
+  t.mock.method(process, "kill", (pid: number, signal: NodeJS.Signals | number) => {
+    assert.equal(pid, -123);
+    if (signal === 0 && ++probes > 1) throw Object.assign(new Error("gone"), {code: "ESRCH"});
+    throw Object.assign(new Error("permission"), {code: "EPERM"});
+  });
+  await stopNativeProcess({pid: 123, exitCode: 0, signalCode: null} as ChildProcessWithoutNullStreams, "SIGKILL");
+  assert.ok(probes > 1);
+});
+
+test("persistent group permission failure is never confirmed death", {skip: process.platform === "win32"}, async t => {
+  t.mock.method(process, "kill", () => {throw Object.assign(new Error("permission"), {code: "EPERM"});});
+  await assert.rejects(stopNativeProcess({pid: 123, exitCode: 0, signalCode: null} as ChildProcessWithoutNullStreams, "SIGKILL"), {code: "EPERM"});
 });
