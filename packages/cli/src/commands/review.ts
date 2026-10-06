@@ -871,10 +871,15 @@ export async function runReviewCommand(
     let contractManifest;
     const contractArtifacts: Array<{path: string; digest: string; content: string}> = [];
     if (context?.binding !== undefined && options.root !== undefined) {
-      const refs = new Set([...context.records, ...(context.historyRecords ?? [])].flatMap(r => [r.evidence, ...(r.revisions ?? []).map(revision => revision.previousEvidence)].flatMap(evidence => Object.values(evidence).flat())).filter(ref => !ref.startsWith("review:")));
+      const historicalRefs = new Set([
+        ...[...context.records, ...(context.historyRecords ?? [])].flatMap(r => (r.revisions ?? []).flatMap(revision => Object.values(revision.previousEvidence).flat())),
+        ...(context.historyRecords ?? []).flatMap(r => Object.values(r.evidence).flat())
+      ]);
+      const refs = new Set([...context.records.flatMap(r => Object.values(r.evidence).flat()), ...historicalRefs].filter(ref => !ref.startsWith("review:")));
       for (const path of refs) {
         const loaded = await options.evidenceStore?.load(path);
         if (loaded == null) continue;
+        if (!historicalRefs.has(path) && (loaded as VerificationEvidence).sourceFingerprint !== sourceFingerprint) continue;
         const content = await readPrivateFile(options.root + "/" + path, options.root);
         if (content !== null) contractArtifacts.push({path, digest: sha256(content), content});
         const executionPath = (loaded as VerificationEvidence).acceptance?.executionArtifact;
