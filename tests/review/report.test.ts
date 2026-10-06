@@ -61,5 +61,18 @@ test("still rejects unsafe reviewed paths", () => {
   const unsafe = ["/abs/path.md", "a/../b.md", "../b.md", "a\\b.md", "a//b.md", "a/./b.md", "a\nb.md", "a\0b.md", "a\tb.md", ""];
   for (const path of unsafe) {
     assert.equal(validateReviewReport(reportFor(criteria, "PASS", [path]), ["tests"]).ok, false, JSON.stringify(path));
+    const supporting = {...reportFor(criteria), supportingFilesInspected: [path]};
+    assert.equal(validateReviewReport(supporting, ["tests"]).ok, false, JSON.stringify(path));
+    const located = reportFor(criteria, "FAIL") as unknown as { findings: { locations: unknown[] }[] };
+    located.findings[0]!.locations = [{path}];
+    assert.equal(validateReviewReport(located, ["tests"]).ok, false, JSON.stringify(path));
   }
+});
+
+test("external design references are evidence text, not inspected paths", () => {
+  const external = "/private/tmp/agent-ops-a-f-design.md";
+  const report = reportFor(criteria);
+  const evidence = {...report, results: report.results.map(result => ({...result, evidence: [external]}))};
+  assert.equal(validateReviewReport(evidence, ["tests"]).ok, true);
+  assert.equal(validateReviewReport({...evidence, supportingFilesInspected: [external]}, ["tests"]).ok, false);
 });

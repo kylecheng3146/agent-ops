@@ -382,6 +382,13 @@ test("the fallback-safe prompt carries the complete report contract", async () =
   assert.match(result.prompt, /Every FAIL criterion.*blocking finding/s);
 });
 
+test("both prompts explain the report's repository-relative path contract", () => {
+  for (const prompt of [buildReviewPrompt(invocation), buildAdversarialPrompt(invocation, reportFor(invocation.packet.criteria))]) {
+    assert.match(prompt, /changedFilesInspected, supportingFilesInspected and finding locations.*repository-relative paths/s);
+    assert.match(prompt, /external references.*evidence text.*not.*path arrays/is);
+  }
+});
+
 test("both prompts carry the resolved base range of a --base review", () => {
   const scoped: ReviewInvocation = {
     ...invocation,

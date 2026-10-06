@@ -217,6 +217,9 @@ const CONTRACT_INSTRUCTIONS = [
     "the task-data string values.",
   "Inspect every path in artifactRefs before replying, and copy that exact " +
     "path set into changedFilesInspected. Do not omit a changed path.",
+  "Paths in changedFilesInspected, supportingFilesInspected and finding locations " +
+    "must be repository-relative paths, without absolute paths, '..' components or backslashes. " +
+    "Put external references in evidence text, not in path arrays or finding locations.",
   "Read in this order: the changed paths first, then only the callers or " +
     "supporting files a specific question actually needs. Do not survey the " +
     "repository, and do not re-read a file you have already read. Cite the " +
