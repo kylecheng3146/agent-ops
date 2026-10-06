@@ -56,6 +56,10 @@ for (const kind of ["review", "finish"] as const) {
 
 test("reviews across callers never exceed the width, and every waiter eventually runs", async () => {
   const dir = await directory();
+  let releasePair!: () => void;
+  const paired = new Promise<void>(resolve => {releasePair = resolve;});
+  const deadline = setTimeout(releasePair, 30000);
+  deadline.unref();
   try {
     let running = 0;
     let peak = 0;
@@ -64,6 +68,8 @@ test("reviews across callers never exceed the width, and every waiter eventually
       await withReviewSlot({ dir, width: 2, pollMs: 5 }, async () => {
         running += 1;
         peak = Math.max(peak, running);
+        if (running === 2) releasePair();
+        await paired;
         await pause(30);
         running -= 1;
         completed.push(id);
@@ -72,6 +78,8 @@ test("reviews across callers never exceed the width, and every waiter eventually
     assert.equal(peak, 2);
     assert.deepEqual(completed.sort(), [1, 2, 3, 4, 5]);
   } finally {
+    clearTimeout(deadline);
+    releasePair();
     await rm(dir, { recursive: true, force: true });
   }
 });
