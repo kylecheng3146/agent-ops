@@ -185,7 +185,9 @@ test("runTestEntry launches the current Node executable with explicit sorted arg
   assert.deepEqual(calls, [
     [
       process.execPath,
-      ["--test", alpha, zeta],
+      ["--test", "--test-reporter=tap", "--test-reporter-destination=stdout",
+        `--test-reporter=${new URL("../scripts/test-failures-reporter.mjs", import.meta.url).href}`,
+        "--test-reporter-destination=stderr", alpha, zeta],
       { shell: false, stdio: "inherit" },
     ],
   ]);
