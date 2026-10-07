@@ -203,8 +203,11 @@ Claude or Codex transcripts or file contents.
   30 minutes without activity; it does not inspect native host processes.
   Its single inline page uses cozy cream, oak and sage in-code 16-color
   character-matrix sprites with no image assets. The fixed-viewport overview
-  shows all work-unit rooms, shrinking rooms as necessary without document
-  scrolling. Each run team shares a room; each ordinary session has its own,
+  fills the available page below the header and shows all furnished work-unit
+  rooms, shrinking rooms as necessary without document scrolling. A shared
+  hallway connects the rooms. The user controls a local Supervisor with arrow
+  keys or WASD, can walk into every room and return to the overview, without
+  model requests or network mutations. Each run team shares a room; each ordinary session has its own,
   and running reviews remain visible. Clicking a room enters a larger detail
   view with a return control. Every room contains planning, development,
   verification, review and integration areas. Characters walk to their known

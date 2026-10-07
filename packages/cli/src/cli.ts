@@ -101,7 +101,8 @@ export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
 
 Print the URL of this repository's office: a read-only, 16-color pixel page on
 127.0.0.1. All run teams and ordinary sessions appear in a single-screen room
-overview; click a room for details and switch Chinese/English in the header.
+overview; walk the Supervisor with arrows/WASD or click a room for details.
+Switch Chinese/English in the header. Movement and animation run locally.
 Managed sessions start the shared server automatically. A new Office opens the
 browser once; later sessions reuse it. It exits after 10 minutes without active
 runs or sessions. Recently completed rooms remain for at most 2 hours.

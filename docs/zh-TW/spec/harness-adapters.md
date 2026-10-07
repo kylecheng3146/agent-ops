@@ -174,8 +174,10 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   Server 綁定 127.0.0.1 的隨機 port，要求 URL 中不可猜測的 token，拒絕該位址與
   port 以外的 Host，所有非 GET 回應 405，並在 run 與一般 session 都沒有活動
   10 分鐘後結束。唯一的 inline page 使用奶油白、淺木與鼠尾草綠的程式內 16 色
-  character-matrix sprite，沒有圖片 asset。總覽固定在單一 viewport，同時呈現
-  全部工作單位的房間，必要時自動縮小且不捲動頁面。每個 run 團隊共用一間房，
+  character-matrix sprite，沒有圖片 asset。總覽填滿頂部工具列下方的單一
+  viewport，同時呈現全部有家具的工作房間，必要時自動縮小且不捲動頁面。
+  房間以共用走廊連接；使用者可以用方向鍵或 WASD 操控本機 Supervisor 角色，
+  走進每間房並返回總覽，不會呼叫模型或透過網路修改狀態。每個 run 團隊共用一間房，
   每個一般 session 各有一間，執行中的 review 也保持可見。點房間進入放大的
   詳細畫面，並可返回總覽。每間房包含規劃、開發、驗證、審查與整合區。角色依
   已知 phase 移動與播放輕量動作，並有簡短名牌與狀態；不從對話推測未知狀態。

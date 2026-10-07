@@ -66,13 +66,16 @@ It prints a tokened `http://127.0.0.1:<port>/` URL (also shown by `run start` an
 `run status`) to a read-only, 16-color pixel office with cream walls, oak floors
 and sage furniture. The overview fits the viewport without scrolling: each run
 team shares a room, and each ordinary session has its own room, including sessions
-without a task or worktree. Click a room to enter its larger detail view and
-return to the overview. Characters move between planning, development,
+without a task or worktree. The furnished floorplan fills the page below the
+header, with a shared hallway between rooms. You control the Supervisor using
+arrow keys or WASD and can walk into each room; clicking a room also opens its
+larger detail view, with a return control. Characters move between planning, development,
 verification, review and integration areas. Short nameplates show their current
 work; room whiteboards show criteria progress, verification and review results,
 and questions waiting for an answer. Clicking a character shows task details,
 changed files and copyable commands. Chinese and English can be switched in the
 header; the page remembers the choice and respects reduced-motion preferences.
+Supervisor movement and character animation run locally without model requests.
 Completed rooms move to Recently completed and remain for at most two hours.
 The page reads agent-ops state and `git diff` paths only, never transcripts or file
 contents. Managed ordinary sessions start the shared repository server
