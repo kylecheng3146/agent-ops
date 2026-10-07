@@ -203,6 +203,19 @@ test("test environment isolation removes host OpenCode config roots", () => {
   assert.deepEqual(isolated, { PATH: "/bin" });
 });
 
+test("test environment isolation removes an agent-ops run identity", () => {
+  const isolated = isolateTestEnvironment({
+    PATH: "/bin",
+    AGENT_OPS_RUN_ID: "run-1",
+    AGENT_OPS_WORKER_ID: "worker-1",
+    AGENT_OPS_WORKER_GENERATION: "2",
+    AGENT_OPS_SESSION_ID: "session-1",
+    AGENT_OPS_HOST: "claude"
+  });
+
+  assert.deepEqual(isolated, { PATH: "/bin" });
+});
+
 test("runTestEntry propagates every non-zero child exit code", async (t) => {
   const testFile = path.resolve("fixtures", "failure.test.js");
   const fileSystem = createFileSystem(new Map([[testFile, "file"]]));

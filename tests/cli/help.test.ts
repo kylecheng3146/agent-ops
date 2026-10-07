@@ -59,7 +59,7 @@ test("help returns without invoking command services", async () => {
   assert.match(stdout.join(""), /review/);
   assert.match(
     stdout.join(""),
-    /--profile <core\|advisory\|guardrails\|loop>/u
+    /--profile <core\|advisory\|guardrails\|loop\|run>/u
   );
 });
 

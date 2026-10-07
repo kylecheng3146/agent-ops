@@ -163,8 +163,10 @@ export const CODEX_RUN_RULE = rule({
   notMatch: "env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops trust grant --scope project --yes"
 });
 
-export function codexRulesContent(run: boolean): string {
-  return run ? `${CODEX_RULES_CONTENT}${CODEX_RUN_RULE}\n` : CODEX_RULES_CONTENT;
+/** The rules file for worktree auto mode and the `run` profile, or null for neither. */
+export function codexRulesContent(worktree: boolean, run: boolean): string | null {
+  if (!run) return worktree ? CODEX_RULES_CONTENT : null;
+  return `${worktree ? CODEX_RULES_CONTENT : `${CODEX_RULES_MARKER}\n`}${CODEX_RUN_RULE}\n`;
 }
 
 export interface PreauthChange {
@@ -259,7 +261,7 @@ export function planClaudeLocalSettings(
   const excluded = stringList(sandbox.excludedCommands, "sandbox.excludedCommands");
   // Run entries leave with the profile, so an update without it strips them.
   const merge = (current: string[], managed: readonly string[], runManaged: readonly string[]): string[] => {
-    const wanted = desired ? [...managed, ...(run ? runManaged : [])] : [];
+    const wanted = [...(desired ? managed : []), ...(run ? runManaged : [])];
     const kept = current.filter((entry) => wanted.includes(entry) || ![...managed, ...runManaged].includes(entry));
     return [...kept, ...wanted.filter((entry) => !kept.includes(entry))];
   };
@@ -301,10 +303,10 @@ async function claudeChange(
   if (planned === undefined) {
     return undefined;
   }
-  const summary = desired
+  const summary = desired || run
     ? `Adds to ${CLAUDE_LOCAL_SETTINGS_PATH} (existing entries kept): permissions.allow ` +
-      `${JSON.stringify([...CLAUDE_PREAUTH_ALLOW, ...(run ? CLAUDE_PREAUTH_RUN_ALLOW : [])])}; sandbox.excludedCommands ` +
-      `${JSON.stringify([...CLAUDE_PREAUTH_UNSANDBOXED, ...(run ? CLAUDE_PREAUTH_RUN_UNSANDBOXED : [])])}.`
+      `${JSON.stringify([...(desired ? CLAUDE_PREAUTH_ALLOW : []), ...(run ? CLAUDE_PREAUTH_RUN_ALLOW : [])])}; sandbox.excludedCommands ` +
+      `${JSON.stringify([...(desired ? CLAUDE_PREAUTH_UNSANDBOXED : []), ...(run ? CLAUDE_PREAUTH_RUN_UNSANDBOXED : [])])}.`
     : `Removes the agent-ops entries from ${CLAUDE_LOCAL_SETTINGS_PATH}, keeping everything else.`;
   if (planned.content === null) {
     return current === null
@@ -334,7 +336,7 @@ async function codexChange(
   desired: boolean,
   run: boolean
 ): Promise<PreauthChange | undefined> {
-  const content = codexRulesContent(run);
+  const content = codexRulesContent(desired, run);
   const isDirectory = await lstat(codexHome).then((status) => status.isDirectory(), () => false);
   if (!isDirectory) {
     return undefined;
@@ -345,7 +347,7 @@ async function codexChange(
   if (current !== null && !current.content.startsWith(CODEX_RULES_MARKER)) {
     return undefined;
   }
-  if (!desired) {
+  if (content === null) {
     return current === null
       ? undefined
       : {
@@ -365,7 +367,7 @@ async function codexChange(
           content,
           expectedHash: current?.hash ?? null
         },
-        summary: `Writes ${join(codexHome, CODEX_RULES_PATH)}: allow rules for agent-ops review, batch, ${run ? "run, " : ""}doctor --check-auth, worktree commit and lint-staged.`,
+        summary: `Writes ${join(codexHome, CODEX_RULES_PATH)}: allow rules for ${desired ? `agent-ops review, batch, ${run ? "run, " : ""}doctor --check-auth, worktree commit and lint-staged` : "agent-ops run"}.`,
         ownedContent: true
       };
 }
@@ -373,18 +375,18 @@ async function codexChange(
 /**
  * What init, update and uninstall change beyond the manifest: the local Claude
  * settings entries and the Codex rules file. Project scope only; `desired`
- * false plans the removal of what agent-ops wrote.
+ * (worktree auto mode) and `run` false plan the removal of what agent-ops wrote.
  */
 export async function planPreauth(options: {
   readonly root: string;
   readonly scope: InstallScope;
   readonly harness: Harness;
   readonly desired: boolean;
-  /** The `run` profile: also pre-authorize `agent-ops run`. */
+  /** The `run` profile: pre-authorize `agent-ops run`, and nothing else on its own. */
   readonly run?: boolean;
   readonly codexHome?: string;
 }): Promise<readonly PreauthChange[]> {
-  const run = options.desired && options.run === true;
+  const run = options.run === true;
   if (options.scope !== "project") {
     return [];
   }

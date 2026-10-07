@@ -329,32 +329,41 @@ test("the run profile adds agent-ops run to both hosts, and dropping it takes on
   // An update without the profile keeps the rest and strips only the run entries.
   assert.equal(planClaudeLocalSettings(withRun, true)?.content, planClaudeLocalSettings(JSON.stringify(USER_SETTINGS), true)?.content);
   assert.deepEqual(JSON.parse(planClaudeLocalSettings(withRun, false)?.content ?? ""), USER_SETTINGS);
+  // Without worktree auto mode, the profile grants run alone, never the worktree set.
+  const runOnly = JSON.parse(planClaudeLocalSettings(JSON.stringify(USER_SETTINGS), false, true)?.content ?? "") as typeof settings;
+  assert.deepEqual(runOnly.permissions.allow, ["Bash(npm test *)", ...CLAUDE_PREAUTH_RUN_ALLOW]);
+  assert.deepEqual(runOnly.sandbox.excludedCommands, ["docker", ...CLAUDE_PREAUTH_RUN_UNSANDBOXED]);
 
-  assert.equal(codexRulesContent(false), CODEX_RULES_CONTENT);
-  const rules = codexRulesContent(true);
+  assert.equal(codexRulesContent(true, false), CODEX_RULES_CONTENT);
+  assert.equal(codexRulesContent(false, false), null);
+  const rules = codexRulesContent(true, true) ?? "";
   assert.ok(rules.startsWith(CODEX_RULES_CONTENT));
   assert.equal(rules.match(/^prefix_rule\(/gmu)?.length, 11);
   assert.match(rules, /pattern = \["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "run"\]/u);
   assert.match(rules, /justification = "agent-ops run [^"]*outside the sandbox\."/u);
+  const runRules = codexRulesContent(false, true) ?? "";
+  assert.ok(runRules.startsWith(CODEX_RULES_MARKER));
+  assert.equal(runRules.match(/^prefix_rule\(/gmu)?.length, 1);
+  assert.ok(rules.endsWith(runRules.slice(CODEX_RULES_MARKER.length + 1)));
 
   const { root, codexHome } = await scratch();
   try {
     const result = await runInitCommand({
       args: parseArgs(["init", "--scope", "project", "--harness", "claude,codex", "--profile", "run", "--yes"]),
       root,
-      adapters: commonHarnessAdapters(),
       // run implies loop, whose hooks need an installed runtime path.
       hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      adapters: commonHarnessAdapters(),
       isTTY: false,
       codexHome,
       confirm: async () => true
     });
     assert.equal(result.status, "ok");
     const installed = JSON.parse(await readFile(join(root, CLAUDE_LOCAL_SETTINGS_PATH), "utf8")) as typeof settings;
-    assert.ok(installed.permissions.allow.includes("Bash(agent-ops run *)"));
-    assert.ok(installed.sandbox.excludedCommands.includes("agent-ops run *"));
+    assert.deepEqual(installed.permissions.allow, CLAUDE_PREAUTH_RUN_ALLOW);
+    assert.deepEqual(installed.sandbox.excludedCommands, CLAUDE_PREAUTH_RUN_UNSANDBOXED);
     const file = join(codexHome, CODEX_RULES_PATH);
-    assert.equal(await readFile(file, "utf8"), rules);
+    assert.equal(await readFile(file, "utf8"), runRules);
 
     try {
       await run("codex", ["--version"]);
@@ -369,6 +378,7 @@ test("the run profile adds agent-ops run to both hosts, and dropping it takes on
     assert.equal((await check(...prefix, "--goal-file", ".agent-ops/state/run-goal.md", "--host", "codex", "--wait")).decision, "allow");
     assert.equal((await check(...prefix, "respond", "run-1234abcd", "--question-id", "q", "--answer", "yes")).decision, "allow");
     assert.equal((await check(...prefix)).decision, "allow");
+    assert.equal((await check("env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "review", "--task", "t", "--yes")).decision, undefined);
   } finally {
     await rm(join(root, ".."), { recursive: true, force: true });
   }

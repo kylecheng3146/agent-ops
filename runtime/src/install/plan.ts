@@ -1114,8 +1114,7 @@ export async function createInstallPlan(
     root: options.root,
     scope: options.scope,
     harness: options.harness,
-    // ponytail: the run profile pre-authorizes the worktree commands too; run works in worktrees anyway.
-    desired: config.config.worktree?.mode === "auto" || resolved.profiles.includes("run"),
+    desired: config.config.worktree?.mode === "auto",
     run: resolved.profiles.includes("run"),
     ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome })
   });

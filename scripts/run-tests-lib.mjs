@@ -9,6 +9,11 @@ export function isolateTestEnvironment(environment = process.env) {
   const isolated = { ...environment };
   delete isolated.XDG_CONFIG_HOME;
   delete isolated.OPENCODE_CONFIG_DIR;
+  // A suite run by an `agent-ops run` worker must not hand its run identity to
+  // the CLIs the tests spawn: init/update would refuse as a run worker.
+  for (const name of ["AGENT_OPS_RUN_ID", "AGENT_OPS_WORKER_ID", "AGENT_OPS_WORKER_GENERATION", "AGENT_OPS_SESSION_ID", "AGENT_OPS_HOST"]) {
+    delete isolated[name];
+  }
   return isolated;
 }
 
