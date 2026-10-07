@@ -6,66 +6,85 @@ import { buildOfficeSnapshot, type OfficeSnapshot } from "../../runtime/src/offi
 import { sceneModel } from "../../runtime/src/office/scene.js";
 import { officePage, PALETTE, SPRITES } from "../../runtime/src/office/page.js";
 import { NOW, runFixture } from "./fixture.js";
+
 const files = (n: number) => ({files: n, insertions: n, deletions: 0, paths: Array.from({length: n}, (_, i) => `src/f${i}.ts`), recent: "src/f0.ts"});
 
 function snapshot(): OfficeSnapshot {
-  return buildOfficeSnapshot({now: NOW, runs: [runFixture()],
+  const base = buildOfficeSnapshot({now: NOW, runs: [runFixture()],
     worktrees: [
       {name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: "run-office-fixture", diff: files(12)},
       {name: "child", path: "/repo/.worktrees/child", branch: "b2", sessionId: "s2", runId: "run-office-fixture", diff: files(3)},
-      {name: "desk-1", path: "/repo/.worktrees/desk-1", branch: "b3", sessionId: "s3", diff: files(1)}],
+      {name: "desk-0", path: "/repo/.worktrees/desk-0", branch: "b3", sessionId: "s3", diff: files(1)}],
     reviews: [{slot: 0, since: "2026-10-07T00:50:00.000Z", taskId: "root", root: "/repo/.worktrees/coord"},
       {slot: 1, since: "2026-10-07T00:55:00.000Z", taskId: "x", root: null}]});
+  const desks = Array.from({length: 9}, (_, index) => ({...base.lobby[0]!, name: "desk-" + index, sessionId: "s" + (index + 3), branch: "b" + (index + 3)}));
+  const richDesk = {...desks[0]!, phase: "verifying" as const, status: "checking", taskId: "desk-task", progress: {verify: "PASS" as const, review: null, passed: 2, total: 4},
+    questions: [{questionId: "desk-q", prompt: "Choose a port"}], completedAt: null, host: "codex"};
+  desks[0] = richDesk;
+  return {...base, lobby: desks};
 }
 
-test("a snapshot maps to a scene: phase zones, paper stacks, lit books, clock and the question mark", () => {
+test("every run and ordinary session desk becomes its own room with all actors", () => {
   const model = sceneModel(snapshot());
-  assert.equal(model.floors.length, 2);
-  const [floor, lobby] = model.floors;
-  assert.equal(floor!.kind, "run");
-  assert.equal(lobby!.kind, "lobby");
-  assert.equal(lobby!.top, 9);
-  const coordinator = floor!.actors.find(a => a.kind === "coordinator")!;
-  const bench = floor!.props.find(p => p.kind === "bench")!;
-  assert.deepEqual([coordinator.x, coordinator.y], [15, 4], "verifying coordinator stands at the lab bench");
-  assert.ok(Math.abs(coordinator.x - bench.x) <= 2 && coordinator.y === bench.y + 2);
-  assert.equal(coordinator.alert, true, "an unanswered question puts ! over the coordinator");
-  const worker = floor!.actors.find(a => a.kind === "worker")!;
-  const workerDesk = floor!.props.find(p => p.key === "run-office-fixture:desk:w1")!;
-  assert.deepEqual([worker.x, worker.y], [workerDesk.x, workerDesk.y + 1], "unknown phase sits at its own desk");
-  assert.equal(worker.alert, false);
-  assert.equal(floor!.papers["run-office-fixture:desk:coordinator-run-office-fixture"], 8, "paper stack is capped");
-  assert.equal(floor!.papers["run-office-fixture:desk:w1"], 3);
-  assert.deepEqual(floor!.books, {lit: 2, total: 6});
-  assert.ok(Math.abs(floor!.clock - 40 / 60) < 1e-9);
-  assert.deepEqual(floor!.actors.filter(a => a.kind === "reviewer").map(a => a.label), ["reviewer 0"]);
-  assert.deepEqual(lobby!.actors.map(a => a.label), ["desk-1", "reviewer 1"]);
-  assert.equal(lobby!.papers["lobby:desk:desk-1"], 1);
-  assert.ok(model.dialogue.some(line => line.includes("waiting for your answer — Which port?")));
-  assert.ok(model.dialogue.some(line => line.includes("editing src/f0.ts")));
+  assert.equal(model.floors.filter(f => f.kind === "run").length, 1);
+  assert.equal(model.floors.filter(f => f.kind === "desk").length, 9);
+  assert.equal(model.floors.filter(f => f.kind === "review").length, 1);
+  assert.ok(model.floors.every(f => f.kind !== ("lobby" as never)));
+  assert.equal(new Set(model.floors.map(f => f.key)).size, model.floors.length);
+  const run = model.floors.find(f => f.kind === "run")!;
+  assert.deepEqual(run.phaseAreas.map(a => a.phase), ["planning", "implementing", "verifying", "reviewing", "integrating"]);
+  assert.equal(run.actors.length, 3, "two agents and the unclaimed run reviewer remain visible");
+  assert.equal(run.board.pending, 1);
+  assert.equal(run.actors.find(a => a.kind === "coordinator")!.alert, true);
+  assert.ok(run.actors.every(a => a.label.length <= 18 && a.status.length > 0));
+  const desk = model.floors.find(f => f.kind === "desk")!;
+  assert.equal(desk.phase, "verifying");
+  assert.equal(desk.board.taskId, "desk-task");
+  assert.equal(desk.board.pending, 1);
+  assert.equal(desk.actors[0]!.alert, true);
+  assert.equal(desk.actors[0]!.taskId, "desk-task");
 });
 
-test("each phase sends a character to its zone", () => {
+test("phase changes move actors into each of the five in-scene areas", () => {
   const base = snapshot();
-  const zones: Record<string, string> = {planning: "whiteboard", verifying: "bench", reviewing: "table", integrating: "door"};
-  for (const [phase, prop] of Object.entries(zones)) {
+  const zones: Record<string, string> = {planning: "planning", implementing: "implementing", verifying: "verifying", reviewing: "reviewing", integrating: "integrating"};
+  for (const phase of Object.keys(zones)) {
     const run = base.runs[0]!;
     const moved = {...base, runs: [{...run, agents: [{...run.agents[0]!, phase: phase as "planning"}]}]};
     const floor = sceneModel(moved).floors[0]!;
-    const actor = floor.actors[0]!, zone = floor.props.find(p => p.kind === prop)!;
-    assert.ok(Math.abs(actor.x - zone.x) <= 2 && actor.y > zone.y && actor.y - zone.y <= 3, `${phase} -> ${prop}`);
+    const actor = floor.actors[0]!, area = floor.phaseAreas.find(a => a.phase === phase)!;
+    assert.equal(actor.phase, phase);
+    assert.ok(actor.x >= area.x && actor.x < area.x + area.width && actor.y >= area.y && actor.y < area.y + area.height, `${phase} -> ${area.label}`);
   }
 });
 
-test("an empty building is a quiet lobby", () => {
+test("overview bounds include every room and retain completion state", () => {
+  const base = snapshot();
+  const completedRun = {...base.runs[0]!, completedAt: "2026-10-07T00:59:00.000Z"};
+  const model = sceneModel({...base, runs: [completedRun]});
+  assert.equal(model.floors[0]!.completedAt, "2026-10-07T00:59:00.000Z");
+  assert.ok(model.floors.every(f => f.overview.width > 0 && f.overview.height > 0));
+  assert.ok(model.floors.every(f => f.overview.x + f.overview.width <= model.cols && f.overview.y + f.overview.height <= model.rows));
+  assert.ok(model.dialogue.some(line => line.includes("waiting for your answer")));
+});
+
+test("an empty building has no fake lobby room", () => {
   const model = sceneModel({generatedAt: "x", runs: [], lobby: [], reviews: []});
-  assert.equal(model.floors.length, 1);
+  assert.equal(model.floors.length, 0);
   assert.deepEqual(model.dialogue, ["The office is quiet. No agent is at work."]);
 });
 
-test("the page embeds the tested scene function and draws only in-code sprites", async () => {
+test("the inline page embeds the tested scene, fixed viewport controls and safe paging", async () => {
   const page = officePage("n0nce");
   assert.ok(page.includes(sceneModel.toString()));
+  assert.match(page, /id="office" tabindex="0"/u);
+  assert.match(page, /id="back"/u);
+  assert.match(page, /id="recent"/u);
+  assert.match(page, /id="language"/u);
+  assert.match(page, /prefers-reduced-motion/u);
+  assert.match(page, /localStorage/u);
+  assert.match(page, /pageItems/u);
+  assert.match(page, /textContent/u);
   assert.doesNotMatch(page, /<img|url\(|src=|href=|\.png|\.gif|@import/u);
   assert.equal((page.match(/<script/gu) ?? []).length, 1);
   assert.equal(PALETTE.length, 16);
