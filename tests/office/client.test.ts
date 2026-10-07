@@ -17,13 +17,16 @@ test("pixel avatars have fixed individual looks, four facings and alternating st
     for (const direction of ["down", "up", "left", "right"]) {
       const stand = avatarSprite(id, direction), first = avatarSprite(id, direction, 1), second = avatarSprite(id, direction, 3);
       assert.notDeepEqual(first, stand); assert.notDeepEqual(second, stand); assert.notDeepEqual(first, second);
-      assert.equal(stand.length, 32);
-      for (const row of stand) {assert.equal(row.length, 24);assert.match(row, /^[0-9a-f.]+$/u);}
+      assert.equal(stand.length, 48);
+      for (const row of stand) {assert.equal(row.length, 32);assert.match(row, /^[0-9a-f.]+$/u);}
     }
   }
   const viewer = avatarSprite("viewer", "down", 0, true);
-  assert.equal(viewer[4]![12], "0", "the viewer has dark short hair");
-  assert.equal(viewer[19]![11], "e", "the viewer wears the yellow shirt");
+  assert.equal(viewer[8]![12], "0", "the viewer has dark short hair");
+  assert.equal(viewer[28]![15], "e", "the viewer wears the yellow shirt");
+  assert.equal(viewer[16]![11], "0", "small dark eyes remain separate from the fringe");
+  assert.equal(viewer[16]![12], "0");
+  assert.equal(viewer[16]![13], "c", "the face is warm skin rather than a white block");
   const embedded = new Function(`return (${avatarSprite.toString()})`)() as typeof avatarSprite;
   assert.deepEqual(embedded("Ada", "up", 3), avatarSprite("Ada", "up", 3));
 });
@@ -144,7 +147,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   keydownCanvas({key: "ArrowUp", preventDefault: () => {}});
   assert.equal(vm.roomSupervisor.direction, "up", "room movement uses directional avatars too");
   const selectedActor = vm.model.floors[0]!.actors[0]!, actorBox = vm.actorBox(selectedActor, {x: 0, y: 0, width: canvas.width, height: canvas.height});
-  canvas.events.get("click")?.({clientX: actorBox.x + 12 * actorBox.scale, clientY: actorBox.y + 16 * actorBox.scale});
+  canvas.events.get("click")?.({clientX: actorBox.x + 16 * actorBox.scale, clientY: actorBox.y + 24 * actorBox.scale});
   assert.equal(elements.get("status")!.children[0]!.textContent, "session-a", "clicking the new avatar dimensions opens that actor's details");
   elements.get("status")!.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
   canvas.events.get("click")?.({clientX: 560, clientY: 300});

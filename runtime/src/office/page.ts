@@ -4,7 +4,7 @@ import {sceneModel} from "./scene.js";
 export const PALETTE = ["#2b241f", "#355a4b", "#6d9275", "#b7c7a3", "#8a5033", "#729ead", "#d9aa72", "#ead8b8",
   "#8e7561", "#6b5d50", "#adc39a", "#f2e5c9", "#e8c99c", "#c86f4a", "#f2c95c", "#fff7e6"];
 
-/** Original 24×32 pixel people. Self-contained so the inline client uses this same art. */
+/** Original 32×48 pixel people. Self-contained so the inline client uses this same art. */
 export function avatarSprite(identity: string, direction = "down", pose = 0, viewer = false): string[] {
   let hash = 0;
   for (const character of identity) hash = (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0;
@@ -12,61 +12,75 @@ export function avatarSprite(identity: string, direction = "down", pose = 0, vie
   const hairLight = hair === "0" ? "9" : hair === "4" ? "8" : "6";
   const style = viewer ? 0 : Math.floor(hash / 3) % 3;
   const skin = viewer ? "c" : ["c", "6", "4"][Math.floor(hash / 9) % 3]!;
-  const skinLight = skin === "4" ? "6" : skin === "6" ? "c" : "f";
+  const skinLight = skin === "4" ? "6" : skin === "6" ? "c" : "c";
+  const skinShade = skin === "4" ? "0" : skin === "6" ? "4" : "6";
   const outfit = viewer ? ["e", "6", "f"] : [["5", "1", "b"], ["d", "4", "6"], ["2", "1", "3"], ["3", "2", "b"]][Math.floor(hash / 27) % 4]!;
-  const pants = "9", grid = Array.from({length: 32}, () => Array<string>(24).fill("."));
+  const grid = Array.from({length: 48}, () => Array<string>(32).fill("."));
   const rect = (x: number, y: number, width: number, height: number, color: string) => {
     for (let row = y; row < y + height; row++) for (let column = x; column < x + width; column++) {
-      if (row >= 0 && row < 32 && column >= 0 && column < 24) grid[row]![column] = color;
+      if (row >= 0 && row < 48 && column >= 0 && column < 32) grid[row]![column] = color;
     }
   };
   const stride = pose === 1 ? -1 : pose === 3 ? 1 : 0;
   const side = direction === "left" || direction === "right";
-  // Shoes and separated trouser legs; opposite feet alternate during a walk.
+  // Slim trousers, cuffs and shaded shoes; opposite feet alternate during a walk.
   for (let leg = 0; leg < 2; leg++) {
-    const x = side ? 9 + leg * 3 : 7 + leg * 6, lift = leg ? -stride : stride;
-    rect(x, 24 + Math.min(0, lift), 4, 6, "0"); rect(x + 1, 24 + Math.min(0, lift), 2, 4, pants);
-    rect(x - 1, 29 + Math.min(0, lift), 5, 2, "0"); rect(x, 29 + Math.min(0, lift), 3, 1, "b");
+    const x = side ? 12 + leg * 4 : 10 + leg * 7, lift = leg ? -stride : stride;
+    rect(x, 35 + lift, 5, 10, "0"); rect(x + 1, 36 + lift, 3, 7, "9");
+    rect(x + 1, 37 + lift, 1, 5, "8"); rect(x + 1, 43 + lift, 3, 1, "7");
+    rect(x - 1, 44 + lift, 6, 3, "0"); rect(x, 44 + lift, 4, 1, "9"); rect(x, 46 + lift, 4, 1, "b");
   }
-  const bodyX = side ? 8 : 6, bodyW = side ? 9 : 12;
-  rect(bodyX, 16, bodyW, 9, "0"); rect(bodyX + 1, 17, bodyW - 2, 7, outfit[0]!);
-  rect(bodyX + 1, 22, bodyW - 2, 2, outfit[1]!); rect(bodyX + 2, 18, 2, 3, outfit[2]!);
+  const bodyX = side ? 11 : 8, bodyW = side ? 11 : 16;
+  rect(bodyX + 2, 23, bodyW - 4, 1, "0"); rect(bodyX, 24, bodyW, 12, "0");
+  rect(bodyX + 1, 25, bodyW - 2, 10, outfit[0]!);
+  rect(bodyX + 1, 33, bodyW - 2, 2, outfit[1]!); rect(bodyX + bodyW - 3, 27, 2, 6, outfit[1]!);
+  rect(bodyX + 2, 27, 2, 4, outfit[2]!); rect(bodyX + 3, 26, bodyW - 6, 1, outfit[2]!);
   if (direction !== "up") {
-    rect(side ? 14 : 10, 16, side ? 2 : 4, 2, skin); rect(side ? 14 : 10, 18, side ? 1 : 4, 1, outfit[1]!);
-    rect(side ? 15 : 12, 20, 1, 2, outfit[2]!);
+    rect(side ? 18 : 13, 22, side ? 3 : 6, 3, skinShade); rect(side ? 18 : 13, 22, side ? 2 : 5, 2, skin);
+    rect(side ? 18 : 12, 25, side ? 2 : 8, 1, outfit[1]!);
+    rect(side ? 18 : 13, 25, side ? 1 : 6, 1, outfit[2]!);
+    if (!side) {rect(18, 29, 3, 3, outfit[1]!);rect(18, 29, 3, 1, outfit[2]!);}
   }
-  const arms = side ? [10] : [4, 17];
+  const arms = side ? [12] : [5, 24];
   arms.forEach((x, index) => {
     const swing = stride * (index ? -1 : 1);
-    rect(x, 17 + swing, 3, 8, "0"); rect(x + 1, 18 + swing, 2, 3, outfit[0]!);
-    rect(x + 1, 21 + swing, 2, 3, skin); rect(x + 1, 21 + swing, 1, 1, skinLight);
+    rect(x, 25 + swing, 3, 10, "0"); rect(x + 1, 26 + swing, 2, 4, outfit[0]!);
+    rect(x + 1, 29 + swing, 2, 1, outfit[1]!); rect(x + 1, 30 + swing, 2, 4, skinShade);
+    rect(x + 1, 30 + swing, 1, 3, skinLight);
   });
-  // Round outlined head, small ears, cheek and eye highlights.
-  rect(7, 2, 10, 1, "0"); rect(5, 3, 14, 2, "0"); rect(4, 5, 16, 8, "0");
-  rect(5, 13, 14, 2, "0"); rect(7, 15, 10, 1, "0");
-  rect(5, 5, 14, 8, skin); rect(6, 13, 12, 2, skin); rect(7, 5, 10, 3, skinLight);
+  // Rounded jaw and small dark eyes, with warm skin shading instead of white face blocks.
+  rect(9, 9, 14, 1, "0"); rect(7, 10, 18, 9, "0"); rect(8, 19, 16, 2, "0"); rect(10, 21, 12, 1, "0");
+  rect(9, 10, 14, 11, skin); rect(8, 12, 16, 7, skin); rect(22, 13, 2, 6, skinShade);
+  rect(10, 20, 12, 1, skinShade); rect(10, 13, 3, 1, skinLight);
+  rect(6, 15, 2, 4, "0"); rect(24, 15, 2, 4, "0"); rect(7, 15, 1, 3, skin); rect(24, 15, 1, 3, skin);
   if (side) {
-    rect(18, 8, 3, 4, "0"); rect(18, 9, 2, 2, skin); rect(15, 9, 2, 3, "0"); rect(15, 9, 1, 1, "f");
-    rect(17, 13, 2, 1, "6");
+    rect(23, 14, 3, 4, "0"); rect(23, 15, 2, 2, skin);
+    rect(21, 15, 2, 3, "0"); rect(21, 15, 1, 1, "7"); rect(23, 19, 1, 1, skinShade);
   } else if (direction === "down") {
-    rect(3, 9, 2, 3, "0"); rect(19, 9, 2, 3, "0"); rect(4, 9, 1, 2, skin); rect(19, 9, 1, 2, skin);
-    rect(7, 9, 2, 3, "0"); rect(15, 9, 2, 3, "0"); rect(7, 9, 1, 1, "f"); rect(15, 9, 1, 1, "f");
-    rect(6, 12, 2, 1, "6"); rect(16, 12, 2, 1, "6"); rect(10, 14, 4, 1, "6");
+    rect(10, 14, 3, 1, hairLight); rect(19, 14, 3, 1, hairLight);
+    rect(11, 15, 2, 3, "0"); rect(19, 15, 2, 3, "0");
+    rect(11, 15, 1, 1, "7"); rect(19, 15, 1, 1, "7");
+    rect(9, 18, 2, 1, skinShade); rect(21, 18, 2, 1, skinShade); rect(15, 19, 2, 1, skinShade);
   }
-  rect(7, 3, 10, 1, hair); rect(5, 4, 14, 3, hair); rect(4, 7, side ? 7 : 3, 5, hair);
-  rect(7, 4, 3, 1, hairLight); rect(11, 5, 3, 1, hairLight); rect(6, 7, 3, 2, hair);
+  const crown = ["00000000", "00HHHHHHHH00", "0HHHHHHhHHHHH0", "0HHHhHHHHHHHHHH0", "0HHHHHHHHHHHHHHHH0",
+    "0HHhHHHHHHHHHHHHHH0", "0HHHHHHHHHHhHHHHHHH0", "0HHHHHHHHHHHHHHHHHH0", "0HHhHHHHHHHHHHHHHHH0"];
+  crown.forEach((row, y) => [...row].forEach((pixel, x) => rect(Math.floor((32 - row.length) / 2) + x, y + 2, 1, 1, pixel === "H" ? hair : pixel === "h" ? hairLight : pixel)));
+  rect(5, 11, side ? 10 : 4, 5, hair); rect(7, 11, side ? 9 : 7, 2, hair);
+  rect(11, 12, 2, 2, hair); rect(14, 11, 2, 1, hair);
+  rect(6, 11, 1, 3, hairLight);
   if (direction === "up") {
-    rect(5, 7, 14, 7, hair); rect(7, 14, 10, 1, hair); rect(6, 8, 2, 3, hairLight); rect(15, 11, 2, 2, hairLight);
+    rect(6, 10, 20, 8, hair); rect(8, 18, 16, 2, hair); rect(10, 20, 12, 1, "0");
+    rect(7, 12, 1, 4, hairLight); rect(22, 16, 2, 1, hairLight); rect(11, 19, 10, 1, hairLight);
   } else if (!side) {
-    rect(17, 7, 3, 5, hair); rect(14, 7, 4, 1, hair);
+    rect(23, 11, 3, 5, hair); rect(21, 11, 4, 2, hair); rect(20, 12, 2, 1, hair);
   }
   if (style === 1) { // Bob: longer sides and a low back, distinct from the short cut.
-    rect(4, 10, side ? 6 : 3, 7, hair); if (!side) rect(17, 10, 3, 7, hair);
-    if (direction === "up") rect(6, 13, 12, 4, hair);
-    rect(5, 11, 1, 4, hairLight);
+    rect(5, 14, side ? 9 : 4, 8, hair); if (!side) rect(23, 14, 3, 8, hair);
+    if (direction === "up") rect(8, 18, 16, 5, hair);
+    rect(6, 16, 1, 4, hairLight);
   } else if (style === 2) { // Curly outline with a raised crown and uneven fringe.
-    rect(6, 1, 3, 3, hair); rect(11, 1, 3, 3, hair); rect(16, 2, 3, 3, hair);
-    rect(4, 5, 2, 2, hairLight); rect(9, 7, 2, 2, hair); rect(14, 6, 2, 2, hair);
+    rect(8, 1, 3, 3, hair); rect(14, 1, 3, 3, hair); rect(21, 2, 3, 3, hair);
+    rect(5, 6, 2, 2, hairLight); rect(14, 11, 2, 2, hair); rect(19, 10, 2, 2, hair);
   }
   return grid.map(row => (direction === "left" ? row.reverse() : row).join(""));
 }
@@ -264,7 +278,7 @@ function draw(name, x, y, shirt){
     ctx.fillStyle = ch === "S" ? shirt : PALETTE[parseInt(ch, 16)]; ctx.fillRect(x + c * scale, y + r * scale, scale, scale);
   }
 }
-function avatarScale(surface){return Math.max(1,Math.round(Math.min(surface.width/(model.roomCols*T),surface.height/(model.roomRows*T))*T/6));}
+function avatarScale(surface){return Math.max(1,Math.round(Math.min(surface.width/(model.roomCols*T),surface.height/(model.roomRows*T))*T/9));}
 function advanceAvatar(state, tx, ty, speed){
   var dx=tx-state.x,dy=ty-state.y;
   if(Math.abs(dx)>.05||Math.abs(dy)>.05)state.direction=Math.abs(dx)>Math.abs(dy)?(dx<0?'left':'right'):(dy<0?'up':'down');
@@ -275,13 +289,13 @@ function drawAvatar(identity, state, x, y, scale, viewer){
   var pose=state.walking&&!reducedMotion?Math.floor(frame/7)%4:0,direction=state.direction||'down',key=JSON.stringify([identity,direction,pose,!!viewer]);
   var image=avatarImages[key];
   if(!image){
-    image=document.createElement('canvas');image.width=24;image.height=32;var paint=image.getContext('2d'),rows=avatarSprite(identity,direction,pose,!!viewer);
+    image=document.createElement('canvas');image.width=32;image.height=48;var paint=image.getContext('2d'),rows=avatarSprite(identity,direction,pose,!!viewer);
     for(var row=0;row<rows.length;row++)for(var col=0;col<rows[row].length;col++){var pixel=rows[row][col];if(pixel!=='.'){paint.fillStyle=PALETTE[parseInt(pixel,16)];paint.fillRect(col,row,1,1);}}
     avatarImages[key]=image;
   }
   x=Math.round(x);y=Math.round(y);
-  ctx.fillStyle='rgba(43,36,31,.18)';ctx.fillRect(x+5*scale,y+30*scale,14*scale,2*scale);
-  ctx.drawImage(image,x,y,24*scale,32*scale);
+  ctx.fillStyle='rgba(43,36,31,.18)';ctx.fillRect(x+8*scale,y+46*scale,17*scale,2*scale);
+  ctx.drawImage(image,x,y,32*scale,48*scale);
 }
 function propSize(kind){ var s = SPRITES[kind] || [""]; return {w:s[0].length * S, h:s.length * S}; }
 function fillText(value, x, y, size, color){ ctx.fillStyle = color || PALETTE[0]; ctx.font = "bold " + Math.max(5, Math.round((size || 10) * U)) + "px monospace"; ctx.textBaseline = "top"; ctx.fillText(short(value, 36), x, y); }
@@ -387,16 +401,16 @@ function drawActor(floor, actor, surface){
   var box=actorBox(actor,surface),oldS=S,oldU=U;S=box.scale;U=box.unit;
   var px=box.x,py=box.y;
   drawAvatar(actor.id,pos,px,py,S,false);
-  if(!pos.walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+9*S,py+21*S,6*S,3*S);}
+  if(!pos.walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+12*S,py+30*S,8*S,4*S);}
   var text=short(actor.label,14)+' · '+short(statusText(actor.status),10),font=9*U;
-  ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+33*S);
+  ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+49*S);
   ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
-  if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',px+7*S,py-9*S);
+  if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',px+14*S,py-9*S);
   S=oldS;U=oldU;
 }
 function actorBox(actor,surface){
-  var pos=positions[actor.key]||{x:actor.x*T,y:actor.y*T},scale=avatarScale(surface),unit=Math.max(dpr,Math.min(U,scale*.75));
-  return {scale:scale,unit:unit,x:Math.round(Math.max(surface.x,Math.min(surface.x+surface.width-24*scale,surface.x+pos.x/(model.roomCols*T)*surface.width))),y:Math.round(Math.max(surface.y,Math.min(surface.y+surface.height-32*scale-16*unit,surface.y+pos.y/(model.roomRows*T)*surface.height)))};
+  var pos=positions[actor.key]||{x:actor.x*T,y:actor.y*T},scale=avatarScale(surface),unit=Math.max(dpr,Math.min(U,scale));
+  return {scale:scale,unit:unit,x:Math.round(Math.max(surface.x,Math.min(surface.x+surface.width-32*scale,surface.x+pos.x/(model.roomCols*T)*surface.width))),y:Math.round(Math.max(surface.y,Math.min(surface.y+surface.height-48*scale-16*unit,surface.y+pos.y/(model.roomRows*T)*surface.height)))};
 }
 function fitCanvas(){
   var wrapW = wrap && wrap.clientWidth ? wrap.clientWidth : window.innerWidth;
@@ -454,8 +468,8 @@ function drawHallway(){
 function drawSupervisor(){
   ensureSupervisor(); if (!model) return;
   advanceAvatar(supervisor,supervisor.targetX,supervisor.targetY,.7);
-  var moving=supervisor.walking,scale=Math.max(1,Math.round(T/6));
-  var px=supervisor.x*T-12*scale,py=Math.min(canvas.height-32*scale,supervisor.y*T);drawAvatar('viewer',supervisor,px,py,scale,true);
+  var moving=supervisor.walking,scale=Math.max(1,Math.round(T/9));
+  var px=supervisor.x*T-16*scale,py=Math.min(canvas.height-48*scale,supervisor.y*T);drawAvatar('viewer',supervisor,px,py,scale,true);
   var hall=hallwayBounds(),labelX=supervisor.x*T-9*U,labelW=18*U;ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,py-16*U,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,py-16*U,labelW,13*U);fillText("你",labelX+3*U,py-14*U,7,PALETTE[1]);
   var entry=roomEntrances().sort(function(a,b){return Math.hypot(a.x-supervisor.x,a.y-supervisor.y)-Math.hypot(b.x-supervisor.x,b.y-supervisor.y);})[0]; if(entry&&(Math.abs(entry.x-supervisor.x)>1.25||Math.abs(entry.y-supervisor.y)>Math.min(1.6,entry.height*.35)))entry=null;
   if (!moving && mode === "overview" && entry) { selectedKey = entry.floor.key; hallwayReturn = {x:supervisor.x, y:supervisor.y}; enterRoomFromHallway(entry.floor); }
@@ -471,8 +485,8 @@ function drawRoomSupervisor(){
   if (!model) return;
   advanceAvatar(roomSupervisor,roomSupervisor.targetX,roomSupervisor.targetY,.7);
   var scale=avatarScale({width:canvas.width,height:canvas.height});
-  var px=roomSupervisor.x/model.roomCols*canvas.width-12*scale,py=Math.min(canvas.height-32*scale,roomSupervisor.y/model.roomRows*canvas.height);drawAvatar('viewer',roomSupervisor,px,py,scale,true);
-  var labelW=20*U,labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px+12*scale-labelW/2)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText("你",labelX+4*U,labelY+2*U,8,PALETTE[1]);
+  var px=roomSupervisor.x/model.roomCols*canvas.width-16*scale,py=Math.min(canvas.height-48*scale,roomSupervisor.y/model.roomRows*canvas.height);drawAvatar('viewer',roomSupervisor,px,py,scale,true);
+  var labelW=20*U,labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px+16*scale-labelW/2)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText("你",labelX+4*U,labelY+2*U,8,PALETTE[1]);
 }
 function moveSupervisor(dx, dy){
   if (!model || !statusBox.hidden) return;
@@ -624,7 +638,7 @@ function hitOverview(event){
 }
 function hitActor(event, floor){
   var rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
-  for (var i = floor.actors.length - 1; i >= 0; i--) { var a=floor.actors[i],box=actorBox(a,{x:0,y:0,width:canvas.width,height:canvas.height});if(x>=box.x&&x<box.x+24*box.scale&&y>=box.y&&y<box.y+32*box.scale)return a; }
+  for (var i = floor.actors.length - 1; i >= 0; i--) { var a=floor.actors[i],box=actorBox(a,{x:0,y:0,width:canvas.width,height:canvas.height});if(x>=box.x&&x<box.x+32*box.scale&&y>=box.y&&y<box.y+48*box.scale)return a; }
   return null;
 }
 canvas.addEventListener("click", function(event){
