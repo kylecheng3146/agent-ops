@@ -182,7 +182,9 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   白板顯示 criteria 進度、verify/review 結果與待回覆問題，`!` 標示未回答的問題。
   點角色開啟有界限且分頁的 status 詳情，包含可複製的 command。完成房間移到
   最近完成，最多保留兩小時。支援中英文切換並記住選擇、鍵盤操作與 reduced
-  motion。Office 啟動失敗絕不使 hook、`run start` 或 `run status` 失敗。
+  motion。一般 session 的存活狀態依 hook 活動判定，30 分鐘沒有事件就會移除
+  過期的 presence，不會讀取 native host process。Office 啟動失敗絕不使
+  hook、`run start` 或 `run status` 失敗。
 - Evidence: Phase、snapshot、server、scene 與 CLI test 涵蓋 legacy state、彙整與
   旁白、一般 session 登記與只開啟一次、完成後兩小時的邊界、token/Host/method
   防護、重用與 injected clock 的 idle 結束、viewport 與房間切換、中英文，以及

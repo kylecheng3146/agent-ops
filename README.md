@@ -78,7 +78,9 @@ The page reads agent-ops state and `git diff` paths only, never transcripts or f
 contents. Managed ordinary sessions start the shared repository server
 automatically; a newly started Office opens the browser once, and subsequent
 sessions reuse it. The server exits after ten minutes without active runs or
-ordinary sessions. Office failures remain advisory and never block session work.
+ordinary sessions. Ordinary-session presence follows hook activity; a crashed
+or silent session expires after 30 minutes without an event. Office failures
+remain advisory and never block session work.
 
 Native lifecycle reachability and framework probe conditions are recorded in
 [the capability probe](docs/harness/native-goal-probe.md); these observations do not

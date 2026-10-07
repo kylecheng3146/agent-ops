@@ -198,8 +198,10 @@ Claude or Codex transcripts or file contents.
   The server binds
   127.0.0.1 on a random port, requires the URL's unguessable token, refuses any
   Host other than that address and port, answers every non-GET with 405, and
-  exits 10 minutes after neither a run nor an ordinary session is active. Its
-  single inline page uses cozy cream, oak and sage in-code 16-color
+  exits 10 minutes after neither a run nor an ordinary session is active.
+  Ordinary-session liveness follows hooks, with stale presence expiring after
+  30 minutes without activity; it does not inspect native host processes.
+  Its single inline page uses cozy cream, oak and sage in-code 16-color
   character-matrix sprites with no image assets. The fixed-viewport overview
   shows all work-unit rooms, shrinking rooms as necessary without document
   scrolling. Each run team shares a room; each ordinary session has its own,
