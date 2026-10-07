@@ -66,6 +66,8 @@ test("Stop before background provisioning fences the assigned coordinator and ex
     const started = await context.service.start({root, commonDir: context.commonDir, targetBranch: "main", host: "codex", ownerSessionId: "fixture",
       goal: "Preserve explicit Stop before setup"});
     assert.equal(started.state.workers[0]!.status, "assigned");
+    assert.equal(started.state.phase, "planning");
+    assert.equal(started.state.workers[0]!.phase, "planning");
     const digest = started.state.policyBinding!.artifactDigest;
     const stopped = await context.service.stop(started.state.runId);
     assert.equal(stopped.state.workers[0]!.status, "stopped");

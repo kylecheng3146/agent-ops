@@ -173,3 +173,37 @@ MUST stay byte-identical to the rules without the profile.
   the single exempt path.
 - Positive: `A Claude Code session with the run profile writes .agent-ops/state/run-goal.md in the main checkout and starts agent-ops run --host claude --wait in the background.`
 - Negative: `Split an eight-criteria change into subtasks while the run profile is active, add auto-run text to GEMINI.md, or resume a blocked run without the user.`
+
+## HARNESS-ADAPTER-008
+
+`agent-ops office` MUST show progress read-only from agent-ops state alone. The
+supervisor records an optional phase per run and worker (`planning`,
+`implementing`, `verifying`, `reviewing`, `integrating`) at deterministic
+transitions, and each task's latest verify and review result with passed/total
+criteria. Run state written before phases existed MUST still validate and show
+as `unknown`. Changed files come from each worktree's own `git diff` against its
+base; narration uses paths only (`docs/**` is "writing docs", `tests/**` is
+"writing tests", otherwise "editing <file>"). The office MUST NOT read native
+Claude or Codex transcripts or file contents.
+
+- Trigger: A user runs `agent-ops office`, `agent-ops run start` or
+  `agent-ops run status`.
+- Action: The command reuses the live server recorded in
+  `<git common dir>/agent-ops/office.json`, or starts one under launchd on
+  macOS (in the foreground elsewhere), and prints its URL. The server binds
+  127.0.0.1 on a random port, requires the URL's unguessable token, refuses any
+  Host other than that address and port, answers every non-GET with 405, and
+  exits 10 minutes after no run is active. Its single inline page draws each run
+  as one floor (coordinator, up to two workers, up to two reviewers), session
+  worktrees as lobby desks and other running reviews in a meeting room, from
+  in-code 16-color character-matrix sprites with no image assets. Each
+  character walks to its phase's zone; a desk's paper stack grows with changed
+  files, the bookshelf lights one book per passed criterion, the wall clock shows
+  the remaining budget and `!` marks an unanswered question. Clicking opens a
+  status window with copyable `agent-ops run` commands. A failure to start the
+  office never fails `run start` or `run status`.
+- Evidence: Phase, snapshot, server, scene and CLI tests cover legacy state,
+  aggregation and narration, the token, Host and method guards, reuse and the
+  injected-clock idle exit, the scene model, and the printed URL.
+- Positive: `A user opens the URL from agent-ops run status and sees the coordinator at the lab bench while verification runs, with 2 of 6 books lit.`
+- Negative: `Serve the office on 0.0.0.0, accept a POST, read a worker's transcript to narrate it, or bundle a PNG sprite sheet.`

@@ -167,14 +167,14 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       const workerId = `coordinator-${result.state.runId}`;
       const workerRoot = join(checkouts.mainRoot, ".worktrees", sessionWorktreeName(ownerSessionId));
       const now = new Date().toISOString();
-      const state = await repository.mutate(result.state.runId, current => ({...current,
+      const state = await repository.mutate(result.state.runId, current => ({...current, phase: "planning",
         currentContractHash: current.goalHash,
         tasks: [{taskId: "planning-" + current.runId, dependencies: [], status: "ready", workerId,
           deliveryDigest: null, sourceCommit: null, blockedReason: null}],
         workers: [{workerId, taskId: "planning-" + current.runId, host: current.host, ownerSessionId,
           nativeSessionId: null, nativeJobId: null, worktree: workerRoot, processId: null, processIdentity: null,
           generation: 1, status: "assigned", leaseExpiresAt: null, heartbeatAt: null, stopIntent: null,
-          nativeGoalState: "inactive", lastFailure: null}],
+          nativeGoalState: "inactive", lastFailure: null, phase: "planning"}],
         budget: {...current.budget, activeIntervals: [{startMs: Date.parse(current.createdAt), endMs: null}], lastObservedAt: now}}));
       await mkdir(runDescriptor(state).privateDirectory, {recursive: true});
       await launchd.writeDescriptor(runDescriptor(state));

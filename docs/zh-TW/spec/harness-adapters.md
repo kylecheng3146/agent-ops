@@ -151,3 +151,33 @@ byte-identical。
   test 涵蓋解析後的 profile、未變更的 rules、新增的 entry，以及唯一豁免的路徑。
 - Positive: `啟用 run profile 的 Claude Code session 在 main checkout 寫入 .agent-ops/state/run-goal.md，並在 background 啟動 agent-ops run --host claude --wait。`
 - Negative: `run profile 啟用時仍將八項 criteria 的變更拆成 subtask、在 GEMINI.md 加入 auto-run 文字，或未經使用者即 resume blocked run。`
+
+## HARNESS-ADAPTER-008
+
+`agent-ops office` MUST 只依據 agent-ops state 以 read-only 方式呈現進度。
+Supervisor 在確定性的轉換點記錄每個 run 與 worker 的 optional phase
+（`planning`、`implementing`、`verifying`、`reviewing`、`integrating`），以及每個
+task 最近一次 verify 與 review 結果與通過/總數 criteria。Phase 出現前寫入的 run
+state MUST 仍能通過驗證，並顯示為 `unknown`。變更檔案來自各 worktree 自身相對
+base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、`tests/**` 為
+「writing tests」，其他為「editing <file>」）。Office MUST NOT 讀取 Claude 或 Codex
+的 native transcript 或檔案內容。
+
+- Trigger: 使用者執行 `agent-ops office`、`agent-ops run start` 或
+  `agent-ops run status`。
+- Action: Command 重用記錄於 `<git common dir>/agent-ops/office.json` 的 live
+  server，否則在 macOS 以 launchd 啟動（其他平台在 foreground 執行），並印出 URL。
+  Server 綁定 127.0.0.1 的隨機 port，要求 URL 中不可猜測的 token，拒絕該位址與
+  port 以外的 Host，所有非 GET 回應 405，並在沒有 active run 10 分鐘後結束。其唯一
+  的 inline page 將每個 run 畫成一層樓（coordinator、最多兩個 worker、最多兩個
+  reviewer），session worktree 畫成大廳的辦公桌，其他執行中的 review 在會議室，
+  全部使用程式內 16 色 character-matrix sprite，沒有圖片 asset。每個角色走到其
+  phase 的區域；桌上紙堆隨變更檔案數增加，書架每通過一項 criterion 點亮一本書，
+  牆上時鐘顯示剩餘 budget，`!` 標示未回答的問題。點擊開啟 status window，內含可
+  複製的 `agent-ops run` command。Office 啟動失敗絕不使 `run start` 或 `run status`
+  失敗。
+- Evidence: Phase、snapshot、server、scene 與 CLI test 涵蓋 legacy state、彙整與
+  旁白、token/Host/method 防護、重用與 injected clock 的 idle 結束、scene model，
+  以及印出的 URL。
+- Positive: `使用者開啟 agent-ops run status 印出的 URL，在 verification 進行時看到 coordinator 站在實驗桌旁，書架 6 本中亮 2 本。`
+- Negative: `在 0.0.0.0 提供 office、接受 POST、讀取 worker transcript 來產生旁白，或打包 PNG sprite sheet。`

@@ -56,6 +56,24 @@ Native authorization decisions retain redacted command scope and rationale;
 missing provider decisions remain unknown. Repair compares actual check outcomes
 and outstanding finding pins rather than source fingerprints.
 
+To see where every agent is, open the office:
+
+```sh
+agent-ops office
+```
+
+It prints a tokened `http://127.0.0.1:<port>/` URL (also shown by `run start` and
+`run status`) to a read-only, 16-color DOS-RPG office. Each run is a floor whose
+characters walk between the whiteboard (planning), desks (implementing), lab bench
+(verifying), meeting table (reviewing) and front door (integrating). Paper stacks
+grow with changed files, the bookshelf lights one book per passed criterion, the
+wall clock shows the remaining budget and `!` marks a question waiting for
+`run respond`. Session worktrees sit in the lobby and running reviews in a meeting
+room; clicking a character opens its task, changed files and copyable commands.
+The page reads agent-ops state and `git diff` paths only, never transcripts or file
+contents. One server serves the repository (launchd on macOS, foreground
+elsewhere) and exits 10 minutes after no run is active.
+
 Native lifecycle reachability and framework probe conditions are recorded in
 [the capability probe](docs/harness/native-goal-probe.md); these observations do not
 establish external adoption or a reduction in review cost.

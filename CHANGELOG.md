@@ -4,6 +4,11 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- `agent-ops office` serves a read-only, token-gated DOS-RPG office on
+  127.0.0.1 showing every run, session worktree and running review. Run state
+  gains optional per-run and per-worker phases and per-task verify/review
+  progress; `run start` and `run status` print the office URL.
+
 - The opt-in `run` profile (capability `auto-run`, implies `core` and `loop`)
   tells Claude Code and Codex to hand a change needing more than five
   acceptance criteria to `agent-ops run`, falls back to subtasks when the start
