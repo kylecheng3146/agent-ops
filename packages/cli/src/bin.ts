@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {productionRunContext} from "./run-deps.js";
+import {productionRunContext, runPhaseObserver} from "./run-deps.js";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {recordRunVerification} from "../../../runtime/src/run/verification.js";
 import {runOwnedLocalProof} from "./owned-run-step.js";
@@ -589,7 +589,9 @@ process.exitCode = await runCli(
                 cwd: root,
                 sessionId: sessionId ?? await resolveCommandSessionId(root),
                 parentTaskId: args.taskId,
-                deps: worktreeDependencies()
+                deps: worktreeDependencies(),
+                ...(process.env.AGENT_OPS_RUN_ID === undefined || process.env.AGENT_OPS_WORKER_ID === undefined ? {} :
+                  {onPhase: await runPhaseObserver(root, process.env.AGENT_OPS_RUN_ID, process.env.AGENT_OPS_WORKER_ID)})
               });
             }
             const createConfig = args.action === "create"

@@ -6,6 +6,7 @@ import {writeNoChangeDelivery, integrateSessionChildren} from "../../../runtime/
 import {recordNativeRunUsage, recordReviewRunUsage, recordSavedReviewRunUsage} from "../../../runtime/src/run/usage.js";
 import {recordNativeRunAuthorization} from "../../../runtime/src/run/authorization.js";
 import {observeRunFailure} from "../../../runtime/src/run/verification.js";
+import {criteriaProgress, recordRunPhase} from "../../../runtime/src/run/phase.js";
 import {compareFailureObservations, type FailureObservation} from "../../../runtime/src/run/convergence.js";
 import {RunControlService} from "../../../runtime/src/run/controls.js";
 import {beginPolicyTransition, markPolicyTransitionStage, completePolicyTransition, discoverPendingPolicyTransition,
@@ -188,6 +189,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await writeWorktreeRecord({...record, workerGeneration: worker.generation});
       const goal = await instructions(worker, diagnostic);
       const running = await supervisor.startWorker(runId, worker.workerId, worker.generation, goal);
+      await recordRunPhase(repository, runId, worker.workerId, (await repository.read(runId))!.rootTaskId === null ? "planning" : "implementing");
       try {await transport.activateRegistered(runId, running, goal);}
       catch (cause) {
         await supervisor.stopWorker(runId, running.workerId, running.generation, "crash");
@@ -706,6 +708,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
                 tasks: saved.tasks.map(node => node.taskId === worker.taskId ? {...node, taskId: task.task.id} : node),
                 workers: saved.workers.map(w => w.workerId === worker.workerId ? {...w, taskId: task.task.id} : w)}));
               response = {requestId: request.requestId, code: "RUN_PLAN_CREATED", task: task.task, contractHash: treeContractHash([task.task])};
+              await recordRunPhase(repository, runId, worker.workerId, "implementing", {taskId: task.task.id, update: {passed: 0, total: task.task.criteria.length}});
               await instructions((await repository.read(runId))!.workers.find(w => w.workerId === worker.workerId)!);
             } else if (request.action === "worker") {
               if (worker.workerId !== current.coordinatorId || current.rootTaskId === null)
@@ -739,10 +742,14 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               await supervisor.confirmHandoff(runId, handoff, {processDead: !observation.processAlive});
               await assertRunDeliverySnapshot(worker.worktree!, worker.taskId, head, contract, tasks);
               const artifactRefs: string[] = [];
+              await recordRunPhase(repository, runId, worker.workerId, "verifying");
               for (const localTask of (await tasks.list()).filter(task => task.supersededBy === undefined && task.status !== "archived")) {
                 if (head === record.base)
                   await tasks.recordEvidence(localTask.task.id, {}, undefined, (await tasks.status({taskId: worker.taskId})).noChangePaths);
                 const result = await step(worker.worktree!, ["verify", "--task", localTask.task.id, "--base", record.base], current);
+                if (localTask.task.id === worker.taskId) await recordRunPhase(repository, runId, worker.workerId, "verifying", {taskId: worker.taskId,
+                  update: {verify: result.status === "ok" ? "PASS" : "FAIL", ...criteriaProgress(localTask.task.criteria,
+                    plain(result.data) && plain(result.data.report) ? result.data.report : {})}});
                 if (result.status !== "ok") throw new AgentOpsError(result.code, "Local verifier did not pass. Preserve the failed check diagnostics for repair.");
                 artifactRefs.push(...Object.values((await tasks.status({taskId: localTask.task.id})).evidence).flat());
               }
@@ -756,6 +763,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               }
               await supervisor.publishDelivery(runId, handoff, {noChange: head === record.base, artifactRefs});
               await scheduler.markDelivered(runId, worker.taskId, deliveryDigest, head);
+              await recordRunPhase(repository, runId, worker.workerId, "integrating");
               response = {requestId: request.requestId, code: "RUN_WORKER_DELIVERED", taskId: worker.taskId, sourceCommit: head};
             } else if (request.action === "question") {
               if (typeof request.prompt !== "string" || request.prompt.trim().length === 0 || request.prompt.length > 4096)
@@ -781,6 +789,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
                   .recordEvidence(current.rootTaskId, {}, undefined, scope.changedFiles);
               }
               await stopAll("stop", false);
+              await recordRunPhase(repository, runId, worker.workerId, "verifying");
               const result = await advance(current);
               if (result.status !== "ok") throw new AgentOpsError(result.code, "Final proof failed; inspect saved verifier and fresh review reports before repair.");
               const data = result.data;

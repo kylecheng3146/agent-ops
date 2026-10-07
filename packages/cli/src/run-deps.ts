@@ -28,6 +28,8 @@ import {discoverPendingPolicyTransition, renewBoundPolicyTransition, currentPoli
 import {nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {redactSecrets} from "../../../runtime/src/security/redact.js";
 import {RunControlService} from "../../../runtime/src/run/controls.js";
+import {recordRunPhase} from "../../../runtime/src/run/phase.js";
+import type {AdvancePhaseObserver} from "./commands/advance.js";
 
 /** Worktree construction happens before a native lease exists; it must never write global trust. */
 export async function runWorktreeDependencies(deps: FinishDependencies, state: RunState): Promise<FinishDependencies> {
@@ -124,6 +126,13 @@ export async function renewPendingRunPolicy(repository: FileRunRepository, runId
   } else if (current.policyBinding!.artifactDigest === expected.artifactDigest) return journal;
   return await renewBoundPolicyTransition(repository, runId, journal.transitionId, {
     renewedPolicyArtifact: currentPolicyArtifact(current)!, expectedJournalDigest: journal.artifactDigest, now: new Date(now).toISOString()});
+}
+
+/** The supervisor's final proof reports its stages into the run it belongs to. */
+export async function runPhaseObserver(cwd: string, runId: string, workerId: string): Promise<AdvancePhaseObserver> {
+  const {commonDir} = await resolveCheckouts(worktreeDependencies(), cwd);
+  const repository = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
+  return async (phase, progress) => await recordRunPhase(repository, runId, workerId, phase, progress);
 }
 
 export const runEntry = fileURLToPath(new URL("./run-entry.js", import.meta.url));

@@ -43,6 +43,18 @@ export type RunTaskStatus =
 
 export type RunControlAction = "stop" | "pause" | "resume" | "respond";
 
+/** Stage a run or worker is in, written by the supervisor at deterministic transitions. */
+export type RunPhase = "planning" | "implementing" | "verifying" | "reviewing" | "integrating";
+export const RUN_PHASES: readonly RunPhase[] = ["planning", "implementing", "verifying", "reviewing", "integrating"];
+
+/** Latest supervisor-observed proof for one task; absent on runs written before it existed. */
+export interface RunTaskProgress {
+  readonly verify: "PASS" | "FAIL" | null;
+  readonly review: "PASS" | "FAIL" | null;
+  readonly passed: number;
+  readonly total: number;
+}
+
 /** Writer slots are deliberately bounded; the coordinator may occupy one. */
 export const MAX_ACTIVE_WORKERS = 2;
 
@@ -75,6 +87,7 @@ export interface RunTaskNode {
   readonly deliveryDigest: string | null;
   readonly sourceCommit: string | null;
   readonly blockedReason: string | null;
+  readonly progress?: RunTaskProgress;
 }
 
 export interface RunWorkerRecord {
@@ -95,6 +108,7 @@ export interface RunWorkerRecord {
   readonly stopIntent: RunStopIntent | null;
   readonly nativeGoalState: "inactive" | "active" | "paused" | "complete" | "cleared" | "unknown";
   readonly lastFailure: RunFailure | null;
+  readonly phase?: RunPhase;
 }
 
 export interface RunStopIntent {
@@ -195,6 +209,8 @@ export interface RunState {
   readonly integration: RunIntegrationState | null;
   /** Optional for legacy runs; new policy-aware runs bind all four digests. */
   readonly policyBinding?: RunPolicyBinding;
+  /** Optional for runs written before phases existed; absence reads as unknown. */
+  readonly phase?: RunPhase;
 }
 
 export interface RunControlRecord {
@@ -338,6 +354,13 @@ export function assertRunState(value: unknown): asserts value is RunState {
     return invalid("Persisted run state failed identity, budget, or ownership validation.");
   }
   validUsage(state.budget.usage);
+  const phase = (value: unknown) => value === undefined || RUN_PHASES.includes(value as RunPhase);
+  const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 64;
+  const result = (value: unknown) => value === null || value === "PASS" || value === "FAIL";
+  if (!phase(state.phase) || state.workers.some(w => !phase(w.phase)) || state.tasks.some(t => t.progress !== undefined &&
+    (!plain(t.progress) || !result(t.progress.verify) || !result(t.progress.review) || !count(t.progress.passed) ||
+      !count(t.progress.total) || t.progress.passed > t.progress.total)))
+    return invalid("Run phase or task progress is invalid.");
   if (state.policyBinding !== undefined && !validPolicyBinding(state.policyBinding))
     return invalid("Invalid run policy binding.");
   if (state.proofProcess != null && (!plain(state.proofProcess) || !Number.isSafeInteger(state.proofProcess.processId) ||

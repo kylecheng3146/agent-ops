@@ -11,13 +11,17 @@ import { calculateSourceFingerprint } from "../../../../runtime/src/verify/sourc
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 import { readFinishedReview } from "./review-show.js";
+import {criteriaProgress} from "../../../../runtime/src/run/phase.js";
+import type {RunTaskProgress} from "../../../../runtime/src/run/service.js";
 import {prepareRunIntegration, readRunIntegrationProof, abandonPreparedRunIntegration} from "../../../../runtime/src/run/integration.js";
 
 interface StepEnvelope {
   readonly code: string;
   readonly status: "ok" | "error";
   readonly data?: { readonly result?: ReviewDisplayArtifact & { readonly status?: string; readonly taskId?: string };
-                    readonly report?: { readonly status?: string }; readonly text?: string } | null;
+                    readonly report?: { readonly status?: string; readonly results?: readonly { readonly status: string }[];
+                      readonly acceptance?: readonly { readonly criterionId: string; readonly status: string }[] };
+                    readonly text?: string } | null;
   readonly errors?: readonly { readonly code: string; readonly message: string }[];
 }
 
@@ -89,12 +93,17 @@ export async function reviewFinalTree(
   return "tree";
 }
 
+export type AdvancePhaseObserver = (phase: "verifying" | "reviewing" | "integrating",
+  progress?: {taskId: string; update: Partial<RunTaskProgress>}) => Promise<void>;
+
 export async function runAdvanceCommand(options: {
   readonly cwd: string;
   readonly sessionId: string | undefined;
   readonly parentTaskId: string | undefined;
   readonly deps: FinishDependencies;
   readonly step?: AdvanceStep;
+  /** Display-only progress for the office view; never part of the proof. */
+  readonly onPhase?: AdvancePhaseObserver;
 }): Promise<CliEnvelope<unknown>> {
   const { deps, cwd } = options;
   if (options.sessionId === undefined || options.parentTaskId === undefined) {
@@ -150,11 +159,24 @@ export async function runAdvanceCommand(options: {
     const noChangePaths = head === target ? parent.noChangePaths : undefined;
     if (noChangePaths !== undefined) for (const task of ordered)
       await deps.tasks(record.path).recordEvidence(task.task.id, {}, undefined, noChangePaths);
+    const onPhase = options.onPhase ?? (async () => {});
+    await onPhase("verifying");
     for (const task of ordered) {
-      requirePass(await step(record.path, ["verify", "--task", task.task.id, "--base", target]), `Verify ${task.task.id}`);
+      const verified = await step(record.path, ["verify", "--task", task.task.id, "--base", target]);
+      await onPhase("verifying", {taskId: task.task.id, update: {verify: verified.status === "ok" ? "PASS" : "FAIL",
+        ...criteriaProgress(task.task.criteria, verified.data?.report ?? {})}});
+      requirePass(verified, `Verify ${task.task.id}`);
     }
-    const reviewMode = await reviewFinalTree(step, record.path, parent.task.id,
-      ordered.map(({ task }) => task.id), target);
+    await onPhase("reviewing");
+    let reviewMode: Awaited<ReturnType<typeof reviewFinalTree>>;
+    try {
+      reviewMode = await reviewFinalTree(step, record.path, parent.task.id, ordered.map(({ task }) => task.id), target);
+    } catch (failure) {
+      for (const {task} of ordered) await onPhase("reviewing", {taskId: task.id, update: {review: "FAIL"}});
+      throw failure;
+    }
+    for (const {task} of ordered)
+      await onPhase("integrating", {taskId: task.id, update: {review: "PASS", passed: task.criteria.length, total: task.criteria.length}});
     const scope = await resolveReviewScope({ root: record.path, runner: runner(deps, record.path), base: target,
       ...(noChangePaths === undefined ? {} : {noChangePaths}) });
     const sourceFingerprint = await calculateSourceFingerprint(record.path, scope, runner(deps, record.path));

@@ -387,6 +387,7 @@ for (const boundary of ["none", "note", "target-cas", "coordinator-cleanup"] as 
     await deliver(b, "b.txt", "B\n", "Add B and preserve A behavior.", childCriteria);
     let reviews = 0;
     let verifications = 0;
+    const phases: string[] = [];
     const step: AdvanceStep = async (cwd, args) => {
       const taskId = args[2]!;
       const base = args[args.indexOf("--base") + 1]!;
@@ -467,12 +468,18 @@ for (const boundary of ["none", "note", "target-cas", "coordinator-cleanup"] as 
     const targetAfterFailure = await git(root, "rev-parse", "HEAD");
     const result = boundary === "coordinator-cleanup"
       ? {status: "ok", data: {receipt: (await recoverRunIntegrationAfterCleanup(commonDir, runState.runId, d.git)).receiptPath}}
-      : await runAdvanceCommand({ cwd: root, sessionId: SESSION, parentTaskId: parent.task.id, deps: d, step });
+      : await runAdvanceCommand({ cwd: root, sessionId: SESSION, parentTaskId: parent.task.id, deps: d, step,
+        onPhase: async (phase, progress) => {phases.push(phase + (progress === undefined ? "" : ":" + JSON.stringify(progress.update)));} });
     if (interrupted) {
       assert.equal(await git(root, "rev-parse", "HEAD"), targetAfterFailure);
       assert.equal((await runRepository.read(runState.runId))!.integration?.status, "cleaned");
     }
     assert.equal(result.status, "ok");
+    if (boundary === "none") {
+      assert.deepEqual([...new Set(phases.map(p => p.split(":")[0]))], ["verifying", "reviewing", "integrating"]);
+      assert.equal(phases.filter(p => p.startsWith("integrating:")).length, 3);
+      assert.ok(phases.includes(`integrating:${JSON.stringify({review: "PASS", passed: 2, total: 2})}`));
+    }
     assert.equal(verifications, 3);
     assert.equal(reviews, 1);
     assert.equal(await readFile(join(root, "a.txt"), "utf8"), "A\n");
