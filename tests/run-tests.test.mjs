@@ -210,7 +210,8 @@ test("test environment isolation removes an agent-ops run identity", () => {
     AGENT_OPS_WORKER_ID: "worker-1",
     AGENT_OPS_WORKER_GENERATION: "2",
     AGENT_OPS_SESSION_ID: "session-1",
-    AGENT_OPS_HOST: "claude"
+    AGENT_OPS_HOST: "claude",
+    AGENT_OPS_RUN_PROOF_PID: "4242"
   });
 
   assert.deepEqual(isolated, { PATH: "/bin" });
