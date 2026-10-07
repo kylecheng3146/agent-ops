@@ -68,6 +68,26 @@ test("overview bounds include every room and retain completion state", () => {
   assert.ok(model.dialogue.some(line => line.includes("waiting for your answer")));
 });
 
+test("sibling worktrees keep stable room identities and crowded phases stay inside their areas", () => {
+  const base = snapshot();
+  const run = base.runs[0]!;
+  const agents = Array.from({length: 48}, (_, index) => ({...run.agents[0]!, id: `worker-${index}`, role: "worker" as const, phase: index % 2 ? "planning" as const : "reviewing" as const}));
+  const lobby = [
+    {...base.lobby[0]!, name: "sibling-a", sessionId: "same-session", branch: "branch-a"},
+    {...base.lobby[0]!, name: "sibling-b", sessionId: "same-session", branch: "branch-b"},
+    ...Array.from({length: 72}, (_, index) => ({...base.lobby[0]!, name: `desk-${index}`, sessionId: `session-${index}`, branch: `branch-${index}`}))
+  ];
+  const model = sceneModel({...base, runs: [{...run, agents}], lobby, reviews: []});
+  const deskKeys = model.floors.filter(f => f.kind === "desk").map(f => f.key);
+  assert.equal(new Set(deskKeys).size, deskKeys.length);
+  const crowded = model.floors.find(f => f.kind === "run")!;
+  for (const actor of crowded.actors) {
+    const area = crowded.phaseAreas.find(candidate => candidate.phase === actor.phase) ?? crowded.phaseAreas.find(candidate => candidate.phase === "implementing")!;
+    assert.ok(actor.x >= area.x && actor.x < area.x + area.width && actor.y >= area.y && actor.y < area.y + area.height, actor.id);
+  }
+  assert.ok(model.floors.every(f => f.overview.x >= 0 && f.overview.y >= 0 && f.overview.x + f.overview.width <= model.cols + 1e-6 && f.overview.y + f.overview.height <= model.rows + 1e-6));
+});
+
 test("an empty building has no fake lobby room", () => {
   const model = sceneModel({generatedAt: "x", runs: [], lobby: [], reviews: []});
   assert.equal(model.floors.length, 0);
@@ -83,6 +103,10 @@ test("the inline page embeds the tested scene, fixed viewport controls and safe 
   assert.match(page, /id="language"/u);
   assert.match(page, /prefers-reduced-motion/u);
   assert.match(page, /localStorage/u);
+  assert.match(page, /devicePixelRatio/u);
+  assert.match(page, /imageSmoothingEnabled/u);
+  assert.match(page, /Supervisor/u);
+  assert.match(page, /ArrowLeft/u);
   assert.match(page, /pageItems/u);
   assert.match(page, /textContent/u);
   assert.doesNotMatch(page, /<img|url\(|src=|href=|\.png|\.gif|@import/u);

@@ -27,7 +27,7 @@ export interface SceneActor {
 }
 
 export interface SceneProp {
-  readonly kind: "whiteboard" | "desk" | "bench" | "table" | "door" | "shelf" | "clock" | "plant";
+  readonly kind: "whiteboard" | "desk" | "bench" | "table" | "door" | "shelf" | "clock" | "plant" | "rug" | "chair" | "window";
   readonly x: number;
   readonly y: number;
   readonly key: string;
@@ -99,21 +99,29 @@ export interface SceneModel {
  * not reference imports or module-level values.
  */
 export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
-  const ROOM_COLS = 64, ROOM_ROWS = 40, OVERVIEW_COLS = 72, OVERVIEW_ROWS = 38;
+  const ROOM_COLS = 72, ROOM_ROWS = 40, OVERVIEW_COLS = 80, OVERVIEW_ROWS = 38;
   const PHASES: readonly ScenePhase[] = ["planning", "implementing", "verifying", "reviewing", "integrating"];
   const labels: Record<string, string> = {
     planning: "Planning", implementing: "Implementing", verifying: "Verifying", reviewing: "Reviewing", integrating: "Integrating", unknown: "Unassigned"
   };
   const areas: Record<string, {x: number; y: number; width: number; height: number; prop: SceneProp["kind"]}> = {
-    planning: {x: 2, y: 4, width: 15, height: 14, prop: "whiteboard"},
-    implementing: {x: 18, y: 5, width: 18, height: 15, prop: "desk"},
-    verifying: {x: 39, y: 4, width: 18, height: 14, prop: "bench"},
+    planning: {x: 2, y: 6, width: 15, height: 14, prop: "whiteboard"},
+    implementing: {x: 18, y: 6, width: 18, height: 15, prop: "desk"},
+    verifying: {x: 39, y: 6, width: 18, height: 14, prop: "bench"},
     reviewing: {x: 18, y: 22, width: 22, height: 15, prop: "table"},
     integrating: {x: 43, y: 22, width: 18, height: 15, prop: "door"}
   };
-  const position = (phase: ScenePhase, index: number): {x: number; y: number} => {
+  const position = (phase: ScenePhase, index: number, count = 1): {x: number; y: number} => {
     const area = areas[phase] ?? areas.implementing;
-    return {x: area.x + 3 + (index % 3) * 5, y: area.y + 8 + Math.floor(index / 3) * 3};
+    // Keep every actor inside the phase area, even when a run has many
+    // workers in one phase. Fractional spacing compresses a crowd without
+    // dropping actors or sending them through the room walls.
+    const inset = 2, columns = Math.max(1, Math.min(count, Math.floor((area.width - inset * 2) / 3)));
+    const rows = Math.max(1, Math.ceil(count / columns));
+    const xSpan = Math.max(0, area.width - inset * 2), ySpan = Math.max(0, area.height - inset * 2);
+    const column = index % columns, row = Math.floor(index / columns);
+    return {x: area.x + inset + (columns === 1 ? 0 : column * xSpan / (columns - 1)),
+      y: area.y + inset + (rows === 1 ? 0 : row * ySpan / (rows - 1))};
   };
   const progressOf = (value: unknown): SceneProgress | null => {
     if (value === null || typeof value !== "object") return null;
@@ -134,13 +142,25 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     return {phase, x: area.x, y: area.y, width: area.width, height: area.height, prop: area.prop, label: labels[phase]};
   });
   const makeProps = (key: string): SceneProp[] => [
-    {kind: "whiteboard", x: 2, y: 5, key: key + ":planning", phase: "planning", label: labels.planning},
+    {kind: "rug", x: 3, y: 11, key: key + ":rug-planning", phase: "planning", label: labels.planning},
+    {kind: "rug", x: 20, y: 12, key: key + ":rug-implementing", phase: "implementing", label: labels.implementing},
+    {kind: "rug", x: 41, y: 11, key: key + ":rug-verifying", phase: "verifying", label: labels.verifying},
+    {kind: "rug", x: 20, y: 29, key: key + ":rug-reviewing", phase: "reviewing", label: labels.reviewing},
+    {kind: "rug", x: 45, y: 29, key: key + ":rug-integrating", phase: "integrating", label: labels.integrating},
+    {kind: "window", x: 4, y: 1, key: key + ":window-left"},
+    {kind: "window", x: 53, y: 1, key: key + ":window-right"},
+    {kind: "whiteboard", x: 2, y: 7, key: key + ":planning", phase: "planning", label: labels.planning},
     {kind: "desk", x: 18, y: 8, key: key + ":implementing", phase: "implementing", label: labels.implementing},
     {kind: "bench", x: 39, y: 6, key: key + ":verifying", phase: "verifying", label: labels.verifying},
     {kind: "table", x: 19, y: 25, key: key + ":reviewing", phase: "reviewing", label: labels.reviewing},
     {kind: "door", x: 45, y: 24, key: key + ":integrating", phase: "integrating", label: labels.integrating},
+    {kind: "chair", x: 12, y: 14, key: key + ":chair-planning", phase: "planning"},
+    {kind: "chair", x: 31, y: 15, key: key + ":chair-implementing", phase: "implementing"},
+    {kind: "chair", x: 49, y: 13, key: key + ":chair-verifying", phase: "verifying"},
+    {kind: "chair", x: 26, y: 31, key: key + ":chair-reviewing", phase: "reviewing"},
+    {kind: "chair", x: 51, y: 31, key: key + ":chair-integrating", phase: "integrating"},
     {kind: "shelf", x: 1, y: 23, key: key + ":shelf"},
-    {kind: "clock", x: 31, y: 1, key: key + ":clock"},
+    {kind: "clock", x: 49, y: 1, key: key + ":clock"},
     {kind: "plant", x: 56, y: 5, key: key + ":plant"}
   ];
   const makeRun = (run: OfficeSnapshot["runs"][number]): SceneFloor => {
@@ -154,10 +174,14 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     run.agents.forEach((agent, index) => {
       const phase = agent.phase;
       const p = progressOf(agent.progress);
-      const point = position(phase, index);
-      const deskKey = run.runId + ":desk:" + agent.id;
-      props.push({kind: "desk", x: point.x - 2, y: point.y - 5, key: deskKey, phase: phase === "unknown" ? "implementing" : phase, label: short(agent.id)});
-      papers[deskKey] = Math.min(8, agent.diff?.files ?? 0);
+      const phaseIndex = actors.filter(actor => actor.phase === phase).length;
+      const phaseCount = run.agents.filter(candidate => candidate.phase === phase).length;
+      const point = position(phase, phaseIndex, phaseCount);
+      if (phase === "implementing" || phase === "unknown") {
+        const deskKey = run.runId + ":desk:" + agent.id;
+        props.push({kind: "desk", x: point.x - 2, y: point.y - 5, key: deskKey, phase: "implementing", label: short(agent.id)});
+        papers[deskKey] = Math.min(8, agent.diff?.files ?? 0);
+      }
       passed += p?.passed ?? 0;
       total += p?.total ?? 0;
       if (p?.verify === "FAIL") verify = "FAIL"; else if (p?.verify === "PASS" && verify === null) verify = "PASS";
@@ -168,7 +192,9 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       dialogue.push(`${run.title}: ${agent.id} ${agent.narration}.`);
     });
     run.reviewers.forEach((reviewer, index) => {
-      const point = position("reviewing", index + run.agents.length);
+      const reviewerIndex = actors.filter(actor => actor.phase === "reviewing").length;
+      const reviewerCount = run.agents.filter(agent => agent.phase === "reviewing").length + run.reviewers.length;
+      const point = position("reviewing", reviewerIndex, reviewerCount);
       actors.push({key: run.runId + ":review:" + reviewer.slot, id: "reviewer " + reviewer.slot, kind: "reviewer", x: point.x, y: point.y, alert: false,
         label: "reviewer " + reviewer.slot, status: "reviewing", phase: "reviewing", taskId: reviewer.taskId ?? "unassigned",
         progress: null, narration: "reviewing", questionCount: 0, host: "unknown"});
@@ -193,11 +219,11 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       return {questionId: typeof item.questionId === "string" ? item.questionId : "unknown", prompt: typeof item.prompt === "string" ? item.prompt : ""};
     });
     const completedAt = typeof extra.completedAt === "string" ? extra.completedAt : null;
-    const key = "session:" + (desk.sessionId || desk.name);
+    const key = "session:" + [desk.sessionId || "unknown", desk.branch || "unknown", desk.name || "session"].join(":");
     const props = makeProps(key);
-    const point = position(phase, 0);
+    const point = position(phase, 0, 1);
     const deskKey = key + ":desk";
-    props.push({kind: "desk", x: point.x - 2, y: point.y - 5, key: deskKey, phase: phase === "unknown" ? "implementing" : phase, label: short(desk.name)});
+    if (phase === "implementing" || phase === "unknown") props.push({kind: "desk", x: point.x - 2, y: point.y - 5, key: deskKey, phase: "implementing", label: short(desk.name)});
     const host = typeof extra.host === "string" ? extra.host : "unknown";
     const actor: SceneActor = {key: key + ":actor", id: desk.name, kind: "worker", x: point.x, y: point.y, alert: questions.length > 0, label: short(desk.name), status,
       phase, taskId, progress: p, narration: desk.narration, questionCount: questions.length, host};
@@ -224,9 +250,9 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
   if (dialogue.length === 0) dialogue.push("The office is quiet. No agent is at work.");
   const columns = floors.length === 0 ? 1 : Math.min(floors.length, Math.max(1, Math.ceil(Math.sqrt(floors.length * OVERVIEW_COLS / OVERVIEW_ROWS))));
   const rows = Math.max(1, Math.ceil(floors.length / columns));
-  const gap = 1;
-  const cardWidth = Math.max(1, Math.floor((OVERVIEW_COLS - gap * (columns + 1)) / columns));
-  const cardHeight = Math.max(1, Math.floor((OVERVIEW_ROWS - gap * (rows + 1)) / rows));
+  const gap = Math.max(0, Math.min(1, (OVERVIEW_COLS - columns) / (columns + 1), (OVERVIEW_ROWS - rows) / (rows + 1)));
+  const cardWidth = Math.max(0.25, (OVERVIEW_COLS - gap * (columns + 1)) / columns);
+  const cardHeight = Math.max(0.25, (OVERVIEW_ROWS - gap * (rows + 1)) / rows);
   floors.forEach((floor, index) => {
     const x = gap + (index % columns) * (cardWidth + gap), y = gap + Math.floor(index / columns) * (cardHeight + gap);
     (floor as {overview: SceneOverviewBox}).overview = {x, y, width: cardWidth, height: cardHeight};
