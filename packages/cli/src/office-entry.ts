@@ -7,6 +7,7 @@ import { claimOffice, createOfficeServer, ensureOffice, readLiveOffice, officeUr
 import { buildOfficeSnapshot, type OfficeSnapshot } from "../../../runtime/src/office/snapshot.js";
 import { resolveCheckouts } from "../../../runtime/src/parallel/service.js";
 import { createLaunchdDescriptor, LaunchdController } from "../../../runtime/src/run/macOS.js";
+import { ensurePrivateDirectory } from "../../../runtime/src/security/permissions.js";
 import { worktreeDependencies } from "./parallel-deps.js";
 
 const entry = fileURLToPath(import.meta.url);
@@ -48,12 +49,15 @@ export async function ensureBackgroundOffice(cwd: string, launchd = new LaunchdC
   const live = await readLiveOffice(commonDir);
   if (live !== null) return officeUrl(live);
   if (!launchd.supported) return null;
+  const privateDirectory = join(commonDir, "agent-ops", "office");
   const descriptor = createLaunchdDescriptor({
     runId: "office-" + createHash("sha256").update(commonDir).digest("hex").slice(0, 12), workerId: "server",
-    privateDirectory: join(commonDir, "agent-ops", "office"), command: process.execPath, args: [entry, mainRoot],
+    privateDirectory, command: process.execPath, args: [entry, mainRoot],
     cwd: mainRoot, pathEnvironment: process.env.PATH
   });
   return await ensureOffice(commonDir, async () => {
+    // The descriptor write anchors on this directory, so it must exist first.
+    await ensurePrivateDirectory(privateDirectory, commonDir);
     await launchd.writeDescriptor(descriptor);
     // A server that exited idle stays loaded in launchd; reload it with the current descriptor.
     await launchd.bootout(descriptor).catch(() => {});
