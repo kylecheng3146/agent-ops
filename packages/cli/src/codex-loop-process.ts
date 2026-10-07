@@ -1,10 +1,12 @@
 import {
   PROJECT_LOOP_EVENTS,
+  resolveProjectLoopRoot,
   runProjectLoop,
   type ProjectLoopEvent,
   type ProjectLoopHarness,
   type ProjectLoopOptions
 } from "../../../runtime/src/hooks/codex-loop.js";
+import {officeLoopPhaseHint, type OfficeSessionObservation} from "./office-entry.js";
 
 const MAX_LOOP_INPUT_BYTES = 64 * 1024;
 
@@ -19,6 +21,8 @@ export interface LoopProcessDependencies {
   readonly now?: ProjectLoopOptions["now"];
   readonly gitStatus?: ProjectLoopOptions["gitStatus"];
   readonly telemetryMaxBytes?: number;
+  /** Display-only Office observation; failures never affect loop decisions. */
+  readonly office?: (observation: OfficeSessionObservation) => Promise<void>;
 }
 
 function isLoopHarness(value: string | undefined): value is ProjectLoopHarness {
@@ -73,10 +77,26 @@ export async function runLoopProcess(
     return 0;
   }
   try {
+    const input = parseInput(await readStdin(io.stdin));
+    const inputIsObject = typeof input === "object" && input !== null && !Array.isArray(input);
+    const managedRoot = inputIsObject
+      ? await resolveProjectLoopRoot(input, dependencies.root ?? process.cwd(), harness).catch(() => null)
+      : null;
+    if (dependencies.office !== undefined && managedRoot !== null && process.env.AGENT_OPS_DISABLE !== "1") {
+      const phase = officeLoopPhaseHint(input, managedRoot);
+      void dependencies.office({
+        root: managedRoot,
+        harness,
+        event,
+        input,
+        validated: true,
+        ...(phase === undefined ? {} : {phase})
+      }).catch(() => undefined);
+    }
     const result = await runProjectLoop({
       harness,
       event,
-      input: parseInput(await readStdin(io.stdin)),
+      input,
       root: dependencies.root ?? process.cwd(),
       ...(dependencies.now === undefined ? {} : { now: dependencies.now }),
       ...(dependencies.gitStatus === undefined

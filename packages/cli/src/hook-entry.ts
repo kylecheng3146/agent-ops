@@ -5,6 +5,7 @@
 import { CLI_VERSION } from "./version.js";
 import { runHookProcess } from "./hook-process.js";
 import { worktreeDependencies } from "./parallel-deps.js";
+import { observeOfficeSession } from "./office-entry.js";
 
 process.exitCode = await runHookProcess(
   process.argv.slice(2),
@@ -14,5 +15,5 @@ process.exitCode = await runHookProcess(
     writeStderr: (value) => process.stderr.write(value)
   },
   CLI_VERSION,
-  { worktree: worktreeDependencies() }
+  { worktree: worktreeDependencies(), office: observeOfficeSession }
 );

@@ -19,6 +19,7 @@ export interface OfficeRecord {
 }
 
 export const officeRecordPath = (commonDir: string): string => join(commonDir, "agent-ops", "office.json");
+const officeStartLockPath = (commonDir: string): string => join(commonDir, "agent-ops", "office-start.lock");
 export const officeUrl = (record: Pick<OfficeRecord, "port" | "token">): string =>
   `http://127.0.0.1:${record.port}/?token=${record.token}`;
 
@@ -87,7 +88,10 @@ export function createOfficeServer(options: OfficeServerOptions): OfficeServer {
     }),
     tick: async () => {
       const snapshot = await options.snapshot().catch(() => null);
-      if (snapshot === null || snapshot.runs.some(run => ACTIVE.has(run.status))) lastActive = now();
+      const sessionIsPresent = snapshot?.lobby.some(desk =>
+        desk.status === "active" && (desk.completedAt === undefined || desk.completedAt === null)
+      ) ?? false;
+      if (snapshot === null || snapshot.runs.some(run => ACTIVE.has(run.status)) || sessionIsPresent) lastActive = now();
       if (!idle && now() - lastActive >= idleMs) {idle = true; options.onIdle();}
     },
     close: async () => await new Promise<void>(resolve => {server.closeAllConnections(); server.close(() => resolve());})
@@ -129,16 +133,18 @@ export async function claimOffice(commonDir: string, office: OfficeServer, pid =
 /** Reuse the live server, or start one and wait for it to record itself. */
 export async function ensureOffice(commonDir: string, start: () => Promise<void>,
   options: {readonly timeoutMs?: number; readonly pollMs?: number} = {}): Promise<string> {
-  const live = await readLiveOffice(commonDir);
-  if (live !== null) return officeUrl(live);
-  await start();
-  const deadline = Date.now() + (options.timeoutMs ?? 10_000);
-  while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, options.pollMs ?? 200));
-    const started = await readLiveOffice(commonDir);
-    if (started !== null) return officeUrl(started);
-  }
-  throw new AgentOpsError("OFFICE_START_FAILED", "The office server did not record itself in time.");
+  return await withPrivateFileLock(officeStartLockPath(commonDir), commonDir, async () => {
+    const live = await readLiveOffice(commonDir);
+    if (live !== null) return officeUrl(live);
+    await start();
+    const deadline = Date.now() + (options.timeoutMs ?? 10_000);
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, options.pollMs ?? 200));
+      const started = await readLiveOffice(commonDir);
+      if (started !== null) return officeUrl(started);
+    }
+    throw new AgentOpsError("OFFICE_START_FAILED", "The office server did not record itself in time.");
+  });
 }
 
 /** Drop the record on exit, unless another server has replaced it. */

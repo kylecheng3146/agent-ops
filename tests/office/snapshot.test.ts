@@ -37,7 +37,7 @@ test("snapshot aggregates runs, run worktrees, lobby desks and review slots", ()
       {slot: 1, since: "2026-10-07T00:55:00.000Z", taskId: "other", root: "/elsewhere"}]});
   assert.deepEqual(snapshot.runs.map(r => r.runId), ["run-office-fixture", "run-legacy-fixture"]);
   const [run, old] = snapshot.runs;
-  assert.equal(run!.title, "Goal: office view");
+  assert.equal(run!.title, "run-office-fixture");
   assert.equal(run!.phase, "verifying");
   assert.equal(old!.phase, "unknown");
   assert.deepEqual(run!.budget, {limitMs: 3600000, usedMs: 1200000, remainingMs: 2400000});
@@ -54,6 +54,40 @@ test("snapshot aggregates runs, run worktrees, lobby desks and review slots", ()
   assert.deepEqual(snapshot.reviews.map(r => r.slot), [1]);
   assert.deepEqual(snapshot.lobby.map(d => [d.name, d.narration]), [["session-1", "editing src/app.ts"]]);
   assert.ok(snapshot.lobby[0]!.commands.includes("agent-ops worktree finish 'session-1'"));
+});
+
+test("snapshot adds standalone sessions without duplicating run rooms", () => {
+  const snapshot = buildOfficeSnapshot({
+    now: NOW,
+    runs: [runFixture()],
+    worktrees: [],
+    sessions: [
+      {schemaVersion: 1, sessionId: "standalone", harness: "claude", root: "/repo", firstSeenAt: new Date(NOW).toISOString(), lastSeenAt: new Date(NOW).toISOString(), status: "active"},
+      {schemaVersion: 1, sessionId: "run-worker", harness: "codex", root: "/repo", firstSeenAt: new Date(NOW).toISOString(), lastSeenAt: new Date(NOW).toISOString(), status: "active", runId: "run-office-fixture"}
+    ],
+    reviews: []
+  });
+  assert.deepEqual(snapshot.lobby.map(desk => desk.sessionId), ["standalone"]);
+  assert.equal(snapshot.lobby[0]!.status, "active");
+  assert.equal(snapshot.lobby[0]!.branch, "(no worktree)");
+});
+
+test("snapshot keeps sibling worktrees for one session as separate desks", () => {
+  const worktrees = [
+    {name: "session-a", path: "/repo/.worktrees/session-a", branch: "b1", sessionId: "same-session", diff: diff(["src/a.ts"])},
+    {name: "session-a-agent", path: "/repo/.worktrees/session-a-agent", branch: "b2", sessionId: "same-session", diff: diff(["src/b.ts"])},
+  ];
+  const snapshot = buildOfficeSnapshot({now: NOW, runs: [], worktrees, reviews: []});
+  assert.deepEqual(snapshot.lobby.map(desk => desk.name), ["session-a", "session-a-agent"]);
+});
+
+test("completed runs remain visible for two hours only", () => {
+  const completedAt = NOW - 2 * 60 * 60 * 1000;
+  const run = {...runFixture(), status: "complete" as const, updatedAt: new Date(completedAt).toISOString()};
+  const recent = buildOfficeSnapshot({now: NOW, runs: [{...run, updatedAt: new Date(NOW - 1).toISOString()}], worktrees: [], reviews: []});
+  const old = buildOfficeSnapshot({now: NOW, runs: [run], worktrees: [], reviews: []});
+  assert.equal(recent.runs[0]!.completedAt, new Date(NOW - 1).toISOString());
+  assert.equal(old.runs.length, 0);
 });
 
 test("worktree diff counts committed, uncommitted and untracked paths and finds the newest", async () => {
