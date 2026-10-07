@@ -25,7 +25,7 @@ async function fixture(path: string): Promise<string> {
 
 const nodeReporter = fileURLToPath(new URL("../../runtime/src/verify/adapters/node-reporter.js", import.meta.url));
 function nativeNode(name: string, exitCode: number) {
-  const execution = spawnSync(process.execPath, ["--test", `--test-reporter=${nodeReporter}`,
+  const execution = spawnSync(process.execPath, ["--test", `--test-reporter=${new URL("../../runtime/src/verify/adapters/node-reporter.js", import.meta.url).href}`,
     resolve(`tests/fixtures/acceptance/node/${name}.test.mjs`)], {
     encoding: "utf8", timeout: 10000,
     env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "NODE_TEST_CONTEXT"))
@@ -349,7 +349,7 @@ test("Rust stdlib harness fixtures emit real protocol pass and assertion red", a
   const root = await mkdtemp(join(tmpdir(), "agent-ops-rust-adapter-"));
   try {
     const sourcePath = resolve("tests/fixtures/acceptance/rust/acceptance_harness.rs");
-    const binary = join(root, "acceptance-harness");
+    const binary = join(root, process.platform === "win32" ? "acceptance-harness.exe" : "acceptance-harness");
     execFileSync("rustc", [sourcePath, "-O", "-o", binary], { encoding: "utf8" });
     const output = execFileSync(binary, [], { encoding: "utf8" });
     assert.equal(

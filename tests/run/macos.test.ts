@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import test from "node:test";
 
 import {
@@ -31,7 +31,10 @@ test("macOS primitive is transient, private, and explicit about reboot resume", 
       cwd: root,
       uid: 501
     });
-    assert.equal(descriptor.path.startsWith(`${root}/`), true);
+    assert.equal(descriptor.path.startsWith(`${root}${sep}`), true);
+    assert.throws(() => createLaunchdDescriptor({runId: "escaped", workerId: "worker",
+      privateDirectory: root, command: "node", args: [], cwd: root, uid: 501,
+      stdoutPath: join(root, "..", "escaped.log")}), {code: "LAUNCHD_PATH_INVALID"});
     assert.equal(descriptor.xml.includes("RunAtLoad"), true);
     assert.equal(descriptor.xml.includes("KeepAlive"), true);
     assert.equal(descriptor.xml.includes("/Library/LaunchAgents"), false);

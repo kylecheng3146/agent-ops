@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, realpath, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import {createFailureFingerprint} from "../../runtime/src/verify/fingerprint.js"
 import {NodeVerificationProcessRunner, type ProcessRequest} from "../../runtime/src/verify/spawn.js";
 
 test("test entry retains an early failure after the TAP output is truncated", async () => {
-  const root = await mkdtemp(join(tmpdir(), "agent-ops-test-diagnostic-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "agent-ops-test-diagnostic-")));
   try {
     const environment = {...process.env};
     delete environment.NODE_TEST_CONTEXT;
@@ -29,7 +29,7 @@ test("test entry retains an early failure after the TAP output is truncated", as
     assert.doesNotMatch(failed.stdout, /early-retained-failure/);
     assert.ok(failed.diagnostic.includes("early-retained-failure"), "Failure identity must survive truncation");
     assert.ok(failed.diagnostic.includes("retained-assertion-cause"));
-    assert.ok(failed.diagnostic.includes(failing));
+    assert.ok(failed.diagnostic.replaceAll("\\", "/").includes(failing.replaceAll("\\", "/")));
     const fingerprint = createFailureFingerprint({commandId: command.id,
       failureClass: failed.failureClass, exitCategory: "nonzero-exit", diagnostics: failed.diagnostic});
     assert.match(fingerprint.diagnostics, /early-retained-failure/);

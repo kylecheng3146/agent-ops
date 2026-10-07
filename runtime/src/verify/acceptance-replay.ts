@@ -43,7 +43,7 @@ async function executableIdentity(command: string, cwd: string, env: Record<stri
     try {
       const resolved = await realpath(path);
       const entry = await lstat(resolved);
-      if (!entry.isFile() || (entry.mode & 0o111) === 0) continue;
+      if (!entry.isFile() || (process.platform !== "win32" && (entry.mode & 0o111) === 0)) continue;
       return sha256(canonicalJson({path: resolved, bytes: sha256(await readFile(resolved))}));
     } catch { /* Try the next fixed PATH entry. */ }
   }

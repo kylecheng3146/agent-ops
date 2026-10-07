@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { AgentOpsError } from "../fs/paths.js";
@@ -68,7 +68,8 @@ function shellSafe(value: string): string {
 function assertPathInside(root: string, candidate: string): void {
   const canonicalRoot = resolve(root);
   const canonicalCandidate = resolve(candidate);
-  if (canonicalCandidate !== canonicalRoot && !canonicalCandidate.startsWith(`${canonicalRoot}/`)) {
+  const fromRoot = relative(canonicalRoot, canonicalCandidate);
+  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
     throw new AgentOpsError("LAUNCHD_PATH_INVALID", "launchd transient state escaped its private directory.");
   }
 }

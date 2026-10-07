@@ -7,7 +7,7 @@ import {fileURLToPath} from "node:url";
 import {setTimeout as delay} from "node:timers/promises";
 import test from "node:test";
 
-test("proof process stays dormant until released, and EOF cannot execute a CLI", async () => {
+test("proof process stays dormant until released, and EOF cannot execute a CLI", {skip: process.platform === "win32"}, async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "agent-ops-proof-process-")));
   try {
     const entry = join(root, "run-step-entry.js");
@@ -37,7 +37,7 @@ test("proof process stays dormant until released, and EOF cannot execute a CLI",
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
-test("canceling a registered proof group kills a TERM-resistant managed descendant", async () => {
+test("canceling a registered proof group kills a TERM-resistant managed descendant", {skip: process.platform === "win32"}, async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "agent-ops-proof-cancel-")));
   let group: number | undefined;
   try {
