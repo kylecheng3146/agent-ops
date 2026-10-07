@@ -153,7 +153,7 @@ async function runCodex(cwd) {
   const startedAt = now();
   const first = rpcProcess(cwd);
   const initialize = await first.request("initialize", {
-    clientInfo: { name: "agent-ops-probe", title: "agent-ops native goal probe", version: "0.5.3" }
+    clientInfo: { name: "agent-ops-probe", title: "agent-ops native goal probe", version: "0.6.0" }
   }, Math.min(timeoutMs, 10_000));
   first.notify("initialized");
   const threadStart = initialize === undefined ? undefined : await first.request("thread/start", {
@@ -191,7 +191,7 @@ async function runCodex(cwd) {
   const stopExit = await first.stop("SIGTERM");
   const second = rpcProcess(cwd);
   const resumeInitialize = await second.request("initialize", {
-    clientInfo: { name: "agent-ops-probe", title: "agent-ops native goal probe", version: "0.5.3" }
+    clientInfo: { name: "agent-ops-probe", title: "agent-ops native goal probe", version: "0.6.0" }
   }, Math.min(timeoutMs, 10_000));
   second.notify("initialized");
   const resume = typeof threadId === "string"

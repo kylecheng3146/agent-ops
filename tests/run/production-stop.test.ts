@@ -9,6 +9,7 @@ import {createRunState} from "../../runtime/src/run/service.js";
 import {nativeProcessIdentity} from "../../runtime/src/run/transport.js";
 import {loadEffectiveConfig, repositoryTrustBinding} from "../../packages/cli/src/context.js";
 import {trustStore} from "../../packages/cli/src/parallel-deps.js";
+import {CLI_VERSION} from "../../packages/cli/src/version.js";
 
 test("production stop kills the registered proof group and closes budget even when launchd disable and bootout fail", {skip: process.platform !== "darwin"}, async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-production-stop-"));
@@ -60,7 +61,7 @@ test("Stop before background provisioning fences the assigned coordinator and ex
     await writeFile(join(root, "bin/codex"), "#!/bin/sh\nprintf 'fixture-codex-version\\n'\n", {mode: 0o700});
     process.env.PATH = join(root, "bin") + ":" + original.path;
     const config = (await loadEffectiveConfig(root, "project")).config;
-    await trustStore().grant(await repositoryTrustBinding(root, config, "0.5.3"));
+    await trustStore().grant(await repositoryTrustBinding(root, config, CLI_VERSION));
     const context = await productionRunContext(root, {launchd});
     const started = await context.service.start({root, commonDir: context.commonDir, targetBranch: "main", host: "codex", ownerSessionId: "fixture",
       goal: "Preserve explicit Stop before setup"});

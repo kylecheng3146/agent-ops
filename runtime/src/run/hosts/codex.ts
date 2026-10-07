@@ -289,7 +289,7 @@ export class CodexGoalHost implements NativeGoalHost {
       clientInfo: {
         name: "agent-ops",
         title: "agent-ops native goal host",
-        version: "0.5.3"
+        version: "0.6.0"
       }
     });
     session.notify("initialized", {});
