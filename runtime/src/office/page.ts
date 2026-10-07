@@ -142,6 +142,7 @@ button{font:inherit;color:inherit}
 #status button{border:2px solid #2b241f;background:#d9aa72;padding:5px 10px;cursor:pointer}
 #status button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:760px){#header{flex-wrap:wrap;gap:6px;padding:6px 8px}#brand{font-size:16px}#header button{order:1;font-size:12px;padding:3px 5px}#crumb{min-width:70px}#live{font-size:12px}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 `;
 
@@ -420,6 +421,7 @@ function render(){
   fitCanvas();
 }
 function renderRoomNav(rooms){
+  NAV_PAGE_SIZE=Math.max(1,Math.min(8,Math.floor((window.innerWidth-160)/120)));
   if (mode !== "overview") { if (navSignature !== lang + "|room") { roomNav.textContent = ""; navSignature = lang + "|room"; } return; }
   var pages = Math.max(1, Math.ceil(rooms.length / NAV_PAGE_SIZE));
   navPage = Math.max(0, Math.min(navPage, pages - 1));
@@ -470,7 +472,7 @@ function addCommand(box, value, copyValue){
   }); row.appendChild(code); row.appendChild(button); box.appendChild(row);
 }
 function pageItems(items, box, renderItem){
-  var pageSize = window.innerHeight < 560 || window.innerWidth < 480 ? 3 : 5, pages;
+  var small=window.innerWidth<480, pageSize=Math.max(1,Math.min(small?3:5,Math.floor((window.innerHeight*.88-145)/(small?75:56)))), pages;
   items = items.flatMap(function(item){var value=item.value||'', limit=window.innerWidth<480?45:90, chunks=[];for(var offset=0;offset<value.length;offset+=limit)chunks.push(Object.assign({},item,{value:value.slice(offset,offset+limit),copyValue:item.kind==='command'?value:undefined}));return chunks.length?chunks:[item];});
   pages = Math.max(1,Math.ceil(items.length/pageSize));detailPage=Math.max(0,Math.min(detailPage,pages-1));
   items.slice(detailPage * pageSize, detailPage * pageSize + pageSize).forEach(function(item){ renderItem(item, box); });
