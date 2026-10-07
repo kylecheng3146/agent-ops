@@ -1,0 +1,7 @@
+worktree: session-ba977e74 (agent-ops/session-ba977e74)
+session: ba977e74-733f-4827-95eb-f6ff82668076
+agent-ops task task-9af382d2-1c11-47f0-ae38-5ad297146ef9: office: create launchd private directory before descriptor write
+intent: ensureBackgroundOffice writes the launchd plist under <common>/agent-ops/office, which never exists, so writePrivateFile's anchor check fails with PRIVATE_STATE_PATH_INVALID. Create that directory (0700) before writing the descriptor. No other behavior changes.
+criteria:
+- office-dir-created: ensureBackgroundOffice on a repo without <common>/agent-ops/office creates it with mode 0700 and writes the descriptor without PRIVATE_STATE_PATH_INVALID; covered by a test using a real temp git repo and a fake launchd
+- suite-green: npm test passes
