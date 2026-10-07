@@ -78,6 +78,24 @@ test("phase changes move actors into each of the five in-scene areas", () => {
   }
 });
 
+test("extra workstations keep exact actor ids and unknown phases stay unassigned", () => {
+  const base = snapshot();
+  const run = base.runs[0]!;
+  const agents = [
+    {...run.agents[0]!, id: "shared-worker-name-alpha", phase: "implementing" as const},
+    {...run.agents[1]!, id: "shared-worker-name-beta", phase: "implementing" as const}
+  ];
+  const model = sceneModel({...base, runs: [{...run, agents}], lobby: []});
+  const floor = model.floors[0]!;
+  assert.ok(floor.props.some(prop => prop.key === "run-office-fixture:desk:shared-worker-name-beta"));
+  assert.equal(floor.actors.find(actor => actor.id === "shared-worker-name-beta")!.key, "run-office-fixture:shared-worker-name-beta");
+  const legacyDesk = {...base.lobby[0]!};
+  delete (legacyDesk as {phase?: unknown}).phase;
+  const unknown = sceneModel({...base, lobby: [legacyDesk]}).floors.find(candidate => candidate.kind === "desk")!;
+  assert.equal(unknown.phase, "unknown");
+  assert.equal(unknown.actors[0]!.phase, "unknown");
+});
+
 test("overview bounds include every room and retain completion state", () => {
   const base = snapshot();
   const completedRun = {...base.runs[0]!, completedAt: "2026-10-07T00:59:00.000Z"};

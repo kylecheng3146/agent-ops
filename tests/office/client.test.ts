@@ -119,7 +119,8 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.equal(elements.get("room-nav")!.children.length, 1);
   assert.match(elements.get("crumb")!.textContent, /1 rooms/);
   type AvatarState = {x: number; y: number; direction?: string; walking?: boolean};
-  const vm = context as unknown as {render: () => void; poll: () => void; frame: number; navPage: number; selectedKey: string; T: number; mode: string; detailPage: number; model: {roomCols: number; roomRows: number; floors: {key: string; kind: string; actors: {key: string; id: string; x: number; y: number}[]; props: {kind: string; x: number; y: number}[]}[]}; positions: Record<string, AvatarState>; roomCanvases: Record<string, {canvas: FakeElement}>; avatarImages: Record<string, FakeElement>; drawAvatar: (id: string, state: AvatarState, x: number, y: number, scale: number, viewer: boolean) => void; actorBox: (actor: {key: string; x: number; y: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; scale: number}; progressBoardGeometry: (width: number, height: number) => {x: number; y: number; width: number; height: number}; propGeometry: (prop: {x: number; y: number; kind: string}, width: number, height: number) => {x: number; y: number; width: number; height: number}; surfaceForFloor: (floor: {key: string}) => {x: number; y: number; width: number; height: number}; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; reducedMotion: boolean; supervisor: AvatarState & {targetX: number; targetY: number}; roomSupervisor: AvatarState & {targetX: number; targetY: number}};
+  type SceneFloor = {key: string; kind: string; phase: string; actors: {key: string; id: string; x: number; y: number; questionCount: number}[]; props: {kind: string; x: number; y: number; key: string; phase?: string}[]; phaseAreas: {phase: string; x: number; y: number; width: number; height: number}[]};
+  const vm = context as unknown as {render: () => void; poll: () => void; frame: number; navPage: number; selectedKey: string; T: number; mode: string; detailPage: number; model: {roomCols: number; roomRows: number; floors: SceneFloor[]}; positions: Record<string, AvatarState>; roomCanvases: Record<string, {canvas: FakeElement}>; avatarImages: Record<string, FakeElement>; drawAvatar: (id: string, state: AvatarState, x: number, y: number, scale: number, viewer: boolean) => void; actorBox: (actor: {key: string; x: number; y: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; scale: number}; alertGeometry: (actor: {key: string; x: number; y: number; questionCount: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; width: number; height: number}; phaseAreaGeometry: (area: {x: number; y: number; width: number; height: number}, width: number, height: number) => {x: number; y: number; width: number; height: number}; progressBoardGeometry: (width: number, height: number) => {x: number; y: number; width: number; height: number}; pendingBoardGeometry: (width: number, height: number) => {x: number; y: number; width: number; height: number}; propGeometry: (prop: {x: number; y: number; kind: string}, width: number, height: number) => {x: number; y: number; width: number; height: number}; surfaceForFloor: (floor: {key: string}) => {x: number; y: number; width: number; height: number}; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; reducedMotion: boolean; supervisor: AvatarState & {targetX: number; targetY: number}; roomSupervisor: AvatarState & {targetX: number; targetY: number}};
   const drawings: {id: string; direction: string | undefined; walking: boolean | undefined; viewer: boolean; scale: number}[] = [];
   const drawAvatar = vm.drawAvatar;
   vm.drawAvatar = (id, state, x, y, scale, viewer) => {drawings.push({id, direction: state.direction, walking: state.walking, viewer, scale});drawAvatar(id, state, x, y, scale, viewer);};
@@ -164,7 +165,9 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   canvas.events.get("click")?.({clientX: actorBox.x + 16 * actorBox.scale, clientY: actorBox.y + 24 * actorBox.scale});
   assert.equal(elements.get("status")!.children[0]!.textContent, "session-a", "clicking the new avatar dimensions opens that actor's details");
   elements.get("status")!.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
-  canvas.events.get("click")?.({clientX: 560, clientY: 300});
+  // A clear floor point keeps this assertion on the generic room detail path;
+  // phase-area clicks now intentionally open that phase's work list.
+  canvas.events.get("click")?.({clientX: 1200, clientY: 700});
   const status = elements.get("status")!;
   assert.equal(status.hidden, false);
   const dialogButtons = status.querySelectorAll("button:not([disabled])");
@@ -262,7 +265,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
   const team = vm.model.floors.find(floor => floor.kind === "run")!;
   const teamOverview = vm.surfaceForFloor(team), overviewBoard = vm.progressBoardGeometry(teamOverview.width, teamOverview.height);
-  canvas.events.get("click")?.({clientX: teamOverview.x + overviewBoard.x + overviewBoard.width / 2, clientY: teamOverview.y + overviewBoard.y + overviewBoard.height / 2});
+  canvas.events.get("click")?.({clientX: teamOverview.x + overviewBoard.x + overviewBoard.width / 2, clientY: teamOverview.y + overviewBoard.y + overviewBoard.height * .25});
   assert.equal(status.hidden, false);
   assert.match(status.children[0]!.textContent, /工作清單/u);
   const workPages: string[] = [];
@@ -318,5 +321,113 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   }
   const englishText = englishPages.join("");
   assert.ok(englishText.includes("Owner") && englishText.includes("Current work"), "English work list localizes owner and current work");
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+
+  // Keyboard phase/question views use the same bounded, focusable dialog.
+  keydownCanvas({key: "q", preventDefault: () => {}});
+  assert.match(status.children[0]!.textContent, /Questions/u);
+  assert.ok(treeText(status).includes("Pick a reviewer"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  keydownCanvas({key: "3", preventDefault: () => {}});
+  assert.match(status.children[0]!.textContent, /Verifying/u);
+  assert.ok(treeText(status).includes("No known work is in this phase"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  keydownCanvas({key: "q", ctrlKey: true, preventDefault: () => {}});
+  assert.equal(status.hidden, true, "modified shortcuts remain available to the browser");
+
+  // Overview alert, pending row, and phase surfaces all open read-only views.
+  elements.get("back")!.click();
+  const overviewTeam = vm.model.floors.find(floor => floor.kind === "run")!;
+  const overviewSurface = vm.surfaceForFloor(overviewTeam);
+  const leadOverview = overviewTeam.actors.find(actor => actor.id === "lead")!;
+  const overviewAlert = vm.alertGeometry(leadOverview, overviewSurface);
+  canvas.events.get("click")?.({clientX: overviewAlert.x + overviewAlert.width / 2, clientY: overviewAlert.y + overviewAlert.height / 2});
+  assert.match(status.children[0]!.textContent, /Questions/u);
+  assert.ok(treeText(status).includes("Choose a port"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  const overviewPending = vm.pendingBoardGeometry(overviewSurface.width, overviewSurface.height);
+  canvas.events.get("click")?.({clientX: overviewSurface.x + overviewPending.x + overviewPending.width / 2, clientY: overviewSurface.y + overviewPending.y + overviewPending.height / 2});
+  assert.match(status.children[0]!.textContent, /Questions/u);
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  const verifyingArea = overviewTeam.phaseAreas.find(area => area.phase === "verifying")!;
+  const verifyingRect = vm.phaseAreaGeometry(verifyingArea, overviewSurface.width, overviewSurface.height);
+  canvas.events.get("click")?.({clientX: overviewSurface.x + verifyingRect.x + verifyingRect.width / 2, clientY: overviewSurface.y + verifyingRect.y + verifyingRect.height * .9});
+  assert.match(status.children[0]!.textContent, /Verifying/u);
+  assert.ok(treeText(status).includes("builder"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  const integratingArea = overviewTeam.phaseAreas.find(area => area.phase === "integrating")!;
+  const integratingRect = vm.phaseAreaGeometry(integratingArea, overviewSurface.width, overviewSurface.height);
+  canvas.events.get("click")?.({clientX: overviewSurface.x + integratingRect.x + integratingRect.width * .95, clientY: overviewSurface.y + integratingRect.y + integratingRect.height * .9});
+  assert.match(status.children[0]!.textContent, /Integrating/u);
+  assert.ok(treeText(status).includes("No known work is in this phase"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+
+  // In the enlarged room, a workstation with a known phase opens that phase,
+  // while the viewer can still use the existing whiteboard/work-list path.
+  const overviewTeamButton = elements.get("room-nav")!.children.find(button => button.textContent.includes("team-room"))!;
+  overviewTeamButton.click();
+  const detailTeam = vm.model.floors.find(floor => floor.kind === "run")!, detailVerifyArea = detailTeam.phaseAreas.find(area => area.phase === "verifying")!;
+  const detailBench = detailTeam.props.find(prop => prop.kind === "bench")!, benchRect = vm.propGeometry(detailBench, canvas.width, canvas.height);
+  canvas.events.get("click")?.({clientX: benchRect.x + benchRect.width * .9, clientY: benchRect.y + benchRect.height * .9});
+  assert.match(status.children[0]!.textContent, /Verifying/u);
+  assert.ok(treeText(status).includes("builder"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  const detailVerify = vm.phaseAreaGeometry(detailVerifyArea, canvas.width, canvas.height);
+  canvas.events.get("click")?.({clientX: detailVerify.x + detailVerify.width * .95, clientY: detailVerify.y + detailVerify.height * .9});
+  assert.match(status.children[0]!.textContent, /Verifying/u);
+  assert.ok(treeText(status).includes("builder"));
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+
+  // Many prompts and a command are all reachable through question paging.
+  const manyQuestions = Array.from({length: 12}, (_, index) => ({questionId: `q-${index}`, prompt: `Prompt ${index}`}));
+  snapshot = {...snapshot, runs: snapshot.runs.map(run => ({...run, questions: manyQuestions}))};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const refreshedTeam = vm.model.floors.find(floor => floor.kind === "run")!, refreshedLead = refreshedTeam.actors.find(actor => actor.id === "lead")!, refreshedAlert = vm.alertGeometry(refreshedLead, {x: 0, y: 0, width: canvas.width, height: canvas.height});
+  canvas.events.get("click")?.({clientX: refreshedAlert.x + refreshedAlert.width / 2, clientY: refreshedAlert.y + refreshedAlert.height / 2});
+  const questionPages: string[] = [];
+  for (let page = 0; page < 20; page++) {
+    questionPages.push(treeText(status));
+    const next = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "Next");
+    if (!next) break;
+    next.click();
+  }
+  const questionText = questionPages.join("");
+  assert.ok(questionText.includes("Prompt 0") && questionText.includes("Prompt 11") && questionText.includes("agent-ops run status team-room"));
+  vm.detailPage = 0;
+  keydownCanvas({key: "q", preventDefault: () => {}});
+  const budgetNext = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "Next")!;
+  budgetNext.click();
+  const budgetPage = vm.detailPage, budgetFocus = activeElement;
+  snapshot = {...snapshot, runs: snapshot.runs.map(run => ({...run, budget: {...run.budget, usedMs: run.budget.usedMs + 10, remainingMs: Math.max(0, run.budget.remainingMs - 10)}}))};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  assert.equal(vm.detailPage, budgetPage, "budget-only polling preserves the question page");
+  assert.equal(activeElement, budgetFocus, "budget-only polling preserves dialog focus");
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  elements.get("back")!.click();
+
+  // Extra desks carry the full actor id, so equal short labels cannot select
+  // the wrong worker when their workstation is clicked.
+  const duplicateRun = {...snapshot.runs[0]!, runId: "duplicate-room", title: "duplicate-room", questions: [], agents: [
+    {...snapshot.runs[0]!.agents[0]!, id: "shared-worker-name-alpha", role: "coordinator" as const, phase: "implementing" as const, diff: {files: 1, insertions: 1, deletions: 0, paths: ["src/alpha.ts"], recent: "src/alpha.ts"}, narration: "editing src/alpha.ts"},
+    {...snapshot.runs[0]!.agents[1]!, id: "shared-worker-name-beta", role: "worker" as const, phase: "implementing" as const, diff: {files: 1, insertions: 1, deletions: 0, paths: ["src/beta.ts"], recent: "src/beta.ts"}, narration: "editing src/beta.ts"}
+  ]};
+  snapshot = {generatedAt: "x", runs: [duplicateRun], lobby: [], reviews: []};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const duplicateFloor = vm.model.floors[0]!, extraDesk = duplicateFloor.props.find(prop => prop.key === "duplicate-room:desk:shared-worker-name-beta")!;
+  const duplicateSurface = vm.surfaceForFloor(duplicateFloor), extraRect = vm.propGeometry(extraDesk, duplicateSurface.width, duplicateSurface.height);
+  canvas.events.get("click")?.({clientX: duplicateSurface.x + extraRect.x + extraRect.width / 2, clientY: duplicateSurface.y + extraRect.y + extraRect.height / 2});
+  const deskPages: string[] = [];
+  for (let page = 0; page < 10; page++) {
+    deskPages.push(treeText(status));
+    const next = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "Next");
+    if (!next) break;
+    next.click();
+  }
+  assert.ok(deskPages.join("").includes("src/beta.ts"), "the exact desk key opens the matching actor details");
+  snapshot = {generatedAt: "x", runs: [], lobby: [], reviews: []};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  assert.equal(status.hidden, true, "a disappeared room closes its stale dialog");
+  assert.equal(vm.mode, "overview", "a disappeared room returns to the overview");
+  assert.equal(activeElement, canvas, "closing a disappeared room returns focus to the canvas");
   status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
 });

@@ -257,8 +257,8 @@ var supervisor = {x:43, y:19, targetX:43, targetY:19}, supervisorReady = false, 
 var roomSupervisor = {x:32, y:34, targetX:32, targetY:34};
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var STRINGS = {
-  en: {overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -315,12 +315,17 @@ function propSize(kind){ var s = SPRITES[kind] || [""]; return {w:s[0].length * 
 function roomMetrics(width,height){var rx=width/model.roomCols,ry=height/model.roomRows;return {rx:rx,ry:ry,unit:Math.max(.5,Math.min(rx,ry)/8)};}
 function propGeometry(prop,width,height){
   var metrics=roomMetrics(width,height),rawX=prop.x*metrics.rx,rawY=prop.y*metrics.ry;
-  var layoutWidths={window:58,plant:32,shelf:28,door:24},visualWidths={window:52,plant:32,shelf:28,door:24,whiteboard:65},heights={desk:45,bench:45,table:54,window:31,whiteboard:49,shelf:61,plant:31,chair:32,door:46};
+  // layout sizes keep the existing scale decisions; visual sizes follow the
+  // actual rounded pixel art drawn by furniture() so clicks never drift away.
+  var layoutWidths={window:58,plant:32,shelf:28,door:24},visualWidths={desk:75,bench:75,table:65,window:58,plant:32,shelf:28,door:24,whiteboard:65,chair:21},heights={desk:45,bench:45,table:54,window:31,whiteboard:49,shelf:61,plant:31,chair:32,door:46};
+  var visualHeights={desk:45,bench:49,table:54,window:34,plant:34,shelf:61,door:46,whiteboard:49,chair:32},visualXOffsets={window:-3},visualYOffsets={bench:-4,window:-3,plant:-3};
   var layoutWidth=layoutWidths[prop.kind]||75,visualWidth=visualWidths[prop.kind]||layoutWidth,artHeight=heights[prop.kind]||45;
-  var rawScale=Math.max(.3,Math.min(metrics.unit*1.85,(height-rawY-2*metrics.unit)/artHeight,(width-rawX-2*metrics.unit)/layoutWidth)),scale=Math.max(1,Math.round(rawScale));
-  return {x:Math.round(rawX),y:Math.round(rawY),rawX:rawX,rawY:rawY,width:visualWidth*scale,height:artHeight*scale,scale:scale,rawScale:rawScale,unit:metrics.unit};
+  var rawScale=Math.max(.3,Math.min(metrics.unit*1.85,(height-rawY-2*metrics.unit)/artHeight,(width-rawX-2*metrics.unit)/layoutWidth)),scale=Math.max(1,Math.round(rawScale)),visualHeight=visualHeights[prop.kind]||artHeight,visualY=Math.round(rawY+(visualYOffsets[prop.kind]||0)*scale);
+  return {x:Math.round(rawX+(visualXOffsets[prop.kind]||0)*scale),y:visualY,rawX:rawX,rawY:rawY,width:visualWidth*scale,height:visualHeight*scale,scale:scale,rawScale:rawScale,unit:metrics.unit};
 }
+function phaseAreaGeometry(area,width,height){var metrics=roomMetrics(width,height);return {x:area.x*metrics.rx,y:area.y*metrics.ry,width:area.width*metrics.rx,height:area.height*metrics.ry,rx:metrics.rx,ry:metrics.ry,unit:metrics.unit};}
 function progressBoardGeometry(width,height){var metrics=roomMetrics(width,height);return {x:24*metrics.rx,y:metrics.ry,width:27*metrics.rx,height:Math.max(7*metrics.ry,66*metrics.unit),unit:metrics.unit};}
+function pendingBoardGeometry(width,height){var board=progressBoardGeometry(width,height),inset=4*board.unit;return {x:board.x+inset,y:board.y+50*board.unit,width:Math.max(0,board.width-inset*2),height:Math.max(0,Math.min(15*board.unit,board.height-50*board.unit)),unit:board.unit};}
 function surfaceForFloor(floor){if(mode==='room')return {x:0,y:0,width:canvas.width,height:canvas.height};var box=roomBox(floor);return {x:Math.round(box.x*T),y:Math.round(box.y*T),width:Math.round(box.width*T),height:Math.round(box.height*T)};}
 function canvasPoint(event){var rect=canvas.getBoundingClientRect();return {x:(event.clientX-rect.left)*canvas.width/rect.width,y:(event.clientY-rect.top)*canvas.height/rect.height};}
 function inside(point,rect){return point.x>=rect.x&&point.x<rect.x+rect.width&&point.y>=rect.y&&point.y<rect.y+rect.height;}
@@ -391,8 +396,9 @@ function drawRoomBase(floor){
   var savedU = U; U = labelUnit;
   // Sage rugs and oak furniture give each phase a real place in the room.
   floor.phaseAreas.forEach(function(a){
+    var area=phaseAreaGeometry(a,canvas.width,canvas.height);
     if(a.phase==='implementing'||a.phase==='reviewing'){
-      var x=a.x*rx,y=(a.y+1)*ry,w=a.width*rx,h=(a.height-1)*ry;
+      var x=area.x,y=area.y+area.ry,w=area.width,h=area.height-area.ry;
       ctx.fillStyle=PALETTE[3];ctx.fillRect(x,y,w,h);ctx.strokeStyle=PALETTE[2];ctx.lineWidth=2*unit;ctx.strokeRect(x+3*unit,y+3*unit,w-6*unit,h-6*unit);
     }
   });
@@ -403,7 +409,7 @@ function drawRoomBase(floor){
     if(p.kind==='shelf')for(var book=0;book<Math.min(5,floor.books.lit);book++){ctx.fillStyle=PALETTE[14];ctx.fillRect(px+(4+book*4)*Math.round(artUnit),py+4*Math.round(artUnit),3*Math.round(artUnit),2*Math.round(artUnit));}
     if(p.kind==='desk')for(var paper=0;paper<Math.min(4,floor.papers[p.key]||0);paper++){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+44*artUnit,py+(20-paper)*artUnit,9*artUnit,2*artUnit);}
   });
-  floor.phaseAreas.forEach(function(a){var ax=a.x*rx,ay=a.y*ry;ctx.fillStyle=PALETTE[15];ctx.fillRect(ax,ay,Math.min(a.width*rx,72*labelUnit),13*labelUnit);fillText(phaseLabel(a.phase),ax+4*labelUnit,ay+2*labelUnit,9,PALETTE[1]);});
+  floor.phaseAreas.forEach(function(a){var area=phaseAreaGeometry(a,canvas.width,canvas.height),ax=area.x,ay=area.y;ctx.fillStyle=PALETTE[15];ctx.fillRect(ax,ay,Math.min(area.width,72*labelUnit),13*labelUnit);fillText(phaseLabel(a.phase),ax+4*labelUnit,ay+2*labelUnit,9,PALETTE[1]);});
   var titleX=2*rx,titleY=ry,w=19*rx;
   ctx.fillStyle=PALETTE[4];ctx.fillRect(titleX,titleY,w,4*ry);ctx.fillStyle=PALETTE[6];ctx.fillRect(titleX+2*unit,titleY+2*unit,w-4*unit,4*ry-4*unit);
   fillText(short(floor.title,20),titleX+6*unit,titleY+6*unit,11);fillText(statusText(floor.status),titleX+6*unit,titleY+22*unit,8,PALETTE[4]);
@@ -413,7 +419,8 @@ function drawRoomBase(floor){
   fillText(t('progress')+'  '+b.passed+'/'+(b.total||'?'),bx+6*unit,by+16*unit,10,PALETTE[1]);
   ctx.fillStyle=PALETTE[3];ctx.fillRect(bx+6*unit,by+29*unit,bw-12*unit,5*unit);ctx.fillStyle=PALETTE[2];ctx.fillRect(bx+6*unit,by+29*unit,(bw-12*unit)*Math.min(1,b.total?b.passed/b.total:0),5*unit);
   fillText(t('verify')+' '+outcomeText(b.verify)+'  '+t('review')+' '+outcomeText(b.review),bx+6*unit,by+40*unit,8,PALETTE[4]);
-  if(b.pending)fillText('! '+t('pending')+' '+b.pending,bx+6*unit,by+53*unit,8,PALETTE[13]);
+  var pendingRow=pendingBoardGeometry(canvas.width,canvas.height);
+  if(b.pending)fillText('! '+t('pending')+' '+b.pending,pendingRow.x+2*unit,pendingRow.y+3*unit,8,PALETTE[13]);
   var oldS=S;S=Math.max(1,Math.round(unit));var cx=52*rx,cy=ry;draw('clock',cx,cy);
   ctx.strokeStyle=PALETTE[13];ctx.lineWidth=2*S;ctx.beginPath();ctx.moveTo(cx+8*S,cy+7*S);var angle=-Math.PI/2+2*Math.PI*floor.clock;ctx.lineTo(cx+8*S+Math.cos(angle)*5*S,cy+7*S+Math.sin(angle)*5*S);ctx.stroke();S=oldS;
   U=savedU;
@@ -430,13 +437,15 @@ function drawActor(floor, actor, surface){
   var text=short(actor.label,10)+' · '+roleText(actor.kind)+' · '+short(statusText(actor.status),8),font=9*U;
   ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+49*S);
   ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
-  if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',px+14*S,py-9*S);
+  var alert=alertGeometry(actor,surface);
+  if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',alert.x,alert.y);
   S=oldS;U=oldU;
 }
 function actorBox(actor,surface){
   var pos=positions[actor.key]||{x:actor.x*T,y:actor.y*T},scale=avatarScale(surface),unit=Math.max(dpr,Math.min(U,scale));
   return {scale:scale,unit:unit,x:Math.round(Math.max(surface.x,Math.min(surface.x+surface.width-32*scale,surface.x+pos.x/(model.roomCols*T)*surface.width))),y:Math.round(Math.max(surface.y,Math.min(surface.y+surface.height-48*scale-16*unit,surface.y+pos.y/(model.roomRows*T)*surface.height)))};
 }
+function alertGeometry(actor,surface){var box=actorBox(actor,surface);return {x:box.x+14*box.scale,y:box.y-9*box.scale,width:4*box.scale,height:8*box.scale,scale:box.scale};}
 function fitCanvas(){
   var wrapW = wrap && wrap.clientWidth ? wrap.clientWidth : window.innerWidth;
   var wrapH = wrap && wrap.clientHeight ? wrap.clientHeight : window.innerHeight - 54;
@@ -559,7 +568,7 @@ function renderRoomNav(rooms){
 }
 function updateHeader(){
   if(document.documentElement)document.documentElement.lang=lang==='zh'?'zh-Hant':'en';
-  canvas.setAttribute('aria-label',(lang==='zh'?'方向鍵或 WASD 移動 Supervisor；Enter 進入房間或查看細節；Esc 返回。':'Arrow keys or WASD move Supervisor; Enter opens rooms or details; Escape returns.')+' '+t('keyboardWork'));
+  canvas.setAttribute('aria-label',(lang==='zh'?'方向鍵或 WASD 移動 Supervisor；Enter 進入房間或查看細節；Esc 返回。':'Arrow keys or WASD move Supervisor; Enter opens rooms or details; Escape returns.')+' '+t('keyboardWork')+'；'+t('keyboardPhase')+'；'+t('keyboardQuestions'));
   var rooms = visibleRooms(), people = rooms.reduce(function(n, f){ return n + f.actors.length; }, 0);
   crumb.textContent = mode === "room" && activeRoom() ? activeRoom().title : t("overview") + " · " + rooms.length + " " + t("rooms") + " · " + people + " " + t("people");
   backButton.hidden = mode !== "room"; backButton.textContent = "← " + t("back"); recentButton.textContent = (showRecent ? "✓ " + t("recentOn") : "▣ " + t("recent")) + (hasRecent() ? " (" + model.floors.filter(function(f){ return !!f.completedAt; }).length + ")" : "");
@@ -588,7 +597,7 @@ function showDialog(title, fill){
   if (app) { app.inert = true; app.setAttribute("aria-hidden", "true"); }
   close.focus();
 }
-function closeDialog(){ statusBox.hidden = true; if (app) { app.inert = false; app.removeAttribute("aria-hidden"); } var previous = detailPreviousFocus || canvas; dialogClose = null; detailPreviousFocus = null; if (previous && previous.focus) previous.focus(); }
+function closeDialog(){ statusBox.hidden = true; if (app) { app.inert = false; app.removeAttribute("aria-hidden"); } var previous = detailPreviousFocus || canvas; if (!previous || previous.isConnected === false || !previous.focus) previous = canvas; dialogClose = null; detailPreviousFocus = null; if (previous && previous.focus) previous.focus(); }
 function addLine(box, label, value){ var p = document.createElement("p"); p.textContent = label + ": " + safeText(value); box.appendChild(p); }
 function addCommand(box, value, copyValue){
   var row = document.createElement("p"), code = document.createElement("code"), button = document.createElement("button");
@@ -612,6 +621,7 @@ function sourceFor(floor){
   if (floor.kind === "review") return floor.sourceIndex === null ? null : snapshot.reviews[floor.sourceIndex] || null;
   return null;
 }
+function sourceSignature(floor){return JSON.stringify(sourceFor(floor),function(key,value){return key==='budget'?undefined:value;});}
 function renderDetailItem(item, box){
   if (item.kind === "command") return addCommand(box, item.value, item.copyValue);
   if (item.kind === "file") { var file = document.createElement("p"); file.textContent = "• " + item.value; box.appendChild(file); return; }
@@ -619,6 +629,7 @@ function renderDetailItem(item, box){
   addLine(box, item.label, item.value);
 }
 function progressText(progress){return progress ? progress.passed+'/'+(progress.total||'?')+' · '+t('verify')+' '+outcomeText(progress.verify||'pending')+' · '+t('review')+' '+outcomeText(progress.review||'pending') : t('unknown');}
+function workItemForActor(floor,actor){return {kind:'work',floorKey:floor.key,actorKey:actor.key,label:t('owner')+': '+actor.label+' · '+roleText(actor.kind),value:t('currentWork')+': '+localizeText(actor.narration)+' · '+t('phase')+': '+phaseLabel(actor.phase)+' · '+t('status')+': '+statusText(actor.status)+' · '+t('progress')+': '+progressText(actor.progress)+' · '+t('pending')+': '+actor.questionCount};}
 function workItemsFor(floor){
   var items=[
     {kind:'line',label:t('task'),value:floor.board.taskId==='unassigned'?t('unassigned'):floor.board.taskId},
@@ -626,11 +637,23 @@ function workItemsFor(floor){
     {kind:'line',label:t('progress'),value:progressText({passed:floor.board.passed,total:floor.board.total,verify:floor.board.verify,review:floor.board.review})},
     {kind:'line',label:t('pending'),value:String(floor.board.pending)}
   ];
-  floor.actors.forEach(function(actor){
-    items.push({kind:'work',floorKey:floor.key,actorKey:actor.key,label:t('owner')+': '+actor.label+' · '+roleText(actor.kind),value:t('currentWork')+': '+localizeText(actor.narration)+' · '+t('phase')+': '+phaseLabel(actor.phase)+' · '+t('status')+': '+statusText(actor.status)+' · '+t('progress')+': '+progressText(actor.progress)+' · '+t('pending')+': '+actor.questionCount});
-  });
+  floor.actors.forEach(function(actor){items.push(workItemForActor(floor,actor));});
   floor.questions.forEach(function(question){items.push({kind:'question',label:t('question')+' · ! '+question.questionId,value:question.prompt});});
   if (!floor.actors.length && !floor.questions.length) items.push({kind:'line',label:t('people'),value:'0'});
+  return items;
+}
+function phaseWorkItemsFor(floor,phase){
+  var items=[{kind:'line',label:t('phase'),value:phaseLabel(phase)}],actors=floor.actors.filter(function(actor){return actor.phase===phase;});
+  if(!actors.length)items.push({kind:'line',label:t('currentWork'),value:t('noPeople')});
+  actors.forEach(function(actor){items.push(workItemForActor(floor,actor));});
+  return items;
+}
+function questionItemsFor(floor){
+  var items=[];
+  if(!floor.questions.length)items.push({kind:'line',label:t('questions'),value:t('noQuestions')});
+  floor.questions.forEach(function(question){items.push({kind:'line',label:t('question')+' · ! '+question.questionId,value:question.prompt});});
+  var source=sourceFor(floor);
+  if(source&&source.commands&&source.commands.length){items.push({kind:'heading',value:t('commands')+':' });source.commands.forEach(function(command){items.push({kind:'command',value:command});});}
   return items;
 }
 function renderWorkItem(item,box){
@@ -644,8 +667,18 @@ function renderWorkItem(item,box){
 }
 function openWorkList(floor){
   if(!detailTarget||detailTarget.floorKey!==floor.key||detailTarget.view!=='work')detailPage=0;
-  detailSignature=JSON.stringify(sourceFor(floor));detailTarget={floorKey:floor.key,actorKey:null,view:'work'};
+  detailSignature=sourceSignature(floor);detailTarget={floorKey:floor.key,actorKey:null,view:'work'};
   showDialog(floor.title+' · '+t('workList'),function(box){pageItems(workItemsFor(floor),box,renderWorkItem);});
+}
+function openPhaseWorkList(floor,phase){
+  if(!detailTarget||detailTarget.floorKey!==floor.key||detailTarget.view!=='phase'||detailTarget.phase!==phase)detailPage=0;
+  detailSignature=sourceSignature(floor);detailTarget={floorKey:floor.key,actorKey:null,view:'phase',phase:phase};
+  showDialog(floor.title+' · '+phaseLabel(phase),function(box){pageItems(phaseWorkItemsFor(floor,phase),box,renderWorkItem);});
+}
+function openQuestionList(floor){
+  if(!detailTarget||detailTarget.floorKey!==floor.key||detailTarget.view!=='questions')detailPage=0;
+  detailSignature=sourceSignature(floor);detailTarget={floorKey:floor.key,actorKey:null,view:'questions'};
+  showDialog(floor.title+' · '+t('questions'),function(box){pageItems(questionItemsFor(floor),box,renderDetailItem);});
 }
 function openActorDetail(floor, actor){
   var source = sourceFor(floor), items = [], entries = [];
@@ -664,11 +697,11 @@ function openActorDetail(floor, actor){
   if (actor.progress) detailItems.push({kind:"line", label:t("progress"), value:actor.progress.passed + "/" + actor.progress.total + "  " + t("verify") + " " + outcomeText(actor.progress.verify || "-") + "  " + t("review") + " " + outcomeText(actor.progress.review || "-")});
   if (actor.questionCount && floor.questions.length) floor.questions.forEach(function(question){ detailItems.push({kind:"line", label:"! " + question.questionId, value:question.prompt}); });
   if (entries.length) { detailItems.push({kind:"heading", value:t("files") + " / " + t("commands") + ":"}); entries.forEach(function(entry){ detailItems.push(entry); }); }
-  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: actor.key, view:'actor'}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
+  detailSignature=sourceSignature(floor); detailTarget = {floorKey: floor.key, actorKey: actor.key, view:'actor'}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
 }
 function openRoomDetail(floor){
   if (!detailTarget || detailTarget.floorKey !== floor.key || detailTarget.actorKey !== null) detailPage = 0;
-  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: null, view:'room'}; var source = sourceFor(floor), items = source && source.diff ? source.diff.paths || [] : [], entries = [];
+  detailSignature=sourceSignature(floor); detailTarget = {floorKey: floor.key, actorKey: null, view:'room'}; var source = sourceFor(floor), items = source && source.diff ? source.diff.paths || [] : [], entries = [];
   items.forEach(function(item){ entries.push({kind:"file", value:item}); });
   if (source && source.commands) source.commands.forEach(function(item){ entries.push({kind:"command", value:item}); });
   var detailItems = [
@@ -685,6 +718,8 @@ function openRoomDetail(floor){
 function openSelectedDetail(){
   var target = detailTarget, floor = target ? roomByKey(target.floorKey) : activeRoom(); if (!floor) return;
   if (target && target.view === 'work') return openWorkList(floor);
+  if (target && target.view === 'phase') return openPhaseWorkList(floor,target.phase);
+  if (target && target.view === 'questions') return openQuestionList(floor);
   if (target && target.actorKey) { var actor = floor.actors.find(function(a){ return a.key === target.actorKey; }); if (actor) return openActorDetail(floor, actor); }
   return openRoomDetail(floor);
 }
@@ -697,12 +732,31 @@ function hitActor(event, floor, surface){
   for (var i = floor.actors.length - 1; i >= 0; i--) { var a=floor.actors[i],box=actorBox(a,surface);if(inside(point,{x:box.x,y:box.y,width:32*box.scale,height:48*box.scale}))return a; }
   return null;
 }
+function surfaceRect(rect,surface){return {x:rect.x+surface.x,y:rect.y+surface.y,width:rect.width,height:rect.height};}
+function hitQuestionBadge(event,floor,surface){
+  var point=canvasPoint(event);surface=surface||{x:0,y:0,width:canvas.width,height:canvas.height};
+  for(var i=floor.actors.length-1;i>=0;i--){var actor=floor.actors[i];if(actor.questionCount>0&&inside(point,alertGeometry(actor,surface)))return actor;}
+  return null;
+}
+function actorForProp(floor,prop){
+  var prefix=floor.key+':desk:';
+  if(prop.kind!=='desk'||prop.key.indexOf(prefix)!==0)return null;
+  var id=prop.key.slice(prefix.length);
+  return floor.actors.find(function(actor){return actor.id===id;})||null;
+}
 function hitWorkBoard(event,floor,surface){
   var point=canvasPoint(event),board=progressBoardGeometry(surface.width,surface.height);
   board.x+=surface.x;board.y+=surface.y;
+  if(floor.board.pending>0){var pending=pendingBoardGeometry(surface.width,surface.height);pending.x+=surface.x;pending.y+=surface.y;if(inside(point,pending))return 'questions';}
   if(inside(point,board))return 'progress';
   var whiteboard=floor.props.find(function(prop){return prop.kind==='whiteboard';});
-  if(whiteboard){var rect=propGeometry(whiteboard,surface.width,surface.height);rect.x+=surface.x;rect.y+=surface.y;if(inside(point,rect))return 'whiteboard';}
+  if(whiteboard){var rect=surfaceRect(propGeometry(whiteboard,surface.width,surface.height),surface);if(inside(point,rect))return 'whiteboard';}
+  return null;
+}
+function hitWorkTarget(event,floor,surface){
+  var point=canvasPoint(event),props=floor.props;
+  for(var i=props.length-1;i>=0;i--){var prop=props[i];if(prop.kind!=='desk'&&prop.kind!=='bench'&&prop.kind!=='table')continue;var rect=surfaceRect(propGeometry(prop,surface.width,surface.height),surface);if(inside(point,rect))return {kind:'prop',phase:prop.phase,prop:prop,actor:actorForProp(floor,prop)};}
+  for(var j=floor.phaseAreas.length-1;j>=0;j--){var area=phaseAreaGeometry(floor.phaseAreas[j],surface.width,surface.height);if(inside(point,surfaceRect(area,surface)))return {kind:'phase',phase:floor.phaseAreas[j].phase,prop:null,actor:null};}
   return null;
 }
 canvas.addEventListener("click", function(event){
@@ -710,14 +764,26 @@ canvas.addEventListener("click", function(event){
   if (mode === "overview") {
     var floor = hitOverview(event); if (!floor) return; selectedKey=floor.key;var surface=surfaceForFloor(floor),actor=hitActor(event,floor,surface);
     if(actor){enterRoom();openActorDetail(activeRoom()||floor,actor);return;}
-    if(hitWorkBoard(event,floor,surface)){openWorkList(floor);return;}
+    var badge=hitQuestionBadge(event,floor,surface);if(badge){openQuestionList(floor);return;}
+    var boardHit=hitWorkBoard(event,floor,surface);if(boardHit==='questions'){openQuestionList(floor);return;}if(boardHit){openWorkList(floor);return;}
+    var work=hitWorkTarget(event,floor,surface);if(work){if(work.actor)openActorDetail(floor,work.actor);else if(work.phase)openPhaseWorkList(floor,work.phase);return;}
     enterRoom();return;
   }
-  var room = activeRoom(); if (!room) return; var roomSurface=surfaceForFloor(room), actor = hitActor(event, room, roomSurface); if (actor) openActorDetail(room, actor); else if (hitWorkBoard(event,room,roomSurface)) openWorkList(room); else openRoomDetail(room);
+  var room = activeRoom(); if (!room) return; var roomSurface=surfaceForFloor(room), actor = hitActor(event, room, roomSurface); if (actor) openActorDetail(room, actor); else {
+    var roomBadge=hitQuestionBadge(event,room,roomSurface);if(roomBadge){openQuestionList(room);return;}
+    var roomBoard=hitWorkBoard(event,room,roomSurface);if(roomBoard==='questions'){openQuestionList(room);return;}if(roomBoard){openWorkList(room);return;}
+    var roomWork=hitWorkTarget(event,room,roomSurface);if(roomWork){if(roomWork.actor)openActorDetail(room,roomWork.actor);else if(roomWork.phase)openPhaseWorkList(room,roomWork.phase);else openRoomDetail(room);return;}
+    openRoomDetail(room);
+  }
 });
 canvas.addEventListener("keydown", function(event){
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === "Escape" || event.key === "Backspace") { event.preventDefault(); if (!statusBox.hidden) closeDialog(); else if (mode === "room") goOverview(); return; }
-  if (event.key === "l" || event.key === "L") { var workFloor=activeRoom()||roomByKey(selectedKey)||visibleRooms()[0]; if (workFloor) { event.preventDefault(); openWorkList(workFloor); return; } }
+  var keyboardFloor=activeRoom()||roomByKey(selectedKey)||visibleRooms()[0];
+  if (event.key === "l" || event.key === "L") { if (keyboardFloor) { event.preventDefault(); openWorkList(keyboardFloor); return; } }
+  if (event.key === "q" || event.key === "Q") { if (keyboardFloor) { event.preventDefault(); openQuestionList(keyboardFloor); return; } }
+  var phaseKeys={"1":"planning","2":"implementing","3":"verifying","4":"reviewing","5":"integrating"};
+  if (phaseKeys[event.key] && keyboardFloor) { event.preventDefault(); openPhaseWorkList(keyboardFloor,phaseKeys[event.key]); return; }
   if (mode === "overview" || mode === "room") {
     var move = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1], a:[-1,0], d:[1,0], w:[0,-1], s:[0,1], A:[-1,0], D:[1,0], W:[0,-1], S:[0,1]}[event.key];
     if (move) { event.preventDefault(); moveSupervisor(move[0], move[1]); return; }
@@ -739,7 +805,7 @@ languageButton.addEventListener("click", changeLanguage); statusBox.addEventList
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 });
-function poll(){ fetch("snapshot.json" + location.search, {cache:"no-store"}).then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then(function(s){ snapshot = s; model = sceneModel(s); offline = false; if (!selectedKey || !roomByKey(selectedKey)) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); if (!statusBox.hidden && detailTarget && roomByKey(detailTarget.floorKey)) { var signature=JSON.stringify(sourceFor(roomByKey(detailTarget.floorKey))); if(signature!==detailSignature){detailSignature=signature;openSelectedDetail();} } }, function(){ offline = true; updateHeader(); }); }
+function poll(){ fetch("snapshot.json" + location.search, {cache:"no-store"}).then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then(function(s){ snapshot = s; model = sceneModel(s); offline = false; var selectedMissing=mode==='room'&&!!selectedKey&&!roomByKey(selectedKey),dialogMissing=!statusBox.hidden&&!!detailTarget&&!roomByKey(detailTarget.floorKey); if(selectedMissing||dialogMissing){if(dialogMissing)detailPreviousFocus=canvas;if(!statusBox.hidden)closeDialog();detailTarget=null;detailPage=0;detailSignature="";mode='overview';} if (!selectedKey || !roomByKey(selectedKey)) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); if (!statusBox.hidden && detailTarget && roomByKey(detailTarget.floorKey)) { var signature=sourceSignature(roomByKey(detailTarget.floorKey)); if(signature!==detailSignature){detailSignature=signature;openSelectedDetail();} } }, function(){ offline = true; updateHeader(); }); }
 function loop(){ frame++; render(); tickDialogue(); requestAnimationFrame(loop); }
 updateHeader(); poll(); setInterval(poll, 2000); window.addEventListener("resize", render); requestAnimationFrame(loop);
 `;
