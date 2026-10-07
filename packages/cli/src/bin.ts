@@ -5,7 +5,7 @@ import {recordRunVerification} from "../../../runtime/src/run/verification.js";
 import {runOwnedLocalProof} from "./owned-run-step.js";
 import {runRunCommand} from "./commands/run.js";
 import {runOfficeCommand} from "./commands/office.js";
-import {ensureBackgroundOffice, serveOffice} from "./office-entry.js";
+import {ensureBackgroundOffice, observeOfficeSession, openOfficeBrowser, serveOffice} from "./office-entry.js";
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -322,7 +322,7 @@ else if (argv[0] === "agy-run") {
       writeStderr: (value) => process.stderr.write(value)
     },
     CLI_VERSION,
-    { worktree: worktreeDependencies() }
+    { worktree: worktreeDependencies(), office: observeOfficeSession }
   );
 } else {
 process.exitCode = await runCli(
@@ -353,10 +353,10 @@ process.exitCode = await runCli(
             throw new AgentOpsError("RUN_POLICY_COORDINATOR_REQUIRED", "Run workers must request scoped policy review from the coordinator; permanent trust and host rules cannot be changed by the run.");
           if (args.command === "run") {
             const context = await productionRunContext(root);
-            return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root)});
+            return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser)});
           }
           if (args.command === "office") {
-            return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root),
+            return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser),
               foreground: async (onUrl) => await serveOffice(root, onUrl), writeStdout: (text) => {process.stdout.write(text);}});
           }
           if (args.command === "init") {

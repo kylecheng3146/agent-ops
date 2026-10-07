@@ -26,6 +26,7 @@ import type {
   HookResult,
   StopVerificationOptions
 } from "../../../runtime/src/hooks/events.js";
+import {officePhaseHint, type OfficeSessionObservation} from "./office-entry.js";
 import { evaluateWorktreeEnter } from "../../../runtime/src/parallel/enter.js";
 import {
   evaluateWorktreeWrite,
@@ -89,6 +90,8 @@ export interface HookProcessDependencies {
   readonly completionGate?: HookDispatchOptions["completionGate"];
   /** Lets the worktree guard create the session's worktree itself. */
   readonly worktree?: WorktreeDependencies;
+  /** Display-only Office observation; failures never affect hook decisions. */
+  readonly office?: (observation: OfficeSessionObservation) => Promise<void>;
 }
 
 export interface HookProcessIo {
@@ -453,6 +456,10 @@ export async function runHookProcess(
               parsedInput !== null &&
               typeof (parsedInput as { projectRoot?: unknown }).projectRoot === "string"
             ? ((parsedInput as { projectRoot: string }).projectRoot as string)
+            : typeof parsedInput === "object" &&
+                parsedInput !== null &&
+                typeof (parsedInput as { cwd?: unknown }).cwd === "string"
+              ? ((parsedInput as { cwd: string }).cwd as string)
             : undefined;
       if (inputRoot !== undefined) {
         root = inputRoot;
@@ -496,6 +503,22 @@ export async function runHookProcess(
         ? await repositoryTrust(root, config, cliVersion)
         : await dependencies.trust(root, config, cliVersion);
     const trusted = trustStatus === "TRUSTED";
+    if (dependencies.office !== undefined) {
+      const normalized = normalizeHookInput(harnessId, parsedInput);
+      if (normalized !== null) {
+        const phase = officePhaseHint(normalized);
+        void dependencies.office({
+          root,
+          harness: harnessId,
+          event: hookEvent,
+          input: parsedInput,
+          validated: true,
+          ...(normalized.sessionId === undefined ? {} : {sessionId: normalized.sessionId}),
+          ...(normalized.agentId === undefined ? {} : {agentId: normalized.agentId}),
+          ...(phase === undefined ? {} : {phase})
+        }).catch(() => undefined);
+      }
+    }
     const gitRunner = dependencies.gitRunner ?? defaultGitRunner(root);
     const processRunner =
       dependencies.processRunner ?? new NodeVerificationProcessRunner();

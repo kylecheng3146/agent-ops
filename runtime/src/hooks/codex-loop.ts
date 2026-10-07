@@ -358,6 +358,15 @@ async function resolveLoopRoot(
   return null;
 }
 
+/** Validated project-local loop root for display-only observers. */
+export async function resolveProjectLoopRoot(
+  input: unknown,
+  fallback: string | undefined,
+  harness: ProjectLoopHarness
+): Promise<string | null> {
+  return await resolveLoopRoot(input, fallback, harness);
+}
+
 function loopPath(root: string, harness: ProjectLoopHarness, name: string): string {
   return join(root, `.${harness}`, name);
 }

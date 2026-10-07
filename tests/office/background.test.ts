@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { ensureBackgroundOffice } from "../../packages/cli/src/office-entry.js";
 import { LaunchdController } from "../../runtime/src/run/macOS.js";
+import { claimOffice, createOfficeServer } from "../../runtime/src/office/server.js";
 
 test("background office creates its private launchd directory before writing the descriptor", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "office-bg-")));
@@ -24,6 +25,37 @@ test("background office creates its private launchd directory before writing the
     assert.equal(office.mode & 0o777, 0o700);
     assert.deepEqual(calls, ["bootout", "bootstrap"]);
   } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("background startup opens one injected browser page for one shared server", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "office-bg-once-")));
+  let closeServer: (() => Promise<void>) | undefined;
+  let bootstraps = 0;
+  const pages: string[] = [];
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main", root]);
+    const launchd = new LaunchdController({platform: "darwin", uid: 501, execFile: async (_file, args) => {
+      if (args[0] === "bootstrap") {
+        bootstraps += 1;
+        const server = createOfficeServer({snapshot: async () => ({generatedAt: new Date().toISOString(), runs: [], lobby: [], reviews: []}), onIdle: () => {}});
+        closeServer = server.close;
+        assert.ok(await claimOffice(join(root, ".git"), server) !== null);
+      }
+      return {stdout: "", stderr: ""};
+    }});
+    const open = async (url: string): Promise<void> => { pages.push(url); };
+    const [left, right] = await Promise.all([
+      ensureBackgroundOffice(root, launchd, open),
+      ensureBackgroundOffice(root, launchd, open)
+    ]);
+    assert.equal(left, right);
+    assert.equal(bootstraps, 1);
+    assert.equal(pages.length, 1);
+    assert.equal(pages[0], left);
+  } finally {
+    await closeServer?.();
     await rm(root, {recursive: true, force: true});
   }
 });

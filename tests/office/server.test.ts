@@ -78,6 +78,20 @@ test("the server exits after ten minutes with no active run, using an injected c
   assert.equal(idle, 2, "an office started without any run also closes after the idle window");
 });
 
+test("an ordinary session keeps the server alive while its lobby desk is present", async () => {
+  let now = 0, idle = 0;
+  const office = createOfficeServer({
+    snapshot: async () => ({...empty, lobby: [{name: "s", branch: "main", sessionId: "s", diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}, narration: "implementing", commands: [], status: "active"}]}),
+    now: () => now,
+    idleMs: OFFICE_IDLE_MS,
+    onIdle: () => { idle += 1; }
+  });
+  now = OFFICE_IDLE_MS * 2;
+  await office.tick();
+  assert.equal(idle, 0);
+  await office.close();
+});
+
 test("one server per repository: the record is reused, never duplicated, and released", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-"));
   const first = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
@@ -98,6 +112,25 @@ test("one server per repository: the record is reused, never duplicated, and rel
     assert.equal(await readLiveOffice(commonDir), null);
   } finally {
     await first.close();
+    await rm(commonDir, {recursive: true, force: true});
+  }
+});
+
+test("concurrent startup claims one server before any caller opens a page", async () => {
+  const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-start-"));
+  const first = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
+  const second = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
+  let starts = 0;
+  try {
+    const [left, right] = await Promise.all([
+      ensureOffice(commonDir, async () => { starts += 1; assert.ok(await claimOffice(commonDir, first) !== null); }, {pollMs: 5}),
+      ensureOffice(commonDir, async () => { starts += 1; assert.ok(await claimOffice(commonDir, second) !== null); }, {pollMs: 5})
+    ]);
+    assert.equal(starts, 1);
+    assert.equal(left, right);
+  } finally {
+    await first.close();
+    await second.close();
     await rm(commonDir, {recursive: true, force: true});
   }
 });
