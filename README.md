@@ -12,7 +12,7 @@ pre-1.0 interface.
 The CLI is published as `@kylecheng3146/agent-ops` as a pre-1.0 interface;
 command behavior may change before 1.0.
 
-## Executable acceptance and native goal runs (unreleased)
+## Executable acceptance and native goal runs (0.6.0)
 
 Criteria can use `behavioral`, `invariant` or `review-only` acceptance contracts.
 Behavioral proof requires each designated red check to fail by assertion on its

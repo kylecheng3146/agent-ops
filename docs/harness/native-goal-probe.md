@@ -5,7 +5,7 @@ This document records the bounded, opt-in probes for the F native-goal hosts. Th
 Run it from the repository root with:
 
 ```sh
-node scripts/probe-native-goals.mjs --timeout-ms 20000 --out /private/tmp/agent-ops-native-goal-probe.json
+node scripts/probe-native-goals.mjs --timeout-ms 20000 --out "${TMPDIR}agent-ops-native-goal-probe.json"
 ```
 
 The JSON artifact contains command arguments, version-independent protocol observations, exit/signal results, and a safety record. It intentionally omits full model output. A host is recorded as observed only when the transport emits the expected initialization and accepts the goal message. The run remains unverified until agent-ops `verify`, task evidence, and review complete.
@@ -17,14 +17,14 @@ The JSON artifact contains command arguments, version-independent protocol obser
 
 ## Evidence status
 
-The checked-in source describes the probe and its evidence format. A generated JSON artifact belongs under `/private/tmp` and must be attached to the task or copied into the task evidence record after an authorized local run. `observed`, `unavailable`, and `error` are transport outcomes; none means the product's completion contract passed. Network, authentication, model availability, and version-specific native behavior remain external prerequisites.
+The checked-in source describes the probe and its evidence format. A generated JSON artifact belongs in the private temporary directory and must be attached to the task or copied into the task evidence record after an authorized local run. `observed`, `unavailable`, and `error` are transport outcomes; none means the product's completion contract passed. Network, authentication, model availability, and version-specific native behavior remain external prerequisites.
 
 ## 2026-10-04 local observation
 
 Command:
 
 ```sh
-node scripts/probe-native-goals.mjs --host all --timeout-ms 15000 --out /private/tmp/agent-ops-native-goal-probe-af-native-final.json
+node scripts/probe-native-goals.mjs --host all --timeout-ms 15000 --out "${TMPDIR}agent-ops-native-goal-probe-af-native-final.json"
 ```
 
 The artifact recorded Claude Code `2.1.289` and Codex `0.160.0`. Claude emitted startup hook events followed by `system/init` with the requested session UUID, accepted the structured `/goal` input under auto mode, and a second `--resume` process emitted `system/init` for the same UUID and accepted a continuation input. The first bounded run ended with `result/error_during_execution` during a rate-limited request; the resumed run emitted `result/success`. Codex emitted successful initialize, thread start, goal update, turn start, turn completion, and thread resume responses over stdio JSON-RPC. Both observations were stopped/cleaned by the probe, and the artifact explicitly records `nativeCompletionCountsAsProof: false`.
@@ -81,7 +81,7 @@ The packaged pytest plugin and Rust stdlib harness can be exercised without
 adding repository dependencies:
 
 ```sh
-node scripts/probe-acceptance-frameworks.mjs --pytest-python /path/to/venv/bin/python --rustc /path/to/rustc --out /private/tmp/framework-probe.json
+node scripts/probe-acceptance-frameworks.mjs --pytest-python /path/to/venv/bin/python --rustc /path/to/rustc --out "${TMPDIR}framework-probe.json"
 ```
 
 On 2026-10-04 this command passed with pytest `8.4.2` and Rust `1.85.1` on macOS
@@ -90,13 +90,13 @@ for fixture failure/xfail/skip (pytest), and for panic (Rust). The Rust harness
 classifies an explicit `Err(String)` from a named check as an assertion failure;
 a panic is UNKNOWN, including native `assert!` panics. Convert intended contract
 assertions to explicit results rather than treating arbitrary panics as red.
-The report was written to `/private/tmp/agent-ops-acceptance-framework-probe.json`.
+The private report is named `agent-ops-acceptance-framework-probe.json`.
 These are bounded compatibility observations for the listed versions; they do
 not establish compatibility with every framework version or external user usage.
 
 ## macOS background lifecycle probe
 
-After building, run `node scripts/probe-background-run.mjs --out /private/tmp/agent-ops-background-probe.json`
+After building, run `node scripts/probe-background-run.mjs --out "${TMPDIR}agent-ops-background-probe.json"`
 from a macOS GUI login. This opt-in probe creates a private temporary launchd
 descriptor, observes a background heartbeat, kills that process and observes a
 restart, then disables and boots out the job and verifies no further restart.

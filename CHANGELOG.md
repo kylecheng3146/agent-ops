@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-07
+
 - Executable acceptance contracts distinguish behavioral red→green checks,
   invariants and explicit review-only requirements. Trusted repository runners
   replay committed test materials against isolated baseline and candidate
