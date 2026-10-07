@@ -4,6 +4,73 @@ import {sceneModel} from "./scene.js";
 export const PALETTE = ["#2b241f", "#355a4b", "#6d9275", "#b7c7a3", "#8a5033", "#729ead", "#d9aa72", "#ead8b8",
   "#8e7561", "#6b5d50", "#adc39a", "#f2e5c9", "#e8c99c", "#c86f4a", "#f2c95c", "#fff7e6"];
 
+/** Original 24×32 pixel people. Self-contained so the inline client uses this same art. */
+export function avatarSprite(identity: string, direction = "down", pose = 0, viewer = false): string[] {
+  let hash = 0;
+  for (const character of identity) hash = (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0;
+  const hair = viewer ? "0" : ["0", "4", "8"][hash % 3]!;
+  const hairLight = hair === "0" ? "9" : hair === "4" ? "8" : "6";
+  const style = viewer ? 0 : Math.floor(hash / 3) % 3;
+  const skin = viewer ? "c" : ["c", "6", "4"][Math.floor(hash / 9) % 3]!;
+  const skinLight = skin === "4" ? "6" : skin === "6" ? "c" : "f";
+  const outfit = viewer ? ["e", "6", "f"] : [["5", "1", "b"], ["d", "4", "6"], ["2", "1", "3"], ["3", "2", "b"]][Math.floor(hash / 27) % 4]!;
+  const pants = "9", grid = Array.from({length: 32}, () => Array<string>(24).fill("."));
+  const rect = (x: number, y: number, width: number, height: number, color: string) => {
+    for (let row = y; row < y + height; row++) for (let column = x; column < x + width; column++) {
+      if (row >= 0 && row < 32 && column >= 0 && column < 24) grid[row]![column] = color;
+    }
+  };
+  const stride = pose === 1 ? -1 : pose === 3 ? 1 : 0;
+  const side = direction === "left" || direction === "right";
+  // Shoes and separated trouser legs; opposite feet alternate during a walk.
+  for (let leg = 0; leg < 2; leg++) {
+    const x = side ? 9 + leg * 3 : 7 + leg * 6, lift = leg ? -stride : stride;
+    rect(x, 24 + Math.min(0, lift), 4, 6, "0"); rect(x + 1, 24 + Math.min(0, lift), 2, 4, pants);
+    rect(x - 1, 29 + Math.min(0, lift), 5, 2, "0"); rect(x, 29 + Math.min(0, lift), 3, 1, "b");
+  }
+  const bodyX = side ? 8 : 6, bodyW = side ? 9 : 12;
+  rect(bodyX, 16, bodyW, 9, "0"); rect(bodyX + 1, 17, bodyW - 2, 7, outfit[0]!);
+  rect(bodyX + 1, 22, bodyW - 2, 2, outfit[1]!); rect(bodyX + 2, 18, 2, 3, outfit[2]!);
+  if (direction !== "up") {
+    rect(side ? 14 : 10, 16, side ? 2 : 4, 2, skin); rect(side ? 14 : 10, 18, side ? 1 : 4, 1, outfit[1]!);
+    rect(side ? 15 : 12, 20, 1, 2, outfit[2]!);
+  }
+  const arms = side ? [10] : [4, 17];
+  arms.forEach((x, index) => {
+    const swing = stride * (index ? -1 : 1);
+    rect(x, 17 + swing, 3, 8, "0"); rect(x + 1, 18 + swing, 2, 3, outfit[0]!);
+    rect(x + 1, 21 + swing, 2, 3, skin); rect(x + 1, 21 + swing, 1, 1, skinLight);
+  });
+  // Round outlined head, small ears, cheek and eye highlights.
+  rect(7, 2, 10, 1, "0"); rect(5, 3, 14, 2, "0"); rect(4, 5, 16, 8, "0");
+  rect(5, 13, 14, 2, "0"); rect(7, 15, 10, 1, "0");
+  rect(5, 5, 14, 8, skin); rect(6, 13, 12, 2, skin); rect(7, 5, 10, 3, skinLight);
+  if (side) {
+    rect(18, 8, 3, 4, "0"); rect(18, 9, 2, 2, skin); rect(15, 9, 2, 3, "0"); rect(15, 9, 1, 1, "f");
+    rect(17, 13, 2, 1, "6");
+  } else if (direction === "down") {
+    rect(3, 9, 2, 3, "0"); rect(19, 9, 2, 3, "0"); rect(4, 9, 1, 2, skin); rect(19, 9, 1, 2, skin);
+    rect(7, 9, 2, 3, "0"); rect(15, 9, 2, 3, "0"); rect(7, 9, 1, 1, "f"); rect(15, 9, 1, 1, "f");
+    rect(6, 12, 2, 1, "6"); rect(16, 12, 2, 1, "6"); rect(10, 14, 4, 1, "6");
+  }
+  rect(7, 3, 10, 1, hair); rect(5, 4, 14, 3, hair); rect(4, 7, side ? 7 : 3, 5, hair);
+  rect(7, 4, 3, 1, hairLight); rect(11, 5, 3, 1, hairLight); rect(6, 7, 3, 2, hair);
+  if (direction === "up") {
+    rect(5, 7, 14, 7, hair); rect(7, 14, 10, 1, hair); rect(6, 8, 2, 3, hairLight); rect(15, 11, 2, 2, hairLight);
+  } else if (!side) {
+    rect(17, 7, 3, 5, hair); rect(14, 7, 4, 1, hair);
+  }
+  if (style === 1) { // Bob: longer sides and a low back, distinct from the short cut.
+    rect(4, 10, side ? 6 : 3, 7, hair); if (!side) rect(17, 10, 3, 7, hair);
+    if (direction === "up") rect(6, 13, 12, 4, hair);
+    rect(5, 11, 1, 4, hairLight);
+  } else if (style === 2) { // Curly outline with a raised crown and uneven fringe.
+    rect(6, 1, 3, 3, hair); rect(11, 1, 3, 3, hair); rect(16, 2, 3, 3, hair);
+    rect(4, 5, 2, 2, hairLight); rect(9, 7, 2, 2, hair); rect(14, 6, 2, 2, hair);
+  }
+  return grid.map(row => (direction === "left" ? row.reverse() : row).join(""));
+}
+
 /** Every sprite is a character matrix: one hex digit per palette index. */
 export const SPRITES: Readonly<Record<string, readonly string[]>> = {
   person: [
@@ -149,6 +216,7 @@ button{font:inherit;color:inherit}
 const CLIENT = String.raw`
 var PALETTE = __PALETTE__, SPRITES = __SPRITES__, T = 8, S = 2, U = 1, dpr = 1;
 var sceneModel = __SCENE__;
+var avatarSprite = __AVATAR__, avatarImages = {};
 var canvas = document.getElementById("office"), ctx = canvas.getContext("2d"), app = document.getElementById("app");
 ctx.imageSmoothingEnabled = false;
 var dialogueBox = document.getElementById("dialogue"), statusBox = document.getElementById("status"), roomNav = document.getElementById("room-nav"), wrap = document.getElementById("wrap");
@@ -196,7 +264,25 @@ function draw(name, x, y, shirt){
     ctx.fillStyle = ch === "S" ? shirt : PALETTE[parseInt(ch, 16)]; ctx.fillRect(x + c * scale, y + r * scale, scale, scale);
   }
 }
-var SHIRTS = {coordinator:PALETTE[13], worker:PALETTE[2], reviewer:PALETTE[4], visitor:PALETTE[8]};
+function avatarScale(surface){return Math.max(1,Math.round(Math.min(surface.width/(model.roomCols*T),surface.height/(model.roomRows*T))*T/6));}
+function advanceAvatar(state, tx, ty, speed){
+  var dx=tx-state.x,dy=ty-state.y;
+  if(Math.abs(dx)>.05||Math.abs(dy)>.05)state.direction=Math.abs(dx)>Math.abs(dy)?(dx<0?'left':'right'):(dy<0?'up':'down');
+  if(reducedMotion){state.x=tx;state.y=ty;}else{state.x+=Math.max(-speed,Math.min(speed,dx));state.y+=Math.max(-speed,Math.min(speed,dy));}
+  state.walking=!reducedMotion&&(Math.abs(state.x-tx)>.05||Math.abs(state.y-ty)>.05);
+}
+function drawAvatar(identity, state, x, y, scale, viewer){
+  var pose=state.walking&&!reducedMotion?Math.floor(frame/7)%4:0,direction=state.direction||'down',key=JSON.stringify([identity,direction,pose,!!viewer]);
+  var image=avatarImages[key];
+  if(!image){
+    image=document.createElement('canvas');image.width=24;image.height=32;var paint=image.getContext('2d'),rows=avatarSprite(identity,direction,pose,!!viewer);
+    for(var row=0;row<rows.length;row++)for(var col=0;col<rows[row].length;col++){var pixel=rows[row][col];if(pixel!=='.'){paint.fillStyle=PALETTE[parseInt(pixel,16)];paint.fillRect(col,row,1,1);}}
+    avatarImages[key]=image;
+  }
+  x=Math.round(x);y=Math.round(y);
+  ctx.fillStyle='rgba(43,36,31,.18)';ctx.fillRect(x+5*scale,y+30*scale,14*scale,2*scale);
+  ctx.drawImage(image,x,y,24*scale,32*scale);
+}
 function propSize(kind){ var s = SPRITES[kind] || [""]; return {w:s[0].length * S, h:s.length * S}; }
 function fillText(value, x, y, size, color){ ctx.fillStyle = color || PALETTE[0]; ctx.font = "bold " + Math.max(5, Math.round((size || 10) * U)) + "px monospace"; ctx.textBaseline = "top"; ctx.fillText(short(value, 36), x, y); }
 function roomByKey(key){ if (!model) return null; for (var i = 0; i < model.floors.length; i++) if (model.floors[i].key === key) return model.floors[i]; return null; }
@@ -296,20 +382,21 @@ function drawRoomBase(floor){
 }
 function drawActor(floor, actor, surface){
   var tx=actor.x*T,ty=actor.y*T,pos=positions[actor.key]||{x:tx,y:ty};
-  if(reducedMotion)pos={x:tx,y:ty};else{pos={x:pos.x+Math.max(-T/5,Math.min(T/5,tx-pos.x)),y:pos.y+Math.max(-T/5,Math.min(T/5,ty-pos.y))};}
-  positions[actor.key]=pos;var walking=Math.abs(pos.x-tx)>.1||Math.abs(pos.y-ty)>.1;
+  advanceAvatar(pos,tx,ty,T/5);positions[actor.key]=pos;
   surface=surface||{x:0,y:0,width:canvas.width,height:canvas.height};
-  var rx=surface.width/(model.roomCols*T),ry=surface.height/(model.roomRows*T),oldS=S,oldU=U;
-  S=Math.max(1,Math.round(Math.min(rx,ry)*T/4));U=Math.max(dpr,Math.min(oldU,S/2));
-  var px=Math.round(surface.x+pos.x*rx),py=Math.round(surface.y+pos.y*ry);
-  ctx.fillStyle='rgba(43,36,31,.18)';ctx.fillRect(px+3*S,py+19*S,13*S,2*S);
-  draw(walking&&Math.floor(frame/8)%2?'step':'person',px,py,SHIRTS[actor.kind]||PALETTE[2]);
-  if(!walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+7*S,py+12*S,5*S,3*S);}
+  var box=actorBox(actor,surface),oldS=S,oldU=U;S=box.scale;U=box.unit;
+  var px=box.x,py=box.y;
+  drawAvatar(actor.id,pos,px,py,S,false);
+  if(!pos.walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+9*S,py+21*S,6*S,3*S);}
   var text=short(actor.label,14)+' · '+short(statusText(actor.status),10),font=9*U;
-  ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+22*S);
+  ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+33*S);
   ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
   if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',px+7*S,py-9*S);
   S=oldS;U=oldU;
+}
+function actorBox(actor,surface){
+  var pos=positions[actor.key]||{x:actor.x*T,y:actor.y*T},scale=avatarScale(surface),unit=Math.max(dpr,Math.min(U,scale*.75));
+  return {scale:scale,unit:unit,x:Math.round(Math.max(surface.x,Math.min(surface.x+surface.width-24*scale,surface.x+pos.x/(model.roomCols*T)*surface.width))),y:Math.round(Math.max(surface.y,Math.min(surface.y+surface.height-32*scale-16*unit,surface.y+pos.y/(model.roomRows*T)*surface.height)))};
 }
 function fitCanvas(){
   var wrapW = wrap && wrap.clientWidth ? wrap.clientWidth : window.innerWidth;
@@ -366,10 +453,9 @@ function drawHallway(){
 }
 function drawSupervisor(){
   ensureSupervisor(); if (!model) return;
-  if (reducedMotion) { supervisor.x = supervisor.targetX; supervisor.y = supervisor.targetY; }
-  else { supervisor.x += Math.max(-.7, Math.min(.7, supervisor.targetX - supervisor.x)); supervisor.y += Math.max(-.7, Math.min(.7, supervisor.targetY - supervisor.y)); }
-  var moving = Math.abs(supervisor.x - supervisor.targetX) > .05 || Math.abs(supervisor.y - supervisor.targetY) > .05;
-  var px = (supervisor.x-2.25) * T, py = supervisor.y * T; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
+  advanceAvatar(supervisor,supervisor.targetX,supervisor.targetY,.7);
+  var moving=supervisor.walking,scale=Math.max(1,Math.round(T/6));
+  var px=supervisor.x*T-12*scale,py=Math.min(canvas.height-32*scale,supervisor.y*T);drawAvatar('viewer',supervisor,px,py,scale,true);
   var hall=hallwayBounds(),labelX=supervisor.x*T-9*U,labelW=18*U;ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,py-16*U,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,py-16*U,labelW,13*U);fillText("你",labelX+3*U,py-14*U,7,PALETTE[1]);
   var entry=roomEntrances().sort(function(a,b){return Math.hypot(a.x-supervisor.x,a.y-supervisor.y)-Math.hypot(b.x-supervisor.x,b.y-supervisor.y);})[0]; if(entry&&(Math.abs(entry.x-supervisor.x)>1.25||Math.abs(entry.y-supervisor.y)>Math.min(1.6,entry.height*.35)))entry=null;
   if (!moving && mode === "overview" && entry) { selectedKey = entry.floor.key; hallwayReturn = {x:supervisor.x, y:supervisor.y}; enterRoomFromHallway(entry.floor); }
@@ -383,14 +469,14 @@ function enterRoomFromHallway(floor){
 }
 function drawRoomSupervisor(){
   if (!model) return;
-  if (reducedMotion) { roomSupervisor.x = roomSupervisor.targetX; roomSupervisor.y = roomSupervisor.targetY; }
-  else { roomSupervisor.x += Math.max(-.7, Math.min(.7, roomSupervisor.targetX - roomSupervisor.x)); roomSupervisor.y += Math.max(-.7, Math.min(.7, roomSupervisor.targetY - roomSupervisor.y)); }
-  var moving = Math.abs(roomSupervisor.x - roomSupervisor.targetX) > .05 || Math.abs(roomSupervisor.y - roomSupervisor.targetY) > .05;
-  var px = roomSupervisor.x / model.roomCols * canvas.width - 2.25*T, py = roomSupervisor.y / model.roomRows * canvas.height; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
-  var labelW=20*U,labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px+9*S-labelW/2)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText("你",labelX+4*U,labelY+2*U,8,PALETTE[1]);
+  advanceAvatar(roomSupervisor,roomSupervisor.targetX,roomSupervisor.targetY,.7);
+  var scale=avatarScale({width:canvas.width,height:canvas.height});
+  var px=roomSupervisor.x/model.roomCols*canvas.width-12*scale,py=Math.min(canvas.height-32*scale,roomSupervisor.y/model.roomRows*canvas.height);drawAvatar('viewer',roomSupervisor,px,py,scale,true);
+  var labelW=20*U,labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px+12*scale-labelW/2)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText("你",labelX+4*U,labelY+2*U,8,PALETTE[1]);
 }
 function moveSupervisor(dx, dy){
   if (!model || !statusBox.hidden) return;
+  var state=mode==='room'?roomSupervisor:supervisor;state.direction=dx?(dx<0?'left':'right'):(dy<0?'up':'down');
   var step = mode === "room" ? 1 : Math.min(1.25,(model.rows-2)/Math.max(1,Math.ceil(visibleRooms().length/2))/3);
   if (mode === "room") { roomSupervisor.targetX = Math.max(2, Math.min(model.roomCols - 5, roomSupervisor.targetX + dx * step)); roomSupervisor.targetY = Math.max(7, Math.min(model.roomRows - 7, roomSupervisor.targetY + dy * step)); if (reducedMotion) { roomSupervisor.x = roomSupervisor.targetX; roomSupervisor.y = roomSupervisor.targetY; } render(); return; }
   ensureSupervisor(); var bounds = supervisorBounds(); supervisor.targetX = Math.max(bounds.minX, Math.min(bounds.maxX, supervisor.targetX + dx * step)); supervisor.targetY = Math.max(bounds.minY, Math.min(bounds.maxY, supervisor.targetY + dy * step)); if (reducedMotion) { supervisor.x = supervisor.targetX; supervisor.y = supervisor.targetY; } render();
@@ -538,7 +624,7 @@ function hitOverview(event){
 }
 function hitActor(event, floor){
   var rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
-  for (var i = floor.actors.length - 1; i >= 0; i--) { var a = floor.actors[i], pos = positions[a.key] || {x:a.x*T, y:a.y*T}; var ax=pos.x/(model.roomCols*T)*canvas.width, ay=pos.y/(model.roomRows*T)*canvas.height; if (x >= ax - 5 && x < ax + 18*S && y >= ay - 5 && y < ay + 26*S) return a; }
+  for (var i = floor.actors.length - 1; i >= 0; i--) { var a=floor.actors[i],box=actorBox(a,{x:0,y:0,width:canvas.width,height:canvas.height});if(x>=box.x&&x<box.x+24*box.scale&&y>=box.y&&y<box.y+32*box.scale)return a; }
   return null;
 }
 canvas.addEventListener("click", function(event){
@@ -577,7 +663,7 @@ updateHeader(); poll(); setInterval(poll, 2000); window.addEventListener("resize
 /** One inline page; the nonce binds its only script and style under the server's CSP. */
 export function officePage(nonce: string): string {
   const script = CLIENT.replace("__PALETTE__", () => JSON.stringify(PALETTE)).replace("__SPRITES__", () => JSON.stringify(SPRITES))
-    .replace("__SCENE__", () => sceneModel.toString());
+    .replace("__SCENE__", () => sceneModel.toString()).replace("__AVATAR__", () => avatarSprite.toString());
   return `<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>agent-ops Office</title><style nonce="${nonce}">${STYLE}</style></head>

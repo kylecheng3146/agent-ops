@@ -3,7 +3,30 @@ import {runInNewContext} from "node:vm";
 import test from "node:test";
 
 import type {OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
-import {officePage} from "../../runtime/src/office/page.js";
+import {avatarSprite, officePage} from "../../runtime/src/office/page.js";
+
+test("pixel avatars have fixed individual looks, four facings and alternating steps", () => {
+  const people = ["Kyle", "Ada", "reviewer 1", "Session A", "Session B"];
+  const looks = people.map(id => avatarSprite(id));
+  assert.equal(new Set(looks.map(rows => rows.join(""))).size, people.length);
+  for (const id of people) {
+    assert.deepEqual(avatarSprite(id), avatarSprite(id), "appearance is deterministic");
+    const directions = ["down", "up", "left", "right"].map(direction => avatarSprite(id, direction));
+    assert.equal(new Set(directions.map(rows => rows.join(""))).size, 4);
+    assert.deepEqual(directions[2], directions[3]!.map(row => [...row].reverse().join("")));
+    for (const direction of ["down", "up", "left", "right"]) {
+      const stand = avatarSprite(id, direction), first = avatarSprite(id, direction, 1), second = avatarSprite(id, direction, 3);
+      assert.notDeepEqual(first, stand); assert.notDeepEqual(second, stand); assert.notDeepEqual(first, second);
+      assert.equal(stand.length, 32);
+      for (const row of stand) {assert.equal(row.length, 24);assert.match(row, /^[0-9a-f.]+$/u);}
+    }
+  }
+  const viewer = avatarSprite("viewer", "down", 0, true);
+  assert.equal(viewer[4]![12], "0", "the viewer has dark short hair");
+  assert.equal(viewer[19]![11], "e", "the viewer wears the yellow shirt");
+  const embedded = new Function(`return (${avatarSprite.toString()})`)() as typeof avatarSprite;
+  assert.deepEqual(embedded("Ada", "up", 3), avatarSprite("Ada", "up", 3));
+});
 
 class FakeElement {
   readonly id: string;
@@ -81,7 +104,11 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   assert.equal(elements.get("room-nav")!.children.length, 1);
   assert.match(elements.get("crumb")!.textContent, /1 rooms/);
-  const vm = context as unknown as {render: () => void; poll: () => void; navPage: number; selectedKey: string; T: number; model: {roomCols: number; roomRows: number; floors: {key: string; actors: {key: string; x: number; y: number}[]}[]}; positions: Record<string, {x: number; y: number}>; roomCanvases: Record<string, {canvas: FakeElement}>; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; mode: string; reducedMotion: boolean; supervisor: {x: number; y: number; targetX: number; targetY: number}};
+  type AvatarState = {x: number; y: number; direction?: string; walking?: boolean};
+  const vm = context as unknown as {render: () => void; poll: () => void; frame: number; navPage: number; selectedKey: string; T: number; model: {roomCols: number; roomRows: number; floors: {key: string; actors: {key: string; id: string; x: number; y: number}[]}[]}; positions: Record<string, AvatarState>; roomCanvases: Record<string, {canvas: FakeElement}>; avatarImages: Record<string, FakeElement>; drawAvatar: (id: string, state: AvatarState, x: number, y: number, scale: number, viewer: boolean) => void; actorBox: (actor: {key: string; x: number; y: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; scale: number}; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; mode: string; reducedMotion: boolean; supervisor: AvatarState & {targetX: number; targetY: number}; roomSupervisor: AvatarState & {targetX: number; targetY: number}};
+  const drawings: {id: string; direction: string | undefined; walking: boolean | undefined; viewer: boolean}[] = [];
+  const drawAvatar = vm.drawAvatar;
+  vm.drawAvatar = (id, state, x, y, scale, viewer) => {drawings.push({id, direction: state.direction, walking: state.walking, viewer});drawAvatar(id, state, x, y, scale, viewer);};
   const keydownCanvas = canvas.events.get("keydown")!;
   assert.equal(canvas.width, 2364, "backing width matches full available width at DPR 2");
   assert.equal(canvas.height, 1312);
@@ -94,7 +121,16 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   const startingX = vm.supervisor.targetX;
   keydownCanvas({key: "ArrowRight", preventDefault: () => {}});
   assert.ok(vm.supervisor.targetX > startingX);
+  for (const [key, direction] of [["ArrowLeft", "left"], ["ArrowUp", "up"], ["ArrowDown", "down"], ["ArrowRight", "right"]]) {
+    keydownCanvas({key, preventDefault: () => {}});
+    assert.equal(vm.supervisor.direction, direction);
+    assert.ok(drawings.some(draw => draw.viewer && draw.direction === direction), "the viewer renderer receives each facing");
+  }
   vm.reducedMotion = true;
+  vm.render();
+  assert.equal(vm.supervisor.walking, false);
+  vm.render();
+  assert.equal(vm.supervisor.direction, "right", "facing persists at rest");
   for (let i = 0; i < 12; i++) keydownCanvas({key: "ArrowUp", preventDefault: () => {}});
   for (let i = 0; i < 30; i++) keydownCanvas({key: "ArrowLeft", preventDefault: () => {}});
   assert.equal(vm.mode, "room", "walking onto the doorway enters the room");
@@ -105,6 +141,12 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.match(document.cookie, /agent-office-language=zh/);
   elements.get("room-nav")!.children[0]!.click();
   assert.equal(elements.get("back")!.hidden, false);
+  keydownCanvas({key: "ArrowUp", preventDefault: () => {}});
+  assert.equal(vm.roomSupervisor.direction, "up", "room movement uses directional avatars too");
+  const selectedActor = vm.model.floors[0]!.actors[0]!, actorBox = vm.actorBox(selectedActor, {x: 0, y: 0, width: canvas.width, height: canvas.height});
+  canvas.events.get("click")?.({clientX: actorBox.x + 12 * actorBox.scale, clientY: actorBox.y + 16 * actorBox.scale});
+  assert.equal(elements.get("status")!.children[0]!.textContent, "session-a", "clicking the new avatar dimensions opens that actor's details");
+  elements.get("status")!.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
   canvas.events.get("click")?.({clientX: 560, clientY: 300});
   const status = elements.get("status")!;
   assert.equal(status.hidden, false);
@@ -129,8 +171,17 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   const target = vm.model.floors[0]!.actors[0]!;
   assert.notDeepEqual(vm.positions[actor.key], before);
   assert.notEqual(vm.positions[actor.key]!.x, target.x * vm.T, "motion advances rather than teleporting");
+  const moving = vm.positions[actor.key]!;
+  assert.equal(moving.direction, "right", "phase motion faces toward the destination");
+  assert.equal(moving.walking, true);
+  vm.frame = 7; vm.render();
+  assert.ok(Object.keys(vm.avatarImages).some(key => key === JSON.stringify([actor.id, "right", 1, false])), "agent walking renders the first step pose");
+  vm.frame = 21; vm.render();
+  assert.ok(Object.keys(vm.avatarImages).some(key => key === JSON.stringify([actor.id, "right", 3, false])), "agent walking alternates feet");
   vm.reducedMotion = true; vm.render();
   assert.equal(vm.positions[actor.key]!.x, target.x * vm.T);
+  assert.equal(vm.positions[actor.key]!.walking, false);
+  assert.equal(vm.positions[actor.key]!.direction, "right");
 
   // Every doorway connects to the same hallway, including rooms after nav page 1.
   snapshot = {...snapshot, lobby: Array.from({length: 12}, (_, index) => ({...snapshot.lobby[0]!, name: `session-${index}`, sessionId: `s-${index}`}))};
