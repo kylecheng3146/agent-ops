@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {runInNewContext} from "node:vm";
 import test from "node:test";
 
+import type {OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
 import {officePage} from "../../runtime/src/office/page.js";
 
 class FakeElement {
@@ -28,6 +29,7 @@ class FakeElement {
   removeAttribute(name: string): void { this.attrs.delete(name); }
   focus(): void { activeElement = this; }
   click(): void { this.events.get("click")?.({}); }
+  getContext(): object { return new Proxy({}, {get: (_target, key) => key === "measureText" ? (value: string) => ({width: value.length * 8}) : () => {}}); }
   getBoundingClientRect(): {left: number; top: number; width: number; height: number} { return {left: 0, top: 0, width: this.width, height: this.height}; }
   querySelectorAll(selector: string): FakeElement[] {
     const result: FakeElement[] = [];
@@ -49,7 +51,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   elements.get("status")!.hidden = true;
   const canvas = elements.get("office")!;
   canvas.width = 576; canvas.height = 304;
-  (canvas as FakeElement & {getContext: () => object}).getContext = () => new Proxy({}, {get: () => () => {}});
+
   const document = {
     cookie: "",
     get activeElement() { return activeElement; },
@@ -58,11 +60,12 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
     addEventListener: () => {}
   };
   const storage = new Map<string, string>();
-  const snapshot = {generatedAt: "x", runs: [], lobby: [{name: "session-a", branch: "main", sessionId: "s-a", diff: {files: 2, insertions: 2, deletions: 0, paths: ["a.ts", "b.ts"], recent: "a.ts"}, narration: "editing a.ts", commands: ["agent-ops worktree list"]}], reviews: []};
+  let copied = "";
+  let snapshot: OfficeSnapshot = {generatedAt: "x", runs: [], lobby: [{name: "session-a", branch: "main", sessionId: "s-a", diff: {files: 2, insertions: 2, deletions: 0, paths: ["a.ts", "b.ts"], recent: "a.ts"}, narration: "editing a.ts", commands: ["agent-ops worktree list"]}], reviews: []};
   const context = {
     document,
-    window: {innerWidth: 1200, innerHeight: 800, matchMedia: () => ({matches: false}), addEventListener: () => {}},
-    navigator: {language: "en-US", clipboard: {writeText: async () => {}}},
+    window: {devicePixelRatio: 2, innerWidth: 1200, innerHeight: 800, matchMedia: () => ({matches: false}), addEventListener: () => {}},
+    navigator: {language: "en-US", clipboard: {writeText: async (value: string) => {copied = value;}}},
     localStorage: {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value)},
     fetch: async () => ({ok: true, json: async () => snapshot}),
     location: {search: ""},
@@ -77,8 +80,15 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   assert.equal(elements.get("room-nav")!.children.length, 1);
   assert.match(elements.get("crumb")!.textContent, /1 rooms/);
-  const vm = context as unknown as {mode: string; reducedMotion: boolean; supervisor: {x: number; y: number; targetX: number; targetY: number}};
+  const vm = context as unknown as {render: () => void; poll: () => void; navPage: number; selectedKey: string; T: number; model: {roomCols: number; roomRows: number; floors: {key: string; actors: {key: string; x: number; y: number}[]}[]}; positions: Record<string, {x: number; y: number}>; roomCanvases: Record<string, {canvas: FakeElement}>; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; mode: string; reducedMotion: boolean; supervisor: {x: number; y: number; targetX: number; targetY: number}};
   const keydownCanvas = canvas.events.get("keydown")!;
+  assert.equal(canvas.width, 2364, "backing width matches full available width at DPR 2");
+  assert.equal(canvas.height, 1312);
+  assert.equal(canvas.style.width, "1182px");
+  assert.equal(canvas.style.height, "656px");
+  const cached = Object.values(vm.roomCanvases)[0]!.canvas;
+  vm.render();
+  assert.equal(Object.values(vm.roomCanvases)[0]!.canvas, cached, "unchanged room layers are reused");
   const startingX = vm.supervisor.targetX;
   keydownCanvas({key: "ArrowRight", preventDefault: () => {}});
   assert.ok(vm.supervisor.targetX > startingX);
@@ -108,4 +118,58 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.equal(status.hidden, true);
   elements.get("back")!.click();
   assert.equal(elements.get("back")!.hidden, true);
+
+  // A normal session's phase update visibly walks the same actor to its new area.
+  vm.reducedMotion = false;
+  const actor = vm.model.floors[0]!.actors[0]!, before = {...vm.positions[actor.key]!};
+  snapshot = {...snapshot, lobby: [{...snapshot.lobby[0]!, phase: "verifying"}]};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const target = vm.model.floors[0]!.actors[0]!;
+  assert.notDeepEqual(vm.positions[actor.key], before);
+  assert.notEqual(vm.positions[actor.key]!.x, target.x * vm.T, "motion advances rather than teleporting");
+  vm.reducedMotion = true; vm.render();
+  assert.equal(vm.positions[actor.key]!.x, target.x * vm.T);
+
+  // Every doorway connects to the same hallway, including rooms after nav page 1.
+  snapshot = {...snapshot, lobby: Array.from({length: 12}, (_, index) => ({...snapshot.lobby[0]!, name: `session-${index}`, sessionId: `s-${index}`}))};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const nav = elements.get("room-nav")!;
+  nav.children.find(button => button.textContent.includes("下一頁"))!.click();
+  assert.equal(vm.navPage, 1);
+  assert.ok(nav.children.some(button => button.textContent.includes("session-11")));
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  assert.equal(vm.navPage, 1, "polling does not reset the requested navigation page");
+  for (const entry of vm.roomEntrances()) {
+    const hall = vm.hallwayBounds();
+    vm.supervisor.x = vm.supervisor.targetX = hall.x + hall.width / 2;
+    // Start in the shared corridor and approach the doorway using keyboard input.
+    vm.supervisor.y = vm.supervisor.targetY = 33;
+    for (let n = 0; n < 40 && Math.abs(vm.supervisor.y - entry.y) > .7; n++) keydownCanvas({key: vm.supervisor.y > entry.y ? "ArrowUp" : "ArrowDown", preventDefault: () => {}});
+    for (let n = 0; n < 4 && vm.mode === "overview"; n++) keydownCanvas({key: entry.x < hall.x + hall.width / 2 ? "ArrowLeft" : "ArrowRight", preventDefault: () => {}});
+    assert.equal(vm.mode, "room", entry.floor.key);
+    assert.equal(vm.selectedKey, entry.floor.key);
+    elements.get("back")!.click();
+    assert.equal(vm.mode, "overview", "Back does not immediately enter the same room");
+  }
+
+  // Full commands remain readable across pages, and copying keeps the original.
+  const longCommand = "agent-ops " + "long-value-".repeat(32);
+  snapshot = {...snapshot, lobby: [{...snapshot.lobby[0]!, commands: [longCommand]}]};
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  elements.get("room-nav")!.children[0]!.click();
+  canvas.events.get("keydown")!({key: "Enter", preventDefault: () => {}});
+  const pageTexts: string[] = [];
+  const visit = (node: FakeElement) => { if(node.tagName === "CODE") {pageTexts.push(node.textContent);node.children[0]?.click();} for(const child of node.children) visit(child); };
+  for (let page = 0; page < 20; page++) {
+    visit(status);
+    const copy = status.querySelectorAll("button").find(button => button.textContent === "複製");
+    if (copy) {copy.click(); await Promise.resolve(); assert.equal(copied, longCommand);}
+    const nextPage = status.querySelectorAll("button").find(button => button.textContent === "下一頁");
+    if(!nextPage)break;
+    nextPage.click();
+  }
+  assert.equal(pageTexts.join(""), longCommand);
+  const focused = activeElement;
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  assert.equal(activeElement, focused, "unchanged polling preserves dialog focus");
 });

@@ -1,7 +1,7 @@
 import {sceneModel} from "./scene.js";
 
 /** Warm cream, oak and sage colors, kept to a single 16-color pixel palette. */
-export const PALETTE = ["#2b241f", "#355a4b", "#6d9275", "#b7c7a3", "#8a5033", "#c18352", "#d9aa72", "#ead8b8",
+export const PALETTE = ["#2b241f", "#355a4b", "#6d9275", "#b7c7a3", "#8a5033", "#729ead", "#d9aa72", "#ead8b8",
   "#8e7561", "#6b5d50", "#adc39a", "#f2e5c9", "#e8c99c", "#c86f4a", "#f2c95c", "#fff7e6"];
 
 /** Every sprite is a character matrix: one hex digit per palette index. */
@@ -123,8 +123,8 @@ button{font:inherit;color:inherit}
 #wrap{min-height:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:4px;padding:4px 8px;overflow:hidden;background:#ead8b8}
 #office{display:block;max-width:100%;max-height:none;width:auto;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;border:4px solid #6b5d50;box-shadow:6px 6px 0 #8a5033;outline:none;cursor:pointer}
 #office:focus-visible{outline:4px solid #f2c95c;outline-offset:4px}
-#dialogue{width:min(90vw,1100px);min-height:2.25em;padding:6px 12px;background:#fff7e6;border:2px solid #8a5033;color:#2b241f;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#room-nav{width:min(94vw,1200px);display:flex;justify-content:center;align-items:center;gap:5px;min-height:28px;overflow:hidden}
+#dialogue{width:100%;min-height:2.25em;padding:6px 12px;background:#fff7e6;border:2px solid #8a5033;color:#2b241f;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#room-nav{width:100%;display:flex;justify-content:center;align-items:center;gap:5px;min-height:28px;overflow:hidden}
 #room-nav button{max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:2px solid #8a5033;background:#f2e5c9;padding:3px 7px;cursor:pointer}
 #room-nav button[aria-current=true]{background:#6d9275;color:#fff7e6;border-color:#2b241f}
 #room-nav button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
@@ -132,7 +132,7 @@ button{font:inherit;color:inherit}
 #status[hidden]{display:none}
 #status h2{margin:0 0 8px;color:#355a4b;font-size:1.25em}
 #status .dialog-body{min-height:0;overflow:hidden}
-#status p{margin:5px 0;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#status p{margin:5px 0;overflow-wrap:anywhere;white-space:pre-wrap}
 #status ul{margin:5px 0;padding-left:22px}
 #status li{overflow-wrap:anywhere}
 #status .actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
@@ -155,13 +155,14 @@ var crumb = document.getElementById("crumb"), backButton = document.getElementBy
 var languageButton = document.getElementById("language"), live = document.getElementById("live");
 var snapshot = null, model = null, positions = {}, roomCanvases = {}, frame = 0, lineIndex = 0, typed = 0, offline = false;
 var mode = "overview", selectedKey = null, showRecent = false, detailPage = 0, dialogClose = null, detailPreviousFocus = null, detailTarget = null;
+var detailSignature = "";
 var navPage = 0, navSignature = "", NAV_PAGE_SIZE = 8;
 var supervisor = {x:43, y:19, targetX:43, targetY:19}, supervisorReady = false, hallwayReturn = null;
 var roomSupervisor = {x:32, y:34, targetX:32, targetY:34};
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var STRINGS = {
-  en: {overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Pending", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -172,7 +173,7 @@ var lang = getLanguage();
 function t(key){ return STRINGS[lang][key] || key; }
 function phaseLabel(phase){ return STRINGS[lang].phases[phase] || phase; }
 function statusText(status){ return STRINGS[lang].statuses[status] || safeText(status); }
-function outcomeText(value){ return value === "pending" ? t("pending") : safeText(value); }
+function outcomeText(value){ return value === "pending" ? (lang === "zh" ? "尚未完成" : "pending") : safeText(value); }
 function localizeText(value){
   var text = safeText(value);
   if (text === "The office is quiet. No agent is at work.") return t("quiet");
@@ -180,6 +181,7 @@ function localizeText(value){
   if (text === "reviewing") return phaseLabel("reviewing");
   if (text === "planning" || text === "implementing" || text === "verifying" || text === "integrating") return phaseLabel(text);
   if (STRINGS.en.statuses[text]) return statusText(text);
+  if(lang==='zh')text=text.replace(/^writing tests$/u,'撰寫測試').replace(/^writing docs$/u,'撰寫文件').replace(/^editing /u,'編輯 ');
   return text.replace(/waiting for your answer/gu, t("waiting"));
 }
 function saveLanguage(){ try { localStorage.setItem("agent-office-language", lang); } catch (_) {} try { document.cookie = "agent-office-language=" + lang + "; Max-Age=31536000; Path=/; SameSite=Strict"; } catch (_) {} }
@@ -200,77 +202,113 @@ function roomByKey(key){ if (!model) return null; for (var i = 0; i < model.floo
 function visibleRooms(){ if (!model) return []; return model.floors.filter(function(f){ return showRecent || !f.completedAt; }); }
 function activeRoom(){ return selectedKey ? roomByKey(selectedKey) : null; }
 function hasRecent(){ return !!(model && model.floors.some(function(f){ return !!f.completedAt; })); }
+function setCanvasSize(width, height){
+  width = Math.max(1, Math.round(width)); height = Math.max(1, Math.round(height));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  ctx.imageSmoothingEnabled = false;
+}
 function drawBackdrop(cols, rows, room){
-  canvas.width = cols * T; canvas.height = rows * T; ctx.imageSmoothingEnabled = false;
-  var width = cols * T, wallHeight = 5 * T;
+  if (!room) setCanvasSize(cols * T, rows * T);
+  var width = canvas.width, height = canvas.height, unit = Math.max(1, Math.min(width / 576, height / 320)), wallHeight = Math.round(height * .18);
   ctx.fillStyle = PALETTE[15]; ctx.fillRect(0, 0, width, wallHeight);
-  ctx.fillStyle = PALETTE[7]; ctx.fillRect(0, wallHeight, width, rows * T - wallHeight);
-  // Quiet staggered oak planks: a few long grain lines are clearer and much
-  // cheaper than stamping a tiny texture sprite into every tile each frame.
-  for (var plank = 5; plank < rows; plank += 3) {
-    ctx.fillStyle = PALETTE[6]; ctx.fillRect(0, plank * T, width, Math.max(1, Math.round(U)));
-    ctx.fillStyle = PALETTE[12];
-    var offset = ((plank - 5) / 3 % 2) * 8;
-    for (var seam = offset; seam < cols; seam += 8) ctx.fillRect(seam * T, plank * T + Math.max(1, Math.round(U)), Math.max(1, Math.round(U)), 3 * T - 2 * U);
+  ctx.fillStyle = PALETTE[12]; ctx.fillRect(0, wallHeight, width, height - wallHeight);
+  var plankH = 12 * unit, plankW = 64 * unit;
+  for (var row = 0, y = wallHeight; y < height; row++, y += plankH) {
+    ctx.fillStyle = row % 3 === 0 ? PALETTE[7] : PALETTE[12]; ctx.fillRect(0, y, width, plankH - unit);
+    for (var x = -(row % 2) * plankW / 2; x < width; x += plankW) {
+      ctx.fillStyle = PALETTE[6]; ctx.fillRect(x, y, unit, plankH);
+      ctx.fillStyle = PALETTE[7]; ctx.fillRect(x + 8 * unit, y + 4 * unit, 24 * unit, unit);
+    }
   }
-  ctx.fillStyle = PALETTE[6]; ctx.fillRect(0, wallHeight - 2 * U, width, 3 * U);
-  ctx.fillStyle = PALETTE[0]; ctx.fillRect(0, rows * T - 3 * U, width, 3 * U);
-  ctx.fillStyle = "rgba(43,36,31,.12)"; ctx.fillRect(0, wallHeight, width, 3 * U);
+  ctx.fillStyle = PALETTE[6]; ctx.fillRect(0, wallHeight - 3 * unit, width, 3 * unit);
+  ctx.fillStyle = 'rgba(43,36,31,.12)'; ctx.fillRect(0, wallHeight, width, 4 * unit);
+  ctx.fillStyle = PALETTE[9]; ctx.fillRect(0, height - 2 * unit, width, 2 * unit);
 }
-function drawArea(area, floor){
-  var active = floor.phase === area.phase;
-  ctx.fillStyle = active ? "rgba(109,146,117,.1)" : "rgba(255,247,230,.035)";
-  ctx.fillRect(area.x * T, area.y * T, area.width * T, area.height * T);
-  var label = phaseLabel(area.phase), labelWidth = Math.min(area.width * T - 8 * U, Math.max(42 * U, label.length * 7 * U + 12 * U));
-  ctx.fillStyle = active ? PALETTE[3] : PALETTE[15]; ctx.fillRect(area.x * T + 4 * U, area.y * T + 4 * U, labelWidth, 15 * U);
-  ctx.strokeStyle = active ? PALETTE[1] : PALETTE[8]; ctx.lineWidth = Math.max(1, U); ctx.strokeRect(area.x * T + 4 * U, area.y * T + 4 * U, labelWidth, 15 * U);
-  fillText(label, area.x * T + 9 * U, area.y * T + 7 * U, 9, active ? PALETTE[1] : PALETTE[8]);
-}
-function drawBoard(floor){
-  var x = 21 * T, y = 1 * T, w = 25 * T, h = 5 * T;
-  ctx.fillStyle = PALETTE[15]; ctx.fillRect(x, y, w, h); ctx.strokeStyle = PALETTE[4]; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
-  var b = floor.board, total = b.total > 0 ? b.total : 1, ratio = Math.max(0, Math.min(1, b.passed / total));
-  fillText(t("progress") + " " + b.passed + "/" + (b.total || "?"), x + 5 * U, y + 3 * U, 10, PALETTE[0]);
-  ctx.fillStyle = PALETTE[3]; ctx.fillRect(x + 5 * U, y + 16 * U, w - 10 * U, 6 * U); ctx.fillStyle = PALETTE[2]; ctx.fillRect(x + 5 * U, y + 16 * U, Math.round((w - 10 * U) * ratio), 6 * U);
-  fillText(t("verify") + ":" + outcomeText(b.verify) + "  " + t("review") + ":" + outcomeText(b.review) + "  " + t("pending") + ":" + b.pending, x + 5 * U, y + 25 * U, 8, PALETTE[4]);
+// Furniture stays square-pixeled while its placement follows the room size.
+function furniture(kind, x, y, unit){
+  ctx.save(); ctx.translate(Math.round(x), Math.round(y)); unit=Math.max(1,Math.round(unit));ctx.scale(unit, unit);
+  function r(x,y,w,h,c){ctx.fillStyle=PALETTE[c];ctx.fillRect(x,y,w,h);}
+  function monitor(x,y){r(x,y,22,16,9);r(x+1,y+1,20,13,0);r(x+3,y+3,16,9,5);for(var i=0;i<3;i++){r(x+4,y+4+i*2,4+i*3,1,i%2?14:3);}r(x+10,y+16,2,3,9);r(x+6,y+19,10,1,9);}
+  function cup(x,y){r(x,y,5,6,15);r(x+1,y,3,1,4);r(x+5,y+1,2,3,8);}
+  function drawer(x,y){r(x,y,17,19,9);r(x+1,y+1,15,7,8);r(x+1,y+10,15,7,8);r(x+6,y+3,5,1,15);r(x+6,y+12,5,1,15);}
+  if(kind==='desk'||kind==='bench'){
+    r(2,31,72,5,8);drawer(4,28);drawer(52,28);r(1,17,74,13,4);r(2,17,72,9,6);r(2,17,72,2,7);r(25,30,3,15,9);r(70,30,3,15,9);
+    monitor(8,0);monitor(34,1);r(15,23,23,3,9);for(var k=0;k<6;k++)r(17+k*3,24,2,1,15);cup(61,19);
+    r(43,20,11,5,15);r(45,21,7,1,8);r(45,23,6,1,8);r(66,7,6,9,9);r(67,8,4,6,3);
+    if(kind==='bench'){r(2,-4,72,3,9);for(var j=0;j<7;j++){r(5+j*9,-1,2,8,8);r(4+j*9,1,4,3,j%2?14:5);}r(59,0,10,16,9);r(61,2,6,5,3);r(61,9,6,4,5);}
+  } else if(kind==='table'){
+    r(6,0,47,12,1);r(8,1,43,9,2);r(2,12,63,30,4);r(3,12,61,26,6);r(3,12,61,2,7);r(7,42,3,12,9);r(55,42,3,12,9);
+    r(10,19,14,12,15);r(30,22,13,12,15);for(var l=0;l<4;l++){r(12,21+l*2,10,1,8);r(32,24+l*2,9,1,8);}cup(51,19);monitor(41,0);
+  } else if(kind==='window'){
+    r(0,0,52,28,8);r(2,2,48,23,5);r(4,4,44,19,3);r(4,4,44,13,5);r(8,6,15,2,15);r(30,9,10,2,15);r(3,24,48,4,6);r(24,2,3,23,15);r(2,2,48,2,15);r(2,12,48,2,15);
+    r(-2,-3,56,4,9);r(0,-2,52,2,7);r(-3,27,58,4,4);r(-2,27,56,2,6);r(36,20,7,7,4);r(35,17,9,5,2);r(39,14,4,6,1);
+  } else if(kind==='whiteboard'){
+    r(0,0,65,38,9);r(2,2,61,33,15);r(4,4,57,1,7);r(5,38,3,9,9);r(57,38,3,9,9);r(2,47,9,2,9);r(54,47,9,2,9);
+    for(var n=0;n<6;n++){var bx=7+n%3*18,by=9+Math.floor(n/3)*16;r(bx,by,12,9,n%2?3:14);r(bx+2,by+2,8,1,8);r(bx+2,by+5,6,1,8);if(n<5){r(bx+13,by+5,4,1,8);}}
+  } else if(kind==='shelf'){
+    r(0,0,28,58,4);r(2,2,24,54,9);for(var shelf=0;shelf<3;shelf++){r(2,17+shelf*18,24,2,6);for(var book=0;book<5;book++){r(4+book*4,4+shelf*18+(book%2)*2,3,12-(book%2)*2,[2,5,13,7,3][book]);r(5+book*4,6+shelf*18,1,6,15);}}
+    r(0,58,28,3,8);r(3,44,9,11,6);r(14,44,10,11,6);r(6,46,4,1,15);r(17,46,4,1,15);
+  } else if(kind==='plant'){
+    r(9,18,16,13,8);r(10,18,14,3,6);r(11,21,12,9,7);r(14,4,3,15,1);r(5,7,11,5,2);r(1,5,9,4,3);r(17,3,12,5,2);r(23,0,8,5,3);r(14,-3,5,10,2);r(6,-2,9,5,1);r(20,10,10,5,1);r(3,13,10,4,2);r(11,11,11,5,3);
+  } else if(kind==='chair'){
+    r(2,0,18,13,1);r(3,1,16,10,2);r(2,13,18,9,2);r(3,14,16,5,3);r(10,22,2,8,9);r(3,29,18,2,9);r(2,28,3,4,9);r(18,28,3,4,9);
+  } else if(kind==='door'){
+    r(0,0,24,46,8);r(2,2,20,42,4);r(4,4,16,38,6);r(5,5,14,13,7);r(5,22,14,18,7);r(15,21,3,2,14);r(5,28,14,8,1);r(8,31,8,2,15);r(13,29,2,6,15);
+  }
+  ctx.restore();
 }
 function drawRoomBase(floor){
   drawBackdrop(model.roomCols, model.roomRows, floor);
-  floor.phaseAreas.forEach(function(a){ drawArea(a, floor); });
-  drawBoard(floor);
-  ctx.fillStyle = PALETTE[6]; ctx.fillRect(2 * T, 1 * T - 2 * U, 16 * T, 3 * T); ctx.strokeStyle = PALETTE[4]; ctx.lineWidth = Math.max(1, 2 * U); ctx.strokeRect(2 * T, 1 * T - 2 * U, 16 * T, 3 * T);
-  fillText(short(floor.title, 16), 3 * T, 1 * T, 10, PALETTE[0]);
-  fillText(short(statusText(floor.status), 16), 3 * T, 3 * T, 8, PALETTE[4]);
-  floor.props.forEach(function(p){
-    var px = p.x * T, py = p.y * T, size = propSize(p.kind);
-    if (p.kind !== "clock" && p.kind !== "window") { ctx.fillStyle = "rgba(43,36,31,.16)"; ctx.fillRect(px + 4 * U, py + size.h - 2 * U, Math.max(8 * U, size.w - 3 * U), 4 * U); }
-    draw(p.kind, px, py, PALETTE[2]);
-    if (p.label && !p.phase) fillText(p.label, px + 3, py + size.h + 2, 8, PALETTE[0]);
-    if (p.kind === "desk") for (var n = 0; n < (floor.papers[p.key] || 0); n++) draw("paper", px + 22 * S, py + 5 * S - n * 2 * S);
-    if (p.kind === "clock") { var angle = -Math.PI / 2 + 2 * Math.PI * floor.clock; ctx.fillStyle = PALETTE[13]; for (var i = 0; i < 8; i++) ctx.fillRect(Math.round(px + 7 * S + Math.cos(angle) * i * S), Math.round(py + 7 * S + Math.sin(angle) * i * S), S, S); }
-    if (p.kind === "shelf") { var total = Math.min(floor.books.total, 16); for (var b = 0; b < total; b++) draw("book", px + (3 + (b % 8) * 3) * S, py + (2 + Math.floor(b / 8) * 8) * S, b < floor.books.lit ? PALETTE[14] : PALETTE[8]); }
+  var rx = canvas.width / model.roomCols, ry = canvas.height / model.roomRows, unit = Math.max(.5, Math.min(rx, ry) / 8), labelUnit = Math.min(U, Math.max(1, unit * 1.25));
+  var savedU = U; U = labelUnit;
+  // Sage rugs and oak furniture give each phase a real place in the room.
+  floor.phaseAreas.forEach(function(a){
+    if(a.phase==='implementing'||a.phase==='reviewing'){
+      var x=a.x*rx,y=(a.y+1)*ry,w=a.width*rx,h=(a.height-1)*ry;
+      ctx.fillStyle=PALETTE[3];ctx.fillRect(x,y,w,h);ctx.strokeStyle=PALETTE[2];ctx.lineWidth=2*unit;ctx.strokeRect(x+3*unit,y+3*unit,w-6*unit,h-6*unit);
+    }
   });
+  floor.props.filter(function(p){return p.kind!=='rug'&&p.kind!=='clock';}).forEach(function(p){
+    var px=p.x*rx,py=p.y*ry;
+    if(p.kind!=='window'){ctx.fillStyle='rgba(43,36,31,.14)';ctx.fillRect(px+4*unit,py+28*unit,45*unit,6*unit);}
+    var heights={desk:45,bench:45,table:54,window:31,whiteboard:49,shelf:61,plant:31,chair:32,door:46};
+    var artUnit=Math.max(.3,Math.min(unit*1.85,(canvas.height-py-2*unit)/(heights[p.kind]||45),(canvas.width-px-2*unit)/(p.kind==='window'?58:p.kind==='plant'?32:p.kind==='shelf'?28:p.kind==='door'?24:75)));
+    furniture(p.kind,px,py,artUnit);
+    if(p.kind==='shelf')for(var book=0;book<Math.min(5,floor.books.lit);book++){ctx.fillStyle=PALETTE[14];ctx.fillRect(px+(4+book*4)*Math.round(artUnit),py+4*Math.round(artUnit),3*Math.round(artUnit),2*Math.round(artUnit));}
+    if(p.kind==='desk')for(var paper=0;paper<Math.min(4,floor.papers[p.key]||0);paper++){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+44*artUnit,py+(20-paper)*artUnit,9*artUnit,2*artUnit);}
+  });
+  floor.phaseAreas.forEach(function(a){var ax=a.x*rx,ay=a.y*ry;ctx.fillStyle=PALETTE[15];ctx.fillRect(ax,ay,Math.min(a.width*rx,72*labelUnit),13*labelUnit);fillText(phaseLabel(a.phase),ax+4*labelUnit,ay+2*labelUnit,9,PALETTE[1]);});
+  var titleX=2*rx,titleY=ry,w=19*rx;
+  ctx.fillStyle=PALETTE[4];ctx.fillRect(titleX,titleY,w,4*ry);ctx.fillStyle=PALETTE[6];ctx.fillRect(titleX+2*unit,titleY+2*unit,w-4*unit,4*ry-4*unit);
+  fillText(short(floor.title,20),titleX+6*unit,titleY+6*unit,11);fillText(statusText(floor.status),titleX+6*unit,titleY+22*unit,8,PALETTE[4]);
+  var b=floor.board,bx=24*rx,by=ry,bw=27*rx,bh=Math.max(6*ry,57*unit);
+  ctx.fillStyle=PALETTE[9];ctx.fillRect(bx,by,bw,bh);ctx.fillStyle=PALETTE[15];ctx.fillRect(bx+2*unit,by+2*unit,bw-4*unit,bh-4*unit);
+  fillText(t('progress')+'  '+b.passed+'/'+(b.total||'?'),bx+6*unit,by+5*unit,11,PALETTE[1]);
+  ctx.fillStyle=PALETTE[3];ctx.fillRect(bx+6*unit,by+20*unit,bw-12*unit,5*unit);ctx.fillStyle=PALETTE[2];ctx.fillRect(bx+6*unit,by+20*unit,(bw-12*unit)*Math.min(1,b.total?b.passed/b.total:0),5*unit);
+  fillText(t('verify')+' '+outcomeText(b.verify)+'  '+t('review')+' '+outcomeText(b.review),bx+6*unit,by+30*unit,8,PALETTE[4]);
+  if(b.pending)fillText('! '+t('pending')+' '+b.pending,bx+6*unit,by+42*unit,8,PALETTE[13]);
+  var oldS=S;S=Math.max(1,Math.round(unit));var cx=52*rx,cy=ry;draw('clock',cx,cy);
+  ctx.strokeStyle=PALETTE[13];ctx.lineWidth=2*S;ctx.beginPath();ctx.moveTo(cx+8*S,cy+7*S);var angle=-Math.PI/2+2*Math.PI*floor.clock;ctx.lineTo(cx+8*S+Math.cos(angle)*5*S,cy+7*S+Math.sin(angle)*5*S);ctx.stroke();S=oldS;
+  U=savedU;
+  ctx.strokeStyle=PALETTE[9];ctx.lineWidth=3*unit;ctx.strokeRect(unit,unit,canvas.width-2*unit,canvas.height-2*unit);
 }
-function drawActor(floor, actor){
-  var tx = actor.x * T, ty = actor.y * T, pos = positions[actor.key] || {x:tx, y:ty};
-  if (reducedMotion) pos = {x:tx, y:ty}; else { pos = {x:pos.x === tx ? tx : pos.x + (tx > pos.x ? T : -T), y:pos.y === ty ? ty : pos.y + (ty > pos.y ? T : -T)}; }
-  positions[actor.key] = pos;
-  var walking = pos.x !== tx || pos.y !== ty;
-  draw(walking && Math.floor(frame / 8) % 2 ? "step" : "person", pos.x, pos.y, SHIRTS[actor.kind] || PALETTE[2]);
-  if (!walking && !reducedMotion && Math.floor(frame / 30) % 2 === 0) {
-    ctx.fillStyle = PALETTE[14];
-    if (actor.phase === "implementing") ctx.fillRect(pos.x + 8 * S, pos.y + 15 * S, 2 * S, S);
-    if (actor.phase === "verifying") ctx.fillRect(pos.x + 10 * S, pos.y + 13 * S, S, 3 * S);
-    if (actor.phase === "reviewing") ctx.fillRect(pos.x + 5 * S, pos.y + 16 * S, S, 2 * S);
-    if (actor.phase === "integrating") ctx.fillRect(pos.x + 11 * S, pos.y + 9 * S, 2 * S, S);
-  }
-  var bubble = short(actor.label, 14) + " | " + short(statusText(actor.status), 14);
-  var labelHeight = 14 * U, labelWidth = Math.min(25 * T, Math.max(10 * T, bubble.length * 5 * U)), labelY = pos.y + 24 * S;
-  if (labelY + labelHeight > canvas.height) labelY = Math.max(5 * U, pos.y - labelHeight - 2 * U);
-  ctx.fillStyle = PALETTE[15]; ctx.fillRect(pos.x - 4 * U, labelY, labelWidth, labelHeight);
-  ctx.strokeStyle = PALETTE[4]; ctx.lineWidth = Math.max(1, U); ctx.strokeRect(pos.x - 4 * U, labelY, labelWidth, labelHeight);
-  fillText(bubble, pos.x, labelY + 2 * U, 8, actor.alert ? PALETTE[13] : PALETTE[0]);
-  if (actor.alert && (reducedMotion || Math.floor(frame / 20) % 2 === 0)) draw("alert", pos.x + 8 * S, pos.y - 8 * S);
+function drawActor(floor, actor, surface){
+  var tx=actor.x*T,ty=actor.y*T,pos=positions[actor.key]||{x:tx,y:ty};
+  if(reducedMotion)pos={x:tx,y:ty};else{pos={x:pos.x+Math.max(-T/5,Math.min(T/5,tx-pos.x)),y:pos.y+Math.max(-T/5,Math.min(T/5,ty-pos.y))};}
+  positions[actor.key]=pos;var walking=Math.abs(pos.x-tx)>.1||Math.abs(pos.y-ty)>.1;
+  surface=surface||{x:0,y:0,width:canvas.width,height:canvas.height};
+  var rx=surface.width/(model.roomCols*T),ry=surface.height/(model.roomRows*T),oldS=S,oldU=U;
+  S=Math.max(1,Math.round(Math.min(rx,ry)*T/4));U=Math.max(dpr,Math.min(oldU,S/2));
+  var px=Math.round(surface.x+pos.x*rx),py=Math.round(surface.y+pos.y*ry);
+  ctx.fillStyle='rgba(43,36,31,.18)';ctx.fillRect(px+3*S,py+19*S,13*S,2*S);
+  draw(walking&&Math.floor(frame/8)%2?'step':'person',px,py,SHIRTS[actor.kind]||PALETTE[2]);
+  if(!walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+7*S,py+12*S,5*S,3*S);}
+  var text=short(actor.label,14)+' · '+short(statusText(actor.status),10),font=9*U;
+  ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+22*S);
+  ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
+  if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',px+7*S,py-9*S);
+  S=oldS;U=oldU;
 }
 function fitCanvas(){
   var wrapW = wrap && wrap.clientWidth ? wrap.clientWidth : window.innerWidth;
@@ -281,60 +319,48 @@ function fitCanvas(){
   canvas.style.width = Math.max(1, Math.floor(canvas.width * ratio)) + "px"; canvas.style.height = Math.max(1, Math.floor(canvas.height * ratio)) + "px";
 }
 function chooseRenderScale(){
-  if (!model) return;
-  var wrapW = wrap && wrap.clientWidth ? wrap.clientWidth : window.innerWidth, wrapH = wrap && wrap.clientHeight ? wrap.clientHeight : window.innerHeight - 54;
-  var reserved = (dialogueBox && dialogueBox.offsetHeight || 36) + (roomNav && roomNav.offsetHeight || 30) + 24;
-  var maxCssTile = Math.min(Math.max(8, (wrapW - 18) / model.cols), Math.max(8, (wrapH - reserved) / model.rows));
-  var nextDpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1)), oldT = T, nextT = Math.max(8, Math.floor(maxCssTile * nextDpr));
-  T = nextT; S = Math.max(2, T / 4); U = T / 8; dpr = nextDpr;
-  if (oldT !== T) { Object.keys(positions).forEach(function(key){ positions[key].x *= T / oldT; positions[key].y *= T / oldT; }); roomCanvases = {}; }
+  if(!model)return;
+  var wrapW=wrap&&wrap.clientWidth?wrap.clientWidth:window.innerWidth,wrapH=wrap&&wrap.clientHeight?wrap.clientHeight:window.innerHeight-54;
+  var reserved=(dialogueBox&&dialogueBox.offsetHeight||36)+(roomNav&&roomNav.offsetHeight||30)+24;
+  var maxW=Math.max(220,wrapW-18),maxH=Math.max(160,wrapH-reserved),nextDpr=Math.max(1,Math.min(3,window.devicePixelRatio||1)),oldT=T;
+  model.cols=model.rows*maxW/maxH;
+  T=Math.max(4,maxH/model.rows*nextDpr);S=T/4;U=T/8;dpr=nextDpr;
+  if(oldT!==T){Object.keys(positions).forEach(function(key){positions[key].x*=T/oldT;positions[key].y*=T/oldT;});roomCanvases={};}
 }
 function overviewLayout(rooms){
-  var count = rooms.length, gap = .75, result = [];
-  if (!count) return result;
-  var teamIndex = rooms.findIndex(function(f){ return f.kind === "run"; });
-  if (teamIndex >= 0 && count >= 2 && count <= 6) {
-    var corridor = 3, sideGap = .75, left = Math.min(model.cols - 18, Math.max(30, model.cols * .55)), right = model.cols - left - corridor * 2;
-    result[teamIndex] = {x:gap, y:gap, width:left, height:model.rows - gap * 2};
-    var others = rooms.filter(function(_, i){ return i !== teamIndex; }), rightCols = others.length <= 2 ? 1 : Math.ceil(Math.sqrt(others.length));
-    var rightRows = Math.ceil(others.length / rightCols), rightWidth = (right - sideGap * (rightCols - 1)) / rightCols;
-    var rightHeight = (model.rows - sideGap * (rightRows + 1)) / rightRows;
-    others.forEach(function(floor, i){ var col = i % rightCols, row = Math.floor(i / rightCols); result[rooms.indexOf(floor)] = {x:left + corridor * 2 + col * (rightWidth + sideGap), y:sideGap + row * (rightHeight + sideGap), width:rightWidth, height:rightHeight}; });
+  var count=rooms.length,gap=.6,result=[];if(!count)return result;
+  if(count===1)return [{x:gap,y:gap,width:model.cols-6-gap,height:model.rows-gap*2}];
+  var hallW=6,left=(model.cols-hallW)/2,right=left,teamIndex=rooms.findIndex(function(f){return f.kind==='run';});
+  if(teamIndex>=0&&count<=6){
+    left=(model.cols-hallW)*.58;right=model.cols-hallW-left;
+    result[teamIndex]={x:gap,y:gap,width:left-gap,height:model.rows-gap*2};
+    var others=rooms.filter(function(_,i){return i!==teamIndex;}),height=(model.rows-gap*(others.length+1))/Math.max(1,others.length);
+    others.forEach(function(f,i){result[rooms.indexOf(f)]={x:left+hallW,y:gap+i*(height+gap),width:right-gap,height:height};});
     return result;
   }
-  var columns = Math.min(count, Math.max(1, Math.ceil(Math.sqrt(count * model.cols / model.rows))));
-  var rows = Math.ceil(count / columns), safeGap = Math.max(0, Math.min(gap, (model.cols - columns * .25) / (columns + 1), (model.rows - rows * .25) / (rows + 1)));
-  var width = Math.max(.25, (model.cols - safeGap * (columns + 1)) / columns), height = Math.max(.25, (model.rows - safeGap * (rows + 1)) / rows);
-  rooms.forEach(function(_, i){ result[i] = {x:safeGap + (i % columns) * (width + safeGap), y:safeGap + Math.floor(i / columns) * (height + safeGap), width, height}; });
+  var leftCount=Math.ceil(count/2),rightCount=Math.floor(count/2);
+  rooms.forEach(function(f,i){var side=i%2,n=side?rightCount:leftCount,row=Math.floor(i/2),height=(model.rows-gap*(n+1))/n;result[i]={x:side?left+hallW:gap,y:gap+row*(height+gap),width:(side?right:left)-gap,height:height};});
   return result;
 }
-function roomBox(floor){ var rooms = visibleRooms(), index = rooms.indexOf(floor), layout = overviewLayout(rooms); return index >= 0 && layout[index] ? layout[index] : floor.overview; }
+function roomBox(floor){var rooms=visibleRooms(),index=rooms.indexOf(floor);return overviewLayout(rooms)[index]||floor.overview;}
 function hallwayBounds(){
-  var rooms = visibleRooms(), team = rooms.find(function(f){ return f.kind === "run"; });
-  if (team && rooms.length >= 2 && rooms.length <= 6) {
-    var teamBox = roomBox(team), other = rooms.find(function(f){ return f !== team; }), otherBox = other ? roomBox(other) : null;
-    if (otherBox) return {x:teamBox.x + teamBox.width + .7, width:Math.max(2, otherBox.x - teamBox.x - teamBox.width - 1.4), y:1, height:model.rows - 2};
-  }
-  return {x:model.cols / 2 - 2.5, width:5, y:1, height:model.rows - 2};
+  var rooms=visibleRooms(),layout=overviewLayout(rooms),left=layout.find(function(box){return box.x<model.cols/2-3;});
+  return {x:left?left.x+left.width:model.cols/2-3,width:6,y:.6,height:model.rows-1.2};
 }
 function ensureSupervisor(){
   if (supervisorReady || !model) return;
-  var hall = hallwayBounds(); supervisor.x = supervisor.targetX = hall.x + hall.width / 2 - 2.25; supervisor.y = supervisor.targetY = model.rows - 5; supervisorReady = true;
+  var hall = hallwayBounds(); supervisor.x = supervisor.targetX = hall.x + hall.width / 2; supervisor.y = supervisor.targetY = model.rows - 5; supervisorReady = true;
 }
 function roomEntrances(){
-  var rooms = visibleRooms(), center = model.cols / 2;
-  return rooms.map(function(floor){ var box = roomBox(floor), left = box.x + box.width / 2 < center; return {floor, x:left ? box.x + box.width + .4 : box.x - .4, y:box.y + box.height / 2}; });
+  var hall=hallwayBounds();return visibleRooms().map(function(floor){var box=roomBox(floor),left=box.x<hall.x;return {floor:floor,x:left?hall.x+.35:hall.x+hall.width-.35,y:box.y+box.height/2,height:box.height};});
 }
-function supervisorBounds(){
-  var rooms = visibleRooms(), team = rooms.find(function(f){ return f.kind === "run"; });
-  if (team && rooms.length >= 2 && rooms.length <= 6) { var hall = hallwayBounds(); return {minX:hall.x - .5, maxX:hall.x + hall.width + .9, minY:6, maxY:model.rows - 3}; }
-  return {minX:2, maxX:model.cols - 3, minY:6, maxY:model.rows - 3};
-}
+function supervisorBounds(){var hall=hallwayBounds();return {minX:hall.x+.2,maxX:hall.x+hall.width-.2,minY:1,maxY:model.rows-3};}
 function drawHallway(){
   var hall = hallwayBounds(), x = hall.x * T, y = hall.y * T, w = hall.width * T, h = hall.height * T;
   ctx.fillStyle = "rgba(183,199,163,.55)"; ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = PALETTE[3]; ctx.lineWidth = Math.max(1, 2 * U); ctx.strokeRect(x, y, w, h);
   for (var line = y + 14 * U; line < y + h; line += 28 * U) { ctx.strokeStyle = "rgba(138,80,51,.28)"; ctx.beginPath(); ctx.moveTo(x + 3 * U, line); ctx.lineTo(x + w - 3 * U, line); ctx.stroke(); }
+  var oldS=S;S=T/8;draw('plant',x+T,y+T,PALETTE[2]);draw('plant',x+T,y+h-4*T,PALETTE[2]);S=oldS;
   roomEntrances().forEach(function(entry){ var ex = entry.x * T, ey = entry.y * T; ctx.fillStyle = PALETTE[6]; ctx.fillRect(ex - 5 * U, ey - 14 * U, 10 * U, 28 * U); ctx.strokeStyle = PALETTE[4]; ctx.strokeRect(ex - 5 * U, ey - 14 * U, 10 * U, 28 * U); });
 }
 function drawSupervisor(){
@@ -342,13 +368,14 @@ function drawSupervisor(){
   if (reducedMotion) { supervisor.x = supervisor.targetX; supervisor.y = supervisor.targetY; }
   else { supervisor.x += Math.max(-.7, Math.min(.7, supervisor.targetX - supervisor.x)); supervisor.y += Math.max(-.7, Math.min(.7, supervisor.targetY - supervisor.y)); }
   var moving = Math.abs(supervisor.x - supervisor.targetX) > .05 || Math.abs(supervisor.y - supervisor.targetY) > .05;
-  var px = supervisor.x * T, py = supervisor.y * T; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
-  ctx.fillStyle = PALETTE[15]; ctx.fillRect(px - 6 * U, Math.max(4 * U, py - 16 * U), 118 * U, 13 * U); ctx.strokeStyle = PALETTE[1]; ctx.strokeRect(px - 6 * U, Math.max(4 * U, py - 16 * U), 118 * U, 13 * U); fillText("你 / Supervisor", px - 2 * U, Math.max(5 * U, py - 14 * U), 8, PALETTE[1]);
-  var entry = roomEntrances().find(function(candidate){ return Math.hypot(candidate.x - supervisor.x, candidate.y - supervisor.y) < 2; });
+  var px = (supervisor.x-2.25) * T, py = supervisor.y * T; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
+  var hall=hallwayBounds(),labelX=hall.x*T+2*U,labelW=hall.width*T-4*U;ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,py-16*U,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,py-16*U,labelW,13*U);fillText(lang === "zh" ? "你 · 主管" : "Supervisor",labelX+3*U,py-14*U,7,PALETTE[1]);
+  var entry=roomEntrances().sort(function(a,b){return Math.hypot(a.x-supervisor.x,a.y-supervisor.y)-Math.hypot(b.x-supervisor.x,b.y-supervisor.y);})[0]; if(entry&&(Math.abs(entry.x-supervisor.x)>1.25||Math.abs(entry.y-supervisor.y)>Math.min(1.6,entry.height*.35)))entry=null;
   if (!moving && mode === "overview" && entry) { selectedKey = entry.floor.key; hallwayReturn = {x:supervisor.x, y:supervisor.y}; enterRoomFromHallway(entry.floor); }
 }
 function enterRoomFromHallway(floor){
   if (!floor) return;
+  detailTarget=null;detailPage=0;
   roomSupervisor.x = roomSupervisor.targetX = floor.kind === "run" ? model.roomCols - 7 : 6;
   roomSupervisor.y = roomSupervisor.targetY = Math.max(8, Math.min(model.roomRows - 6, Math.round(model.roomRows / 2)));
   mode = "room"; lineIndex = 0; typed = 0; updateHeader(); canvas.focus();
@@ -358,68 +385,44 @@ function drawRoomSupervisor(){
   if (reducedMotion) { roomSupervisor.x = roomSupervisor.targetX; roomSupervisor.y = roomSupervisor.targetY; }
   else { roomSupervisor.x += Math.max(-.7, Math.min(.7, roomSupervisor.targetX - roomSupervisor.x)); roomSupervisor.y += Math.max(-.7, Math.min(.7, roomSupervisor.targetY - roomSupervisor.y)); }
   var moving = Math.abs(roomSupervisor.x - roomSupervisor.targetX) > .05 || Math.abs(roomSupervisor.y - roomSupervisor.targetY) > .05;
-  var px = roomSupervisor.x * T, py = roomSupervisor.y * T; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
-  ctx.fillStyle = PALETTE[15]; ctx.fillRect(px - 6 * U, Math.max(4 * U, py - 16 * U), 118 * U, 13 * U); ctx.strokeStyle = PALETTE[1]; ctx.strokeRect(px - 6 * U, Math.max(4 * U, py - 16 * U), 118 * U, 13 * U); fillText("你 / Supervisor", px - 2 * U, Math.max(5 * U, py - 14 * U), 8, PALETTE[1]);
+  var px = roomSupervisor.x / model.roomCols * canvas.width - 2.25*T, py = roomSupervisor.y / model.roomRows * canvas.height; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
+  var labelW=Math.min(118*U,canvas.width-8*U),labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px-6*U)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText(lang === "zh" ? "你 · Supervisor" : "You · Supervisor",labelX+4*U,labelY+2*U,8,PALETTE[1]);
 }
 function moveSupervisor(dx, dy){
   if (!model || !statusBox.hidden) return;
-  var step = mode === "room" ? 1 : 1.25;
-  if (mode === "room") { roomSupervisor.targetX = Math.max(2, Math.min(model.roomCols - 5, roomSupervisor.targetX + dx * step)); roomSupervisor.targetY = Math.max(7, Math.min(model.roomRows - 5, roomSupervisor.targetY + dy * step)); if (reducedMotion) { roomSupervisor.x = roomSupervisor.targetX; roomSupervisor.y = roomSupervisor.targetY; } render(); return; }
+  var step = mode === "room" ? 1 : Math.min(1.25,(model.rows-2)/Math.max(1,Math.ceil(visibleRooms().length/2))/3);
+  if (mode === "room") { roomSupervisor.targetX = Math.max(2, Math.min(model.roomCols - 5, roomSupervisor.targetX + dx * step)); roomSupervisor.targetY = Math.max(7, Math.min(model.roomRows - 7, roomSupervisor.targetY + dy * step)); if (reducedMotion) { roomSupervisor.x = roomSupervisor.targetX; roomSupervisor.y = roomSupervisor.targetY; } render(); return; }
   ensureSupervisor(); var bounds = supervisorBounds(); supervisor.targetX = Math.max(bounds.minX, Math.min(bounds.maxX, supervisor.targetX + dx * step)); supervisor.targetY = Math.max(bounds.minY, Math.min(bounds.maxY, supervisor.targetY + dy * step)); if (reducedMotion) { supervisor.x = supervisor.targetX; supervisor.y = supervisor.targetY; } render();
 }
-function renderRoomImage(floor){
-  var signature = lang + "|" + T + "|" + S + "|" + floor.phase + "|" + floor.status + "|" + floor.board.passed + "/" + floor.board.total + "/" + floor.board.verify + "/" + floor.board.review + "/" + floor.board.pending + "|" + floor.title + "|" + floor.props.length;
-  var cached = roomCanvases[floor.key], roomCanvas = cached && cached.canvas;
-  if (!roomCanvas) { roomCanvas = document.createElement("canvas"); roomCanvases[floor.key] = {canvas:roomCanvas, signature:""}; }
-  if (!roomCanvas || typeof roomCanvas.getContext !== "function") return null;
-  if (cached && cached.signature === signature) return roomCanvas;
-  roomCanvas.width = model.roomCols * T; roomCanvas.height = model.roomRows * T;
-  var roomCtx = roomCanvas.getContext("2d"); if (!roomCtx) return null;
-  roomCtx.imageSmoothingEnabled = false;
-  var oldCanvas = canvas, oldCtx = ctx; canvas = roomCanvas; ctx = roomCtx;
-  drawRoomBase(floor);
-  canvas = oldCanvas; ctx = oldCtx;
-  roomCanvases[floor.key] = {canvas:roomCanvas, signature:signature};
-  return roomCanvas;
+function renderRoomImage(floor, width, height){
+  width=Math.round(width);height=Math.round(height);
+  var signature=lang+'|'+T+'|'+width+'x'+height+'|'+JSON.stringify([floor.title,floor.status,floor.board,floor.props,floor.papers,floor.books,floor.clock]);
+  var cached=roomCanvases[floor.key];if(cached&&cached.signature===signature)return cached.canvas;
+  var roomCanvas=cached?cached.canvas:document.createElement('canvas');
+  if(typeof roomCanvas.getContext!=='function')return null;
+  roomCanvas.width=width;roomCanvas.height=height;var roomCtx=roomCanvas.getContext('2d');if(!roomCtx)return null;
+  var oldCanvas=canvas,oldCtx=ctx;canvas=roomCanvas;ctx=roomCtx;ctx.imageSmoothingEnabled=false;drawRoomBase(floor);canvas=oldCanvas;ctx=oldCtx;
+  roomCanvases[floor.key]={canvas:roomCanvas,signature:signature};return roomCanvas;
 }
 function drawOverviewRoom(floor){
-  var box = roomBox(floor), x = box.x * T, y = box.y * T, w = box.width * T, h = box.height * T;
-  ctx.fillStyle = PALETTE[7]; ctx.fillRect(x, y, w, h); ctx.save(); ctx.beginPath(); ctx.rect(x, y, Math.max(1, w), Math.max(1, h)); ctx.clip();
-  var image = renderRoomImage(floor);
-  var uniform = Math.min(w / (model.roomCols * T), h / (model.roomRows * T)), drawW = model.roomCols * T * uniform, drawH = model.roomRows * T * uniform, drawX = x + (w - drawW) / 2, drawY = y + (h - drawH) / 2;
-  if (image && ctx.drawImage) ctx.drawImage(image, drawX, drawY, drawW, drawH);
-  var sx = drawW / (model.roomCols * T), sy = drawH / (model.roomRows * T);
-  floor.actors.forEach(function(a){
-    var current = positions[a.key] || {x:a.x * T, y:a.y * T}, ax = drawX + current.x * sx, ay = drawY + current.y * sy;
-    if (image && ctx.drawImage) { ctx.save(); ctx.translate(drawX, drawY); ctx.scale(sx, sy); var oldCanvas = canvas; canvas = image; drawActor(floor, a); canvas = oldCanvas; ctx.restore(); }
-    var caption = short(a.label, 9) + " | " + short(statusText(a.status), 9), font = 6, labelWidth = Math.min(w - 8 * U, Math.max(40 * U, caption.length * 5 * U));
-    ctx.fillStyle = PALETTE[15]; ctx.fillRect(ax - 2 * U, Math.max(y + 4 * U, ay - 14 * U), labelWidth, 13 * U);
-    fillText(caption, ax + 2 * U, Math.max(y + 5 * U, ay - 12 * U), font, a.alert ? PALETTE[13] : PALETTE[0]);
-  });
-  var barX = x + 8 * U, barY = y + h - 12 * U, barW = Math.max(12 * U, w - 16 * U), progress = floor.board.total > 0 ? floor.board.passed / floor.board.total : 0;
-  ctx.fillStyle = PALETTE[3]; ctx.fillRect(barX, barY, barW, 5 * U); ctx.fillStyle = PALETTE[2]; ctx.fillRect(barX, barY, Math.round(barW * progress), 5 * U);
-  if (floor.completedAt) { ctx.fillStyle = "rgba(53,90,75,.18)"; ctx.fillRect(x, y, w, h); }
-  ctx.restore();
+  var box=roomBox(floor),surface={x:Math.round(box.x*T),y:Math.round(box.y*T),width:Math.round(box.width*T),height:Math.round(box.height*T)};
+  ctx.save();ctx.beginPath();ctx.rect(surface.x,surface.y,surface.width,surface.height);ctx.clip();
+  var image=renderRoomImage(floor,surface.width,surface.height);if(image)ctx.drawImage(image,surface.x,surface.y);
+  floor.actors.forEach(function(actor){drawActor(floor,actor,surface);});
+  if(floor.completedAt){ctx.fillStyle='rgba(53,90,75,.18)';ctx.fillRect(surface.x,surface.y,surface.width,surface.height);}ctx.restore();
 }
 function render(){
-  if (!model) return;
-  chooseRenderScale();
-  var floor = activeRoom();
-  if (mode === "room" && floor) {
-    canvas.width = model.roomCols * T; canvas.height = model.roomRows * T; ctx.imageSmoothingEnabled = false;
-    var image = renderRoomImage(floor); if (image && ctx.drawImage) ctx.drawImage(image, 0, 0, canvas.width, canvas.height); else drawRoomBase(floor);
-    floor.actors.forEach(function(a){ drawActor(floor, a); });
-    drawRoomSupervisor();
-  } else {
-    drawBackdrop(model.cols, model.rows, null); drawHallway(); visibleRooms().forEach(drawOverviewRoom); drawSupervisor();
-    if (visibleRooms().length === 0) fillText(t("quiet"), 4 * T, 18 * T, 12, PALETTE[0]);
-  }
+  if(!model)return;chooseRenderScale();var floor=activeRoom();
+  if(mode==='room'&&floor){
+    setCanvasSize(model.cols*T,model.rows*T);var image=renderRoomImage(floor,canvas.width,canvas.height);if(image)ctx.drawImage(image,0,0);else drawRoomBase(floor);
+    floor.actors.forEach(function(actor){drawActor(floor,actor);});drawRoomSupervisor();
+  }else{drawBackdrop(model.cols,model.rows,null);drawHallway();visibleRooms().forEach(drawOverviewRoom);drawSupervisor();if(!visibleRooms().length)fillText(t('quiet'),4*T,18*T,12);}
   fitCanvas();
 }
 function renderRoomNav(rooms){
   if (mode !== "overview") { if (navSignature !== lang + "|room") { roomNav.textContent = ""; navSignature = lang + "|room"; } return; }
-  var pages = Math.max(1, Math.ceil(rooms.length / NAV_PAGE_SIZE)), selectedIndex = rooms.findIndex(function(f){ return f.key === selectedKey; });
-  if (selectedIndex >= 0) navPage = Math.min(Math.floor(selectedIndex / NAV_PAGE_SIZE), pages - 1); else navPage = Math.min(navPage, pages - 1);
+  var pages = Math.max(1, Math.ceil(rooms.length / NAV_PAGE_SIZE));
+  navPage = Math.max(0, Math.min(navPage, pages - 1));
   var signature = lang + "|overview|" + (showRecent ? "recent" : "active") + "|" + selectedKey + "|" + navPage + "|" + rooms.map(function(f){ return f.key; }).join(",");
   if (signature === navSignature) return;
   navSignature = signature; roomNav.textContent = "";
@@ -428,6 +431,8 @@ function renderRoomNav(rooms){
   if (pages > 1) { var next = document.createElement("button"); next.type = "button"; next.textContent = t("next") + " ›"; next.disabled = navPage === pages - 1; next.addEventListener("click", function(){ navPage++; updateHeader(); }); roomNav.appendChild(next); }
 }
 function updateHeader(){
+  if(document.documentElement)document.documentElement.lang=lang==='zh'?'zh-Hant':'en';
+  canvas.setAttribute('aria-label',lang==='zh'?'方向鍵或 WASD 移動 Supervisor；Enter 進入房間或查看細節；Esc 返回。':'Arrow keys or WASD move Supervisor; Enter opens rooms or details; Escape returns.');
   var rooms = visibleRooms(), people = rooms.reduce(function(n, f){ return n + f.actors.length; }, 0);
   crumb.textContent = mode === "room" && activeRoom() ? activeRoom().title : t("overview") + " · " + rooms.length + " " + t("rooms") + " · " + people + " " + t("people");
   backButton.hidden = mode !== "room"; backButton.textContent = "← " + t("back"); recentButton.textContent = (showRecent ? "✓ " + t("recentOn") : "▣ " + t("recent")) + (hasRecent() ? " (" + model.floors.filter(function(f){ return !!f.completedAt; }).length + ")" : "");
@@ -444,7 +449,7 @@ function tickDialogue(){
   if (typed === line.length && frame % 180 === 0) { lineIndex++; typed = 0; }
 }
 function enterRoom(){ if (!selectedKey && visibleRooms()[0]) selectedKey = visibleRooms()[0].key; var floor = activeRoom(); if (!floor) return; enterRoomFromHallway(floor); render(); }
-function goOverview(){ mode = "overview"; var hall = hallwayBounds(); supervisor.x = supervisor.targetX = hall.x + hall.width / 2 - 2.25; supervisor.y = supervisor.targetY = hall.y + hall.height - 5; hallwayReturn = null; updateHeader(); render(); canvas.focus(); }
+function goOverview(){ mode = "overview"; var hall = hallwayBounds(); supervisor.x = supervisor.targetX = hall.x + hall.width / 2; supervisor.y = supervisor.targetY = hall.y + hall.height - 5; hallwayReturn = null; updateHeader(); render(); canvas.focus(); }
 function changeLanguage(){ lang = lang === "zh" ? "en" : "zh"; saveLanguage(); updateHeader(); render(); }
 function showDialog(title, fill){
   if (statusBox.hidden) detailPreviousFocus = document.activeElement || canvas;
@@ -458,14 +463,16 @@ function showDialog(title, fill){
 }
 function closeDialog(){ statusBox.hidden = true; if (app) { app.inert = false; app.removeAttribute("aria-hidden"); } var previous = detailPreviousFocus || canvas; dialogClose = null; detailPreviousFocus = null; if (previous && previous.focus) previous.focus(); }
 function addLine(box, label, value){ var p = document.createElement("p"); p.textContent = label + ": " + safeText(value); box.appendChild(p); }
-function addCommand(box, value){
+function addCommand(box, value, copyValue){
   var row = document.createElement("p"), code = document.createElement("code"), button = document.createElement("button");
   code.textContent = value; button.type = "button"; button.textContent = t("copy"); button.addEventListener("click", function(){
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function(){ button.textContent = t("copied"); }, function(){});
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(copyValue || value).then(function(){ button.textContent = t("copied"); }, function(){});
   }); row.appendChild(code); row.appendChild(button); box.appendChild(row);
 }
 function pageItems(items, box, renderItem){
-  var pageSize = window.innerHeight < 560 || window.innerWidth < 480 ? 3 : 5, pages = Math.max(1, Math.ceil(items.length / pageSize)); detailPage = Math.max(0, Math.min(detailPage, pages - 1));
+  var pageSize = window.innerHeight < 560 || window.innerWidth < 480 ? 3 : 5, pages;
+  items = items.flatMap(function(item){var value=item.value||'', limit=window.innerWidth<480?45:90, chunks=[];for(var offset=0;offset<value.length;offset+=limit)chunks.push(Object.assign({},item,{value:value.slice(offset,offset+limit),copyValue:item.kind==='command'?value:undefined}));return chunks.length?chunks:[item];});
+  pages = Math.max(1,Math.ceil(items.length/pageSize));detailPage=Math.max(0,Math.min(detailPage,pages-1));
   items.slice(detailPage * pageSize, detailPage * pageSize + pageSize).forEach(function(item){ renderItem(item, box); });
   var paging = document.createElement("div"); paging.className = "actions dialog-pager"; var page = document.createElement("span"); page.textContent = t("page") + " " + (detailPage + 1) + "/" + pages; paging.appendChild(page);
   if (pages > 1) { var previous = document.createElement("button"); previous.type = "button"; previous.textContent = t("previous"); previous.disabled = detailPage === 0; previous.addEventListener("click", function(){ detailPage--; openSelectedDetail(); }); var next = document.createElement("button"); next.type = "button"; next.textContent = t("next"); next.disabled = detailPage === pages - 1; next.addEventListener("click", function(){ detailPage++; openSelectedDetail(); }); paging.appendChild(previous); paging.appendChild(next); }
@@ -479,7 +486,7 @@ function sourceFor(floor){
   return null;
 }
 function renderDetailItem(item, box){
-  if (item.kind === "command") return addCommand(box, item.value);
+  if (item.kind === "command") return addCommand(box, item.value, item.copyValue);
   if (item.kind === "file") { var file = document.createElement("p"); file.textContent = "• " + item.value; box.appendChild(file); return; }
   if (item.kind === "heading") { var heading = document.createElement("p"); heading.textContent = item.value; box.appendChild(heading); return; }
   addLine(box, item.label, item.value);
@@ -500,11 +507,11 @@ function openActorDetail(floor, actor){
   if (actor.progress) detailItems.push({kind:"line", label:t("progress"), value:actor.progress.passed + "/" + actor.progress.total + "  " + t("verify") + " " + outcomeText(actor.progress.verify || "-") + "  " + t("review") + " " + outcomeText(actor.progress.review || "-")});
   if (actor.questionCount && floor.questions.length) floor.questions.forEach(function(question){ detailItems.push({kind:"line", label:"! " + question.questionId, value:question.prompt}); });
   if (entries.length) { detailItems.push({kind:"heading", value:t("files") + " / " + t("commands") + ":"}); entries.forEach(function(entry){ detailItems.push(entry); }); }
-  detailTarget = {floorKey: floor.key, actorKey: actor.key}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
+  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: actor.key}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
 }
 function openRoomDetail(floor){
   if (!detailTarget || detailTarget.floorKey !== floor.key || detailTarget.actorKey !== null) detailPage = 0;
-  detailTarget = {floorKey: floor.key, actorKey: null}; var source = sourceFor(floor), items = source && source.diff ? source.diff.paths || [] : [], entries = [];
+  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: null}; var source = sourceFor(floor), items = source && source.diff ? source.diff.paths || [] : [], entries = [];
   items.forEach(function(item){ entries.push({kind:"file", value:item}); });
   if (source && source.commands) source.commands.forEach(function(item){ entries.push({kind:"command", value:item}); });
   var detailItems = [
@@ -529,7 +536,7 @@ function hitOverview(event){
 }
 function hitActor(event, floor){
   var rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
-  for (var i = floor.actors.length - 1; i >= 0; i--) { var a = floor.actors[i], pos = positions[a.key] || {x:a.x*T, y:a.y*T}; if (x >= pos.x - 5 && x < pos.x + 18*S && y >= pos.y - 5 && y < pos.y + 26*S) return a; }
+  for (var i = floor.actors.length - 1; i >= 0; i--) { var a = floor.actors[i], pos = positions[a.key] || {x:a.x*T, y:a.y*T}; var ax=pos.x/(model.roomCols*T)*canvas.width, ay=pos.y/(model.roomRows*T)*canvas.height; if (x >= ax - 5 && x < ax + 18*S && y >= ay - 5 && y < ay + 26*S) return a; }
   return null;
 }
 canvas.addEventListener("click", function(event){
@@ -560,7 +567,7 @@ languageButton.addEventListener("click", changeLanguage); statusBox.addEventList
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 });
-function poll(){ fetch("snapshot.json" + location.search, {cache:"no-store"}).then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then(function(s){ snapshot = s; model = sceneModel(s); offline = false; if (!selectedKey || !roomByKey(selectedKey)) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); if (!statusBox.hidden && detailTarget && roomByKey(detailTarget.floorKey)) openSelectedDetail(); }, function(){ offline = true; updateHeader(); }); }
+function poll(){ fetch("snapshot.json" + location.search, {cache:"no-store"}).then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then(function(s){ snapshot = s; model = sceneModel(s); offline = false; if (!selectedKey || !roomByKey(selectedKey)) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); if (!statusBox.hidden && detailTarget && roomByKey(detailTarget.floorKey)) { var signature=JSON.stringify(sourceFor(roomByKey(detailTarget.floorKey))); if(signature!==detailSignature){detailSignature=signature;openSelectedDetail();} } }, function(){ offline = true; updateHeader(); }); }
 function loop(){ frame++; render(); tickDialogue(); requestAnimationFrame(loop); }
 updateHeader(); poll(); setInterval(poll, 2000); window.addEventListener("resize", render); requestAnimationFrame(loop);
 `;
