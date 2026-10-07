@@ -89,7 +89,7 @@ export function createOfficeServer(options: OfficeServerOptions): OfficeServer {
     tick: async () => {
       const snapshot = await options.snapshot().catch(() => null);
       const sessionIsPresent = snapshot?.lobby.some(desk =>
-        desk.status === "active" && (desk.completedAt === undefined || desk.completedAt === null)
+        (desk.sessionActive ?? desk.status === "active") && (desk.completedAt === undefined || desk.completedAt === null)
       ) ?? false;
       if (snapshot === null || snapshot.runs.some(run => ACTIVE.has(run.status)) || sessionIsPresent) lastActive = now();
       if (!idle && now() - lastActive >= idleMs) {idle = true; options.onIdle();}

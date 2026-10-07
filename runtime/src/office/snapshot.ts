@@ -89,6 +89,8 @@ export interface OfficeDesk {
   readonly questions?: readonly {readonly questionId: string; readonly prompt: string}[];
   readonly completedAt?: string | null;
   readonly host?: string;
+  /** Hook liveness, separate from a task's persistent active status. */
+  readonly sessionActive?: boolean;
 }
 
 export interface OfficeSnapshot {
@@ -166,6 +168,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       name: worktree.name,
       branch: worktree.branch,
       sessionId: worktree.sessionId,
+      sessionActive: session?.status === "active" && completedAt === null,
       diff: worktree.diff,
       narration: narrate(worktree.diff) ?? worktree.phase ?? session?.phase ?? worktree.status ?? session?.status ?? "idle",
       commands: ["agent-ops worktree list", `agent-ops worktree finish ${quote(worktree.name)}`],
@@ -186,6 +189,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       name: session.sessionId,
       branch: "(no worktree)",
       sessionId: session.sessionId,
+      sessionActive: session.status === "active" && completedAt === null,
       diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null},
       narration: session.phase === undefined ? session.taskStatus ?? session.status ?? "idle" : phaseOf(session.phase),
       commands: [`agent-ops task status --session ${quote(session.sessionId)}`],

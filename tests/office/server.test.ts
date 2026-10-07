@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { claimOffice, createOfficeServer, ensureOffice, officeRecordPath, readLiveOffice, releaseOffice,
   OFFICE_IDLE_MS } from "../../runtime/src/office/server.js";
-import type { OfficeSnapshot } from "../../runtime/src/office/snapshot.js";
+import {buildOfficeSnapshot, type OfficeSessionView, type OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
 
 const empty: OfficeSnapshot = {generatedAt: "2026-10-07T00:00:00.000Z", runs: [], lobby: [], reviews: []};
 const withRun = (status: string): OfficeSnapshot => ({...empty, runs: [{runId: "run-a", title: "A", status, phase: "implementing",
@@ -90,6 +90,32 @@ test("an ordinary session keeps the server alive while its lobby desk is present
   await office.tick();
   assert.equal(idle, 0);
   await office.close();
+});
+
+test("unfinished task state does not keep a stopped or expired session alive", async () => {
+  let now = 0, idle = 0, presence: "active" | "idle" | null = "active";
+  const session: OfficeSessionView = {schemaVersion: 1, sessionId: "s", harness: "codex", root: "/repo",
+    firstSeenAt: "2026-10-07T00:00:00.000Z", lastSeenAt: "2026-10-07T00:00:00.000Z", status: "active", taskStatus: "active"};
+  const snapshot = (): OfficeSnapshot => buildOfficeSnapshot({runs: [], reviews: [], now,
+    worktrees: [{name: "s", path: "/repo/.worktrees/s", branch: "work", sessionId: "s", status: "active",
+      diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}}],
+    sessions: presence === null ? [] : [{...session, status: presence}]});
+  const office = createOfficeServer({snapshot: async () => snapshot(), now: () => now, onIdle: () => {idle++;}});
+  now = OFFICE_IDLE_MS * 2;
+  await office.tick();
+  assert.equal(idle, 0, "hook presence keeps the unfinished task visible and live");
+  presence = "idle";
+  assert.equal(snapshot().lobby[0]!.status, "active", "task status remains independently visible");
+  now += OFFICE_IDLE_MS;
+  await office.tick();
+  assert.equal(idle, 1, "Stop allows shutdown even when the attached task is unfinished");
+  await office.close();
+  presence = null;
+  const expired = createOfficeServer({snapshot: async () => snapshot(), now: () => now, onIdle: () => {idle++;}});
+  now += OFFICE_IDLE_MS;
+  await expired.tick();
+  assert.equal(idle, 2, "an expired registry record cannot be revived by stored task status");
+  await expired.close();
 });
 
 test("one server per repository: the record is reused, never duplicated, and released", async () => {
