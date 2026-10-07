@@ -1,0 +1,216 @@
+worktree: session-01a10524 (agent-ops/session-01a10524)
+session: 01a10524-cb47-7ce3-a5d2-6d0906a7757a
+agent-ops task task-9dd10344-354b-4392-a09c-41dfb71b6ac1: Implement executable acceptance and native goal runs
+intent: Implement /private/tmp/agent-ops-a-f-design.md: typed acceptance with five framework adapters, immutable replay and contract revisions; Claude/Codex native-goal runs with bounded parallel repair and macOS recovery. Preserve legacy behavior and complete the repository verification, fresh review and worktree finish gates.
+criteria:
+- acceptance-contracts: Typed behavioral, invariant and review-only criteria, immutable baseline and revision history coexist with legacy tasks; regression tests reject stale contracts and unsafe inputs.
+- acceptance-proof: Five adapters and isolated baseline/candidate replay provide check-level evidence, reject infrastructure/skip/duplicate false proof, and enforce current review and ratchet coverage.
+- native-goal-runs: Claude and Codex native goal transports preserve goal identity and expose start, observe, interrupt and resume; run budgets, ownership and permissions survive recovery.
+- parallel-recovery: Registered writers are isolated and bounded; repair, handoff, integration journal, no-change proof and macOS background recovery never accept partial native completion.
+- documentation-validation: English and Traditional Chinese interfaces and evidence are documented; full tests, typecheck and fresh review pass without claiming untested capabilities.
+  agent-ops task task-5e77a265-449f-47f9-8073-01d5bc1116fe: Executable acceptance adapters
+  intent: Implement the shared acceptance execution protocol and real Node, Jest, Vitest, pytest, and Rust adapters in runtime/src/verify/acceptance-protocol.ts and runtime/src/verify/adapters plus focused fixtures/tests. Preserve existing verification behavior and contracts outside this scope; use stdlib, trusted runner inputs, structured check identities, and fail closed for skipped, duplicate, retry, infrastructure, or incomplete results.
+  criteria:
+  - protocol-contract: The acceptance protocol represents executionId, framework/version, checkId, phase, status, failureClass, and a completed marker, and rejects missing, duplicate, retry, skipped, or infrastructure results as PASS/red.
+  - adapter-fixtures: Real fixtures exercise the Node, Jest, Vitest, pytest, and Rust adapter collectors on both assertion outcomes and infrastructure/collection outcomes.
+  - stable-evidence: Each adapter emits stable check identities with complete evidence and the adapters remain isolated from existing verification commands and contracts.
+    agent-ops task task-3a1515a2-f78a-4857-ab54-2ac7abb84bf3: A2 acceptance protocol
+    intent: Implement only the shared acceptance protocol under runtime/src/verify/acceptance-protocol.ts and its focused tests/fixtures. Define executionId, framework/version, checkId, lifecycle phase, status, failureClass, attempts, and completed marker; aggregate exact requested checks once each. Skipped, duplicate, retry, infrastructure, missing, incomplete, and malformed output must never become PASS or behavioral red. Reuse stdlib and do not touch contracts, schema, task, review, CLI, or existing verification behavior.
+    criteria:
+    - protocol-shape: The protocol validates executionId, framework/version, checkId, phase, status, failureClass, attempts, and a terminal completed marker with bounded structured data.
+    - protocol-aggregate: Aggregation requires every requested check exactly once with non-empty evidence and rejects missing, duplicate, retry, skipped, infrastructure, and incomplete outcomes as PASS or red.
+    - protocol-isolation: Protocol tests show the new collector types do not alter existing verify contracts or command execution behavior.
+      agent-ops task task-0aa1ea44-c545-4431-972c-43ab3736849a: A2 repair: legacy verification isolation proof
+      intent: Address blocking finding 0 in the saved A2 report for fingerprint 0e9bda7b3c1d694af3eb53a1029c6e37fb7e34f0492d3c1440dd79535f7ae2bd. Preserve the original A/F objective and current runtime behavior. Add direct observable proof that collector outcomes leave legacy config, command execution and task verifier selection unchanged.
+      criteria:
+      - legacy-command-contract: Protocol tests execute legacy exit-code and test-count commands after collector PASS, assertion FAIL and UNKNOWN outcomes, preserving argv, shell=false, trust refusal, nonzero failure and zero-test rejection without mutating legacy configuration.
+      - legacy-task-selection: A legacy task with an unbound registered acceptance runner retains mapped plus task-required verifier selection, produces only legacy policy evidence and never executes acceptance replay or mutates its task contract.
+    agent-ops task task-bd3ea106-7da4-4874-ad81-43418939ca6f: A3 Node acceptance adapter
+    intent: Implement only the Node acceptance adapter under runtime/src/verify/adapters and its real Node test fixtures. Consume structured node:test TestsStream/custom reporter output, preserve stable file/name check identity, distinguish assertion failures from suite/root/fixture/collection and incomplete output, and emit the shared acceptance protocol. Do not change existing contracts, schema, task, review, CLI, or ordinary verify.
+    criteria:
+    - node-structured: The Node adapter parses structured node:test output into stable check identities and emits PASS for assertions that pass and behavioral red only for executed assertion failures.
+    - node-failures: Node suite, root, fixture, collection, timeout, and incomplete/duplicate output are classified as UNKNOWN or infrastructure and never as behavioral red/PASS.
+    - node-fixtures: Node 22 fixtures exercise nested, same-name, concurrent, passing, assertion-failing, and malformed/incomplete cases with deterministic collector output.
+      agent-ops task task-4da288b9-8252-45a0-bdc1-69ffb7a21ecb: Fix reviewed Node acceptance boundaries
+      intent: Resolve the saved A3 review FAIL using the actual product Node reporter and collector, real Node 22 fixtures, and focused regression tests. Preserve shared protocol, repository policy, ordinary verify, and other framework adapters.
+      criteria:
+      - product-reporter: Real Node 22 CLI runs load the product nodeAcceptanceReporter and preserve assertion and lifecycle error metadata without synthetic assertion injection.
+      - native-identity: Nested and concurrent native Node tests resolve stable file/name/location identities; suite and root summaries cannot establish mechanical PASS or behavioral red.
+      - fail-closed-node: Regression checks prove hook/fixture assertions, timeout, duplicate, malformed and incomplete Node output remain UNKNOWN while actual test assertion failures remain red.
+    agent-ops task task-f1637e16-b454-43f0-9373-ff74e465d010: A4 Jest and Vitest acceptance adapters
+    intent: Implement only the Jest and Vitest acceptance adapters under runtime/src/verify/adapters and focused structured fixtures/collectors tests. Parse JSON/reporter lifecycle data without guessing from failure text; preserve test identity, distinguish assertion from hook/collection/unhandled errors, and reject skip, retry, duplicate, or incomplete evidence. Do not add repository dependencies or change existing contracts, schema, task, review, CLI, or ordinary verify.
+    criteria:
+    - jest-adapter: Jest structured output maps testResults/assertionResults to stable check identities and distinguishes executed assertion PASS/FAIL from hook, fixture, collection, and unhandled infrastructure outcomes.
+    - vitest-adapter: Vitest reporter or Jest-compatible output maps parameterized and concurrent checks with stable identities and the same PASS/red/UNKNOWN semantics.
+    - framework-boundaries: Jest/Vitest fixtures reject skip, todo, retry, duplicate, missing, and incomplete reports as UNKNOWN and work without adding repo dependencies.
+    agent-ops task task-4ec58755-eb96-436e-8e2b-9a873eac9208: A5 pytest and Rust acceptance adapters
+    intent: Implement only pytest and Rust acceptance adapters under runtime/src/verify/adapters plus executable stdlib-based Rust harness and focused fixtures/tests. Parse pytest setup/call/teardown and classify fixture/collection/skip/xfail correctly; provide a real stable Rust path that can execute pass/fail assertions without being an UNKNOWN stub, while leaving unsupported protocol output explicitly UNKNOWN. Do not alter contracts, schema, task, review, CLI, or ordinary verify.
+    criteria:
+    - pytest-adapter: The pytest adapter maps nodeid and setup/call/teardown reports to stable checks, treating assertion failure as behavioral red and fixture, collection, skip, xfail, retry, or incomplete outcomes as UNKNOWN.
+    - rust-adapter: The Rust path uses a runnable stdlib thin harness or stable compatible collector to emit protocol PASS and assertion red with stable check identities, rather than an always-UNKNOWN stub.
+    - foreign-boundaries: pytest and Rust fixtures cover malformed, unsupported, duplicate, missing, and infrastructure output without weakening the shared protocol semantics or adding repository dependencies.
+    agent-ops task task-a410b2b5-9d8d-4bbb-bc01-ce1705ad9dfc: A8 finding ratchet pin module
+    intent: Implement a bounded, read-only finding pin loader for the A8 ratchet. Read only saved schema-2 review report artifacts under the repository review directory, validate digest/index/task/goal/contract/candidate identity and behavioral red provenance, derive the immutable failed-candidate baseline, and return one new criterion with explicit pin provenance. Preserve legacy compatibility by rejecting reports without required schema-2 metadata, make already-pinned identity idempotent, refuse unrelated or fuzzy references, and leave cap-five replan and task-store/CLI wiring to the coordinator. Scope is only runtime/src/task/pin-finding.ts and tests/task/pin-finding.test.ts; do not edit contracts, review artifact writers, task service, schema, or CLI.
+    criteria:
+    - report-identity: Loads only a schema-2 report whose digest/index, task, goal, contract, candidate commit, and failed primary or adversarial finding identity match the supplied task context.
+    - immutable-baseline: Derives the failed report candidate commit as an immutable baseline and requires at least one behavioral acceptance red check before returning a pin.
+    - pin-provenance: Returns one idempotent finding pin with pinId, report digest/index, candidate commit, and original criterion IDs while rejecting legacy, unrelated, malformed, or fuzzy references.
+    agent-ops task task-206064eb-6398-4ac0-b5de-514f5330fb70: Persisted policy transition journal
+    intent: Add a bounded run policy transition journal backed by existing private files and RunState.events. Capture the old binding, worker generations, task and contract identities, and resume IDs; expose fenced stage marking and crash recovery; permit completion only after caller-provided policy synchronization. Preserve historical delivered workers and markers. This module must not mutate policy or start/stop writers and must remain compatible with runs without a policy transition.
+    criteria:
+    - journal-fence: A transition records an immutable old binding and worker/task/contract/resume snapshot, writes a digest-checked private artifact, and references each stage from RunState.events.
+    - crash-recovery: Pending prepared or fenced transitions can be rediscovered after a crash, reject stale or mismatched identities, and retain historical delivered workers and delivery markers.
+    - sync-before-complete: A transition cannot complete before an explicit synchronized policy binding and contract/task proof are supplied; complete preserves the journal and emits a final reference without mutating writers.
+    agent-ops task task-8544b6e5-f580-43a2-a95b-23e58b30f7c1: A4/A5 repair: fail-closed native framework proof boundaries
+    intent: Repair confirmed A4/A5 acceptance normalization gaps without changing the fixed A/F goal: reject malformed, retried, hook/nonassertion and incomplete lifecycle evidence, preserve real packaged collector red/green outputs, and add behavioral regressions; no new dependencies or policy relaxation.
+    criteria:
+    - vitest-boundaries: Vitest rejects malformed entries/JSONL, repeated or retried executions, hook and non-assertion failures as UNKNOWN while complete single-attempt native assertions preserve red/green and stable identities.
+    - pytest-lifecycle: Pytest requires explicit supported event types, exactly one complete setup/call/teardown lifecycle and explicit single-attempt evidence; missing or duplicate phases and missing attempt metadata cannot establish PASS or assertion red.
+    - rust-attempt-evidence: The packaged Rust protocol requires explicit attempt evidence: missing attempt counts remain UNKNOWN while actual stdlib harness single-attempt pass/assertion failure fixtures remain valid.
+    - native-regression-proof: Regression tests reproduce these false proof boundaries through supported structured reports and packaged collectors; existing complete supported framework reports remain compatible and the full project test suite passes.
+  agent-ops task task-2b80f4c0-dc29-44dd-8582-d8147d7c3827: A1 typed acceptance contracts and revision history
+  intent: Add typed acceptance criteria and authorized runner config; retain legacy task/config/evidence readers and hashes. Add immutable baseline and creation commit capture, contract digests, CAS revise/replan and strict material/check validation without changing the original goal.
+  criteria:
+  - typed-validation: Behavioral, invariant and review-only criteria and runner config validate strictly; unsafe paths, duplicate bindings and malformed baselines are rejected.
+  - legacy-read: Version-one state and legacy task/config/evidence remain readable with stable absent-extension policy hashes; typed upgrades require a real baseline.
+  - contract-revisions: CAS revise/replan preserve original goal and existing criterion baseline, record old and new contracts, invalidate stale proof and reject concurrent revisions.
+  - criterion-cli: Task create accepts typed criterion JSON/file payloads and captures createdSourceCommit while existing flags and legacy criteria retain behavior.
+  agent-ops task task-c2fd4938-b980-47c4-bb98-a6261452886c: Native goal hosts and durable run primitives
+  intent: Implement only the native host transport, durable run state/store, active budget accounting, and macOS transient launchd primitives described by the approved A/F design. Use Node stdlib child_process and JSON protocols; isolate real probes in private/tmp; do not change CLI args, shared contracts.ts/task schemas, parallel orchestration, global trust, or review behavior. Native completion never becomes agent-ops proof. Preserve unknown/partial outcomes and fail closed on ambiguous recovery.
+  criteria:
+  - native-host-lifecycle: NativeGoalHost primitives expose bounded start, observe, update, stop, and resume lifecycle for Codex app-server JSON-RPC and Claude stream-json without PTY text parsing, and preserve unknown transport outcomes.
+  - durable-run-state: RunStore and RunState atomically persist fixed goal and contract revisions, worker/session ownership, lease generations, handoff intent, integration references, boot/login identity, and usage high-water marks with strict read-back validation.
+  - active-budget: Run budget primitives account for one 60-minute active union window across pauses and recovery, expose partial or unknown usage without inventing totals, and prevent work after expiry.
+  - macos-background-boundary: macOS launchd primitives support transient same-login crash supervision while requiring explicit resume after boot/login identity changes and disabling restart for stop, completion, blocked, and budget terminal states.
+    agent-ops task task-e903beb3-09b5-451d-b0bd-f349f570ca0c: S1 native capability probes
+    intent: S1 native probes must be read-only evidence only: use isolated private/tmp repositories and strict timeout/cancellation, observe Claude/Codex lifecycle through documented structured transports, and record unsupported/unknown outcomes without changing global policy or invoking bypass flags.
+    criteria:
+    - native-probe-evidence: The S1 probe fixtures exercise bounded Claude stream-json and Codex app-server start/observe/stop/resume or record an explicit unsupported/unknown result with command/version/transport evidence.
+    - probe-isolation: Probe processes are scoped to private/tmp, have bounded process trees and cleanup, and cannot write the repository, user policy, or global trust state.
+      agent-ops task task-bdc06502-8f3b-4949-bea5-0c58dd539238: Synchronize POSIX timeout fixture readiness
+      intent: Remove the POSIX process-tree test's assumption that descendant startup finishes within 300ms. Observe real PID and heartbeat under a bounded readiness deadline, advance only the test timeout clock after readiness, and guarantee owned process-group cleanup on all outcomes without changing production verification timeouts or termination behavior.
+      criteria:
+      - ready-before-timeout: The POSIX descendant timeout integration test waits for the real PID and heartbeat before advancing its test clock; a deliberate startup delay exceeding the old 300ms window still exercises timeout and verifies normal leader exit plus descendant termination.
+      - failure-cleanup: Timeout test readiness has a bounded real deadline and every assertion/error path aborts the command, terminates the captured owned process group and awaits completion before removing fixtures; production timeout and termination behavior remain unchanged.
+    agent-ops task task-d419dc61-c351-4996-8e5c-1ad8fe7b2165: F1 native goal hosts
+    intent: Implement only reusable NativeGoalHost host adapters and transport primitives under runtime/src/run/hosts. Codex uses app-server JSON-RPC; Claude uses child_process stream-json; persist identities before sending goals; no PTY parsing, CLI routing, orchestration, or completion proof.
+    criteria:
+    - codex-transport: Codex host lifecycle correlates JSON-RPC request IDs, persists thread/process identity before goal activation, observes goal/turn/usage events, and resumes or stops conservatively after lost responses.
+    - claude-transport: Claude host launches a controlled -p stream-json process with explicit session id and lease identity, separates stdout/stderr, supports bounded observe/update/interrupt/resume, and never treats exit 0 or native goal completion as agent-ops proof.
+    - host-safety: Both host adapters bound output/time/process cleanup, preserve unknown protocol states, and reject stale generation or contract-hash actions.
+      agent-ops task task-0fdcbb4b-b835-422a-b0f4-312c301a554d: Confirm detached group disappearance after transient EPERM
+      intent: Repair the reproduced macOS native cleanup race: a second SIGKILL can return EPERM while the already-killed group is disappearing. Recheck disappearance within the existing bounded cleanup window, preserve persistent permission failures, and reuse the same signal handling for native host and recovered transport stops. Do not relax ownership or completion proof.
+      criteria:
+      - confirmed-disappearance: Transient group-signal EPERM is accepted only after kernel probes confirm the process group no longer exists; Codex startup timeouts retain their original error and leave no native descendant alive.
+      - permission-stays-closed: Persistent EPERM and unknown/live groups still reject stop and takeover within a bounded wait; Claude/Codex and recovered native transport use the same group-signal behavior without changed ownership checks.
+    agent-ops task task-226978d4-69d7-4583-9bc9-cbc948bd8454: F2 run state and budget
+    intent: Implement only runtime/src/run/types.ts, store.ts, and budget.ts. Store must be atomic and strict; budget must carry active-union time and usage completeness across recovery. Do not change shared contracts.ts/task schemas or add run CLI/supervisor.
+    criteria:
+    - run-state: RunState persists fixed goal/contract revisions, worker and native mappings, lease generations, workerStopIntent, integration references, and boot/login identities with atomic read-back and strict validation.
+    - run-store-recovery: RunStore supports idempotent compare-and-swap updates and preserves unknown/partial recovery, high-water usage epochs, and terminal/awaiting-resume states without losing history.
+    - budget-accounting: Budget primitives enforce a default 60-minute active union window across pause/resume and concurrent workers, stop at expiry, and distinguish complete, partial, and unknown usage without inventing totals.
+      agent-ops task task-14ffeb88-1865-4185-9913-2235b7c11f33: Fence local proof registration and make lifecycle regression cleanup reliable
+      intent: Correct owned local proof test readiness and failure cleanup, and prevent stopped or fenced workers from registering a dormant proof process after Stop. Keep production verification deadlines and concurrency unchanged.
+      criteria:
+      - bounded-readiness: The real CLI proof fixture waits for bounded observable readiness, preserves exit diagnostics, and accepts deliberately delayed verifier startup beyond the old 5-second polling window.
+      - failure-cleanup: Fixture assertion failures stop registered proof groups before removing state and confirm no verifier or descendant survives.
+      - stop-fences-registration: A Stop between local proof context lookup and registration rejects the dormant process before activation, leaving no proof, command marker or completion evidence.
+    agent-ops task task-2c43803e-478e-41a7-b441-af5d3603cf95: F6 macOS background primitive
+    intent: Implement only runtime/src/run/macOS.ts and focused tests/evidence. Provide transient user-domain launchd descriptors and lifecycle helpers; do not install persistent LaunchAgents, auto-resume after reboot/login, or change global policy.
+    criteria:
+    - same-login-crash: Generated launchd job data is bound to canonical repo/run identity, uses absolute argv/log paths, and supports same-login crash supervision with bounded restart diagnostics.
+    - explicit-resume: Boot and user-login identity changes transition a run to awaiting-resume without starting a writer; explicit resume re-bootstrap is required and stale identity/lease cannot start work.
+    - terminal-disable: Stop, complete, blocked, and budget terminal intents atomically disable restart before process termination, and cleanup only owned transient jobs.
+  agent-ops task task-e70cf650-3f9b-46e8-bd69-6bc08847ce0f: F orchestration: native goal supervision and resilient integration
+  intent: Implement the F3-F5 orchestration slice from the approved A/F design in the registered af-orchestration worktree. Add a run supervisor and scheduler that own whole-run budgets, same-host worker mapping, DAG scheduling, run-scoped control and explicit stop/recovery state while delegating planning, implementation and repair to Claude/Codex native goals. Extend parallel delivery/integration with explicit coordinator-owned worker handoff, atomic lease revoke and death confirmation, no-change deliveries with dedicated review scope, crash-safe merge journal and target compare-and-swap. Add the external run CLI lifecycle commands and keep the existing final-proof gate authoritative: native goal completion or process exit cannot complete a task. Preserve legacy WorktreeRecord and old finish behavior, use only Node stdlib and current stores/host APIs, do not edit contracts.ts/schema validation/task service/review modules/CLI args parser or CLI entrypoint; root agent will wire A APIs and final CLI dispatch.
+  criteria:
+  - run-supervision: Run orchestration persists a bounded 60-minute lifecycle with at most two same-host workers, explicit worker/task ownership, run-scoped controls, and recovery metadata; native goal completion or process exit cannot mark agent-ops work complete.
+  - delivery-handoff: Writer delivery has explicit registered run ownership and atomic handoff semantics, supports no-change delivery with dedicated review scope, and rejects unregistered or stale worker identities without bypassing the existing completion gate.
+  - integration-recovery-cli: Integration records crash-safe journal steps and target compare-and-swap so recovery cannot re-merge a committed step; run CLI lifecycle controls expose start/status/logs/resume/stop/respond while final completion still requires existing verify, review, task, and receipt proof.
+    agent-ops task task-43aa37a4-0569-4d94-8a7e-494689ca5ffb: F3 native goal supervision and worker handoff
+    intent: Implement F3 within the parent orchestration intent. Add run-scoped supervisor/control state and scheduler-facing ownership contracts for Claude/Codex native goal workers: bounded whole-run time, same-host jobs, explicit worker registration, leases/generations, atomic revoke and death confirmation, crash/reboot recovery markers, and no native-complete shortcut. Keep host execution behind the existing native RunStore/Host APIs and avoid contracts/schema/task/review/CLI parser files owned by sibling writers.
+    criteria:
+    - native-run-state: Run state persists host, goal/task identity, budget epoch, worker registration, lease generation, control action and recovery markers with strict bounded values and no secret material.
+    - handoff-recovery: Worker registration, handoff and revoke require coordinator-owned identities and generation checks; a native exit or goal completion remains pending until agent-ops proof, and restart/resume reconciliation is idempotent.
+    agent-ops task task-a9f5e8e3-26f0-4dcb-88c2-6fa47c279a8d: F4 scheduler and run CLI
+    intent: Implement F4 within the parent orchestration intent. Add the bounded DAG scheduler and external run command service/handler surface for start/status/logs/resume/stop/respond, including input waiting, progress/failure convergence, run-scoped permissions and controls. Keep planning/repair delegated to native goals, ensure two same-host writer slots by default, and expose pure command data for root CLI dispatch without editing args.ts or cli.ts.
+    criteria:
+    - bounded-dag-scheduler: Scheduler validates an acyclic task DAG, limits active writer jobs to two on one selected host, counts overlapping active wall time once against a 60-minute run budget, and stops only a failed child plus dependents while independent work continues.
+    - run-command-surface: Run service exposes deterministic lifecycle commands and persisted status/log actions for start, resume, stop, respond and awaiting-input; it never reports final completion from native goal or process exit alone and preserves unknown/partial usage.
+    agent-ops task task-8a8ff58a-2211-46bb-8ea2-b25173ca7aef: F5 integration journal and no-change delivery
+    intent: Implement F5 within the parent orchestration intent. Extend parallel delivery/integration/finish/receipt behavior with explicit run ownership and worker handoff validation, a no-change child delivery path that records source artifacts and a dedicated review scope, and a crash-safe integration journal with target SHA CAS and receipt bookkeeping. Preserve legacy WorktreeRecord compatibility and leave root final proof as the only completion authority.
+    criteria:
+    - owned-delivery-nochange: Delivery accepts only registered run worker identities with live coordinator leases or atomic confirmed handoff; no-change delivery records exact source artifacts and dedicated review scope, and stale/unregistered sessions are rejected.
+    - journaled-integration: Each integration step journals intent, target CAS, commit/merge result and receipt progress so recovery does not re-merge completed steps; existing final proof and zero-commit legacy behavior remain compatible.
+    agent-ops task task-6886cc98-4a13-4af4-a224-5d84eb5a18ae: Semantic run failure convergence
+    intent: Add a bounded semantic convergence helper and supervisor compatibility path. Derive stable failure observations from actual VerificationReport acceptance and command results, including criterion/check identity, phase, failure class, stable pinned finding identity, and a PASS/FAIL progress vector. Diagnostic wording, raw task.failureFingerprint, source/head/duration, and session rebuilds must not change same-error identity or count as progress. A checked failing item becoming PASS or a stable pin becoming discharged is meaningful progress. Keep existing RunFailure fields readable and do not edit CLI run-entry or other root-owned surfaces; root will wire report.data into repair.
+    criteria:
+    - semantic-observations: A reusable runtime convergence API derives semantic failure observations from VerificationReport data with criterion/check identity, phase, failure class, stable pin identity, and a deterministic progress vector without using raw diagnostics, source/head, duration, wording, or task failure fingerprints as identity.
+    - semantic-progress: The convergence API treats a failed item becoming PASS or a stable pinned finding becoming discharged as progress, while diagnostic-only, wording-only, source/head-only, duration-only, and session-rebuild changes remain the same failure observation.
+    - supervisor-convergence: RunSupervisor no-progress detection uses the semantic failure identity and progress vector when supplied, preserves legacy RunFailure persistence compatibility, and does not reset convergence solely because diagnosticDigest or legacy fingerprint changed.
+    - regression-coverage: Focused tests cover semantic observation derivation and two-round supervisor convergence, including distinct checks and genuine PASS or pin-discharge progress, with the repository typecheck/build remaining valid.
+  agent-ops task task-a5c452a2-da48-4896-b776-70bc1c95ab01: A6 isolated acceptance replay
+  intent: Run clean committed baseline/candidate checkouts with immutable baselines, identical explicit materials, each side's own dependencies/build and phase-bound evidence.
+  criteria:
+  - phase-a6-1: Replay isolates baseline and candidate commits and never shares candidate product output.
+  - phase-a6-2: Material files are committed regular safe paths and identical on both sides.
+  - phase-a6-3: Expected assertion red is paired with all required green checks and cannot contaminate candidate failure state.
+  - phase-a6-4: Timeout, infrastructure failures and identity changes invalidate proof and cache.
+  agent-ops task task-50bfde16-548c-42aa-95ee-76fda11b2d3d: A7 typed review and completion gates
+  intent: Bind current goal/contract/coverage to review artifacts and completion; preserve legacy behavior, provide doctor/status coverage and goal-no-change review scope.
+  criteria:
+  - phase-a7-1: Review packets retain fixed goal, contract revision history, check coverage and verifier material references.
+  - phase-a7-2: Typed completion requires matching paired proof and fresh contract-bound dual review; legacy paths continue working.
+  - phase-a7-3: Review-only stays distinct from mechanical proof and cannot disable mandatory policy commands.
+  - phase-a7-4: Status and doctor report coverage honestly and goal-no-change reviews inspect bounded existing sources.
+  agent-ops task task-bbd41571-9e19-4f84-abbf-965c49796ad2: A8 permanent finding ratchet
+  intent: Pin saved blocking findings by report digest/index with failed-candidate baselines, CAS provenance, mandatory regression checks and atomic capacity replan.
+  criteria:
+  - phase-a8-1: Pins verify saved report finding identity, candidate SHA and all source criterion associations.
+  - phase-a8-2: Every new pin adds an independent criterion and explicit recurrence never uses fuzzy text matching.
+  - phase-a8-3: Pinned checks require failed-candidate red and candidate green and join ordinary regression tests.
+  - phase-a8-4: Full tasks replan atomically without losing baseline, requirement or finding lineage.
+  agent-ops task task-711028f5-f5dc-4192-9b53-da75b074d121: D1 executable acceptance and native run documentation
+  intent: Document implemented CLI, compatibility, host/framework capability evidence and new gates in English and Traditional Chinese; do not claim external adoption or untested cost savings.
+  criteria:
+  - phase-d1-1: README, CHANGELOG and English/Traditional Chinese specifications describe the actual implemented interfaces.
+  - phase-d1-2: Capability matrices and fault evidence distinguish tested from unavailable native/platform behavior.
+  - phase-d1-3: Coverage, usage completeness and original-goal fallback semantics match runtime behavior.
+    agent-ops task task-b62f8639-8983-442a-a551-1c2b7cacf5b8: D1 repair: current task help and native evidence limits
+    intent: Correct the observed stale task --help that falsely rejects acceptance fields and omits implemented CAS actions, and mirror the verified native framework proof boundaries in English/Traditional Chinese specifications. Preserve legacy usage, runtime APIs, fixed A/F intent and verification/review gates.
+    criteria:
+    - current-task-help: task --help documents current typed criterion create/file input and CAS revise/replan/pin-finding arguments accurately, while retaining the legacy criterion example and supported command constraints.
+    - framework-spec-mirror: English and Traditional Chinese acceptance specifications state the proven Jest/Vitest native assertion-provenance and attempt-count limits, plus strict pytest lifecycle and Rust attempt requirements; no unsupported red/green claim or gate relaxation is introduced.
+  agent-ops task task-6ce50132-0cc5-4388-a396-ff6b03753198: Renew expired bound policy transitions safely
+  intent: Add a durable, explicitly invoked recovery API for pending bound policy transitions whose new artifact expired. Preserve the old and prior new artifact identities and a digest-linked renewal history; require current run binding and journal CAS matches; never execute an expired capability or weaken exact artifact validation. Change only runtime/src/run/policy-transition.ts and its focused tests.
+  criteria:
+  - renew-bound-artifact: An explicit renewal operation can renew only a pending bound transition whose current binding exactly matches the sealed journal new artifact, and returns a fresh validated artifact identity with remaining-budget expiry.
+  - renewal-history: The journal durably records the prior bound artifact and the renewed artifact in a digest-linked history that survives reread and rejects tampering or mismatched transitions.
+  - deny-expired-execution: Renewal performs no setup or capability execution and rejects missing, non-bound, stale, unexpired, or mismatched journal/binding inputs with fail-closed errors.
+  agent-ops task task-2a240362-9ca8-4bce-9d30-633469f675eb: Preserve full-suite failure diagnostics
+  intent: Support final A/F verification by emitting native Node failing-test identity and cause on stderr before bounded command diagnostics erase it. Preserve TAP outcome counts, selected files, default concurrency, shell=false, exit/signal propagation, and existing verifier authority. Do not classify prior intermittent failures without reproduction.
+  criteria:
+  - retained-failure: An early failing test followed by more than 64 KiB TAP output retains its name, location, and assertion cause in configured command diagnostic and bounded failure fingerprint.
+  - unchanged-execution: Test entry preserves sorted selected files, default concurrency, TAP pass/fail counts, shell=false, child exit/signal propagation; successful runs emit no failure diagnostics.
+  agent-ops task task-b236b21c-474a-4153-a9ab-0d7b50ad5009: State the review report path contract in both review rounds
+  intent: Repair the demonstrated invalid external design path in review reports by stating the existing repository-relative path contract in shared trusted review instructions. Preserve the original A/F goal, task criteria, report schema, fail-closed validation and independent review requirements.
+  criteria:
+  - shared-path-instructions: Primary and adversarial prompts state that changedFilesInspected, supportingFilesInspected and finding locations use repository-relative paths; external design references belong in evidence text, outside the path arrays.
+  - fail-closed-report-paths: Regression coverage rejects absolute and traversal paths in both inspected-path arrays and finding locations while permitting external design references in evidence text; existing review validation and original product goal remain unchanged.
+  agent-ops task task-37ffdffe-0983-4992-aa1c-c32a85155c48: Use the sealed manifest index for bounded review packets
+  intent: Resolve the demonstrated whole-tree review packet overflow without weakening limits or hiding evidence: place the complete evidence path/digest index in the existing sealed contract manifest and omit duplicate inline metadata only when it exactly matches. Preserve snapshots, all original A/F requirements, legacy packet behavior and independent review gates.
+  criteria:
+  - bounded-complete-index: A 500-artifact review packet stays below the existing 64 KiB prompt limit when the sealed manifest contains the exact path/digest index; both review rounds can locate every artifact and snapshot inputs retain all content.
+  - legacy-index-safety: Absent, malformed or mismatched manifest indexes retain legacy inline metadata and existing packet limits; tampered artifact hashes and snapshot inputs are still rejected, with no criterion or original-goal changes.
+  agent-ops task task-37d70455-9834-479c-9606-0115cba3de67: Keep review snapshots bound to current proof and contract history
+  intent: Select active verification artifacts for the reviewed source fingerprint, retain all revision and superseded-task proof for goal audit, and preserve persisted evidence and receipt sealing without raising snapshot limits.
+  criteria:
+  - current-proof-selection: Tree review snapshots include current-source verification and its execution artifacts, excluding obsolete active evidence while preserving the stored references.
+  - history-preserved: Review snapshots retain revision and superseded-task evidence regardless of source fingerprint; complete receipt history and existing safety limits remain intact.
+  agent-ops task task-ea715fb2-d652-4635-92a7-308925e7da3c: Serialize review and finish lock ownership transitions
+  intent: Prevent stale-lock checks and cleanup from deleting a replacement holder in review slots and the identical finish lock scheme. Reuse the existing private-file lock for short ownership transitions, preserving review width, finish exclusion, stale recovery, cancellation and action execution outside the metadata lock.
+  criteria:
+  - ownership-transitions: Acquiring, reclaiming and releasing review-slot and finish-lock ownership are serialized so a stale observer cannot remove a replacement holder or cause owner.json ENOENT.
+  - limits-and-recovery: Concurrent review callers retain the configured width, finish actions remain mutually exclusive, dead and expired holders remain recoverable, and cancellation retains its current behavior.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/4e0ffe3efa48657b4b61b8499aae6b8c07549566f2bdf2f7f81f03b7043c265e-e2a40505fea8e0ca1c9aeb95138b26070097be1a.json
+receipt-sha256: bae6e69acea0b4ec94adb53cdb272ff7379b5d52e6115ec75eaa9c0c49d710ea
