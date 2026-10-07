@@ -45,6 +45,8 @@ export interface RunCommandOptions {
   readonly targetBranch: string;
   readonly ownerSessionId: string;
   readonly waitForCompletion?: (runId: string) => Promise<RunState>;
+  /** Live office URL, starting the server if needed; display-only, so failures are ignored. */
+  readonly office?: () => Promise<string | null>;
 }
 
 export interface RunCommandData {
@@ -53,6 +55,7 @@ export interface RunCommandData {
   readonly state: RunState;
   readonly message: string;
   readonly text: string;
+  readonly officeUrl?: string;
 }
 
 function dynamic(args: RunParsedArgs): Record<string, unknown> {
@@ -120,6 +123,11 @@ async function answerFromArgs(args: RunParsedArgs, root: string): Promise<string
  * External lifecycle surface. The command only starts/controls a supervisor;
  * it never marks the task complete or treats a native process exit as proof.
  */
+async function withOffice(options: RunCommandOptions, response: RunCommandData): Promise<RunCommandData> {
+  const url = await options.office?.().catch(() => null) ?? null;
+  return url === null ? response : {...response, officeUrl: url, text: `${response.text}\nOffice: ${url}`};
+}
+
 export async function runRunCommand(options: RunCommandOptions): Promise<CliEnvelope<RunCommandData>> {
   const action = actionOf(options.args);
   try {
@@ -137,11 +145,11 @@ export async function runRunCommand(options: RunCommandOptions): Promise<CliEnve
       const state = options.args.wait === true && options.waitForCompletion !== undefined
         ? await options.waitForCompletion(result.state.runId)
         : result.state;
-      const response = data(action, { ...result, state });
+      const response = await withOffice(options, data(action, { ...result, state }));
       return okEnvelope(options.args.wait === true ? "RUN_FINISHED" : "RUN_STARTED", response);
     }
     const runId = runIdOf(options.args);
-    if (action === "status") return okEnvelope("RUN_STATUS", stateData(action, await options.service.status(runId), `Read run ${runId}.`));
+    if (action === "status") return okEnvelope("RUN_STATUS", await withOffice(options, stateData(action, await options.service.status(runId), `Read run ${runId}.`)));
     if (action === "logs") {
       const state = await options.service.status(runId);
       const events = await options.service.logs(runId);

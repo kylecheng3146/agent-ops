@@ -24,7 +24,8 @@ export const COMMAND_NAMES = [
   "batch",
   "allow-stop",
   "worktree",
-  "run"
+  "run",
+  "office"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);

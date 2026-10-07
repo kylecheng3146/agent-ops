@@ -19,7 +19,8 @@ const MAX_PATHS = 200;
 
 /** Changed paths and line counts against the worktree's base, committed or not. */
 export async function worktreeDiff(git: OfficeGit, path: string, base: string): Promise<OfficeDiff> {
-  const numstat = await git(path, ["diff", "--numstat", "-z", base]);
+  // The record is a file inside the checkout; only a commit id may reach git's argument list.
+  const numstat = /^[0-9a-f]{40,64}$/u.test(base) ? await git(path, ["diff", "--numstat", "-z", base, "--"]) : {exitCode: 1, stdout: ""};
   const untracked = await git(path, ["ls-files", "--others", "--exclude-standard", "-z"]);
   let insertions = 0, deletions = 0;
   const paths: string[] = [];

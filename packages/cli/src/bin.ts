@@ -4,6 +4,8 @@ import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {recordRunVerification} from "../../../runtime/src/run/verification.js";
 import {runOwnedLocalProof} from "./owned-run-step.js";
 import {runRunCommand} from "./commands/run.js";
+import {runOfficeCommand} from "./commands/office.js";
+import {ensureBackgroundOffice, serveOffice} from "./office-entry.js";
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -351,7 +353,11 @@ process.exitCode = await runCli(
             throw new AgentOpsError("RUN_POLICY_COORDINATOR_REQUIRED", "Run workers must request scoped policy review from the coordinator; permanent trust and host rules cannot be changed by the run.");
           if (args.command === "run") {
             const context = await productionRunContext(root);
-            return await runRunCommand({args, ...context, root: context.mainRoot});
+            return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root)});
+          }
+          if (args.command === "office") {
+            return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root),
+              foreground: async (onUrl) => await serveOffice(root, onUrl), writeStdout: (text) => {process.stdout.write(text);}});
           }
           if (args.command === "init") {
             const store = trustStore();

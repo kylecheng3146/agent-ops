@@ -5,34 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createRunState, type RunState } from "../../runtime/src/run/service.js";
+import { createRunState } from "../../runtime/src/run/service.js";
+import { NOW, runFixture } from "./fixture.js";
 import { buildOfficeSnapshot, narrate, type OfficeDiff } from "../../runtime/src/office/snapshot.js";
 import { officeGit, readReviewSlots, worktreeDiff } from "../../runtime/src/office/collect.js";
 
-const NOW = Date.parse("2026-10-07T01:00:00.000Z");
 
 function diff(paths: string[], recent = paths[0] ?? null): OfficeDiff {
   return {files: paths.length, insertions: 3, deletions: 1, paths, recent};
-}
-
-export function runFixture(): RunState {
-  const base = createRunState({root: "/repo", commonDir: "/repo/.git", targetBranch: "main",
-    goal: "# Goal: office view\n\nMore detail.", host: "claude", ownerSessionId: "owner", runId: "run-office-fixture",
-    now: "2026-10-07T00:00:00.000Z", timeBudgetMs: 60 * 60 * 1000});
-  const worker = (id: string, task: string, path: string, status: "running" | "stopped", phase?: "implementing" | "verifying") => ({
-    workerId: id, taskId: task, host: "claude" as const, ownerSessionId: "owner", nativeSessionId: null, nativeJobId: null,
-    worktree: path, processId: null, processIdentity: null, generation: 1, status, leaseExpiresAt: null, heartbeatAt: null,
-    stopIntent: null, nativeGoalState: "active" as const, lastFailure: null, ...(phase === undefined ? {} : {phase})});
-  return {...base, phase: "verifying",
-    budget: {...base.budget, activeIntervals: [{startMs: NOW - 20 * 60 * 1000, endMs: null}]},
-    tasks: [
-      {taskId: "root", dependencies: [], status: "running", workerId: base.coordinatorId, deliveryDigest: null, sourceCommit: null,
-        blockedReason: null, progress: {verify: "PASS", review: null, passed: 2, total: 6}},
-      {taskId: "child", dependencies: [], status: "running", workerId: "w1", deliveryDigest: null, sourceCommit: null, blockedReason: null}],
-    workers: [worker(base.coordinatorId, "root", "/repo/.worktrees/coord", "running", "verifying"),
-      worker("w1", "child", "/repo/.worktrees/child", "running"),
-      worker("w-old", "child", "/repo/.worktrees/old", "stopped")],
-    questions: [{questionId: "q-1", prompt: "Which port?", askedAt: "2026-10-07T00:30:00.000Z", answeredAt: null, answerDigest: null}]};
 }
 
 test("narration is inferred from changed paths only", () => {
@@ -73,6 +53,7 @@ test("snapshot aggregates runs, run worktrees, lobby desks and review slots", ()
   assert.deepEqual(run!.reviewers.map(r => r.slot), [0]);
   assert.deepEqual(snapshot.reviews.map(r => r.slot), [1]);
   assert.deepEqual(snapshot.lobby.map(d => [d.name, d.narration]), [["session-1", "editing src/app.ts"]]);
+  assert.ok(snapshot.lobby[0]!.commands.includes("agent-ops worktree finish 'session-1'"));
 });
 
 test("worktree diff counts committed, uncommitted and untracked paths and finds the newest", async () => {
@@ -97,6 +78,8 @@ test("worktree diff counts committed, uncommitted and untracked paths and finds 
     assert.equal(result.insertions, 3);
     assert.equal(result.deletions, 1);
     assert.equal(result.recent, "docs/guide.md");
+    const injected = await worktreeDiff(officeGit, root, "--output=" + join(root, "pwned"));
+    assert.deepEqual(injected.paths, ["new.ts"]);
   } finally {
     await rm(root, {recursive: true, force: true});
   }

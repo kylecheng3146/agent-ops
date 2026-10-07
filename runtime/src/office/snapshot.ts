@@ -122,6 +122,6 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
   });
   const lobby = input.worktrees.filter(w => w.runId === undefined).map((w): OfficeDesk => ({
     name: w.name, branch: w.branch, sessionId: w.sessionId, diff: w.diff, narration: narrate(w.diff) ?? "idle",
-    commands: ["agent-ops worktree list", `agent-ops worktree finish ${w.name}`]}));
+    commands: ["agent-ops worktree list", `agent-ops worktree finish ${quote(w.name)}`]}));
   return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: input.reviews.filter(r => !claimed.has(r))};
 }
