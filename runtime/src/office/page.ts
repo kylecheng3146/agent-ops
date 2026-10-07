@@ -370,7 +370,7 @@ function drawSupervisor(){
   else { supervisor.x += Math.max(-.7, Math.min(.7, supervisor.targetX - supervisor.x)); supervisor.y += Math.max(-.7, Math.min(.7, supervisor.targetY - supervisor.y)); }
   var moving = Math.abs(supervisor.x - supervisor.targetX) > .05 || Math.abs(supervisor.y - supervisor.targetY) > .05;
   var px = (supervisor.x-2.25) * T, py = supervisor.y * T; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
-  var hall=hallwayBounds(),labelX=hall.x*T+2*U,labelW=hall.width*T-4*U;ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,py-16*U,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,py-16*U,labelW,13*U);fillText(lang === "zh" ? "你 · 主管" : "Supervisor",labelX+3*U,py-14*U,7,PALETTE[1]);
+  var hall=hallwayBounds(),labelX=supervisor.x*T-9*U,labelW=18*U;ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,py-16*U,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,py-16*U,labelW,13*U);fillText("你",labelX+3*U,py-14*U,7,PALETTE[1]);
   var entry=roomEntrances().sort(function(a,b){return Math.hypot(a.x-supervisor.x,a.y-supervisor.y)-Math.hypot(b.x-supervisor.x,b.y-supervisor.y);})[0]; if(entry&&(Math.abs(entry.x-supervisor.x)>1.25||Math.abs(entry.y-supervisor.y)>Math.min(1.6,entry.height*.35)))entry=null;
   if (!moving && mode === "overview" && entry) { selectedKey = entry.floor.key; hallwayReturn = {x:supervisor.x, y:supervisor.y}; enterRoomFromHallway(entry.floor); }
 }
@@ -387,7 +387,7 @@ function drawRoomSupervisor(){
   else { roomSupervisor.x += Math.max(-.7, Math.min(.7, roomSupervisor.targetX - roomSupervisor.x)); roomSupervisor.y += Math.max(-.7, Math.min(.7, roomSupervisor.targetY - roomSupervisor.y)); }
   var moving = Math.abs(roomSupervisor.x - roomSupervisor.targetX) > .05 || Math.abs(roomSupervisor.y - roomSupervisor.targetY) > .05;
   var px = roomSupervisor.x / model.roomCols * canvas.width - 2.25*T, py = roomSupervisor.y / model.roomRows * canvas.height; draw(moving && Math.floor(frame / 7) % 2 ? "step" : "person", px, py, PALETTE[14]);
-  var labelW=Math.min(118*U,canvas.width-8*U),labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px-6*U)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText(lang === "zh" ? "你 · Supervisor" : "You · Supervisor",labelX+4*U,labelY+2*U,8,PALETTE[1]);
+  var labelW=20*U,labelX=Math.max(4*U,Math.min(canvas.width-labelW-4*U,px+9*S-labelW/2)),labelY=Math.max(4*U,py-16*U);ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,labelY,labelW,13*U);fillText("你",labelX+4*U,labelY+2*U,8,PALETTE[1]);
 }
 function moveSupervisor(dx, dy){
   if (!model || !statusBox.hidden) return;

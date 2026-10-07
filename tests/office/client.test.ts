@@ -10,6 +10,7 @@ class FakeElement {
   readonly tagName: string;
   readonly children: FakeElement[] = [];
   readonly style: Record<string, string> = {};
+  readonly paintedText: string[] = [];
   readonly events = new Map<string, (event?: unknown) => void>();
   readonly attrs = new Map<string, string>();
   private content = "";
@@ -29,7 +30,7 @@ class FakeElement {
   removeAttribute(name: string): void { this.attrs.delete(name); }
   focus(): void { activeElement = this; }
   click(): void { this.events.get("click")?.({}); }
-  getContext(): object { return new Proxy({}, {get: (_target, key) => key === "measureText" ? (value: string) => ({width: value.length * 8}) : () => {}}); }
+  getContext(): object { return new Proxy({}, {get: (_target, key) => key === "measureText" ? (value: string) => ({width: value.length * 8}) : key === "fillText" ? (value: string) => this.paintedText.push(value) : () => {}}); }
   getBoundingClientRect(): {left: number; top: number; width: number; height: number} { return {left: 0, top: 0, width: this.width, height: this.height}; }
   querySelectorAll(selector: string): FakeElement[] {
     const result: FakeElement[] = [];
@@ -84,6 +85,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   const keydownCanvas = canvas.events.get("keydown")!;
   assert.equal(canvas.width, 2364, "backing width matches full available width at DPR 2");
   assert.equal(canvas.height, 1312);
+  assert.ok(canvas.paintedText.includes("你"), "the viewer badge displays only 你");
   assert.equal(canvas.style.width, "1182px");
   assert.equal(canvas.style.height, "656px");
   const cached = Object.values(vm.roomCanvases)[0]!.canvas;
