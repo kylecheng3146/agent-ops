@@ -340,6 +340,13 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   const overviewTeam = vm.model.floors.find(floor => floor.kind === "run")!;
   const overviewSurface = vm.surfaceForFloor(overviewTeam);
   const leadOverview = overviewTeam.actors.find(actor => actor.id === "lead")!;
+  const spriteVm = context as unknown as {draw: (kind: string, x: number, y: number) => void};
+  const spriteDraw = spriteVm.draw, previousMotion = vm.reducedMotion;
+  let alertDraws = 0;
+  spriteVm.draw = (kind, x, y) => {if (kind === "alert") alertDraws++;spriteDraw(kind, x, y);};
+  vm.reducedMotion = false;vm.frame = 21;vm.render();
+  spriteVm.draw = spriteDraw;vm.reducedMotion = previousMotion;
+  assert.ok(alertDraws > 0, "clickable pending prompts stay visible throughout animation");
   const overviewAlert = vm.alertGeometry(leadOverview, overviewSurface);
   canvas.events.get("click")?.({clientX: overviewAlert.x + overviewAlert.width / 2, clientY: overviewAlert.y + overviewAlert.height / 2});
   assert.match(status.children[0]!.textContent, /Questions/u);

@@ -438,7 +438,7 @@ function drawActor(floor, actor, surface){
   ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+49*S);
   ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
   var alert=alertGeometry(actor,surface);
-  if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',alert.x,alert.y);
+  if(actor.alert)draw('alert',alert.x,alert.y);
   S=oldS;U=oldU;
 }
 function actorBox(actor,surface){

@@ -217,7 +217,11 @@ Claude or Codex transcripts or file contents.
   phase's zone, use light phase-driven animation, and have short name/status
   labels; unknown state is not inferred from dialogue. Whiteboards show task
   criteria progress, verify/review outcomes and pending questions, with `!` for
-  unanswered questions. Clicking an actor opens bounded, paged status details
+  unanswered questions. Clicking a whiteboard or progress board opens the room
+  work list; workstations and phase areas show the known work in that phase.
+  Pending markers open complete questions with the existing copyable commands.
+  The same paged views are available with `L` (work list), `1–5` (phases) and
+  `Q` (questions). Clicking an actor opens bounded, paged status details
   with copyable commands. Completed rooms are available through Recently
   completed for at most two hours. Chinese/English switching remembers the
   choice, and keyboard navigation and reduced motion are supported. A failure
