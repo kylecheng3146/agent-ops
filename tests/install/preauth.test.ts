@@ -15,8 +15,11 @@ import {
   applyPreauth,
   CLAUDE_LOCAL_SETTINGS_PATH,
   CLAUDE_PREAUTH_ALLOW,
+  CLAUDE_PREAUTH_RUN_ALLOW,
+  CLAUDE_PREAUTH_RUN_UNSANDBOXED,
   CLAUDE_PREAUTH_UNSANDBOXED,
   CODEX_RULES_CONTENT,
+  codexRulesContent,
   CODEX_RULES_MARKER,
   CODEX_RULES_PATH,
   planClaudeLocalSettings,
@@ -310,6 +313,62 @@ test("without worktree auto, init writes no pre-authorization at all", async () 
     assert.equal(result.status, "ok");
     await assert.rejects(readFile(join(root, CLAUDE_LOCAL_SETTINGS_PATH), "utf8"), { code: "ENOENT" });
     await assert.rejects(readFile(join(codexHome, CODEX_RULES_PATH), "utf8"), { code: "ENOENT" });
+  } finally {
+    await rm(join(root, ".."), { recursive: true, force: true });
+  }
+});
+
+test("the run profile adds agent-ops run to both hosts, and dropping it takes only that back", async (t) => {
+  assert.deepEqual(CLAUDE_PREAUTH_RUN_ALLOW, ["Bash(agent-ops run *)"]);
+  assert.deepEqual(CLAUDE_PREAUTH_RUN_UNSANDBOXED, ["agent-ops run", "agent-ops run *"]);
+  const withRun = planClaudeLocalSettings(JSON.stringify(USER_SETTINGS), true, true)?.content ?? "";
+  const settings = JSON.parse(withRun) as { permissions: { allow: string[] }; sandbox: { excludedCommands: string[] } };
+  assert.deepEqual(settings.permissions.allow, ["Bash(npm test *)", ...CLAUDE_PREAUTH_ALLOW, ...CLAUDE_PREAUTH_RUN_ALLOW]);
+  assert.deepEqual(settings.sandbox.excludedCommands, ["docker", ...CLAUDE_PREAUTH_UNSANDBOXED, ...CLAUDE_PREAUTH_RUN_UNSANDBOXED]);
+  assert.equal(planClaudeLocalSettings(withRun, true, true), undefined, "a second update changes nothing");
+  // An update without the profile keeps the rest and strips only the run entries.
+  assert.equal(planClaudeLocalSettings(withRun, true)?.content, planClaudeLocalSettings(JSON.stringify(USER_SETTINGS), true)?.content);
+  assert.deepEqual(JSON.parse(planClaudeLocalSettings(withRun, false)?.content ?? ""), USER_SETTINGS);
+
+  assert.equal(codexRulesContent(false), CODEX_RULES_CONTENT);
+  const rules = codexRulesContent(true);
+  assert.ok(rules.startsWith(CODEX_RULES_CONTENT));
+  assert.equal(rules.match(/^prefix_rule\(/gmu)?.length, 11);
+  assert.match(rules, /pattern = \["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "run"\]/u);
+  assert.match(rules, /justification = "agent-ops run [^"]*outside the sandbox\."/u);
+
+  const { root, codexHome } = await scratch();
+  try {
+    const result = await runInitCommand({
+      args: parseArgs(["init", "--scope", "project", "--harness", "claude,codex", "--profile", "run", "--yes"]),
+      root,
+      adapters: commonHarnessAdapters(),
+      // run implies loop, whose hooks need an installed runtime path.
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      isTTY: false,
+      codexHome,
+      confirm: async () => true
+    });
+    assert.equal(result.status, "ok");
+    const installed = JSON.parse(await readFile(join(root, CLAUDE_LOCAL_SETTINGS_PATH), "utf8")) as typeof settings;
+    assert.ok(installed.permissions.allow.includes("Bash(agent-ops run *)"));
+    assert.ok(installed.sandbox.excludedCommands.includes("agent-ops run *"));
+    const file = join(codexHome, CODEX_RULES_PATH);
+    assert.equal(await readFile(file, "utf8"), rules);
+
+    try {
+      await run("codex", ["--version"]);
+    } catch {
+      t.skip("codex is not installed");
+      return;
+    }
+    const check = async (...command: string[]) => JSON.parse(
+      (await run("codex", ["execpolicy", "check", "--rules", file, ...command])).stdout
+    ) as { decision?: string };
+    const prefix = ["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "run"];
+    assert.equal((await check(...prefix, "--goal-file", ".agent-ops/state/run-goal.md", "--host", "codex", "--wait")).decision, "allow");
+    assert.equal((await check(...prefix, "respond", "run-1234abcd", "--question-id", "q", "--answer", "yes")).decision, "allow");
+    assert.equal((await check(...prefix)).decision, "allow");
   } finally {
     await rm(join(root, ".."), { recursive: true, force: true });
   }

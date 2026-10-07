@@ -4,6 +4,11 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- The opt-in `run` profile (capability `auto-run`, implies `core` and `loop`)
+  tells Claude Code and Codex to hand a change needing more than five
+  acceptance criteria to `agent-ops run`, falls back to subtasks when the start
+  is refused, and pre-authorizes `agent-ops run`. agy rules are unchanged.
+
 ## [0.6.0] - 2026-10-07
 
 - Executable acceptance contracts distinguish behavioral red→green checks,

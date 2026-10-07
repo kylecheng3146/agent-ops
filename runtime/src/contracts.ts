@@ -13,7 +13,7 @@ export const EVIDENCE_SCHEMA_VERSION = 4 as const;
 /** @deprecated Use the document-specific schema version constants. */
 export const SCHEMA_VERSION = CONFIG_SCHEMA_VERSION;
 
-export type Profile = "advisory" | "core" | "guardrails" | "loop";
+export type Profile = "advisory" | "core" | "guardrails" | "loop" | "run";
 
 export type EvidenceKind = "exit-code" | "file" | "test-count";
 

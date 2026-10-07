@@ -567,7 +567,8 @@ export async function runHookProcess(
                       dependencies.worktree!,
                       { cwd: mainRoot, sessionId, ...(agentId === undefined ? {} : { agentId }) }
                     )).path,
-                write.agentId
+                write.agentId,
+                config.profiles.includes("run")
               );
         }
       : undefined;

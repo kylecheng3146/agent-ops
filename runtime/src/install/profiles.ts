@@ -2,13 +2,14 @@ import type { AgentOpsConfig, Profile } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { Capability, ResolvedProfiles } from "./types.js";
 
-const PROFILE_ORDER = ["core", "advisory", "guardrails", "loop"] as const;
+const PROFILE_ORDER = ["core", "advisory", "guardrails", "loop", "run"] as const;
 
 export const PROFILE_CAPABILITIES = {
   core: ["rules", "task", "verify", "review"],
   advisory: ["lifecycle-summary", "local-log"],
   guardrails: ["command-policy"],
-  loop: ["project-loop"]
+  loop: ["project-loop"],
+  run: ["auto-run"]
 } as const satisfies Record<Profile, readonly Capability[]>;
 
 export function resolveProfiles(
@@ -22,6 +23,9 @@ export function resolveProfiles(
   }
 
   const selectedProfiles = new Set<Profile>(inputProfiles);
+  if (selectedProfiles.has("run")) {
+    selectedProfiles.add("loop");
+  }
   if (
     selectedProfiles.has("guardrails") ||
     selectedProfiles.has("loop")

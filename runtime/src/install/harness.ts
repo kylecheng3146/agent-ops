@@ -591,6 +591,53 @@ function subagentInstruction(descriptor: HarnessDescriptor): string {
   }
 }
 
+/**
+ * The `run` profile's hand-off of feature-sized work to `agent-ops run`.
+ * agy keeps the subtask flow: `run` launches only Claude Code or Codex.
+ * AGENTS.md is shared by Codex and opencode, so it carries the Codex form.
+ */
+function autoRunInstruction(
+  descriptor: HarnessDescriptor,
+  context: HarnessPlanContext
+): string[] {
+  const file = descriptor.control.instructionFile;
+  if (!context.capabilities.includes("auto-run") || file === "GEMINI.md") {
+    return [];
+  }
+  const host = file === "CLAUDE.md" ? "claude" : "codex";
+  const start = `agent-ops run --goal-file .agent-ops/state/run-goal.md --host ${host} --wait`;
+  return [
+    "With the `run` profile, a change that needs more than five acceptance",
+    "criteria goes to `agent-ops run` instead of being split here; five or",
+    "fewer stay in this session. From the main checkout, before any `task",
+    "create` (its worktree makes `run` refuse with `WORKTREE_NESTED`), write",
+    "the user's prompt verbatim, then your proposed acceptance criteria marked",
+    "as proposals, to `.agent-ops/state/run-goal.md` (gitignored), and start",
+    ...(host === "claude"
+      ? [`\`${start}\``, "as a background shell command."]
+      : [
+          "it as a background shell command through the trusted outer host",
+          "runner, like review: the outer request uses",
+          "`sandbox_permissions: \"require_escalated\"`, and the shell form is",
+          `\`env -u CODEX_SANDBOX_NETWORK_DISABLED ${start}\`.`
+        ]),
+    "When it returns awaiting input, relay the question to the user, run",
+    "`agent-ops run respond <id> --question-id <q> --answer <text>`, and poll",
+    "`agent-ops run status <id>` until it finishes or asks again; on",
+    "completion report the result. If the start is refused with",
+    "`RUN_TARGET_REQUIRED`, `RUN_BACKGROUND_UNSUPPORTED`, `RUN_TARGET_DIRTY` or",
+    "`WORKTREE_NESTED`, say so in one line naming the code and fall back to",
+    "the subtask flow (`task create --parent`, then batch or advance).",
+    "`RUN_REPO_UNTRUSTED` means stop and ask the user; never work",
+    "around trust. If the run ends without completing (blocked, budget",
+    "exhausted, stopped, failing review), report the `agent-ops run status",
+    "<id>` state and code, the last `agent-ops run logs <id>` events, and the",
+    "exact `agent-ops run resume <id>` and `agent-ops run stop <id>` commands,",
+    "then stop: never resume automatically or take over the run's work.",
+    ""
+  ];
+}
+
 export function managedRules(
   descriptor: HarnessDescriptor,
   context: HarnessPlanContext
@@ -656,6 +703,7 @@ export function managedRules(
       "tasks together when their worktrees are integrated;",
       "completing one never completes its parent.",
       "",
+      ...autoRunInstruction(descriptor, context),
       "To review every active subtask of a parent together, run",
       "`agent-ops batch --parent <task-id> --yes` instead of one review per",
       "subtask. It needs what review needs: start it through the trusted outer",

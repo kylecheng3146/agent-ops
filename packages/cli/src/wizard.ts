@@ -27,7 +27,7 @@ import {
 } from "./ui.js";
 
 const SCOPES = new Set<string>(["project", "user"]);
-const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
+const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop", "run"]);
 const DEFAULT_HARNESS: readonly HarnessId[] = [];
 const REVIEW_TARGET_SET = new Set<string>(REVIEW_TARGET_ORDER);
 
@@ -146,6 +146,11 @@ const PROFILE_CHOICES: readonly SelectChoice<Profile>[] = [
     label: "loop",
     value: "loop",
     description: "Installs the local loop; agy uses its supported lifecycle subset and is reported as degraded."
+  },
+  {
+    label: "run",
+    value: "run",
+    description: "Adds loop; Claude Code and Codex hand changes needing more than five acceptance criteria to agent-ops run."
   }
 ];
 const WIZARD_SUBTITLE =
@@ -401,7 +406,7 @@ export async function completeInitChoices(
         ? args.profiles
         : selectProfiles(
             await session.question(
-              "Profiles (core,advisory,guardrails,loop) [core]: "
+              "Profiles (core,advisory,guardrails,loop,run) [core]: "
             )
           );
 

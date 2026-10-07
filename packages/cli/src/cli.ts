@@ -63,7 +63,7 @@ Options:
   --scope <project|user>
   --harness <all|both|agy|claude|codex|opencode|comma-separated>  Init/update/uninstall; review uses configured targets
   --hook-target <harness=surface-id>  Repeatable advanced init/update option
-  --profile <core|advisory|guardrails|loop>  Repeatable
+  --profile <core|advisory|guardrails|loop|run>  Repeatable
   --review-target <codex|agy|claude>  Repeatable init option; review pair order
   --completion-gate                  Init only: enable the project-loop completion gate
   --worktree <auto|off>              Init/update: configure session worktree isolation
@@ -112,7 +112,7 @@ Options:
   --scope <project|user>
   --harness <all|both|agy|claude|codex|opencode|comma-separated>
   --hook-target <harness=surface-id>   Repeatable
-  --profile <core|advisory|guardrails|loop>  Repeatable
+  --profile <core|advisory|guardrails|loop|run>  Repeatable
   --review-target <codex|agy|claude>   Repeatable, in fallback-chain order
   --completion-gate                    Enable the project-loop completion gate
   --worktree <auto|off>                Configure session worktree isolation

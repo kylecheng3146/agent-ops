@@ -167,6 +167,23 @@ test("the first blocked Edit creates the session's worktree, and later ones reus
   }
 });
 
+test("with the run profile the main-checkout run goal write passes and creates no worktree", async () => {
+  const RUN: AgentOpsConfig = { ...AUTO, profiles: [...AUTO.profiles, "run"] };
+  const root = await repository(RUN);
+  try {
+    const goal = join(root, ".agent-ops", "state", "run-goal.md");
+    assert.equal(await preToolUse(root, RUN, edit(root, goal, "Write"), deps()), "");
+    await assert.rejects(readdir(join(root, ".worktrees")), { code: "ENOENT" });
+
+    // Only that exact path: a sibling, or the same path without the profile, still makes a worktree.
+    assert.match(denialReason(await preToolUse(root, AUTO, edit(root, goal, "Write"), deps())), /^WORKTREE_CREATED: /u);
+    assert.match(denialReason(await preToolUse(root, RUN, edit(root, join(root, ".agent-ops", "state", "other.md"), "Write"), deps())), /^WORKTREE_CREATED: /u);
+    assert.match(denialReason(await preToolUse(root, RUN, edit(root, join(root, "source.txt")), deps())), /^WORKTREE_CREATED: /u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("the hook entry Claude Code runs creates the session worktree too", async () => {
   // Claude Code runs hook-entry.js, not bin.js, so it must carry the
   // worktree dependencies itself.

@@ -137,3 +137,39 @@ stores only bounded local event metadata, returns bounded redacted session
 context, and preserves local goal, state, telemetry, and Codex TOML files on
 update or uninstall. A clearly parsed `[features]` / `hooks = false` in an
 existing Codex configuration MUST reject loop planning before any write.
+
+## HARNESS-ADAPTER-007
+
+The `run` profile MUST be opt-in, select `core` and `loop` with it, and add only
+the `auto-run` capability. With it, the Claude Code and Codex managed rules hand
+a change that needs more than five acceptance criteria to `agent-ops run`; five
+or fewer stay in the session. agy rules, and every rule file without `auto-run`,
+MUST stay byte-identical to the rules without the profile.
+
+- Trigger: A project selects `run`, and a Claude Code or Codex session meets a
+  change that needs more than five acceptance criteria.
+- Action: From the main checkout and before any `task create`, the agent writes
+  the user's prompt verbatim and its proposed acceptance criteria, marked as
+  proposals, to the gitignored `.agent-ops/state/run-goal.md`, then starts
+  `agent-ops run --goal-file .agent-ops/state/run-goal.md --host <claude|codex> --wait`
+  as a background shell command. Codex starts it like review: an outer request
+  with `sandbox_permissions: "require_escalated"` and
+  `env -u CODEX_SANDBOX_NETWORK_DISABLED`. An awaiting-input result is relayed
+  to the user and answered with `agent-ops run respond`. A start refused with
+  `RUN_TARGET_REQUIRED`, `RUN_BACKGROUND_UNSUPPORTED`, `RUN_TARGET_DIRTY` or
+  `WORKTREE_NESTED` is reported in one line naming the code and falls back to
+  the subtask flow; `RUN_REPO_UNTRUSTED` stops and asks the user. A run that
+  ends without completing (blocked, budget exhausted, stopped, failing review)
+  is reported with its `run status` state and code, its last `run logs` events,
+  and the exact `agent-ops run resume <id>` and `agent-ops run stop <id>`
+  commands, and is never resumed automatically or taken over by the session.
+  With worktree auto mode, the Claude `PreToolUse` worktree guard allows a
+  write to exactly `.agent-ops/state/run-goal.md` in the main checkout without
+  creating a worktree. Confirmed init/update pre-authorizes `agent-ops run`:
+  `Bash(agent-ops run *)` for Claude Code, and an escalated prefix rule for
+  `env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops run` for Codex.
+- Evidence: Profile, managed-rule digest, pre-authorization, and worktree-guard
+  tests cover the resolved profiles, the unchanged rules, the added entries, and
+  the single exempt path.
+- Positive: `A Claude Code session with the run profile writes .agent-ops/state/run-goal.md in the main checkout and starts agent-ops run --host claude --wait in the background.`
+- Negative: `Split an eight-criteria change into subtasks while the run profile is active, add auto-run text to GEMINI.md, or resume a blocked run without the user.`

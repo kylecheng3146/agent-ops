@@ -68,6 +68,17 @@ test("accepts loop as a persisted installation profile", async () => {
   assert.equal(schema(config), true);
 });
 
+test("accepts run as a persisted installation profile", async () => {
+  const config = cloneJson(
+    await readJsonFixture("valid-config.json")
+  ) as { profiles: string[] };
+  config.profiles = ["run"];
+
+  assert.equal(validateConfig(config).ok, true);
+  const schema = await compileJsonSchema("config.schema.json");
+  assert.equal(schema(config), true);
+});
+
 test("keeps the opencode plugin out of managed hook records", async () => {
   const manifest = (await readJsonFixture("valid-manifest.json")) as {
     harness: string[];

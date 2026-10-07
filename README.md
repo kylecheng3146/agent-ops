@@ -83,7 +83,7 @@ installation plan.
 
 The interactive multi-select screens start with no harness or profile selected.
 Choose at least one of `agy`, `codex`, `claude`, and `opencode`, and at least one of
-the `core`, `advisory`, `guardrails`, and `loop` profiles before confirming. For
+the `core`, `advisory`, `guardrails`, `loop`, and `run` profiles before confirming. For
 scripted use, `--harness all` selects all four harnesses; comma-separated
 selections such as `codex,opencode` are also supported. The legacy `both` value
 remains an alias for `codex,claude`.
@@ -198,6 +198,28 @@ agent-ops update \
   --harness opencode \
   --target-version 0.1.4 \
   --dry-run --json
+```
+
+### Automatic runs (`run` profile)
+
+`run` is an opt-in profile that also selects `core` and `loop`. With it, the
+Claude Code and Codex rules hand a change that needs more than five acceptance
+criteria to `agent-ops run` instead of splitting it into subtasks; five or fewer
+stay in the session. The agent writes the prompt verbatim plus its proposed
+criteria to the gitignored `.agent-ops/state/run-goal.md` from the main checkout
+(the worktree guard lets exactly that write through), then starts
+`agent-ops run --goal-file .agent-ops/state/run-goal.md --host claude --wait`
+(or `--host codex`, escalated like review) in the background and relays any
+question through `agent-ops run respond`. A start refused with
+`RUN_TARGET_REQUIRED`, `RUN_BACKGROUND_UNSUPPORTED`, `RUN_TARGET_DIRTY`, or
+`WORKTREE_NESTED` falls back to the subtask flow; `RUN_REPO_UNTRUSTED` stops and
+asks you. A run that ends without completing is reported with its status, last
+log events, and the `agent-ops run resume <id>` / `agent-ops run stop <id>`
+commands; it is never resumed automatically. agy keeps the subtask flow.
+Init and update pre-authorize `agent-ops run` for Claude Code and Codex.
+
+```bash
+agent-ops init --scope project --harness codex,claude --profile run --yes
 ```
 
 ## Quick start from a source checkout

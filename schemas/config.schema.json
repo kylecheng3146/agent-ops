@@ -24,7 +24,8 @@
           "core",
           "advisory",
           "guardrails",
-          "loop"
+          "loop",
+          "run"
         ]
       }
     },

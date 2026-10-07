@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -34,7 +35,15 @@ test("defines the exact capabilities for each installation profile", () => {
     core: ["rules", "task", "verify", "review"],
     advisory: ["lifecycle-summary", "local-log"],
     guardrails: ["command-policy"],
-    loop: ["project-loop"]
+    loop: ["project-loop"],
+    run: ["auto-run"]
+  });
+});
+
+test("run implies loop and core and contributes the auto-run capability", () => {
+  assert.deepEqual(resolveProfiles(["run"]), {
+    profiles: ["core", "loop", "run"],
+    capabilities: ["rules", "task", "verify", "review", "project-loop", "auto-run"]
   });
 });
 
@@ -270,4 +279,69 @@ test("managed rules route parallel conversations through their own worktree", ()
   assert.match(content, /ExitWorktree with action keep\) and run `agent-ops worktree finish <name>` from the main checkout: it completes every task in the worktree, subtasks first, then merges/u);
   assert.match(content, /reports an incomplete task names it; verify or review that task again/u);
   assert.match(content, /resolved once, as a new task whose criteria cover both intents/u);
+});
+
+// Digests of the rules agent-ops 0.6.0 wrote, before the run profile existed.
+const RULES_BEFORE_RUN = [
+  {
+    context: {
+      scope: "project",
+      profiles: ["core", "advisory", "guardrails", "loop"],
+      capabilities: ["rules", "task", "verify", "review", "lifecycle-summary", "local-log", "command-policy", "project-loop", "completion-gate"],
+      toolkitVersion: "0.6.0"
+    },
+    digests: {
+      claude: "f701a5b90ca077e7e5333156774549532e1e66b0e1308d5a5b79449ccd8ea580",
+      codex: "2f3f4aa0aa04a35134f2b330b06a728f629e36fdbfd57072a5d1f9861308cc54",
+      agy: "5c0b33a6166d1e0188a5211494a33c7c46be75a3c1fde635b8518ea535c0d931",
+      opencode: "2f3f4aa0aa04a35134f2b330b06a728f629e36fdbfd57072a5d1f9861308cc54"
+    }
+  },
+  {
+    context: { scope: "project", profiles: ["core"], capabilities: ["rules", "task"] },
+    digests: {
+      claude: "7dfd815d0ac08b81d7fe46ee7b29a22a031b3b39b68dcb407d1dc9d4533caa0b",
+      codex: "445df4ac14d4139e36c90a488a2f743412c075a1d3366ca06bf3ff9f6be07593",
+      agy: "b243dead14cd194faf24bebf30eb39007d9ae49f8f0309d38aa1151725cf5fe3",
+      opencode: "445df4ac14d4139e36c90a488a2f743412c075a1d3366ca06bf3ff9f6be07593"
+    }
+  }
+] as const;
+
+test("managed rules without auto-run are byte-identical to before the run profile", () => {
+  for (const { context, digests } of RULES_BEFORE_RUN) {
+    for (const [id, digest] of Object.entries(digests)) {
+      const content = managedRules(harnessDescriptor(id as never), context as never);
+      assert.equal(createHash("sha256").update(content).digest("hex"), digest, id);
+    }
+  }
+});
+
+test("auto-run hands more than five criteria to agent-ops run on Claude Code and Codex only", () => {
+  const without = { scope: "project", profiles: ["core", "loop"], capabilities: ["rules", "task", "verify", "review", "project-loop"] } as const;
+  const withRun = { scope: "project", profiles: ["core", "loop", "run"], capabilities: [...without.capabilities, "auto-run"] } as const;
+  const header = (text: string): string => text.replace(/^Active (profiles|capabilities): .*$/gmu, "");
+  // agy keeps the subtask flow: only the header lists the profile.
+  assert.equal(header(managedRules(harnessDescriptor("agy"), withRun)), header(managedRules(harnessDescriptor("agy"), without)));
+  for (const id of ["claude", "codex"] as const) {
+    const content = managedRules(harnessDescriptor(id), withRun).replace(/\s+/gu, " ");
+    assert.match(content, /a change that needs more than five acceptance criteria goes to `agent-ops run` instead of being split here; five or fewer stay in this session/u, id);
+    assert.match(content, /before any `task create` \(its worktree makes `run` refuse with `WORKTREE_NESTED`\)/u, id);
+    assert.match(content, /the user's prompt verbatim, then your proposed acceptance criteria marked as proposals, to `\.agent-ops\/state\/run-goal\.md`/u, id);
+    assert.ok(content.includes(`agent-ops run --goal-file .agent-ops/state/run-goal.md --host ${id} --wait`), id);
+    assert.match(content, /as a background shell command/u, id);
+    assert.match(content, /relay the question to the user, run `agent-ops run respond <id> --question-id <q> --answer <text>`/u, id);
+    assert.match(content, /`RUN_TARGET_REQUIRED`, `RUN_BACKGROUND_UNSUPPORTED`, `RUN_TARGET_DIRTY` or `WORKTREE_NESTED`, say so in one line naming the code and fall back to the subtask flow/u, id);
+    assert.match(content, /`RUN_REPO_UNTRUSTED` means stop and ask the user; never work around trust/u, id);
+    assert.match(content, /`agent-ops run status <id>` state and code, the last `agent-ops run logs <id>` events, and the exact `agent-ops run resume <id>` and `agent-ops run stop <id>` commands, then stop: never resume automatically/u, id);
+    // The hand-off sits in the task-split paragraph, after the subtask rule it replaces for large changes.
+    assert.ok(content.indexOf("completing one never completes its parent.") < content.indexOf("With the `run` profile"), id);
+    // Without auto-run, the same harness says nothing about run.
+    assert.doesNotMatch(managedRules(harnessDescriptor(id), without), /agent-ops run /u, id);
+  }
+  const codex = managedRules(harnessDescriptor("codex"), withRun).replace(/\s+/gu, " ");
+  assert.match(codex, /`sandbox_permissions: "require_escalated"`/u);
+  assert.ok(codex.includes("`env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops run --goal-file .agent-ops/state/run-goal.md --host codex --wait`"));
+  assert.doesNotMatch(managedRules(harnessDescriptor("claude"), withRun), /CODEX_SANDBOX_NETWORK_DISABLED agent-ops run/u);
+  assert.equal(managedRules(harnessDescriptor("codex"), withRun), managedRules(harnessDescriptor("opencode"), withRun));
 });

@@ -43,6 +43,9 @@ export async function canonicalPath(path: string): Promise<string> {
   }
 }
 
+/** The gitignored goal file the `run` profile writes in the main checkout. */
+export const RUN_GOAL_FILE = join(".agent-ops", "state", "run-goal.md");
+
 /**
  * In worktree auto mode the main checkout is shared by every session, so no
  * session writes it directly: each edit belongs in that session's own
@@ -56,10 +59,13 @@ export async function evaluateWorktreeWrite(
   /** Creates or reuses this writer's worktree and returns its path. */
   ensureWorktree?: (sessionId: string, agentId: string | undefined) => Promise<string>,
   /** The subagent making the write, when there is one: it has a worktree of its own. */
-  agentId?: string
+  agentId?: string,
+  /** The `auto-run` capability: `agent-ops run` starts from the main checkout. */
+  autoRun = false
 ): Promise<HookResult> {
   for (const path of paths) {
     const target = await canonicalPath(path);
+    if (autoRun && target === join(mainRoot, RUN_GOAL_FILE)) continue;
     const inMain = target === mainRoot || target.startsWith(`${mainRoot}${sep}`);
     if (inMain && insideWorktreeDirectory(mainRoot, target) && sessionId !== undefined) {
       // A worktree belongs to the session that made it: writing into another

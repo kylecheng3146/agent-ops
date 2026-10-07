@@ -29,7 +29,7 @@ export const COMMAND_NAMES = [
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
 const SCOPES = new Set<string>(["project", "user"]);
-const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop"]);
+const PROFILES = new Set<string>(["advisory", "core", "guardrails", "loop", "run"]);
 // opencode is absent: it has no read-only flag, so it cannot review.
 const REVIEW_TARGETS = new Set<string>(["agy", "claude", "codex"]);
 

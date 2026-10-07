@@ -1,6 +1,6 @@
 # Harness Adapter
 
-English source version: 2026-08-03. Revalidate: when the English specification or any vendor reference changes.
+English source version: 2026-10-07. Revalidate: when the English specification or any vendor reference changes.
 
 本文件所述 OpenCode plugin 行為已於 2026-07-31 依據[官方 plugin 文件](https://opencode.ai/docs/plugins/)與[Bun shell 文件](https://bun.sh/docs/runtime/shell)檢查；Codex 與 Claude Code loop-hook 行為已於 2026-08-03 依據 [Codex hook 文件](https://developers.openai.com/codex/config-advanced#hooks) 與 [Claude Code hook 文件](https://code.claude.com/docs/en/hooks) 檢查；agy hook 行為已於 2026-08-28 依據[官方 Antigravity hook 文件](https://antigravity.google/docs/hooks) 檢查。任何 vendor 參考變更時都必須重新驗證。
 
@@ -118,3 +118,36 @@ Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 
 event metadata、回傳有界且 redacted 的 session context，並在 update 或 uninstall
 時保留 local goal、state、telemetry 與 Codex TOML file。既有 Codex configuration
 中清楚解析出的 `[features]` / `hooks = false` MUST 在任何 write 前拒絕 loop planning。
+
+## HARNESS-ADAPTER-007
+
+`run` profile MUST 是 opt-in，會一併選取 `core` 與 `loop`，且只新增 `auto-run`
+capability。啟用後，Claude Code 與 Codex 的 managed rules 會將需要超過五項
+acceptance criteria 的變更交給 `agent-ops run`；五項以內仍留在 session 中處理。
+agy rules，以及所有未含 `auto-run` 的 rule file，MUST 與未啟用此 profile 時
+byte-identical。
+
+- Trigger: Project 選擇 `run`，且 Claude Code 或 Codex session 遇到需要超過五項
+  acceptance criteria 的變更。
+- Action: Agent 在 main checkout、且在任何 `task create` 之前，將使用者 prompt
+  原文與其提議的 acceptance criteria（標示為提議）寫入已 gitignore 的
+  `.agent-ops/state/run-goal.md`，再以 background shell command 啟動
+  `agent-ops run --goal-file .agent-ops/state/run-goal.md --host <claude|codex> --wait`。
+  Codex 的啟動方式與 review 相同：outer request 使用
+  `sandbox_permissions: "require_escalated"` 與
+  `env -u CODEX_SANDBOX_NETWORK_DISABLED`。Awaiting-input 結果會轉達給使用者，並以
+  `agent-ops run respond` 回覆。啟動遭 `RUN_TARGET_REQUIRED`、
+  `RUN_BACKGROUND_UNSUPPORTED`、`RUN_TARGET_DIRTY` 或 `WORKTREE_NESTED` 拒絕時，以
+  一行說明該 code，並退回 subtask flow；`RUN_REPO_UNTRUSTED` 則停止並詢問使用者。
+  未完成即結束的 run（blocked、budget exhausted、stopped、review 失敗）須回報其
+  `run status` state 與 code、最後的 `run logs` event，以及確切的
+  `agent-ops run resume <id>` 與 `agent-ops run stop <id>` command，且永不自動
+  resume 或由 session 接手。在 worktree auto mode 下，Claude `PreToolUse`
+  worktree guard 允許在 main checkout 寫入恰為 `.agent-ops/state/run-goal.md`
+  的路徑，且不建立 worktree。確認後的 init/update 會預先授權 `agent-ops run`：
+  Claude Code 為 `Bash(agent-ops run *)`，Codex 為
+  `env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops run` 的 escalated prefix rule。
+- Evidence: Profile、managed-rule digest、pre-authorization 與 worktree-guard
+  test 涵蓋解析後的 profile、未變更的 rules、新增的 entry，以及唯一豁免的路徑。
+- Positive: `啟用 run profile 的 Claude Code session 在 main checkout 寫入 .agent-ops/state/run-goal.md，並在 background 啟動 agent-ops run --host claude --wait。`
+- Negative: `run profile 啟用時仍將八項 criteria 的變更拆成 subtask、在 GEMINI.md 加入 auto-run 文字，或未經使用者即 resume blocked run。`

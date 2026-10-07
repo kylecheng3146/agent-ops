@@ -9,6 +9,7 @@ export type Capability =
   | "local-log"
   | "command-policy"
   | "project-loop"
+  | "auto-run"
   | "completion-gate"
   | "optional-stop-verify";
 
