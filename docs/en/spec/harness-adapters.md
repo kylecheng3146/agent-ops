@@ -186,24 +186,38 @@ base; narration uses paths only (`docs/**` is "writing docs", `tests/**` is
 "writing tests", otherwise "editing <file>"). The office MUST NOT read native
 Claude or Codex transcripts or file contents.
 
-- Trigger: A user runs `agent-ops office`, `agent-ops run start` or
-  `agent-ops run status`.
+- Trigger: A managed ordinary session starts or reports activity, or a user runs
+  `agent-ops office`, `agent-ops run start` or `agent-ops run status`.
 - Action: The command reuses the live server recorded in
-  `<git common dir>/agent-ops/office.json`, or starts one under launchd on
-  macOS (in the foreground elsewhere), and prints its URL. The server binds
+  `<git common dir>/agent-ops/office.json`, or starts one, and prints its URL.
+  Ordinary session hooks also start or reuse it, including before a task or
+  worktree exists. Only the successful new-server owner opens the browser;
+  other sessions share the same Office. Session metadata contains bounded
+  identifiers, known work state and activity times, never native transcripts,
+  prompts or tool/file contents. Startup and observation failures are advisory.
+  The server binds
   127.0.0.1 on a random port, requires the URL's unguessable token, refuses any
   Host other than that address and port, answers every non-GET with 405, and
-  exits 10 minutes after no run is active. Its single inline page draws each run
-  as one floor (coordinator, up to two workers, up to two reviewers), session
-  worktrees as lobby desks and other running reviews in a meeting room, from
-  in-code 16-color character-matrix sprites with no image assets. Each
-  character walks to its phase's zone; a desk's paper stack grows with changed
-  files, the bookshelf lights one book per passed criterion, the wall clock shows
-  the remaining budget and `!` marks an unanswered question. Clicking opens a
-  status window with copyable `agent-ops run` commands. A failure to start the
-  office never fails `run start` or `run status`.
+  exits 10 minutes after neither a run nor an ordinary session is active. Its
+  single inline page uses cozy cream, oak and sage in-code 16-color
+  character-matrix sprites with no image assets. The fixed-viewport overview
+  shows all work-unit rooms, shrinking rooms as necessary without document
+  scrolling. Each run team shares a room; each ordinary session has its own,
+  and running reviews remain visible. Clicking a room enters a larger detail
+  view with a return control. Every room contains planning, development,
+  verification, review and integration areas. Characters walk to their known
+  phase's zone, use light phase-driven animation, and have short name/status
+  labels; unknown state is not inferred from dialogue. Whiteboards show task
+  criteria progress, verify/review outcomes and pending questions, with `!` for
+  unanswered questions. Clicking an actor opens bounded, paged status details
+  with copyable commands. Completed rooms are available through Recently
+  completed for at most two hours. Chinese/English switching remembers the
+  choice, and keyboard navigation and reduced motion are supported. A failure
+  to start the office never fails a hook, `run start` or `run status`.
 - Evidence: Phase, snapshot, server, scene and CLI tests cover legacy state,
-  aggregation and narration, the token, Host and method guards, reuse and the
-  injected-clock idle exit, the scene model, and the printed URL.
-- Positive: `A user opens the URL from agent-ops run status and sees the coordinator at the lab bench while verification runs, with 2 of 6 books lit.`
+  aggregation and narration, ordinary-session registration and startup-once,
+  the two-hour completion boundary, token/Host/method guards, reuse and the
+  injected-clock idle exit, viewport/room navigation, localization, and the
+  printed URL. A browser read-back checks the rendered single-page layout.
+- Positive: `An ordinary session opens the shared Office, where its room is visible before it creates a worktree; entering a team room shows the coordinator at the verification bench and a whiteboard with 2 of 6 criteria passed.`
 - Negative: `Serve the office on 0.0.0.0, accept a POST, read a worker's transcript to narrate it, or bundle a PNG sprite sheet.`

@@ -53,7 +53,7 @@ Commands:
   verify     Run configured verification
   review     Run an independent review or show recorded reports
   run        Start or control a supervised Claude/Codex native goal
-  office     Print the local DOS-RPG office view of every agent (starts it if needed)
+  office     Print the local pixel office view of every agent (starts it if needed)
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -99,10 +99,12 @@ Options:
 export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
   office: `Usage: agent-ops office [--json]
 
-Print the URL of this repository's office: a read-only page on 127.0.0.1 that
-draws every run, worktree and running review as a 16-color office. One server
-serves the repository; it is reused when live, started under launchd on macOS
-or in the foreground elsewhere, and exits 10 minutes after no run is active.
+Print the URL of this repository's office: a read-only, 16-color pixel page on
+127.0.0.1. All run teams and ordinary sessions appear in a single-screen room
+overview; click a room for details and switch Chinese/English in the header.
+Managed sessions start the shared server automatically. A new Office opens the
+browser once; later sessions reuse it. It exits after 10 minutes without active
+runs or sessions. Recently completed rooms remain for at most 2 hours.
 The URL carries an access token; do not share it.
 `,
   run: `Usage: agent-ops run [start] "<goal>" --host <claude|codex> [--jobs <1|2>] [--time-budget <60m>] [--wait] [--json]

@@ -163,21 +163,29 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
 「writing tests」，其他為「editing <file>」）。Office MUST NOT 讀取 Claude 或 Codex
 的 native transcript 或檔案內容。
 
-- Trigger: 使用者執行 `agent-ops office`、`agent-ops run start` 或
-  `agent-ops run status`。
+- Trigger: Managed 一般 session 啟動或回報活動，或使用者執行
+  `agent-ops office`、`agent-ops run start` 或 `agent-ops run status`。
 - Action: Command 重用記錄於 `<git common dir>/agent-ops/office.json` 的 live
-  server，否則在 macOS 以 launchd 啟動（其他平台在 foreground 執行），並印出 URL。
+  server，否則啟動一個，並印出 URL。一般 session hook 也會自動啟動或重用
+  Office，包含尚未建立 task 或 worktree 的 session。只有成功取得新 server
+  所有權的 process 開啟瀏覽器，後續 session 共用同一個 Office。Session metadata
+  只記錄有界限的識別資訊、已知工作狀態與活動時間，不包含 native transcript、
+  prompt、tool 或檔案內容。啟動與活動觀察失敗均為 advisory。
   Server 綁定 127.0.0.1 的隨機 port，要求 URL 中不可猜測的 token，拒絕該位址與
-  port 以外的 Host，所有非 GET 回應 405，並在沒有 active run 10 分鐘後結束。其唯一
-  的 inline page 將每個 run 畫成一層樓（coordinator、最多兩個 worker、最多兩個
-  reviewer），session worktree 畫成大廳的辦公桌，其他執行中的 review 在會議室，
-  全部使用程式內 16 色 character-matrix sprite，沒有圖片 asset。每個角色走到其
-  phase 的區域；桌上紙堆隨變更檔案數增加，書架每通過一項 criterion 點亮一本書，
-  牆上時鐘顯示剩餘 budget，`!` 標示未回答的問題。點擊開啟 status window，內含可
-  複製的 `agent-ops run` command。Office 啟動失敗絕不使 `run start` 或 `run status`
-  失敗。
+  port 以外的 Host，所有非 GET 回應 405，並在 run 與一般 session 都沒有活動
+  10 分鐘後結束。唯一的 inline page 使用奶油白、淺木與鼠尾草綠的程式內 16 色
+  character-matrix sprite，沒有圖片 asset。總覽固定在單一 viewport，同時呈現
+  全部工作單位的房間，必要時自動縮小且不捲動頁面。每個 run 團隊共用一間房，
+  每個一般 session 各有一間，執行中的 review 也保持可見。點房間進入放大的
+  詳細畫面，並可返回總覽。每間房包含規劃、開發、驗證、審查與整合區。角色依
+  已知 phase 移動與播放輕量動作，並有簡短名牌與狀態；不從對話推測未知狀態。
+  白板顯示 criteria 進度、verify/review 結果與待回覆問題，`!` 標示未回答的問題。
+  點角色開啟有界限且分頁的 status 詳情，包含可複製的 command。完成房間移到
+  最近完成，最多保留兩小時。支援中英文切換並記住選擇、鍵盤操作與 reduced
+  motion。Office 啟動失敗絕不使 hook、`run start` 或 `run status` 失敗。
 - Evidence: Phase、snapshot、server、scene 與 CLI test 涵蓋 legacy state、彙整與
-  旁白、token/Host/method 防護、重用與 injected clock 的 idle 結束、scene model，
-  以及印出的 URL。
-- Positive: `使用者開啟 agent-ops run status 印出的 URL，在 verification 進行時看到 coordinator 站在實驗桌旁，書架 6 本中亮 2 本。`
+  旁白、一般 session 登記與只開啟一次、完成後兩小時的邊界、token/Host/method
+  防護、重用與 injected clock 的 idle 結束、viewport 與房間切換、中英文，以及
+  印出的 URL。Browser read-back 檢查實際渲染的單頁布局。
+- Positive: `一般 session 自動開啟共用 Office，尚未建立 worktree 就能看到自己的房間；進入團隊房時看到 coordinator 在驗證桌旁，白板顯示 6 項 criteria 已通過 2 項。`
 - Negative: `在 0.0.0.0 提供 office、接受 POST、讀取 worker transcript 來產生旁白，或打包 PNG sprite sheet。`

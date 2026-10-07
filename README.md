@@ -63,16 +63,22 @@ agent-ops office
 ```
 
 It prints a tokened `http://127.0.0.1:<port>/` URL (also shown by `run start` and
-`run status`) to a read-only, 16-color DOS-RPG office. Each run is a floor whose
-characters walk between the whiteboard (planning), desks (implementing), lab bench
-(verifying), meeting table (reviewing) and front door (integrating). Paper stacks
-grow with changed files, the bookshelf lights one book per passed criterion, the
-wall clock shows the remaining budget and `!` marks a question waiting for
-`run respond`. Session worktrees sit in the lobby and running reviews in a meeting
-room; clicking a character opens its task, changed files and copyable commands.
+`run status`) to a read-only, 16-color pixel office with cream walls, oak floors
+and sage furniture. The overview fits the viewport without scrolling: each run
+team shares a room, and each ordinary session has its own room, including sessions
+without a task or worktree. Click a room to enter its larger detail view and
+return to the overview. Characters move between planning, development,
+verification, review and integration areas. Short nameplates show their current
+work; room whiteboards show criteria progress, verification and review results,
+and questions waiting for an answer. Clicking a character shows task details,
+changed files and copyable commands. Chinese and English can be switched in the
+header; the page remembers the choice and respects reduced-motion preferences.
+Completed rooms move to Recently completed and remain for at most two hours.
 The page reads agent-ops state and `git diff` paths only, never transcripts or file
-contents. One server serves the repository (launchd on macOS, foreground
-elsewhere) and exits 10 minutes after no run is active.
+contents. Managed ordinary sessions start the shared repository server
+automatically; a newly started Office opens the browser once, and subsequent
+sessions reuse it. The server exits after ten minutes without active runs or
+ordinary sessions. Office failures remain advisory and never block session work.
 
 Native lifecycle reachability and framework probe conditions are recorded in
 [the capability probe](docs/harness/native-goal-probe.md); these observations do not
