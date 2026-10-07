@@ -4,17 +4,30 @@ import {sceneModel} from "./scene.js";
 export const PALETTE = ["#2b241f", "#355a4b", "#6d9275", "#b7c7a3", "#8a5033", "#729ead", "#d9aa72", "#ead8b8",
   "#8e7561", "#6b5d50", "#adc39a", "#f2e5c9", "#e8c99c", "#c86f4a", "#f2c95c", "#fff7e6"];
 
+/** Each person has a fixed 16-color palette, independent of the room colors. */
+export function avatarPalette(identity: string, viewer = false): string[] {
+  let hash = 0;
+  for (const character of identity) hash = (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0;
+  const hair = viewer ? ["#302c3b", "#514757", "#756575"] : [
+    ["#302c3b", "#514757", "#756575"], ["#51372f", "#80533d", "#b47c51"], ["#745338", "#a37c4f", "#d1ad72"]
+  ][hash % 3]!;
+  const skin = viewer ? ["#bf8264", "#e6ae87", "#f5cda4"] : [
+    ["#bf8264", "#e6ae87", "#f5cda4"], ["#9b624b", "#c08762", "#e0ae82"], ["#654039", "#96624e", "#bf8c68"]
+  ][Math.floor(hash / 9) % 3]!;
+  const clothes = viewer ? ["#bb893b", "#e3b64f", "#f7d878"] : [
+    ["#37596d", "#5687a1", "#87b3c7"], ["#934d49", "#c57060", "#e6a087"],
+    ["#3b6658", "#61947b", "#92bea1"], ["#625776", "#8c7da4", "#b7a9ca"]
+  ][Math.floor(hash / 27) % 4]!;
+  return ["#292633", ...hair, ...skin, ...clothes, "#404958", "#707a8b", "#2e3443", "#626e7f", "#fff1db", "#d58c76"];
+}
+
 /** Original 32×48 pixel people. Self-contained so the inline client uses this same art. */
 export function avatarSprite(identity: string, direction = "down", pose = 0, viewer = false): string[] {
   let hash = 0;
   for (const character of identity) hash = (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0;
-  const hair = viewer ? "0" : ["0", "4", "8"][hash % 3]!;
-  const hairLight = hair === "0" ? "9" : hair === "4" ? "8" : "6";
+  const hair = "2", hairLight = "3";
   const style = viewer ? 0 : Math.floor(hash / 3) % 3;
-  const skin = viewer ? "c" : ["c", "6", "4"][Math.floor(hash / 9) % 3]!;
-  const skinLight = skin === "4" ? "6" : skin === "6" ? "c" : "c";
-  const skinShade = skin === "4" ? "0" : skin === "6" ? "4" : "6";
-  const outfit = viewer ? ["e", "6", "f"] : [["5", "1", "b"], ["d", "4", "6"], ["2", "1", "3"], ["3", "2", "b"]][Math.floor(hash / 27) % 4]!;
+  const skin = "5", skinLight = "6", skinShade = "4", outfit = ["8", "7", "9"];
   const grid = Array.from({length: 48}, () => Array<string>(32).fill("."));
   const rect = (x: number, y: number, width: number, height: number, color: string) => {
     for (let row = y; row < y + height; row++) for (let column = x; column < x + width; column++) {
@@ -26,9 +39,9 @@ export function avatarSprite(identity: string, direction = "down", pose = 0, vie
   // Slim trousers, cuffs and shaded shoes; opposite feet alternate during a walk.
   for (let leg = 0; leg < 2; leg++) {
     const x = side ? 12 + leg * 4 : 10 + leg * 7, lift = leg ? -stride : stride;
-    rect(x, 35 + lift, 5, 10, "0"); rect(x + 1, 36 + lift, 3, 7, "9");
-    rect(x + 1, 37 + lift, 1, 5, "8"); rect(x + 1, 43 + lift, 3, 1, "7");
-    rect(x - 1, 44 + lift, 6, 3, "0"); rect(x, 44 + lift, 4, 1, "9"); rect(x, 46 + lift, 4, 1, "b");
+    rect(x, 35 + lift, 5, 10, "0"); rect(x + 1, 36 + lift, 3, 7, "a");
+    rect(x + 1, 37 + lift, 1, 5, "b"); rect(x + 1, 43 + lift, 3, 1, "e");
+    rect(x - 1, 44 + lift, 6, 3, "c"); rect(x, 44 + lift, 4, 1, "d"); rect(x, 46 + lift, 4, 1, "e");
   }
   const bodyX = side ? 11 : 8, bodyW = side ? 11 : 16;
   rect(bodyX + 2, 23, bodyW - 4, 1, "0"); rect(bodyX, 24, bodyW, 12, "0");
@@ -51,19 +64,19 @@ export function avatarSprite(identity: string, direction = "down", pose = 0, vie
   // Rounded jaw and small dark eyes, with warm skin shading instead of white face blocks.
   rect(9, 9, 14, 1, "0"); rect(7, 10, 18, 9, "0"); rect(8, 19, 16, 2, "0"); rect(10, 21, 12, 1, "0");
   rect(9, 10, 14, 11, skin); rect(8, 12, 16, 7, skin); rect(22, 13, 2, 6, skinShade);
-  rect(10, 20, 12, 1, skinShade); rect(10, 13, 3, 1, skinLight);
+  rect(19, 20, 3, 1, skinShade); rect(10, 13, 3, 1, skinLight);
   rect(6, 15, 2, 4, "0"); rect(24, 15, 2, 4, "0"); rect(7, 15, 1, 3, skin); rect(24, 15, 1, 3, skin);
   if (side) {
     rect(23, 14, 3, 4, "0"); rect(23, 15, 2, 2, skin);
-    rect(21, 15, 2, 3, "0"); rect(21, 15, 1, 1, "7"); rect(23, 19, 1, 1, skinShade);
+    rect(21, 15, 2, 2, "0"); rect(21, 15, 1, 1, "e"); rect(23, 19, 1, 1, skinShade);
   } else if (direction === "down") {
     rect(10, 14, 3, 1, hairLight); rect(19, 14, 3, 1, hairLight);
-    rect(11, 15, 2, 3, "0"); rect(19, 15, 2, 3, "0");
-    rect(11, 15, 1, 1, "7"); rect(19, 15, 1, 1, "7");
+    rect(11, 15, 2, 2, "0"); rect(19, 15, 2, 2, "0");
+    rect(11, 15, 1, 1, "e"); rect(19, 15, 1, 1, "e");
     rect(9, 18, 2, 1, skinShade); rect(21, 18, 2, 1, skinShade); rect(15, 19, 2, 1, skinShade);
   }
-  const crown = ["00000000", "00HHHHHHHH00", "0HHHHHHhHHHHH0", "0HHHhHHHHHHHHHH0", "0HHHHHHHHHHHHHHHH0",
-    "0HHhHHHHHHHHHHHHHH0", "0HHHHHHHHHHhHHHHHHH0", "0HHHHHHHHHHHHHHHHHH0", "0HHhHHHHHHHHHHHHHHH0"];
+  const crown = ["00000000", "00HHHHHHHH00", "0HHHHHHHHHHHH0", "0HHHHHHHHHHHHHH0", "0HHHHhhHHHHHHHHHH0",
+    "0HHHhhhhhHHHHHHHHH0", "0HHHHHHhhhhhHHHHHHH0", "0HHHHHHHHHHHHHHHHHH0", "0HHHHHHHHHHHHHHHHHH0"];
   crown.forEach((row, y) => [...row].forEach((pixel, x) => rect(Math.floor((32 - row.length) / 2) + x, y + 2, 1, 1, pixel === "H" ? hair : pixel === "h" ? hairLight : pixel)));
   rect(5, 11, side ? 10 : 4, 5, hair); rect(7, 11, side ? 9 : 7, 2, hair);
   rect(11, 12, 2, 2, hair); rect(14, 11, 2, 1, hair);
@@ -230,7 +243,7 @@ button{font:inherit;color:inherit}
 const CLIENT = String.raw`
 var PALETTE = __PALETTE__, SPRITES = __SPRITES__, T = 8, S = 2, U = 1, dpr = 1;
 var sceneModel = __SCENE__;
-var avatarSprite = __AVATAR__, avatarImages = {};
+var avatarSprite = __AVATAR__, avatarPalette = __AVATAR_COLORS__, avatarImages = {};
 var canvas = document.getElementById("office"), ctx = canvas.getContext("2d"), app = document.getElementById("app");
 ctx.imageSmoothingEnabled = false;
 var dialogueBox = document.getElementById("dialogue"), statusBox = document.getElementById("status"), roomNav = document.getElementById("room-nav"), wrap = document.getElementById("wrap");
@@ -256,6 +269,7 @@ var lang = getLanguage();
 function t(key){ return STRINGS[lang][key] || key; }
 function phaseLabel(phase){ return STRINGS[lang].phases[phase] || phase; }
 function statusText(status){ return STRINGS[lang].statuses[status] || safeText(status); }
+function roleText(kind){return (lang==='zh'?{coordinator:'統籌',worker:'成員',reviewer:'審查',visitor:'訪客'}:{coordinator:'Lead',worker:'Agent',reviewer:'Review',visitor:'Guest'})[kind]||kind;}
 function outcomeText(value){ return value === "pending" ? (lang === "zh" ? "尚未完成" : "pending") : safeText(value); }
 function localizeText(value){
   var text = safeText(value);
@@ -289,8 +303,8 @@ function drawAvatar(identity, state, x, y, scale, viewer){
   var pose=state.walking&&!reducedMotion?Math.floor(frame/7)%4:0,direction=state.direction||'down',key=JSON.stringify([identity,direction,pose,!!viewer]);
   var image=avatarImages[key];
   if(!image){
-    image=document.createElement('canvas');image.width=32;image.height=48;var paint=image.getContext('2d'),rows=avatarSprite(identity,direction,pose,!!viewer);
-    for(var row=0;row<rows.length;row++)for(var col=0;col<rows[row].length;col++){var pixel=rows[row][col];if(pixel!=='.'){paint.fillStyle=PALETTE[parseInt(pixel,16)];paint.fillRect(col,row,1,1);}}
+    image=document.createElement('canvas');image.width=32;image.height=48;var paint=image.getContext('2d'),rows=avatarSprite(identity,direction,pose,!!viewer),colors=avatarPalette(identity,!!viewer);
+    for(var row=0;row<rows.length;row++)for(var col=0;col<rows[row].length;col++){var pixel=rows[row][col];if(pixel!=='.'){paint.fillStyle=colors[parseInt(pixel,16)];paint.fillRect(col,row,1,1);}}
     avatarImages[key]=image;
   }
   x=Math.round(x);y=Math.round(y);
@@ -402,7 +416,7 @@ function drawActor(floor, actor, surface){
   var px=box.x,py=box.y;
   drawAvatar(actor.id,pos,px,py,S,false);
   if(!pos.walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+12*S,py+30*S,8*S,4*S);}
-  var text=short(actor.label,14)+' · '+short(statusText(actor.status),10),font=9*U;
+  var text=short(actor.label,10)+' · '+roleText(actor.kind)+' · '+short(statusText(actor.status),8),font=9*U;
   ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+49*S);
   ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
   if(actor.alert&&(reducedMotion||Math.floor(frame/20)%2===0))draw('alert',px+14*S,py-9*S);
@@ -468,7 +482,7 @@ function drawHallway(){
 function drawSupervisor(){
   ensureSupervisor(); if (!model) return;
   advanceAvatar(supervisor,supervisor.targetX,supervisor.targetY,.7);
-  var moving=supervisor.walking,scale=Math.max(1,Math.round(T/9));
+  var moving=supervisor.walking,scale=Math.max(1,...visibleRooms().map(function(floor){var b=roomBox(floor);return avatarScale({width:b.width*T,height:b.height*T});}));
   var px=supervisor.x*T-16*scale,py=Math.min(canvas.height-48*scale,supervisor.y*T);drawAvatar('viewer',supervisor,px,py,scale,true);
   var hall=hallwayBounds(),labelX=supervisor.x*T-9*U,labelW=18*U;ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,py-16*U,labelW,13*U);ctx.strokeStyle=PALETTE[1];ctx.strokeRect(labelX,py-16*U,labelW,13*U);fillText("你",labelX+3*U,py-14*U,7,PALETTE[1]);
   var entry=roomEntrances().sort(function(a,b){return Math.hypot(a.x-supervisor.x,a.y-supervisor.y)-Math.hypot(b.x-supervisor.x,b.y-supervisor.y);})[0]; if(entry&&(Math.abs(entry.x-supervisor.x)>1.25||Math.abs(entry.y-supervisor.y)>Math.min(1.6,entry.height*.35)))entry=null;
@@ -601,6 +615,7 @@ function openActorDetail(floor, actor){
   if (source && source.commands) source.commands.forEach(function(item){ entries.push({kind:"command", value:item}); });
   if (!detailTarget || detailTarget.floorKey !== floor.key || detailTarget.actorKey !== actor.key) detailPage = 0;
   var detailItems = [
+    {kind:"line", label:lang==='zh'?'職責':'Role', value:roleText(actor.kind)},
     {kind:"line", label:t("status"), value:statusText(actor.status)}, {kind:"line", label:t("phase"), value:phaseLabel(actor.phase)},
     {kind:"line", label:t("task"), value:actor.taskId === "unassigned" ? t("unassigned") : actor.taskId},
     {kind:"line", label:t("host"), value:localizeText(actor.host)}, {kind:"line", label:t("now"), value:localizeText(actor.narration)}
@@ -677,7 +692,7 @@ updateHeader(); poll(); setInterval(poll, 2000); window.addEventListener("resize
 /** One inline page; the nonce binds its only script and style under the server's CSP. */
 export function officePage(nonce: string): string {
   const script = CLIENT.replace("__PALETTE__", () => JSON.stringify(PALETTE)).replace("__SPRITES__", () => JSON.stringify(SPRITES))
-    .replace("__SCENE__", () => sceneModel.toString()).replace("__AVATAR__", () => avatarSprite.toString());
+    .replace("__SCENE__", () => sceneModel.toString()).replace("__AVATAR__", () => avatarSprite.toString()).replace("__AVATAR_COLORS__", () => avatarPalette.toString());
   return `<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>agent-ops Office</title><style nonce="${nonce}">${STYLE}</style></head>

@@ -201,8 +201,11 @@ Claude or Codex transcripts or file contents.
   exits 10 minutes after neither a run nor an ordinary session is active.
   Ordinary-session liveness follows hooks, with stale presence expiring after
   30 minutes without activity; it does not inspect native host processes.
-  Its single inline page uses cozy cream, oak and sage in-code 16-color
-  character-matrix sprites with no image assets. The fixed-viewport overview
+  Its single inline page uses cozy cream, oak and sage in-code 16-color scene
+  sprites with no image assets. Each 32×48 character uses its own fixed skin,
+  hair and clothing palette, four-direction walking, and localized role labels.
+  The viewer's badge displays `你`; its overview size matches the largest room's
+  characters. The fixed-viewport overview
   fills the available page below the header and shows all furnished work-unit
   rooms, shrinking rooms as necessary without document scrolling. A shared
   hallway connects the rooms. The user controls a local Supervisor with arrow

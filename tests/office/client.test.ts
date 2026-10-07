@@ -3,14 +3,17 @@ import {runInNewContext} from "node:vm";
 import test from "node:test";
 
 import type {OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
-import {avatarSprite, officePage} from "../../runtime/src/office/page.js";
+import {avatarPalette, avatarSprite, officePage} from "../../runtime/src/office/page.js";
 
 test("pixel avatars have fixed individual looks, four facings and alternating steps", () => {
   const people = ["Kyle", "Ada", "reviewer 1", "Session A", "Session B"];
-  const looks = people.map(id => avatarSprite(id));
-  assert.equal(new Set(looks.map(rows => rows.join(""))).size, people.length);
+  const looks = people.map(id => JSON.stringify([avatarSprite(id), avatarPalette(id)]));
+  assert.equal(new Set(looks).size, people.length);
   for (const id of people) {
     assert.deepEqual(avatarSprite(id), avatarSprite(id), "appearance is deterministic");
+    assert.deepEqual(avatarPalette(id), avatarPalette(id));
+    assert.equal(avatarPalette(id).length, 16);
+    for (const color of avatarPalette(id)) assert.match(color, /^#[0-9a-f]{6}$/u);
     const directions = ["down", "up", "left", "right"].map(direction => avatarSprite(id, direction));
     assert.equal(new Set(directions.map(rows => rows.join(""))).size, 4);
     assert.deepEqual(directions[2], directions[3]!.map(row => [...row].reverse().join("")));
@@ -22,13 +25,17 @@ test("pixel avatars have fixed individual looks, four facings and alternating st
     }
   }
   const viewer = avatarSprite("viewer", "down", 0, true);
-  assert.equal(viewer[8]![12], "0", "the viewer has dark short hair");
-  assert.equal(viewer[28]![15], "e", "the viewer wears the yellow shirt");
+  assert.equal(viewer[8]![12], "2", "the viewer has dark short hair");
+  assert.equal(avatarPalette("viewer", true)[2], "#514757");
+  assert.equal(viewer[28]![15], "8", "the viewer wears the yellow shirt");
+  assert.equal(avatarPalette("viewer", true)[8], "#e3b64f");
   assert.equal(viewer[16]![11], "0", "small dark eyes remain separate from the fringe");
   assert.equal(viewer[16]![12], "0");
-  assert.equal(viewer[16]![13], "c", "the face is warm skin rather than a white block");
+  assert.equal(viewer[16]![13], "5", "the face is warm skin rather than a white block");
   const embedded = new Function(`return (${avatarSprite.toString()})`)() as typeof avatarSprite;
   assert.deepEqual(embedded("Ada", "up", 3), avatarSprite("Ada", "up", 3));
+  const embeddedColors = new Function(`return (${avatarPalette.toString()})`)() as typeof avatarPalette;
+  assert.deepEqual(embeddedColors("Ada"), avatarPalette("Ada"));
 });
 
 class FakeElement {
@@ -109,9 +116,9 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.match(elements.get("crumb")!.textContent, /1 rooms/);
   type AvatarState = {x: number; y: number; direction?: string; walking?: boolean};
   const vm = context as unknown as {render: () => void; poll: () => void; frame: number; navPage: number; selectedKey: string; T: number; model: {roomCols: number; roomRows: number; floors: {key: string; actors: {key: string; id: string; x: number; y: number}[]}[]}; positions: Record<string, AvatarState>; roomCanvases: Record<string, {canvas: FakeElement}>; avatarImages: Record<string, FakeElement>; drawAvatar: (id: string, state: AvatarState, x: number, y: number, scale: number, viewer: boolean) => void; actorBox: (actor: {key: string; x: number; y: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; scale: number}; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; mode: string; reducedMotion: boolean; supervisor: AvatarState & {targetX: number; targetY: number}; roomSupervisor: AvatarState & {targetX: number; targetY: number}};
-  const drawings: {id: string; direction: string | undefined; walking: boolean | undefined; viewer: boolean}[] = [];
+  const drawings: {id: string; direction: string | undefined; walking: boolean | undefined; viewer: boolean; scale: number}[] = [];
   const drawAvatar = vm.drawAvatar;
-  vm.drawAvatar = (id, state, x, y, scale, viewer) => {drawings.push({id, direction: state.direction, walking: state.walking, viewer});drawAvatar(id, state, x, y, scale, viewer);};
+  vm.drawAvatar = (id, state, x, y, scale, viewer) => {drawings.push({id, direction: state.direction, walking: state.walking, viewer, scale});drawAvatar(id, state, x, y, scale, viewer);};
   const keydownCanvas = canvas.events.get("keydown")!;
   assert.equal(canvas.width, 2364, "backing width matches full available width at DPR 2");
   assert.equal(canvas.height, 1312);
@@ -120,6 +127,8 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.equal(canvas.style.height, "656px");
   const cached = Object.values(vm.roomCanvases)[0]!.canvas;
   vm.render();
+  assert.equal(drawings.find(draw => draw.viewer)!.scale, Math.max(...drawings.filter(draw => !draw.viewer).map(draw => draw.scale)), "the overview viewer has the same scale as the largest room people");
+  assert.ok(canvas.paintedText.some(text => text.includes("Agent")), "fixed clothes do not hide the actor role");
   assert.equal(Object.values(vm.roomCanvases)[0]!.canvas, cached, "unchanged room layers are reused");
   const startingX = vm.supervisor.targetX;
   keydownCanvas({key: "ArrowRight", preventDefault: () => {}});
@@ -142,6 +151,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   elements.get("language")!.click();
   assert.equal(elements.get("crumb")!.textContent.includes("辦公室"), true);
   assert.match(document.cookie, /agent-office-language=zh/);
+  assert.ok(canvas.paintedText.some(text => text.includes("成員")), "role labels follow the selected language");
   elements.get("room-nav")!.children[0]!.click();
   assert.equal(elements.get("back")!.hidden, false);
   keydownCanvas({key: "ArrowUp", preventDefault: () => {}});
