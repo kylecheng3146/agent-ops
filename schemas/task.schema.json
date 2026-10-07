@@ -4,10 +4,18 @@
   "title": "Agent Ops task",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "id", "title", "criteria"],
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "criteria"
+  ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "id": {
       "$ref": "#/$defs/id"
@@ -28,7 +36,11 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "description", "verifierIds"],
+        "required": [
+          "id",
+          "description",
+          "verifierIds"
+        ],
         "properties": {
           "id": {
             "$ref": "#/$defs/id"
@@ -38,14 +50,232 @@
           },
           "verifierIds": {
             "type": "array",
-            "minItems": 1,
+            "minItems": 0,
             "uniqueItems": true,
             "items": {
               "$ref": "#/$defs/id"
             }
+          },
+          "acceptance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mode",
+              "baselineCommit",
+              "bindings"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "behavioral",
+                  "invariant",
+                  "review-only"
+                ]
+              },
+              "baselineCommit": {
+                "type": "string",
+                "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+              },
+              "reviewOnlyReason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "\\S"
+              },
+              "bindings": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "runnerId",
+                    "checkIds",
+                    "materials"
+                  ],
+                  "properties": {
+                    "runnerId": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "checkIds": {
+                      "type": "array",
+                      "maxItems": 512,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "minItems": 1
+                    },
+                    "redCheckIds": {
+                      "type": "array",
+                      "maxItems": 512,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "materials": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 512,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "path",
+                          "role"
+                        ],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096,
+                            "pattern": "^[^/\\\\\\u0000]+(?:/[^/\\\\\\u0000]+)*$",
+                            "not": {
+                              "anyOf": [
+                                {
+                                  "pattern": "(?:^|/)(?:\\.{1,2}|\\.git|\\.agent-ops|node_modules)(?:/|$)"
+                                },
+                                {
+                                  "pattern": "^(?:dist|build|\\.tmp)/"
+                                },
+                                {
+                                  "enum": [
+                                    "package.json",
+                                    "package-lock.json",
+                                    "pnpm-lock.yaml",
+                                    "yarn.lock",
+                                    "Cargo.toml",
+                                    "Cargo.lock",
+                                    "pyproject.toml"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "role": {
+                            "enum": [
+                              "test",
+                              "fixture",
+                              "helper"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "mode": {
+                      "const": "review-only"
+                    }
+                  },
+                  "type": "object"
+                },
+                "then": {
+                  "required": ["reviewOnlyReason"],
+                  "properties": {
+                    "reviewOnlyReason": {"type": "string"},
+                    "bindings": {
+                      "maxItems": 0,
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                },
+                "else": {
+                  "properties": {
+                    "reviewOnlyReason": false,
+                    "bindings": {
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            ]
+          },
+          "finding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pinId",
+              "reportDigest",
+              "findingIndex",
+              "candidateCommit",
+              "criterionIds"
+            ],
+            "properties": {
+              "pinId": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "reportDigest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "findingIndex": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "candidateCommit": {
+                "type": "string",
+                "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+              },
+              "criterionIds": {
+                "type": "array",
+                "maxItems": 512,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "not": {
+                "required": [
+                  "acceptance"
+                ],
+                "properties": {
+                  "acceptance": {}
+                },
+                "type": "object"
+              }
+            },
+            "then": {
+              "properties": {
+                "verifierIds": {
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            }
+          }
+        ]
       }
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "contractRevision": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "$defs": {
@@ -61,5 +291,34 @@
       }
     }
   },
-  "$comment": "Criterion ID uniqueness is a semantic constraint enforced by runtime validation."
+  "$comment": "Criterion ID uniqueness is a semantic constraint enforced by runtime validation.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "goal": false,
+          "contractRevision": false,
+          "criteria": {
+            "items": {
+              "properties": {
+                "acceptance": false,
+                "finding": false
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
 }

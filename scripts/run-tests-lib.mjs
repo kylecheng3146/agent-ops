@@ -83,7 +83,9 @@ export async function runTestEntry(
   }
   const child = spawn(
     processLike.execPath,
-    ["--test", ...files],
+    ["--test", "--test-reporter=tap", "--test-reporter-destination=stdout",
+      `--test-reporter=${new URL("./test-failures-reporter.mjs", import.meta.url).href}`,
+      "--test-reporter-destination=stderr", ...files],
     spawnOptions,
   );
   const { code, signal } = await waitForChild(child);

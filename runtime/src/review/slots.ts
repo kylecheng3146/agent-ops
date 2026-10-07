@@ -1,8 +1,10 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {randomUUID} from "node:crypto";
 import { join } from "node:path";
 
 import { AgentOpsError } from "../fs/paths.js";
 import { ReviewInterruptedError } from "./execute.js";
+import {withPrivateFileLock} from "../security/permissions.js";
 
 /** Reviews allowed at once across every worktree of a repository. */
 export const REVIEW_SLOT_WIDTH = 2;
@@ -30,7 +32,6 @@ function alive(pid: number): boolean {
   }
 }
 
-// ponytail: same scheme as withFinishLock in parallel/finish.ts; unify if a third user appears.
 async function stale(path: string, staleMs: number): Promise<boolean> {
   try {
     const owner = JSON.parse(await readFile(join(path, "owner.json"), "utf8")) as { pid?: unknown; at?: unknown };
@@ -63,20 +64,29 @@ export async function withReviewSlot<T>(
   const sleep = options.sleep ?? (async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms)));
   let waiting = false;
   let held: string | undefined;
+  const token = randomUUID();
   while (held === undefined) {
     if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
     for (let index = 0; index < width && held === undefined; index += 1) {
       const path = join(options.dir, `agent-ops-review-slot-${index}.lock`);
       try {
-        await mkdir(path);
-        await writeFile(join(path, "owner.json"), JSON.stringify({ pid: process.pid, at: Date.now() }));
-        held = path;
+        const claimed = await withPrivateFileLock(path + ".state", options.dir, async () => {
+          if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
+          for (;;) {
+            try {
+              await mkdir(path);
+              await writeFile(join(path, "owner.json"), JSON.stringify({pid: process.pid, at: Date.now(), token}));
+              return true;
+            } catch (error) {
+              if ((error as {code?: string}).code !== "EEXIST") throw error;
+              if (!await stale(path, options.staleMs ?? STALE_MS)) return false;
+              await rm(path, {recursive: true, force: true});
+            }
+          }
+        });
+        if (claimed) held = path;
       } catch (error) {
-        if ((error as { code?: string }).code !== "EEXIST") throw error;
-        if (await stale(path, options.staleMs ?? STALE_MS)) {
-          await rm(path, { recursive: true, force: true });
-          index -= 1; // try the reclaimed slot again at once
-        }
+        if (!(error instanceof AgentOpsError) || error.code !== "PRIVATE_STATE_LOCK_TIMEOUT") throw error;
       }
     }
     if (held === undefined) {
@@ -88,8 +98,15 @@ export async function withReviewSlot<T>(
     }
   }
   try {
+    if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
     return await action();
   } finally {
-    await rm(held, { recursive: true, force: true });
+    await withPrivateFileLock(held + ".state", options.dir, async () => {
+      const owner = await readFile(join(held!, "owner.json"), "utf8").catch(error => {
+        if ((error as {code?: string}).code === "ENOENT") return null;
+        throw error;
+      });
+      if (owner !== null && JSON.parse(owner)?.token === token) await rm(held!, {recursive: true, force: true});
+    });
   }
 }

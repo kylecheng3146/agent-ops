@@ -6,6 +6,7 @@ import {
   collectBaseChangePaths,
   collectChangeSurface,
   resolveGitCommit,
+  normalizePortablePath,
   type GitRunner
 } from "../verify/change-surface.js";
 
@@ -16,6 +17,7 @@ export type ReviewScope =
     }
   | {
       readonly mode: "base";
+      readonly noChange?: true;
       readonly baseRef: string;
       readonly resolvedBase: string;
       readonly changedFiles: readonly string[];
@@ -25,6 +27,7 @@ export interface ResolveReviewScopeOptions {
   readonly root: string;
   readonly runner: GitRunner;
   readonly base?: string;
+  readonly noChangePaths?: readonly string[];
 }
 
 function unsafe(message: string): never {
@@ -142,6 +145,22 @@ export async function resolveReviewScope(
       throw new AgentOpsError("REVIEW_INVALID_BASE", "Git could not resolve the requested base range.", { cause: error });
     }
     throw error;
+  }
+  if (changedFiles.length === 0 && options.noChangePaths !== undefined) {
+    const paths = options.noChangePaths;
+    if (paths.length === 0 || paths.length > 128 || new Set(paths).size !== paths.length ||
+        paths.some(path => normalizePortablePath(path) !== path || path.startsWith(".git/") || path.startsWith(".agent-ops/")) ||
+        resolvedBase !== await resolveGitCommit(options.runner, "HEAD"))
+      throw new AgentOpsError("REVIEW_UNSAFE_PATH", "No-change review requires bounded literal committed files at the candidate commit.");
+    for (const path of paths) {
+      await assertSafeWorktreePath(options.root, path, false);
+      const entry = await lstat(join(options.root, ...path.split("/")));
+      if (!entry.isFile()) unsafe("No-change scope must contain files.");
+      const tree = await options.runner.run(["ls-tree", "-z", resolvedBase, "--", path]);
+      if (tree.exitCode !== 0 || !/^(?:100644|100755) blob /u.test(Buffer.from(tree.stdout).toString("utf8")))
+        unsafe("No-change scope must contain committed regular files.");
+    }
+    return {mode: "base", baseRef: options.base, resolvedBase, changedFiles: [...paths].sort(), noChange: true};
   }
   if (changedFiles.length === 0) {
     throw new AgentOpsError("REVIEW_NO_CHANGE_SURFACE", "The requested base range has no changed paths.");

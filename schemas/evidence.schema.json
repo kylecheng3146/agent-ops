@@ -24,7 +24,11 @@
   ],
   "properties": {
     "schemaVersion": {
-      "enum": [2, 3]
+      "enum": [
+        2,
+        3,
+        4
+      ]
     },
     "taskId": {
       "$ref": "#/$defs/id"
@@ -47,7 +51,10 @@
       "$ref": "#/$defs/relativePath"
     },
     "scope": {
-      "enum": ["project", "user"]
+      "enum": [
+        "project",
+        "user"
+      ]
     },
     "startedAt": {
       "$ref": "#/$defs/timestamp"
@@ -56,17 +63,27 @@
       "$ref": "#/$defs/timestamp"
     },
     "exitCode": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 0,
       "maximum": 4294967295
     },
     "testCount": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 0,
       "maximum": 9007199254740991
     },
     "status": {
-      "enum": ["PASS", "FAIL", "UNKNOWN"]
+      "enum": [
+        "PASS",
+        "FAIL",
+        "UNKNOWN"
+      ]
     },
     "failureClass": {
       "type": "string",
@@ -85,6 +102,92 @@
     },
     "configHash": {
       "$ref": "#/$defs/hash"
+    },
+    "taskContractHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "criterionContractHash",
+        "phase",
+        "commit",
+        "pairedCommit",
+        "materialDigest",
+        "executionDigest",
+        "checks",
+        "bindingHash",
+        "executionArtifact"
+      ],
+      "properties": {
+        "criterionContractHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "phase": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "pairedCommit": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "materialDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "executionDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "checkId",
+              "status",
+              "failureClass"
+            ],
+            "properties": {
+              "checkId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "UNKNOWN"
+                ]
+              },
+              "failureClass": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "bindingHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "executionArtifact": {
+          "type": "string",
+          "pattern": "^\\.agent-ops/tasks/acceptance/[a-f0-9]{64}\\.json$"
+        }
+      }
     }
   },
   "$defs": {
@@ -126,5 +229,25 @@
       ]
     }
   },
-  "$comment": "Timestamp ordering is a semantic constraint enforced by runtime validation."
+  "$comment": "Timestamp ordering is a semantic constraint enforced by runtime validation.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "enum": [
+              2,
+              3
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "taskContractHash": false,
+          "acceptance": false
+        }
+      }
+    }
+  ]
 }

@@ -1,6 +1,26 @@
 # 驗收與證據
 
-English source version: 2026-09-27. Revalidate: when the English specification changes.
+## EVIDENCE-CONTRACT-001
+
+可執行驗收 MUST 將目前契約綁定到不可變的 replay 證據。
+
+- Trigger: 驗證或完成 typed 驗收契約。
+- Action: 在固定 baseline 與目前 candidate replay 授權 checks，再取得 fresh review。
+- Evidence: 綁定摘要的 phase results 與目前 coverage 進入兩輪 reviewer packet。
+- Positive: baseline 斷言 FAIL、candidate PASS 證明 behavioral check。
+- Negative: 把 fixture error 算 red，或用舊 review 證明修訂後 criteria。
+
+- `behavioral`：指定 red checks 在 baseline 都因斷言失敗，candidate 的必要 checks 全部通過。`invariant`：candidate 的必要 checks 通過，baseline 原本 PASS 有效。`review-only`：兩輪 fresh review 對照原始目標驗收，不宣稱機械證明。
+- repo 授權的 `verification.acceptanceRunners` 定義 argv、setup、產品與 test build。task 提供穩定 check IDs 與明列且已 commit 的 test／fixture／helper；兩側各自安裝並 build 其版本，再覆蓋 candidate 材料。task 不能改 runner 命令。
+- fixture、collection、build、timeout、取消、輸出截斷、缺少或重複 ID、retry、skip MUST NOT 算 red 或 green。完整 execution artifacts 以摘要綁定契約、材料與 commits。
+- 原生 Jest JSON 與 Vitest task errors 無法完整區分 test-call 斷言與 hook／fixture cleanup。除非已 review 的 repo collector 提供明確斷言分類，失敗列 MUST 保持 UNKNOWN；AssertionError 名稱、matcher 資料與 pass 的 hook 狀態都不足。green 需要明確的單次 attempt 證據：attempts、Jest invocations，或 Vitest retryCount 與 repeatCount 兩者。原生 Vitest JSON 省略這些 counters，不能單獨提供機械證明。pytest 每個 nodeid 必須有一組依序的 setup／call／teardown；Rust protocol 必須提供 attempts。缺 metadata MUST NOT 預設為一次成功。
+- baseline 固定為建立 commit；finding pin 使用被 FAIL 的 candidate。revise／replan 保留原始目標、全部映射要求與先前契約／證據。新契約必須重新取證並取得兩輪 fresh review。
+- `task pin-finding` 驗證已保存 report 的 digest／index 來源。recurrence 明確引用既有 pin。第六條回傳 replan 義務且不修改狀態；映射後必須保留 pin 與全部要求。
+- reviewer packet 包含原始目標、修訂歷史、coverage 與 verifier 材料，審查斷言本身與明確的 fallback 理由。機械 green 不會省略必要 policy commands 或任一 fresh review。
+
+task state 寫入 version 2、讀取 version 1；evidence version 4 讀取舊證據，attestation version 3 綁定契約與 coverage。legacy criteria 維持下列 verifier 規則；typed／revised 契約不能沿用舊 review。coverage 分列機械證明、review-only、legacy；runner 綁定本身不算證明。明確 no-change proof 列出固定 candidate 上已 commit 的 regular source files；整合時重新解析支持路徑。一般 empty-diff review 與 empty-branch direct finish 仍拒絕。
+
+English source version: 2026-10-06. Revalidate: when the English specification changes.
 
 ## EVIDENCE-CRITERION-001
 

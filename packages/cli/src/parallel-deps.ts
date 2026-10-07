@@ -3,17 +3,20 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentOpsConfig } from "../../../runtime/src/contracts.js";
+import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import type { FinishDependencies } from "../../../runtime/src/parallel/finish.js";
+import {readWorktreeRecord} from "../../../runtime/src/parallel/service.js";
 import { localStatePaths } from "../../../runtime/src/security/permissions.js";
 import { FileTrustStore } from "../../../runtime/src/security/trust.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
-import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
+import { registeredRunProofRunner } from "../../../runtime/src/verify/spawn.js";
 import {
   loadEffectiveConfig,
   repositoryTrust,
+  runPolicyContext,
   repositoryTrustBinding
 } from "./context.js";
 import { CLI_VERSION } from "./version.js";
@@ -75,23 +78,32 @@ export function worktreeDependencies(): FinishDependencies {
     loadConfig: async (root) => (await loadEffectiveConfig(root, "project")).config,
     trust: {
       status: async (root, config) => await repositoryTrust(root, config, CLI_VERSION),
-      grant: async (root, config) =>
-        await trustStore().grant(await repositoryTrustBinding(root, config, CLI_VERSION)),
+      grant: async (root, config) => {
+        if (await runPolicyContext(root) !== null) {
+          if (await repositoryTrust(root, config, CLI_VERSION) !== "TRUSTED")
+            throw new AgentOpsError("RUN_POLICY_UNTRUSTED", "Run policy needs a current scoped authorization.");
+          return;
+        }
+        await trustStore().grant(await repositoryTrustBinding(root, config, CLI_VERSION));
+      },
       revoke: async (root, config) => {
+        const record = await readWorktreeRecord(root);
+        if (record?.runId !== undefined || process.env.AGENT_OPS_RUN_ID !== undefined) return;
         await trustStore().revoke(await repositoryTrustBinding(root, config, CLI_VERSION));
       }
     },
     gate: gateFor,
-    tasks: (root, base) => new TaskService(
+    tasks: (root, base, noChangePaths) => new TaskService(
       new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
       base === undefined ? {} : { completion: {
         root,
         gitRunner: gitRunner(root),
         base,
+        ...(noChangePaths === undefined ? {} : {noChangePaths}),
         loadConfig: async () => (await loadEffectiveConfig(root, "project")).config
       } }
     ),
-    processRunner: new NodeVerificationProcessRunner(),
+    processRunner: registeredRunProofRunner(),
     runSetup: async (cwd, step) => await new Promise((resolve) => {
       execFile(step.command, [...step.args], {
         cwd,

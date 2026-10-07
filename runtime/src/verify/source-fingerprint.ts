@@ -15,7 +15,7 @@ export async function calculateSourceFingerprint(
   if (scope.mode === "base") {
     return sha256(JSON.stringify({
       domain: "agent-ops-source-v1",
-      mode: "base",
+      mode: scope.noChange === true ? "goal-no-change" : "base",
       head,
       base: scope.resolvedBase,
       paths: [...scope.changedFiles]

@@ -1,5 +1,53 @@
 # Acceptance and Evidence
 
+## EVIDENCE-CONTRACT-001
+
+Executable acceptance MUST bind the current contract to immutable replay evidence.
+
+- Trigger: Verifying or completing a typed acceptance contract.
+- Action: Replay trusted checks against the immutable baseline and current candidate, then obtain fresh review.
+- Evidence: Digest-bound phase results and current contract coverage enter both reviewer packets.
+- Positive: Baseline assertion FAIL and candidate PASS prove a behavioral check.
+- Negative: A fixture error is counted as red, or an old review proves revised criteria.
+
+- `behavioral`: every designated red check fails by assertion on the baseline;
+  every required candidate check passes. `invariant`: required candidate checks
+  pass; baseline PASS is valid. `review-only`: two fresh reviewers discharge the
+  requirement against the original goal; no mechanical proof is claimed.
+- Trusted repository `verification.acceptanceRunners` define argv, setup, product
+  build and test build. Tasks provide stable check IDs and explicit committed
+  test/fixture/helper materials. Each checkout installs and builds its own version
+  before candidate materials are overlaid. Tasks cannot override runner commands.
+- Fixture, collection, build, timeout, cancellation, truncated output, missing or
+  duplicate IDs, retries and skips MUST NOT establish red or green. Complete raw
+  execution artifacts are digest-bound to the contract, materials and commits.
+- Native Jest JSON and Vitest task errors lack complete test-call versus
+  hook/fixture-cleanup provenance. Failed rows MUST remain UNKNOWN unless a
+  reviewed repository collector supplies explicit assertion classification;
+  AssertionError names, matcher details and passing hook states are insufficient.
+  Green requires explicit single-attempt evidence: attempts, Jest invocations,
+  or both Vitest retryCount and repeatCount. Native Vitest JSON omits these
+  counters and cannot supply mechanical proof by itself. Pytest requires one
+  ordered setup/call/teardown lifecycle per nodeid; the Rust protocol requires
+  explicit attempts. Missing metadata MUST NOT default to a successful attempt.
+- Baselines are immutable creation commits, or failed candidates for finding pins.
+  Revise/replan preserve the original goal, every mapped requirement and previous
+  contracts/evidence. New contracts require new proof and both fresh reviews.
+- `task pin-finding` validates saved report digest/index provenance. Recurrence
+  explicitly names an existing pin. A sixth criterion returns a replan obligation
+  without changing state; the mapped replan must retain the pin and all requirements.
+- Reviewer packets include original goal, revision history, coverage and verifier
+  materials. Review checks the assertions themselves and explicit fallback reasons.
+  Mechanical green never removes mandatory policy commands or either fresh review.
+
+Task state writes version 2 and reads version 1. Evidence version 4 reads earlier
+evidence; attestation version 3 binds contracts and coverage. Legacy criteria keep
+the verifier rules below; typed or revised contracts cannot reuse an old review.
+Coverage separates mechanical proof, review-only and legacy; a runner binding alone
+is not proof. Explicit no-change proof names existing committed regular source files
+at the frozen candidate; integration re-resolves them. Ordinary empty-diff review
+and empty-branch direct finish remain rejected.
+
 ## EVIDENCE-CRITERION-001
 
 Every acceptance criterion MUST map to observable evidence.

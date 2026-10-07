@@ -129,7 +129,7 @@ function config(): AgentOpsConfig {
   };
 }
 
-async function taskService(root: string): Promise<{
+async function taskService(root: string, taskConfig = config()): Promise<{
   service: TaskService;
   taskId: string;
 }> {
@@ -145,7 +145,7 @@ async function taskService(root: string): Promise<{
   );
   const task = await service.create({
     title: "Verify the change",
-    policyConfigHash: calculateConfigHash(config()),
+    policyConfigHash: calculateConfigHash(taskConfig),
     criteria: [
       {
         id: "criterion-unit",
@@ -280,6 +280,49 @@ test("mapped verification also runs task-required commands so completion remains
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("unbound acceptance runners leave legacy task selection and evidence unchanged", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-verify-legacy-"));
+  try {
+    const configured = config();
+    configured.verification.commands.push(verifier("unrelated", { kind: "exit-code" }));
+    configured.verification.acceptanceRunners = [{
+      id: "unbound", command: "unbound-acceptance-tool", args: [], cwd: ".", adapter: "generic"
+    }];
+    const originalConfig = structuredClone(configured);
+    const task = await taskService(root, configured);
+    const originalTask = (await task.service.status({ taskId: task.taskId })).task;
+    const runner = new FixtureProcessRunner({
+      "unit-tool": { completion: { exitCode: 0, signal: null }, stdout: "# tests 2\n# pass 2\n" },
+      "lint-tool": { completion: { exitCode: 0, signal: null } }
+    });
+    const evidenceStore = new FileEvidenceStore(root, root);
+    const report = await new VerificationService({
+      root, scope: "project", config: configured, gitRunner: new SurfaceRunner("src/example.ts"),
+      processRunner: runner, taskService: task.service, evidenceStore, trusted: true, now: clock()
+    }).verify(task.taskId);
+    assert.equal(report.status, "PASS");
+    assert.equal(report.selection.reason, "mapped");
+    assert.deepEqual(report.selection.verifierIds, ["unit", "lint"]);
+    assert.deepEqual(report.acceptance, [], "legacy criteria do not activate replay");
+    assert.deepEqual(runner.calls, [
+      { command: "unit-tool", args: ["--check"], cwd: root, shell: false },
+      { command: "lint-tool", args: ["--check"], cwd: root, shell: false }
+    ]);
+    const current = await task.service.status({ taskId: task.taskId });
+    assert.deepEqual(current.task, originalTask);
+    assert.deepEqual(configured, originalConfig);
+    for (const criterion of current.task.criteria) {
+      const references = current.evidence[criterion.id]!;
+      assert.equal(references.length, 1);
+      const evidence = await evidenceStore.load(references[0]!) as import("../../runtime/src/contracts.js").VerificationEvidence;
+      assert.equal(evidence.status, "PASS");
+      assert.equal(evidence.commandId, criterion.verifierIds[0]);
+      assert.equal(evidence.acceptance, undefined);
+      assert.equal(evidence.taskContractHash, undefined);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("fallback failures persist a redacted consecutive fingerprint", async () => {

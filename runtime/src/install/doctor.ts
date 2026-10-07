@@ -68,7 +68,8 @@ export type DoctorCheckId =
   | "smoke-availability"
   | "worktrees"
   | "worktree-branch-lock"
-  | "root-ghost-files";
+  | "root-ghost-files"
+  | "acceptance-coverage";
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -117,6 +118,7 @@ export interface DoctorProbes {
   readonly worktreeBranchLock?: DoctorProbe;
   /** Untracked 0-byte or unparseably named files at the repository root. */
   readonly rootGhostFiles?: DoctorProbe;
+  readonly acceptanceCoverage?: DoctorProbe;
 }
 
 export interface DoctorInstallationOptions {
@@ -581,7 +583,8 @@ async function checkProbe(
     | "smoke-availability"
     | "worktrees"
     | "worktree-branch-lock"
-    | "root-ghost-files",
+    | "root-ghost-files"
+    | "acceptance-coverage",
   probe: DoctorProbe | undefined
 ): Promise<DoctorCheck> {
   if (probe === undefined) {
@@ -1162,6 +1165,8 @@ export async function doctorInstallation(
       ? []
       : [await checkProbe("root-ghost-files", options.probes.rootGhostFiles)])
   ];
+  if (options.probes?.acceptanceCoverage !== undefined)
+    checks.push(await checkProbe("acceptance-coverage", options.probes.acceptanceCoverage));
   return {
     checks,
     surfaces: surfaceInventory.surfaces,

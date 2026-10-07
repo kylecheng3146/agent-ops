@@ -300,6 +300,30 @@ test("three configured targets choose the two non-host reviewers", async () => {
   assert.ok(progress.some((line) => /codex: review started \(timeout: 120s\)/.test(line)));
 });
 
+test("the between-session source guard retains frozen no-change review paths", async () => {
+  const scope = {mode: "base" as const, noChange: true as const, baseRef: "a".repeat(40),
+    resolvedBase: "a".repeat(40), changedFiles: ["product.mjs"]};
+  for (const unchanged of [true, false]) {
+    const report = JSON.parse(passing());
+    report.structured_output.changedFilesInspected = scope.changedFiles;
+    const scripted = fakeRunner([{stdout: JSON.stringify(report)}, {stdout: JSON.stringify(report)}]);
+    const runner: VerificationProcessRunner = {start(input) {
+      if (input.command === "git") return {stdout: bytes(""), stderr: bytes(""),
+        pid: null, completion: Promise.resolve({exitCode: 0, signal: null}), terminateTree: async () => {}};
+      return scripted.runner.start(input);
+    }};
+    const execute = createReviewExecutor({targets: ["agy"], cwd: scratchRoot, runner,
+      probeBind: async () => true, verifySourceFingerprint: async (expected, frozenScope) => {
+        assert.equal(expected, "b".repeat(64)); assert.deepEqual(frozenScope, scope); return unchanged;
+      }});
+    const initial = request();
+    const result = await execute({...initial, invocation: {...initial.invocation, scope, sourceFingerprint: "b".repeat(64)}});
+    assert.equal(result.status, unchanged ? "PASS" : "NOT_RUN", JSON.stringify(result));
+    if (result.status === "NOT_RUN") assert.equal(result.reason, "source-changed-during-review");
+    assert.equal(scripted.attempts.length, unchanged ? 2 : 1);
+  }
+});
+
 test("a FAIL verdict is terminal and never re-rolled on another target", async () => {
   const { result, attempts } = await run(
     ["claude", "codex"],

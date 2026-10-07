@@ -58,6 +58,7 @@ function publicReport(
   report: VerificationReport
 ): PublicVerificationReport {
   return {
+    ...(report.acceptance === undefined ? {} : {acceptance: report.acceptance}),
     taskId: report.taskId,
     status: report.status,
     surface: {

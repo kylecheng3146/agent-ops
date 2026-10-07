@@ -35,7 +35,7 @@ test("project lifecycle applies, trusts, routes, and uninstalls managed state", 
     "--json"
   ], root);
   try {
-    assert.equal(result.status, 0);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /INIT_APPLIED/);
     assert.equal(JSON.parse(result.stdout).data.plan.trust.action, "grant");
     await access(join(root, ".agent-ops", "manifest.json"));

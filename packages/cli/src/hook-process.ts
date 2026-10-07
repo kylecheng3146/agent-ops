@@ -40,6 +40,9 @@ import { CompletionGateService } from "../../../runtime/src/hooks/completion-gat
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
+import {readWorktreeRecord} from "../../../runtime/src/parallel/service.js";
+import {FileRunRepository} from "../../../runtime/src/run/service.js";
+import {validateWorkerStopHandoff} from "../../../runtime/src/run/worker-gate.js";
 import { runLifecycleAdvisory } from "../../../runtime/src/hooks/advisory.js";
 import {
   STOP_VERIFICATION_ENV,
@@ -520,8 +523,33 @@ export async function runHookProcess(
       (harnessId === "agy" || harnessId === "claude") &&
       config.features.completionGate.enabled
         ? dependencies.completionGate ?? {
-            handle: async (normalized) =>
-              await completionGateFor(root, config, gitRunner, harnessId).handle(normalized)
+            handle: async (normalized) => {
+              if (normalized.event === "stop" && normalized.terminationReason === "model_stop" && normalized.fullyIdle === true && normalized.sessionId !== undefined) {
+                const record = await readWorktreeRecord(root);
+                if (record?.runId !== undefined && record.workerId !== undefined && record.workerGeneration !== undefined) {
+                  const common = await gitRunner.run(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+                  if (common.exitCode === 0) {
+                    const commonDir = Buffer.from(common.stdout).toString("utf8").trim();
+                    const repository = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
+                    const state = await repository.read(record.runId);
+                    const worker = state?.workers.find(worker => worker.workerId === record.workerId);
+                    if (worker !== undefined && worker.workerId !== state!.coordinatorId && worker.stopIntent !== null) {
+                      const head = await gitRunner.run(["rev-parse", "HEAD"]);
+                      const tasks = new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root));
+                      if (head.exitCode === 0 && Buffer.from(head.stdout).toString("utf8").trim() === worker.stopIntent.sourceCommit &&
+                        await tasks.treeContract(worker.taskId) === worker.stopIntent.contractDigest) {
+                        const handoff = await validateWorkerStopHandoff(repository, {root, sessionId: normalized.sessionId,
+                          ...(normalized.agentId === undefined ? {} : {agentId: normalized.agentId}), runId: record.runId,
+                          workerId: record.workerId, generation: record.workerGeneration,
+                          deliveryDigest: worker.stopIntent.deliveryDigest ?? undefined, contractDigest: worker.stopIntent.contractDigest ?? undefined});
+                        if (handoff !== null) return handoff;
+                      }
+                    }
+                  }
+                }
+              }
+              return await completionGateFor(root, config, gitRunner, harnessId).handle(normalized);
+            }
           }
         : undefined;
     const worktreeGuard = config.worktree?.mode === "auto"

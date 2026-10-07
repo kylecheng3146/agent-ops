@@ -18,6 +18,7 @@ import {
   type GitRunner
 } from "../verify/change-surface.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
+import {resolveReviewScope} from "../review/scope.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
 import { NOTES_REF, noteSessionLine, readWorktreeRecord } from "../parallel/service.js";
 
@@ -269,7 +270,7 @@ export class CompletionGateService {
    * range is recomputed here rather than trusted, so evidence for a range that
    * no longer ends at HEAD still fails.
    */
-  async #evidenceFingerprint(completionBase: string | null): Promise<string> {
+  async #evidenceFingerprint(completionBase: string | null, noChangePaths?: readonly string[]): Promise<string> {
     const worktree = await this.#fingerprint();
     if (completionBase === null) {
       return worktree;
@@ -279,6 +280,11 @@ export class CompletionGateService {
       return worktree;
     }
     try {
+      if (noChangePaths !== undefined) {
+        const scope = await resolveReviewScope({root: this.#options.root, runner: this.#options.gitRunner,
+          base: completionBase, noChangePaths});
+        return await calculateSourceFingerprint(this.#options.root, scope, this.#options.gitRunner);
+      }
       const changedFiles = await collectBaseChangePaths(
         this.#options.gitRunner,
         completionBase
@@ -469,7 +475,7 @@ export class CompletionGateService {
     if (unfinished !== undefined) {
       return gateResult("block", "FAIL", "COMPLETION_GATE_SUBTASK_INCOMPLETE", `Complete subtask ${unfinished.task.id} before its parent.`);
     }
-    const sourceFingerprint = await this.#evidenceFingerprint(stored.completionBase);
+    const sourceFingerprint = await this.#evidenceFingerprint(stored.completionBase, stored.noChangePaths);
     const problem = await checkTaskCompletionEvidence(stored, {
       ...this.#options,
       sourceFingerprint

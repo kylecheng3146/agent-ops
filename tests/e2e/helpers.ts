@@ -28,7 +28,8 @@ export function runBuiltCli(
             cwd: root,
             encoding: "utf8",
             stdio: ["ignore", "pipe", "pipe"],
-            env: { ...process.env, AGENT_OPS_HOME: home, ...environment }
+            env: { ...process.env, AGENT_OPS_HOME: home,
+              CODEX_HOME: join(home, ".codex"), ...environment }
           }
         )
       );

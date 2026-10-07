@@ -1,0 +1,3 @@
+{"type":"test:pass","data":{"file":"test.js","name":"check"}}
+{"type":"test:fail","data":
+{"type":"test:plan","data":{"nesting":0,"count":1}}

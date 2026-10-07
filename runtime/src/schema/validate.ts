@@ -23,6 +23,8 @@ import {
   TASK_SCHEMA_VERSION
 } from "../contracts.js";
 
+import { acceptanceError, runnerError, commitIdentity } from "./acceptance.js";
+
 type UnknownRecord = Record<string, unknown>;
 
 const ID_PATTERN = /^[a-z][a-z0-9-]{0,127}$/;
@@ -587,7 +589,7 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   }
   const verificationUnknown = unknownFieldFailure(
     root.verification,
-    ["commands"],
+    ["commands", "acceptanceRunners"],
     "$.verification"
   );
   if (verificationUnknown !== undefined) {
@@ -620,6 +622,19 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     commandIds.add(command.value.id);
   }
 
+  if (root.verification.acceptanceRunners !== undefined) {
+    if (!Array.isArray(root.verification.acceptanceRunners) || root.verification.acceptanceRunners.length > 128)
+      return failure("INVALID_ACCEPTANCE_RUNNER", "$.verification.acceptanceRunners", "Expected bounded runner array.");
+    const runnerIds = new Set<string>();
+    for (const runner of root.verification.acceptanceRunners) {
+      const issue = runnerError(runner);
+      if (issue !== undefined) return failure("INVALID_ACCEPTANCE_RUNNER", "$.verification.acceptanceRunners", issue);
+      const runnerId = (runner as {id: string}).id;
+      if (runnerIds.has(runnerId) || commandIds.has(runnerId))
+        return failure("DUPLICATE_ID", "$.verification.acceptanceRunners", "Runner IDs must be unique and distinct from policy commands.");
+      runnerIds.add(runnerId);
+    }
+  }
   if (
     root.features.stopVerification.enabled === true &&
     root.verification.commands.length === 0
@@ -845,7 +860,7 @@ function validateReviewRole(
   return success(value as unknown as ReviewRoleConfig);
 }
 
-function validateCriterion(
+export function validateCriterion(
   value: unknown,
   path: string
 ): ValidationResult<AcceptanceCriterion> {
@@ -854,7 +869,7 @@ function validateCriterion(
   }
   const unknown = unknownFieldFailure(
     value,
-    ["description", "id", "verifierIds"],
+    ["description", "id", "verifierIds", "acceptance", "finding"],
     path
   );
   if (unknown !== undefined) {
@@ -872,7 +887,7 @@ function validateCriterion(
   }
   if (
     !isStringArray(value.verifierIds) ||
-    value.verifierIds.length === 0 ||
+    (value.verifierIds.length === 0 && value.acceptance === undefined) ||
     !value.verifierIds.every(isIdentifier)
   ) {
     return failure(
@@ -888,18 +903,40 @@ function validateCriterion(
       "Criterion verifier IDs must be unique."
     );
   }
+  if (value.acceptance !== undefined) {
+    const issue = acceptanceError(value.acceptance);
+    if (issue !== undefined) return failure("INVALID_ACCEPTANCE", path + ".acceptance", issue);
+  }
+  if (value.finding !== undefined) {
+    const f = value.finding;
+    if (!isRecord(f) || unknownFieldFailure(f, ["pinId", "reportDigest", "findingIndex", "candidateCommit", "criterionIds"], path + ".finding") !== undefined ||
+      typeof f.pinId !== "string" || !HASH_PATTERN.test(f.pinId) || typeof f.reportDigest !== "string" || !HASH_PATTERN.test(f.reportDigest) ||
+      !Number.isSafeInteger(f.findingIndex) || (f.findingIndex as number) < 0 || !commitIdentity(f.candidateCommit) ||
+      !isStringArray(f.criterionIds) || !f.criterionIds.every(id => typeof id === "string" && id.split(":").length <= 2 && id.split(":").every(isIdentifier)) || !hasUniqueStrings(f.criterionIds))
+      return failure("INVALID_FINDING_REFERENCE", path + ".finding", "Invalid immutable finding identity.");
+    if (value.acceptance === undefined || !isRecord(value.acceptance) || value.acceptance.mode === "invariant" ||
+      value.acceptance.baselineCommit !== f.candidateCommit)
+      return failure("INVALID_FINDING_BASELINE", path + ".finding", "A finding retains its failed-candidate baseline and behavioral or explicit review-only mode.");
+  }
   return success(value as unknown as AcceptanceCriterion);
 }
 
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "intent", "parentTaskId", "schemaVersion", "title"],
-    TASK_SCHEMA_VERSION
+    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title"],
+    isRecord(value) && value.schemaVersion === 1 ? 1 : TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
     return root;
   }
+  if (root.contractRevision !== undefined && (!Number.isSafeInteger(root.contractRevision) || (root.contractRevision as number) < 0))
+    return failure("INVALID_CONTRACT_REVISION", "$.contractRevision", "Invalid contract revision.");
+  if (root.goal !== undefined && (!isNonEmptyString(root.goal) || Buffer.byteLength(root.goal as string, "utf8") > 65536))
+    return failure("INVALID_GOAL", "$.goal", "Goal must be non-empty and at most 64 KiB.");
+  if (root.schemaVersion === 1 && (root.goal !== undefined || root.contractRevision !== undefined ||
+    (Array.isArray(root.criteria) && root.criteria.some(c => isRecord(c) && (c.acceptance !== undefined || c.finding !== undefined)))))
+    return failure("WRONG_SCHEMA_VERSION", "$.schemaVersion", "Typed acceptance requires task schema 2.");
   if (!isIdentifier(root.id)) {
     return failure("INVALID_ID", "$.id", "Invalid task ID.");
   }
@@ -984,6 +1021,12 @@ export function validateTaskAgainstConfig(
       );
     }
   }
+  const runnerIds = new Set(config.value.verification.acceptanceRunners?.map(r => r.id) ?? []);
+  for (const criterion of task.value.criteria) {
+    for (const binding of criterion.acceptance?.bindings ?? []) {
+      if (!runnerIds.has(binding.runnerId)) return failure("UNKNOWN_ACCEPTANCE_RUNNER", "$.criteria", "Unknown acceptance runner: " + binding.runnerId);
+    }
+  }
   return task;
 }
 
@@ -1006,12 +1049,27 @@ export function validateEvidence(
     "status",
     "taskId",
     "testCount",
-    "toolVersions"
-  ], isRecord(value) && value.schemaVersion === 2 ? 2 : EVIDENCE_SCHEMA_VERSION);
+    "toolVersions", "taskContractHash", "acceptance"
+  ], isRecord(value) && (value.schemaVersion === 2 || value.schemaVersion === 3) ? value.schemaVersion : EVIDENCE_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
   }
 
+  if (root.taskContractHash !== undefined && (root.schemaVersion !== 4 || typeof root.taskContractHash !== "string" || !HASH_PATTERN.test(root.taskContractHash)))
+    return failure("INVALID_CONTRACT_HASH", "$.taskContractHash", "Contract evidence requires schema 4 and a digest.");
+  if (root.acceptance !== undefined) {
+    const a = root.acceptance;
+    if (root.schemaVersion !== 4 || !isRecord(a) || root.taskContractHash === undefined ||
+      unknownFieldFailure(a, ["criterionContractHash", "phase", "commit", "pairedCommit", "bindingHash", "materialDigest", "executionDigest", "executionArtifact", "checks"], "$.acceptance") !== undefined ||
+      !["baseline", "candidate"].includes(String(a.phase)) || !commitIdentity(a.commit) || !commitIdentity(a.pairedCommit) ||
+      ![a.criterionContractHash, a.bindingHash, a.materialDigest, a.executionDigest].every(h => typeof h === "string" && HASH_PATTERN.test(h)) ||
+      typeof a.executionArtifact !== "string" || !/^\.agent-ops\/tasks\/acceptance\/[a-f0-9]{64}\.json$/u.test(a.executionArtifact) ||
+      !Array.isArray(a.checks) || a.checks.length === 0 || a.checks.length > 512 ||
+      a.checks.some(c => !isRecord(c) || unknownFieldFailure(c, ["checkId", "status", "failureClass"], "$.acceptance.checks") !== undefined ||
+        !isNonEmptyString(c.checkId) || !["PASS", "FAIL", "UNKNOWN"].includes(String(c.status)) || !isNonEmptyString(c.failureClass)) ||
+      new Set(a.checks.map(c => (c as {checkId:string}).checkId)).size !== a.checks.length)
+      return failure("INVALID_ACCEPTANCE_EVIDENCE", "$.acceptance", "Invalid phase/check evidence.");
+  }
   for (const field of ["taskId", "criterionId", "commandId"] as const) {
     if (!isIdentifier(root[field])) {
       return failure("INVALID_ID", `$.${field}`, `Invalid ${field}.`);

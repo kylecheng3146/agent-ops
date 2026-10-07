@@ -1,0 +1,301 @@
+{
+  "files": [
+    {
+      "name": "vitest.test.mjs",
+      "type": "suite",
+      "mode": "run",
+      "filepath": "<probe>/vitest.test.mjs",
+      "tasks": [
+        {
+          "type": "suite",
+          "name": "body",
+          "mode": "run",
+          "tasks": [
+            {
+              "name": "green",
+              "type": "test",
+              "mode": "run",
+              "meta": {},
+              "result": {
+                "state": "pass",
+                "retryCount": 0,
+                "repeatCount": 0,
+                "hooks": {
+                  "beforeEach": "pass",
+                  "afterEach": "pass"
+                }
+              }
+            },
+            {
+              "name": "assertion",
+              "type": "test",
+              "mode": "run",
+              "meta": {},
+              "result": {
+                "state": "fail",
+                "retryCount": 0,
+                "repeatCount": 0,
+                "hooks": {
+                  "beforeEach": "pass",
+                  "afterEach": "pass"
+                },
+                "errors": [
+                  {
+                    "actual": "1",
+                    "expected": "2",
+                    "showDiff": true,
+                    "operator": "strictEqual",
+                    "nameStr": "AssertionError",
+                    "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                    "name": "AssertionError",
+                    "ok": false
+                  }
+                ]
+              }
+            }
+          ],
+          "meta": {},
+          "result": {
+            "state": "fail",
+            "hooks": {
+              "beforeAll": "pass",
+              "afterAll": "pass"
+            }
+          }
+        },
+        {
+          "type": "suite",
+          "name": "before",
+          "mode": "run",
+          "tasks": [
+            {
+              "name": "hook",
+              "type": "test",
+              "mode": "run",
+              "meta": {},
+              "result": {
+                "state": "fail",
+                "retryCount": 0,
+                "repeatCount": 0,
+                "hooks": {
+                  "beforeEach": "run",
+                  "afterEach": "pass"
+                },
+                "errors": [
+                  {
+                    "actual": "1",
+                    "expected": "2",
+                    "showDiff": true,
+                    "operator": "strictEqual",
+                    "nameStr": "AssertionError",
+                    "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                    "name": "AssertionError",
+                    "ok": false
+                  }
+                ]
+              }
+            }
+          ],
+          "meta": {},
+          "result": {
+            "state": "fail",
+            "hooks": {
+              "beforeAll": "pass",
+              "afterAll": "pass"
+            }
+          }
+        },
+        {
+          "type": "suite",
+          "name": "after",
+          "mode": "run",
+          "tasks": [
+            {
+              "name": "hook",
+              "type": "test",
+              "mode": "run",
+              "meta": {},
+              "result": {
+                "state": "fail",
+                "retryCount": 0,
+                "repeatCount": 0,
+                "hooks": {
+                  "beforeEach": "pass",
+                  "afterEach": "run"
+                },
+                "errors": [
+                  {
+                    "actual": "1",
+                    "expected": "2",
+                    "showDiff": true,
+                    "operator": "strictEqual",
+                    "nameStr": "AssertionError",
+                    "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                    "name": "AssertionError",
+                    "ok": false
+                  }
+                ]
+              }
+            }
+          ],
+          "meta": {},
+          "result": {
+            "state": "fail",
+            "hooks": {
+              "beforeAll": "pass",
+              "afterAll": "pass"
+            }
+          }
+        },
+        {
+          "type": "suite",
+          "name": "cleanup",
+          "mode": "run",
+          "tasks": [
+            {
+              "name": "fixture",
+              "type": "test",
+              "mode": "run",
+              "meta": {},
+              "result": {
+                "state": "fail",
+                "retryCount": 0,
+                "repeatCount": 0,
+                "hooks": {
+                  "beforeEach": "pass",
+                  "afterEach": "pass"
+                },
+                "errors": [
+                  {
+                    "actual": "1",
+                    "expected": "2",
+                    "showDiff": true,
+                    "operator": "strictEqual",
+                    "nameStr": "AssertionError",
+                    "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                    "name": "AssertionError",
+                    "ok": false
+                  }
+                ]
+              }
+            },
+            {
+              "name": "finished",
+              "type": "test",
+              "mode": "run",
+              "meta": {},
+              "result": {
+                "state": "fail",
+                "retryCount": 0,
+                "repeatCount": 0,
+                "hooks": {
+                  "beforeEach": "pass",
+                  "afterEach": "pass"
+                },
+                "errors": [
+                  {
+                    "actual": "1",
+                    "expected": "2",
+                    "showDiff": true,
+                    "operator": "strictEqual",
+                    "nameStr": "AssertionError",
+                    "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                    "name": "AssertionError",
+                    "ok": false
+                  },
+                  {
+                    "actual": "1",
+                    "expected": "2",
+                    "showDiff": true,
+                    "operator": "strictEqual",
+                    "nameStr": "AssertionError",
+                    "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                    "name": "AssertionError",
+                    "ok": false
+                  }
+                ]
+              }
+            }
+          ],
+          "meta": {},
+          "result": {
+            "state": "fail",
+            "hooks": {
+              "beforeAll": "pass",
+              "afterAll": "pass"
+            }
+          }
+        },
+        {
+          "name": "retried",
+          "type": "test",
+          "retry": 1,
+          "mode": "run",
+          "meta": {},
+          "result": {
+            "state": "fail",
+            "retryCount": 1,
+            "repeatCount": 0,
+            "hooks": {
+              "beforeEach": "pass",
+              "afterEach": "pass"
+            },
+            "errors": [
+              {
+                "actual": "1",
+                "expected": "2",
+                "showDiff": true,
+                "operator": "strictEqual",
+                "nameStr": "AssertionError",
+                "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                "name": "AssertionError",
+                "ok": false
+              },
+              {
+                "actual": "1",
+                "expected": "2",
+                "showDiff": true,
+                "operator": "strictEqual",
+                "nameStr": "AssertionError",
+                "diff": "- Expected\n+ Received\n\n- 2\n+ 1",
+                "name": "AssertionError",
+                "ok": false
+              }
+            ]
+          }
+        },
+        {
+          "name": "repeated",
+          "type": "test",
+          "repeats": 1,
+          "mode": "run",
+          "meta": {},
+          "result": {
+            "state": "pass",
+            "retryCount": 0,
+            "repeatCount": 1,
+            "hooks": {
+              "beforeEach": "pass",
+              "afterEach": "pass"
+            }
+          }
+        }
+      ],
+      "meta": {},
+      "pool": "forks",
+      "setupDuration": 0,
+      "collectDuration": 4.251125000000002,
+      "prepareDuration": 24.033624999999994,
+      "environmentLoad": 0.07037500000001273,
+      "result": {
+        "state": "fail",
+        "hooks": {
+          "beforeAll": "pass",
+          "afterAll": "pass"
+        }
+      }
+    }
+  ],
+  "errors": [],
+  "completed": true
+}

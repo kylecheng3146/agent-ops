@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {randomUUID} from "node:crypto";
 import { join } from "node:path";
 
 import type { AgentOpsConfig } from "../contracts.js";
@@ -13,7 +14,11 @@ import {
 } from "../verify/command-executor.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
 import { prepareFinishReceipt } from "./receipt.js";
+import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration} from "../run/integration.js";
+import type {IntegrationReceiptBinding} from "../run/integration.js";
+import {canonicalJson} from "../config/hash.js";
 import { listWorktrees } from "./manage.js";
+import {withPrivateFileLock} from "../security/permissions.js";
 import type { IntegratedChild } from "./integrate.js";
 import {
   assertWorktreeName,
@@ -38,7 +43,8 @@ const MAX_INTENTS = 20;
 
 export interface FinishDependencies extends WorktreeDependencies {
   /** With `completionBase`, a service that can complete tasks over that range. */
-  readonly tasks: (root: string, completionBase?: string) => TaskService;
+  /** `noChangePaths` is the explicit source material for a verified no-change proof. */
+  readonly tasks: (root: string, completionBase?: string, noChangePaths?: readonly string[]) => TaskService;
   readonly processRunner?: VerificationProcessRunner;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly lockWaitMs?: number;
@@ -55,10 +61,24 @@ export interface FinishResult {
 }
 
 export interface FinalCandidateProof {
+  readonly recovery?: true;
   readonly target: string;
   readonly head: string;
   readonly sourceFingerprint: string;
   readonly children: readonly IntegratedChild[];
+  /** An explicit review scope for an already-satisfied, unchanged target. */
+  readonly noChange?: {
+    readonly sourceCommit: string;
+    readonly contractDigest: string;
+    readonly reviewScope: import("../review/scope.js").ReviewScope;
+    readonly artifactRefs: readonly string[];
+  };
+  readonly integrationJournal?: {
+    readonly transactionId: string;
+    readonly expectedTarget: string;
+    readonly candidate: string;
+    readonly digest: string;
+  };
 }
 
 export interface TargetIntent {
@@ -162,27 +182,40 @@ export async function withFinishLock<T>(
   const path = join(commonDir, LOCK_NAME);
   const deadline = Date.now() + (deps.lockWaitMs ?? LOCK_WAIT_MS);
   const sleep = deps.sleep ?? (async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms)));
+  const token = randomUUID();
   for (;;) {
+    let claimed = false;
     try {
-      await mkdir(path);
-      await writeFile(join(path, "owner.json"), JSON.stringify({ pid: process.pid, at: Date.now() }));
-      break;
+      claimed = await withPrivateFileLock(path + ".state", commonDir, async () => {
+        for (;;) {
+          try {
+            await mkdir(path);
+            await writeFile(join(path, "owner.json"), JSON.stringify({pid: process.pid, at: Date.now(), token}));
+            return true;
+          } catch (error) {
+            if ((error as {code?: string}).code !== "EEXIST") throw error;
+            if (!await staleLock(path)) return false;
+            await rm(path, {recursive: true, force: true});
+          }
+        }
+      });
     } catch (error) {
-      if ((error as { code?: string }).code !== "EEXIST") throw error;
-      if (await staleLock(path)) {
-        await rm(path, { recursive: true, force: true });
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw finishError("WORKTREE_FINISH_BUSY", "Another worktree finish is still running; try again later.");
-      }
-      await sleep(LOCK_POLL_MS);
+      if (!(error instanceof AgentOpsError) || error.code !== "PRIVATE_STATE_LOCK_TIMEOUT") throw error;
     }
+    if (claimed) break;
+    if (Date.now() >= deadline) throw finishError("WORKTREE_FINISH_BUSY", "Another worktree finish is still running; try again later.");
+    await sleep(LOCK_POLL_MS);
   }
   try {
     return await action();
   } finally {
-    await rm(path, { recursive: true, force: true });
+    await withPrivateFileLock(path + ".state", commonDir, async () => {
+      const owner = await readFile(join(path, "owner.json"), "utf8").catch(error => {
+        if ((error as {code?: string}).code === "ENOENT") return null;
+        throw error;
+      });
+      if (owner !== null && JSON.parse(owner)?.token === token) await rm(path, {recursive: true, force: true});
+    });
   }
 }
 
@@ -291,11 +324,12 @@ export async function finishWorktree(
   return await withFinishLock(deps, commonDir, async () => {
     const sessionChildren = (await listWorktrees(deps, mainRoot))
       .map(({ record: child }) => child)
-      .filter((child) => child.sessionId === record.sessionId && child.agentId !== undefined);
+      .filter((child) => child.path !== record.path && child.sessionId === record.sessionId &&
+        (child.agentId !== undefined || (record.runId !== undefined && child.runId === record.runId)));
     if (options.finalProof === undefined && sessionChildren.length > 0) {
       throw finishError("WORKTREE_CHILDREN_REQUIRE_ADVANCE", "This session has child worktrees; run task advance for integrated final evidence before finish.");
     }
-    if (options.finalProof !== undefined &&
+    if (options.finalProof !== undefined && options.finalProof.recovery !== true &&
         (sessionChildren.length !== options.finalProof.children.length ||
          sessionChildren.some((child) => !options.finalProof!.children.some(({ name }) => name === child.name)))) {
       throw finishError("WORKTREE_CHILDREN_CHANGED", "The child worktree set changed after final review.");
@@ -337,14 +371,23 @@ export async function finishWorktree(
     if ((await collectChangeSurface(worktreeRunner)).paths.length > 0) {
       throw finishError("WORKTREE_DIRTY", `Commit or discard the uncommitted changes in ${record.path} first.`);
     }
-    const target = await git(deps, mainRoot, ["rev-parse", "--verify", `${record.targetBranch}^{commit}`],
+    const actualTarget = await git(deps, mainRoot, ["rev-parse", "--verify", `${record.targetBranch}^{commit}`],
       "WORKTREE_TARGET_MISSING", `${record.targetBranch} does not resolve to a commit.`);
-    if (options.finalProof !== undefined && target !== options.finalProof.target) {
+    const recovering = options.finalProof?.recovery === true;
+    if (recovering) {
+      const sealed = await readRunIntegrationProof(commonDir, record);
+      const {recovery: _recovery, ...requested} = options.finalProof!;
+      if (sealed === null || canonicalJson(sealed) !== canonicalJson(requested) || actualTarget !== sealed.head)
+        throw finishError("RUN_INTEGRATION_PROOF_CHANGED", "Recovery requires the exact sealed candidate already at the target.");
+    }
+    const target = recovering ? options.finalProof!.target : actualTarget;
+    if (options.finalProof !== undefined && actualTarget !== options.finalProof.target && !recovering) {
       throw finishError("WORKTREE_TARGET_MOVED", "The target branch moved after final review; rerun the final evidence gate.");
     }
     const ahead = Number(await git(deps, record.path, ["rev-list", "--count", `${target}..HEAD`],
       "WORKTREE_LOG_FAILED", "Git could not compare the branch with its target."));
-    if (ahead === 0) {
+    const noChangeProof = options.finalProof?.noChange;
+    if (ahead === 0 && noChangeProof === undefined && !recovering) {
       throw finishError("WORKTREE_NOTHING_TO_MERGE",
         `${record.branch} has no commits beyond ${record.targetBranch}; remove the worktree instead.`);
     }
@@ -358,6 +401,9 @@ export async function finishWorktree(
       if ((await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode !== 0) {
         throw finishError("WORKTREE_TARGET_MOVED", "The final candidate is not based on the target; rerun the final evidence gate.");
       }
+      if (noChangeProof !== undefined && noChangeProof.sourceCommit !== headBeforeCompletion) {
+        throw finishError("WORKTREE_NO_CHANGE_SOURCE_MISMATCH", "The verified-no-change proof does not match the candidate commit.");
+      }
     }
     // Direct finish completes before merge. A final-proof finish checks all
     // evidence first, then completes only after the target's fast-forward:
@@ -368,11 +414,12 @@ export async function finishWorktree(
         "The worktree has no task; create one, verify and review it before finishing.");
     }
     const completeTasks = async () => {
+      const noChangePaths = noChangeProof?.reviewScope.changedFiles;
       for (const { task } of [...tree].sort((left, right) => right.depth - left.depth)) {
         if (task.status === "complete") continue;
         const base = options.finalProof === undefined ? task.reviewBase ?? record.base : target;
         try {
-          await deps.tasks(record.path, base).complete(task.task.id, {});
+          await deps.tasks(record.path, base, noChangePaths).complete(task.task.id, {});
         } catch (error) {
           throw finishError("WORKTREE_TASK_INCOMPLETE",
             `Task ${task.task.id} (${task.task.title}) could not be completed against ${base}: ${error instanceof Error ? error.message : String(error)} ` +
@@ -427,6 +474,15 @@ export async function finishWorktree(
       }
     }
 
+    const sealedIntegration = options.finalProof === undefined || record.runId === undefined
+      ? null
+      : await readRunIntegrationReceiptBinding(commonDir, record, {target, candidate: head});
+    const requestedIntegration = options.finalProof?.integrationJournal;
+    if (requestedIntegration !== undefined && sealedIntegration !== null &&
+        canonicalJson(requestedIntegration) !== canonicalJson(sealedIntegration)) {
+      throw finishError("RUN_INTEGRATION_PROOF_CHANGED", "The requested receipt binding differs from the sealed integration transaction.");
+    }
+    const integrationJournal: IntegrationReceiptBinding | undefined = sealedIntegration ?? requestedIntegration;
     const receiptOptions = options.finalProof === undefined ? undefined : {
       commonDir,
       record,
@@ -435,7 +491,9 @@ export async function finishWorktree(
       expectedFingerprint: options.finalProof.sourceFingerprint,
       children: options.finalProof.children,
       config: worktreeConfig,
-      gitRunner: worktreeRunner
+      gitRunner: worktreeRunner,
+      ...(noChangeProof === undefined ? {} : { noChange: noChangeProof }),
+      ...(integrationJournal === undefined ? {} : { integrationJournal })
     };
     let receipt = receiptOptions === undefined ? undefined : await prepareFinishReceipt({
       ...receiptOptions,
@@ -445,7 +503,12 @@ export async function finishWorktree(
     const gateEnabled = mainConfig.features.completionGate.enabled;
     const before = gateEnabled ? await currentGateFingerprint(mainRoot, mainRunner) : "";
     let mergedHead: string;
-    if (onTarget) {
+    if (noChangeProof !== undefined || recovering) {
+      // A verified-no-change finish records proof and task state while leaving
+      // the target ref untouched. The ordinary finish path still rejects an
+      // empty branch, preserving its public behavior.
+      mergedHead = actualTarget;
+    } else if (onTarget) {
       if (options.finalProof !== undefined &&
           await git(deps, mainRoot, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.") !== target) {
         throw finishError("WORKTREE_TARGET_MOVED", "The target changed after the final proof was prepared.");
@@ -477,13 +540,16 @@ export async function finishWorktree(
     }
 
     if (receiptOptions !== undefined) {
+      await markRunIntegration(commonDir, record, "target-moved", "target");
       try {
         await completeTasks();
         await validateGate();
+        await markRunIntegration(commonDir, record, "tasks-completed", "tasks");
         receipt = await prepareFinishReceipt({
           ...receiptOptions,
           tasks: await deps.tasks(record.path).list().then((tasks) => tasks.filter(({ status }) => status !== "archived"))
         });
+        await markRunIntegration(commonDir, record, "receipt-written", "receipt", receipt);
       } catch (error) {
         throw finishError("WORKTREE_FINISH_PARTIAL", `Code merged at ${mergedHead}; final task state or receipt failed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -502,10 +568,11 @@ export async function finishWorktree(
         warnings.push(message);
       }
     };
-    const finishNote = `${noteText(record, tree)}${receipt === undefined ? "" : `\nreceipt: ${receipt.path}\nreceipt-sha256: ${receipt.digest}`}`;
+    const finishNote = `${noteText(record, tree)}${noChangeProof === undefined ? "" : "\nverified-no-change: true"}${receipt === undefined ? "" : `\nreceipt: ${receipt.path}\nreceipt-sha256: ${receipt.digest}`}`;
     await attempt("note", async () => await git(deps, mainRoot,
       ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", finishNote, mergedHead],
       "WORKTREE_NOTE_FAILED", "Git could not write the agent-ops note."));
+    if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "note");
     if (gateEnabled) {
       await attempt("gate", async () => {
         const mainGate = await deps.gate(mainRoot, mainConfig);
@@ -529,11 +596,13 @@ export async function finishWorktree(
           const pinnedHead = await assertPinnedChild(child);
           await deps.trust.revoke(child.path, await deps.loadConfig(child.path));
           await removeCheckout(deps, child, false, pinnedHead);
+          await markRunIntegration(commonDir, record, "receipt-written", "child:" + child.name);
         });
       }
     }
     await attempt("remove", async () => await removeCheckout(deps, record,
       options.finalProof === undefined, options.finalProof?.head));
+    if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
     return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings,
       ...(receipt === undefined ? {} : { receipt: receipt.path }) };
   });

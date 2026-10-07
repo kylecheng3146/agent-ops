@@ -12,6 +12,54 @@ pre-1.0 interface.
 The CLI is published as `@kylecheng3146/agent-ops` as a pre-1.0 interface;
 command behavior may change before 1.0.
 
+## Executable acceptance and native goal runs (0.6.0)
+
+Criteria can use `behavioral`, `invariant` or `review-only` acceptance contracts.
+Behavioral proof requires each designated red check to fail by assertion on its
+immutable baseline and every required check to pass on the candidate. Invariants
+can pass on both versions. Review-only requirements still need two fresh reviews
+against the original goal and an explicit `reviewOnlyReason` in the acceptance
+contract. Legacy criteria keep their existing verifier behavior.
+
+Configure and trust `verification.acceptanceRunners` in the repository. Tasks bind
+stable check IDs and explicit committed test/fixture/helper materials; they cannot
+override runner executables or arguments. Each version installs and builds its own
+declared dependencies. Fixture errors, skipped/retried checks, incomplete output and
+timeouts produce UNKNOWN. Review examines the checks themselves and every fallback.
+`task revise`, `task replan` and `task pin-finding` preserve goal and evidence history;
+`task status` and `doctor` distinguish mechanical coverage from review-only coverage.
+
+On macOS, a trusted clean main checkout can start an isolated native goal run:
+
+```sh
+agent-ops run "Implement the requested behavior" --host codex --time-budget 60m --jobs 2
+agent-ops run status <run-id>
+agent-ops run logs <run-id>
+agent-ops run respond <run-id> --question-id <id> --answer "Clarification"
+agent-ops run stop <run-id>
+agent-ops run resume <run-id>
+```
+
+`--host claude` uses Claude Code; `--wait` waits for a terminal or input state.
+The coordinator counts toward the two writer slots. Native processes write only
+under current leases in separate worktrees. Active time counts once across parallel
+workers and continues through proof and integration; resume retains earlier usage
+epochs. Missing token or cost counters remain unknown. Completion requires current
+verification, two fresh reviews, completed tasks and a receipt bound to the target.
+Setup runs in the background under registered process groups. Stop cancels native
+writers, local verification and setup; interrupted setup requires explicit resume.
+The coordinator can assess additional non-dangerous fixed commands through a
+policy request. This authorization is bound to the run, runtime, lease and budget;
+it creates no permanent repository trust. Policy transitions fence writers and
+journal delivery imports and contract synchronization before starting new leases.
+Native authorization decisions retain redacted command scope and rationale;
+missing provider decisions remain unknown. Repair compares actual check outcomes
+and outstanding finding pins rather than source fingerprints.
+
+Native lifecycle reachability and framework probe conditions are recorded in
+[the capability probe](docs/harness/native-goal-probe.md); these observations do not
+establish external adoption or a reduction in review cost.
+
 ## Quick start from npm
 
 Requires Node.js `>=22.14.0`. Install the published CLI globally:

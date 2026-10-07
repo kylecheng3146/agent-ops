@@ -12,6 +12,7 @@ import {
   insideWorktreeDirectory,
   parseWorktreeListPorcelain,
   readWorktreeRecord,
+  assertRunWorktreeOwnership,
   removeCheckout,
   resolveCheckouts,
   worktreePath,
@@ -218,6 +219,8 @@ export async function commitWorktree(
     readonly cwd: string;
     readonly sessionId: string | undefined;
     readonly message: string;
+    /** F callers must provide the coordinator-issued run/worker lease. */
+    readonly runOwnership?: import("./service.js").RunWorktreeOwnership;
   }
 ): Promise<{ readonly record: WorktreeRecord; readonly commit: string }> {
   const { mainRoot, currentRoot } = await resolveCheckouts(deps, options.cwd);
@@ -237,6 +240,9 @@ export async function commitWorktree(
   if (record.sessionId !== options.sessionId) {
     throw manageError("WORKTREE_COMMIT_FOREIGN",
       `${record.path} belongs to session ${record.sessionId}, not ${options.sessionId}.`);
+  }
+  if (options.runOwnership !== undefined) {
+    assertRunWorktreeOwnership(record, options.runOwnership);
   }
   const step = async (args: readonly string[], code: string, message: string) => {
     const result = await deps.git(record.path, args);

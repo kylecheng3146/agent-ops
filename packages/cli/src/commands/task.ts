@@ -1,3 +1,5 @@
+import { lstat, readFile } from "node:fs/promises";
+import { taskContractHash } from "../../../../runtime/src/task/contract.js";
 import type {
   AcceptanceCriterion
 } from "../../../../runtime/src/contracts.js";
@@ -39,7 +41,11 @@ export interface TaskCommandOptions {
 export interface TaskCommandData {
   readonly action: TaskAction;
   readonly message: string;
+  readonly pendingCriterion?: AcceptanceCriterion;
   readonly record?: StoredTaskRecord;
+  readonly contractHash?: string;
+  readonly treeContractHash?: string;
+  readonly coverage?: Awaited<ReturnType<TaskService["coverage"]>>;
   readonly records?: readonly StoredTaskRecord[];
   readonly text: string;
 }
@@ -58,25 +64,17 @@ function parseCriterion(source: string): AcceptanceCriterion {
       "Each --criterion value must be a JSON criterion object."
     );
   }
-  if (
-    !isRecord(value) ||
-    Object.keys(value).sort().join(",") !==
-      "description,id,verifierIds" ||
-    typeof value.id !== "string" ||
-    typeof value.description !== "string" ||
-    !Array.isArray(value.verifierIds) ||
-    value.verifierIds.some((id) => typeof id !== "string")
-  ) {
-    throw new AgentOpsError(
-      "TASK_CRITERION_INVALID",
-      "Each criterion requires only id, description, and verifierIds."
-    );
-  }
-  return {
-    id: value.id,
-    description: value.description,
-    verifierIds: [...value.verifierIds] as string[]
-  };
+  if (!isRecord(value)) throw new AgentOpsError("TASK_CRITERION_INVALID", "Criterion must be an object.");
+  // TaskService normalizes the creation baseline, then uses the shared strict validator.
+  return value as unknown as AcceptanceCriterion;
+}
+
+async function jsonFile(path: string): Promise<unknown> {
+  const status = await lstat(path);
+  if (!status.isFile() || status.isSymbolicLink() || status.size > 65536)
+    throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Payload must be a regular JSON file at most 64 KiB.");
+  try { return JSON.parse(await readFile(path, "utf8")) as unknown; }
+  catch { throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Invalid JSON payload."); }
 }
 
 function parseEvidence(
@@ -120,7 +118,7 @@ function taskAction(args: ParsedArgs): TaskAction {
       "complete",
       "create",
       "export",
-      "status"
+      "status", "revise", "replan", "pin-finding"
     ].includes(args.action)
   ) {
     throw new AgentOpsError(
@@ -141,7 +139,8 @@ function taskEnvelope(
     action,
     message,
     record,
-    text: renderTaskMarkdown(record)
+    contractHash: taskContractHash(record.task),
+    text: renderTaskMarkdown(record) + "\nContract: " + taskContractHash(record.task)
   });
 }
 
@@ -178,7 +177,10 @@ export async function runTaskCommand(
       const record = await (worktree?.service ?? options.service).create({
         title: options.args.title,
         ...(options.args.intent === undefined ? {} : { intent: options.args.intent }),
-        criteria: (options.args.criteria ?? []).map(parseCriterion),
+        criteria: [...(options.args.criteria ?? []).map(parseCriterion),
+          ...await Promise.all((options.args.criterionFiles ?? []).map(async path => await jsonFile(path) as AcceptanceCriterion))]
+          .map(c => c.acceptance === undefined || options.args.baseline === undefined ? c :
+            {...c, acceptance: {...c.acceptance, baselineCommit: c.acceptance.baselineCommit ?? options.args.baseline}}),
         ...(options.policyConfigHash === undefined
           ? {}
           : { policyConfigHash: options.policyConfigHash }),
@@ -216,6 +218,32 @@ export async function runTaskCommand(
         }
       };
     }
+    if (action === "revise") {
+      const payload = await jsonFile(options.args.criteriaFile!);
+      if (!Array.isArray(payload)) throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Criteria file must contain an array.");
+      const record = await options.service.revise(requireTaskId(options.args), {
+        expectedContractHash: options.args.expectedContract!, criteria: payload as AcceptanceCriterion[],
+        reason: options.args.reason!, ...(options.args.baseline === undefined ? {} : {baseline: options.args.baseline})
+      });
+      return taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain new verification and fresh review.", record);
+    }
+    if (action === "replan") {
+      const payload = await jsonFile(options.args.planFile!);
+      if (!Array.isArray(payload)) throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Plan file must contain split task objects.");
+      const records = await options.service.replan(requireTaskId(options.args), {
+        expectedTreeContractHash: options.args.expectedTreeContract!, reason: options.args.reason!,
+        tasks: payload as Parameters<TaskService["replan"]>[1]["tasks"]
+      });
+      return okEnvelope("TASK_REPLANNED", {action, message: "Task tree split atomically; reverify and review.", records, text: renderTaskList(records)});
+    }
+    if (action === "pin-finding") {
+      const criterion = parseCriterion(JSON.stringify(await jsonFile(options.args.criterionFiles![0]!)));
+      const pinned = await options.service.pinFinding(requireTaskId(options.args), options.args.expectedContract!, options.args.findingReference!, criterion, options.args.reason);
+      if (pinned.record === null) return {code: "NEEDS_REPLAN", status: "error",
+        data: {action, message: "Pin requires atomic replan to retain two to five criteria.", pendingCriterion: pinned.pendingCriterion, text: "NEEDS_REPLAN: include the pending criterion in task replan; no task was changed."},
+        errors: [{code: "NEEDS_REPLAN", message: "Replan the full current tree and pending pin."}]};
+      return taskEnvelope(action, "TASK_FINDING_PINNED", "Pinned saved finding; reverify and review the new contract.", pinned.record);
+    }
     if (action === "status") {
       if (options.args.taskId === undefined && sessionId === undefined) {
         const parentTaskId = options.args.parentTaskId;
@@ -236,12 +264,15 @@ export async function runTaskCommand(
           ? { sessionId }
           : { taskId: options.args.taskId }
       );
-      return taskEnvelope(
-        action,
-        "TASK_STATUS",
-        `Read task ${record.task.id}.`,
-        record
-      );
+      const coverage = await options.service.coverage(record.task.id);
+      const proven = coverage.rows.filter(row => row.status === "proven").length;
+      const mechanical = coverage.rows.filter(row => row.mode === "behavioral" || row.mode === "invariant").length;
+      const reviewOnly = coverage.rows.filter(row => row.mode === "review-only").length;
+      const legacy = coverage.rows.filter(row => row.mode === "legacy").length;
+      const envelope = taskEnvelope(action, "TASK_STATUS", `Read task ${record.task.id}.`, record);
+      return {...envelope, data: {...envelope.data!, coverage, treeContractHash: await options.service.treeContract(record.task.id),
+        text: envelope.data!.text + "\nAcceptance: " + proven + "/" + mechanical + " mechanical proven; " + reviewOnly + " review-only; " + legacy + " legacy; originally mechanical " + coverage.originalMechanical +
+          "; reviewed " + coverage.reviewed + "; undischarged " + coverage.rows.filter(row => row.status !== "proven" && !coverage.reviewed).length}};
     }
     if (action === "attach") {
       if (sessionId === undefined) {

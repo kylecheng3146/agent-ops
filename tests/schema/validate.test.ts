@@ -665,7 +665,8 @@ test("JSON Schema documents expose the same top-level versioned fields", async (
     >;
 
     assert.equal(schema.additionalProperties, false, schemaName);
-    if (schemaName === "evidence.schema.json") assert.deepEqual(schema.properties?.schemaVersion?.enum, [2, 3]);
+    if (schemaName === "evidence.schema.json") assert.deepEqual(schema.properties?.schemaVersion?.enum, [2, 3, 4]);
+    else if (schemaName === "task.schema.json") assert.deepEqual(schema.properties?.schemaVersion?.enum, [1, 2]);
     else assert.equal(schema.properties?.schemaVersion?.const, version, schemaName);
     assert.deepEqual(
       [...(schema.required ?? [])].sort(),
@@ -872,12 +873,12 @@ test("both validators reject a malformed worktree block", async () => {
 });
 
 
-test("evidence runtime and JSON Schema accept legacy v2 and passed-count v3 only", async () => {
+test("evidence runtime and JSON Schema accept legacy v2, passed-count v3 and acceptance v4", async () => {
   const evidence = await readJsonFixture("valid-evidence.json") as Record<string, unknown>;
   const schema = await compileJsonSchema("evidence.schema.json");
-  for (const version of [1, 2, 3, 4]) {
+  for (const version of [1, 2, 3, 4, 5]) {
     const value = { ...evidence, schemaVersion: version };
-    assert.equal(validateEvidence(value).ok, version === 2 || version === 3);
-    assert.equal(schema(value), version === 2 || version === 3);
+    assert.equal(validateEvidence(value).ok, version === 2 || version === 3 || version === 4);
+    assert.equal(schema(value), version === 2 || version === 3 || version === 4);
   }
 });

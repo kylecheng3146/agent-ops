@@ -16,7 +16,9 @@ import {
   type MergedConfig
 } from "../../../runtime/src/config/merge.js";
 import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
-import { localStatePaths } from "../../../runtime/src/security/permissions.js";
+import { localStatePaths, readPrivateFile } from "../../../runtime/src/security/permissions.js";
+import {FileRunRepository} from "../../../runtime/src/run/service.js";
+import {readRunPolicy, runRuntimeHash} from "../../../runtime/src/run/policy.js";
 import {
   calculateTrustBinding,
   FileTrustStore
@@ -102,6 +104,13 @@ export async function loadEffectiveConfig(
   scope: InstallScope,
   projectOverride?: AgentOpsConfig
 ): Promise<MergedConfig> {
+  if (scope === "project" && projectOverride === undefined) {
+    const run = await runPolicyContext(root);
+    if (run !== null) return mergeConfigLayers([defaultConfigLayer(), {
+      source: "project", sourcePath: join(run.state.commonDir, "agent-ops/runs", run.state.runId, "policies", run.state.policyBinding!.artifactDigest + ".json"),
+      config: run.policy.config
+    }]);
+  }
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const userPath = join(home, ".agent-ops", "config.json");
   const projectPath = join(
@@ -224,6 +233,13 @@ export async function repositoryTrust(
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const state = localStatePaths(home);
   try {
+    const run = await runPolicyContext(root);
+    if (run !== null) {
+      if (run.state.status !== "active" || run.state.disableRestart || run.state.awaitingResume ||
+        Date.parse(run.policy.expiresAt) <= Date.now() || calculateConfigHash(config) !== run.state.policyBinding!.configHash) return "STALE";
+      const store = new FileTrustStore(state.trustStore, state.anchorDirectory);
+      return (await store.status(run.policy.baseTrustBinding)).status;
+    }
     const binding = await repositoryTrustBinding(root, config, cliVersion);
     return (
       await new FileTrustStore(
@@ -234,6 +250,41 @@ export async function repositoryTrust(
   } catch {
     return "UNTRUSTED";
   }
+}
+
+/** A run-private capability is usable only by its registered checkout or proof group. */
+export async function runPolicyContext(root: string) {
+  let common: string;
+  try {common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    {cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim();} catch {return null;}
+  const source = await readPrivateFile(join(root, ".agent-ops/tasks/worktree.json"), root);
+  const record = source === null ? null : JSON.parse(source) as {runId?: string; workerId?: string; workerGeneration?: number;
+    ownerSessionId?: string; coordinatorId?: string};
+  const runId = process.env.AGENT_OPS_RUN_ID ?? record?.runId;
+  if (runId === undefined) return null;
+  const repository = new FileRunRepository(join(common, "agent-ops/runs"), common);
+  const saved = await repository.read(runId);
+  if (saved === null || saved.policyBinding === undefined) return null;
+  const here = realpathSync(root);
+  const worker = saved.workers.find(w => w.worktree === here);
+  const proofProcess = worker?.proofProcess ?? saved.proofProcess;
+  let proof = false;
+  if (proofProcess != null && String(proofProcess.processId) === process.env.AGENT_OPS_RUN_PROOF_PID) {
+    try {proof = execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim() === String(proofProcess.processId) &&
+      execFileSync("ps", ["-o", "lstart=", "-p", String(proofProcess.processId)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim() === proofProcess.processIdentity;}
+    catch {proof = false;}
+  }
+  if ((!proof && (worker === undefined || record?.runId !== runId || record.workerId !== worker.workerId ||
+      record.ownerSessionId !== worker.ownerSessionId || record.coordinatorId !== saved.coordinatorId || record.workerGeneration !== worker.generation)) ||
+    (worker === undefined && !(proof && saved.root === here)) ||
+    (process.env.AGENT_OPS_WORKER_ID !== undefined && (process.env.AGENT_OPS_WORKER_ID !== (worker?.workerId ?? saved.coordinatorId) ||
+      process.env.AGENT_OPS_WORKER_GENERATION !== String((worker ?? saved.workers.find(w => w.workerId === saved.coordinatorId))?.generation))))
+    throw new AgentOpsError("RUN_WORKER_STALE", "Run policy requires the current registered worker generation or proof process.");
+  if (saved.status !== "active" || saved.disableRestart || saved.awaitingResume)
+    throw new AgentOpsError("RUN_POLICY_DISABLED", "Run execution policy is inactive; explicit resume is required.");
+  const policy = await readRunPolicy(saved, await runRuntimeHash());
+  if (policy === null) return null;
+  return {repository, state: saved, policy, worker};
 }
 
 export async function repositoryTrustBinding(

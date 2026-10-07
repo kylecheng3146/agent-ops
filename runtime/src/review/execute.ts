@@ -35,6 +35,7 @@ import {
   type ReviewExecutionRequest,
   type ReviewExecutionResult,
   type ReviewIndependence,
+  type ReviewInvocation,
   type ReviewPreflightAttempt,
   type ReviewUnavailableReason
 } from "./runner.js";
@@ -113,7 +114,7 @@ export interface ReviewExecutorOptions {
     budget?: { readonly timeoutMs: number }
   ) => Promise<ReviewTargetPreflightResult | ReviewTargetPreflightOutcome>;
   /** Re-checks the source before the adversarial session starts. */
-  readonly verifySourceFingerprint?: (expected: string) => Promise<boolean>;
+  readonly verifySourceFingerprint?: (expected: string, scope?: ReviewInvocation["scope"]) => Promise<boolean>;
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
@@ -431,6 +432,8 @@ interface TargetAttemptRequest {
    * for a comparison it cannot make.
    */
   readonly baseCommit?: string;
+  readonly contractArtifacts?: import("./packet.js").ReviewPacket["contractArtifacts"];
+  readonly contractManifest?: import("./packet.js").ReviewPacket["contractManifest"];
 }
 
 async function snapshotRepository(
@@ -688,6 +691,25 @@ async function attemptTarget(
     }
     if (snapshotError !== undefined) {
       return skip("capability-unavailable", snapshotError, "skipping");
+    }
+    if (request.contractManifest !== undefined) {
+      const manifest = request.contractManifest;
+      if (!/^[a-f0-9]{64}$/u.test(manifest.digest) ||
+          manifest.path !== ".agent-ops/tasks/review-contracts/" + manifest.digest + ".json" ||
+          sha256(manifest.content) !== manifest.digest || Buffer.byteLength(manifest.content) > 512 * 1024)
+        return skip("capability-unavailable", "contract manifest is invalid", "skipping");
+      const manifestPath = join(snapshotRoot, ...manifest.path.split("/"));
+      await writePrivateFile(manifestPath, manifest.content, snapshotRoot);
+    }
+    if (request.contractArtifacts !== undefined) {
+      if (request.contractArtifacts.length > 512 || request.contractArtifacts.reduce((size, artifact) => size + Buffer.byteLength(artifact.content), 0) > 16 * 1024 * 1024)
+        return skip("capability-unavailable", "contract artifacts exceed bounded scope");
+      for (const artifact of request.contractArtifacts) {
+        if (!/^\.agent-ops\/tasks\/(?:acceptance\/[a-f0-9]{64}\.json|evidence\/[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*-[a-f0-9]{16}\.json)$/u.test(artifact.path) ||
+            sha256(artifact.content) !== artifact.digest || Buffer.byteLength(artifact.content) > 4 * 1024 * 1024)
+          return skip("capability-unavailable", "contract artifact is invalid");
+        await writePrivateFile(join(snapshotRoot, ...artifact.path.split("/")), artifact.content, snapshotRoot);
+      }
     }
     invocation = buildTargetInvocation({
       ...invocationRequest,
@@ -1061,6 +1083,8 @@ export function createReviewExecutor(
     const repositoryRoot = await realpath(options.cwd);
     const shared = {
       repositoryRoot,
+      ...(request.invocation.packet.contractArtifacts === undefined ? {} : {contractArtifacts: request.invocation.packet.contractArtifacts}),
+      ...(request.invocation.packet.contractManifest === undefined ? {} : {contractManifest: request.invocation.packet.contractManifest}),
       expectedCriterionIds,
       ...(request.invocation.scope?.changedFiles === undefined
         ? {}
@@ -1134,7 +1158,7 @@ export function createReviewExecutor(
       let unchanged = false;
       try {
         unchanged = await options.verifySourceFingerprint(
-          request.invocation.sourceFingerprint
+          request.invocation.sourceFingerprint, request.invocation.scope
         );
       } catch {
         unchanged = false;
@@ -1263,3 +1287,7 @@ export function createReviewExecutor(
     };
   };
 }
+
+import {sha256} from "../fs/hash.js";
+
+import {writePrivateFile} from "../security/permissions.js";

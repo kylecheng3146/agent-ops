@@ -1,3 +1,4 @@
+import {registeredRunWriter} from "../run/ownership.js";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 
@@ -65,7 +66,10 @@ export async function evaluateWorktreeWrite(
       // session's mixes two tasks' changes into one review and one merge.
       const name = relative(join(mainRoot, WORKTREE_DIRECTORY), target).split(sep)[0] ?? "";
       const record = await readWorktreeRecord(join(mainRoot, WORKTREE_DIRECTORY, name));
-      if (record !== null && !mayUseWorktree(record, sessionId, agentId)) {
+      const permitted = record === null || (record.runId === undefined
+        ? mayUseWorktree(record, sessionId, agentId)
+        : await registeredRunWriter(record, sessionId, agentId));
+      if (record !== null && !permitted) {
         const owner = record.sessionId;
         const sameSession = owner === sessionId;
         let own = "";

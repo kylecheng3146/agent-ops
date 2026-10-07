@@ -1,0 +1,21 @@
+{
+  "testResults": [
+    {
+      "testFilePath": "tests/example.test.ts",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["session"],
+          "title": "writes once",
+          "status": "passed",
+          "attempts": 1
+        },
+        {
+          "ancestorTitles": ["session"],
+          "title": "is skipped",
+          "status": "skipped",
+          "attempts": 1
+        }
+      ]
+    }
+  ]
+}

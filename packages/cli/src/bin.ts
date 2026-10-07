@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import {productionRunContext} from "./run-deps.js";
+import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
+import {recordRunVerification} from "../../../runtime/src/run/verification.js";
+import {runOwnedLocalProof} from "./owned-run-step.js";
+import {runRunCommand} from "./commands/run.js";
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -40,11 +45,12 @@ import { calculateConfigHash } from "../../../runtime/src/config/hash.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
 import { calculateSourceFingerprint } from "../../../runtime/src/verify/source-fingerprint.js";
 import { VerificationService } from "../../../runtime/src/verify/service.js";
-import { NodeVerificationProcessRunner } from "../../../runtime/src/verify/spawn.js";
+import { registeredRunProofRunner } from "../../../runtime/src/verify/spawn.js";
 import { COMMAND_NAMES, parseArgs, type ParsedArgs } from "./args.js";
 import { runCli } from "./cli.js";
 import {
   loadEffectiveConfig,
+  runPolicyContext,
   repositoryTrust,
   repositoryTrustBinding
 } from "./context.js";
@@ -260,7 +266,17 @@ function runAgy(
   });
 }
 
-if (argv[0] === "agy-run") {
+let ownedProofExit: number | null = null;
+try {ownedProofExit = await runOwnedLocalProof(argv);}
+catch (cause) {
+  const code = cause instanceof AgentOpsError ? cause.code : "RUN_LOCAL_PROOF_FAILED";
+  const message = cause instanceof AgentOpsError ? cause.message : "Local proof could not be registered safely.";
+  if (argv.includes("--json")) process.stdout.write(JSON.stringify(errorEnvelope(code, message)) + "\n");
+  else process.stderr.write(message + "\n");
+  ownedProofExit = 2;
+}
+if (ownedProofExit !== null) process.exitCode = ownedProofExit;
+else if (argv[0] === "agy-run") {
   try {
     const root = process.cwd();
     const config = (await loadEffectiveConfig(root, "project")).config;
@@ -330,6 +346,13 @@ process.exitCode = await runCli(
             !args.json &&
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true;
+          if ((["init", "update"].includes(args.command) || (args.command === "trust" && args.action !== "status")) &&
+            (process.env.AGENT_OPS_RUN_ID !== undefined || await runPolicyContext(process.cwd()) !== null))
+            throw new AgentOpsError("RUN_POLICY_COORDINATOR_REQUIRED", "Run workers must request scoped policy review from the coordinator; permanent trust and host rules cannot be changed by the run.");
+          if (args.command === "run") {
+            const context = await productionRunContext(root);
+            return await runRunCommand({args, ...context, root: context.mainRoot});
+          }
           if (args.command === "init") {
             const store = trustStore();
             return await runInitCommand({
@@ -377,6 +400,18 @@ process.exitCode = await runCli(
               root,
               toolkitVersion: CLI_VERSION,
               probes: {
+                acceptanceCoverage: async () => {
+                  const service = new TaskService(new FileTaskStore(join(root, ".agent-ops/tasks/state.json"), root),
+                    {completion: {root, gitRunner: gitRunner(root), loadConfig: async () => config}});
+                  const records = (await service.list()).filter(r => r.status !== "archived");
+                  const rows = await Promise.all(records.map(r => service.coverage(r.task.id)));
+                  const criteria = rows.flatMap(row => row.rows);
+                  const mechanical = criteria.filter(c => c.mode === "behavioral" || c.mode === "invariant");
+                  return {status: "PASS" as const, message: criteria.length + " criteria; " +
+                    criteria.filter(c => c.mode === "legacy").length + " legacy; " + mechanical.filter(c => c.status === "proven").length + "/" + mechanical.length +
+                    " mechanical proven; " + criteria.filter(c => c.mode === "review-only").length + " review-only; originally mechanical " + rows.reduce((n, r) => n + r.originalMechanical, 0) +
+                    "; undischarged " + rows.reduce((n, r) => n + r.rows.filter(c => c.status !== "proven" && !r.reviewed).length, 0)};
+                },
                 ...(doctorManifest?.harness.includes("agy") === true
                   ? {
                       agyRuntime: () => {
@@ -592,7 +627,8 @@ process.exitCode = await runCli(
                         service: new TaskService(new FileTaskStore(
                           join(record.path, ".agent-ops", "tasks", "state.json"),
                           record.path
-                        ))
+                        ), {completion: {root: record.path, gitRunner: gitRunner(record.path),
+                          loadConfig: async () => (await loadEffectiveConfig(record.path, "project")).config}})
                       };
                     }
                   }
@@ -673,6 +709,7 @@ process.exitCode = await runCli(
               config: reviewConfig,
               evidenceStore: new FileEvidenceStore(root, root),
               execute: inSlot(createReviewExecutor({
+                runner: registeredRunProofRunner(),
                 targets: configuredReviewTargets,
                 cwd: root,
                 ...(reviewRole?.model === undefined
@@ -685,10 +722,11 @@ process.exitCode = await runCli(
                   ? {}
                   : { timeoutMs: reviewRole.timeoutMs }),
                 preflightTarget,
-                verifySourceFingerprint: async (expected) => {
+                verifySourceFingerprint: async (expected, scope) => {
                   const currentScope = await resolveReviewScope({
                     root,
                     runner: reviewGit,
+                    ...(scope?.mode === "base" && scope.noChange === true ? {noChangePaths: scope.changedFiles} : {}),
                     ...(reviewArgs.base === undefined ? {} : { base: reviewArgs.base })
                   });
                   return await calculateSourceFingerprint(
@@ -772,7 +810,7 @@ process.exitCode = await runCli(
                     scope: batchScope,
                     config: batchConfig,
                     gitRunner: batchGit,
-                    processRunner: new NodeVerificationProcessRunner(),
+                    processRunner: registeredRunProofRunner(),
                     taskService,
                     evidenceStore: new FileEvidenceStore(root, root),
                     trusted,
@@ -830,17 +868,23 @@ process.exitCode = await runCli(
             return await runVerifyCommand({
               args,
               taskService,
-              service: new VerificationService({
+              service: {verify: async taskId => {
+                const run = await runPolicyContext(root);
+                const report = await new VerificationService({
                 root,
                 scope: args.scope === "user" ? "user" : "project",
                 config,
                 gitRunner: gitRunner(root),
-                processRunner: new NodeVerificationProcessRunner(),
+                processRunner: registeredRunProofRunner(),
                 taskService,
                 evidenceStore: new FileEvidenceStore(root, root),
                 trusted: trustStatus === "TRUSTED",
                 ...(args.base === undefined ? {} : { base: args.base })
-              })
+                }).verify(taskId);
+                if (run !== null) await recordRunVerification(run.repository, run.state, run.worker?.workerId ?? run.state.coordinatorId,
+                  await taskService.status({taskId}), report);
+                return report;
+              }}
             });
           }
           if (args.command === "trust") {

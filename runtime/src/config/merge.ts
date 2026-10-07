@@ -1,6 +1,7 @@
 import type {
   AgentOpsFeatures,
   AgentOpsConfig,
+  AcceptanceRunner,
   PathMapping,
   Profile,
   ReviewRole,
@@ -31,6 +32,7 @@ export interface ConfigProvenance {
   features: EffectiveValue<AgentOpsFeatures>;
   profiles: EffectiveValue<Profile>[];
   verificationCommands: EffectiveValue<VerificationCommand>[];
+  acceptanceRunners?: EffectiveValue<AcceptanceRunner>[];
   pathMappings: EffectiveValue<PathMapping>[];
   securityExceptions: EffectiveValue<SecurityException>[];
   reviewRoles: EffectiveValue<ReviewRoleConfig>[];
@@ -233,6 +235,7 @@ export function mergeConfigLayers(
     string,
     EffectiveValue<VerificationCommand>
   >();
+  const acceptanceRunners = new Map<string, EffectiveValue<AcceptanceRunner>>();
   const mappings = new Map<string, EffectiveValue<PathMapping>>();
   const exceptions = new Map<
     string,
@@ -262,6 +265,9 @@ export function mergeConfigLayers(
         assertProjectCommandIsMonotonic(commands.get(command.id), command);
       }
       commands.set(command.id, effective(command, layer));
+    }
+    for (const runner of layer.config.verification.acceptanceRunners ?? []) {
+      acceptanceRunners.set(runner.id, effective(runner, layer));
     }
     for (const mapping of layer.config.pathMappings) {
       const key = mappingKey(mapping);
@@ -306,6 +312,7 @@ export function mergeConfigLayers(
     features,
     profiles: [...profiles.values()],
     verificationCommands: [...commands.values()],
+    ...(acceptanceRunners.size === 0 ? {} : {acceptanceRunners: [...acceptanceRunners.values()]}),
     pathMappings: [...mappings.values()],
     securityExceptions: [...exceptions.values()],
     reviewRoles: [...reviewRoles.values()],
@@ -315,7 +322,10 @@ export function mergeConfigLayers(
     schemaVersion: schemaVersion.value as AgentOpsConfig["schemaVersion"],
     profiles: provenance.profiles.map(({ value }) => value),
     verification: {
-      commands: provenance.verificationCommands.map(({ value }) => value)
+      commands: provenance.verificationCommands.map(({ value }) => value),
+      ...(provenance.acceptanceRunners === undefined ? {} : {
+        acceptanceRunners: provenance.acceptanceRunners.map(({value}) => value)
+      })
     },
     features: provenance.features.value,
     pathMappings: provenance.pathMappings.map(({ value }) => value),
