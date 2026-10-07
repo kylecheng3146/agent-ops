@@ -45,6 +45,26 @@ test("every run and ordinary session desk becomes its own room with all actors",
   assert.equal(desk.actors[0]!.taskId, "desk-task");
 });
 
+test("every room exposes board and actor metadata for its work list", () => {
+  const model = sceneModel(snapshot());
+  for (const floor of model.floors) {
+    const board = floor.props.find(prop => prop.kind === "whiteboard");
+    assert.ok(board && board.phase === "planning", `${floor.key} has a planning whiteboard`);
+    assert.ok(typeof floor.board.taskId === "string" && typeof floor.board.status === "string");
+    for (const actor of floor.actors) {
+      assert.ok(actor.label.length > 0 && actor.status.length > 0 && actor.narration.length > 0);
+      assert.ok(actor.phase.length > 0 && actor.taskId.length > 0);
+      assert.equal(typeof actor.questionCount, "number");
+    }
+  }
+  const run = model.floors.find(floor => floor.kind === "run")!;
+  assert.deepEqual(run.questions.map(question => question.prompt), ["Which port?"]);
+  assert.ok(run.actors.some(actor => actor.questionCount === run.questions.length));
+  const desk = model.floors.find(floor => floor.kind === "desk")!;
+  assert.equal(desk.questions[0]!.prompt, "Choose a port");
+  assert.equal(desk.actors[0]!.questionCount, 1);
+});
+
 test("phase changes move actors into each of the five in-scene areas", () => {
   const base = snapshot();
   const zones: Record<string, string> = {planning: "planning", implementing: "implementing", verifying: "verifying", reviewing: "reviewing", integrating: "integrating"};

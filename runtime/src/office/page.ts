@@ -257,8 +257,8 @@ var supervisor = {x:43, y:19, targetX:43, targetY:19}, supervisorReady = false, 
 var roomSupervisor = {x:32, y:34, targetX:32, targetY:34};
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var STRINGS = {
-  en: {overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -312,6 +312,18 @@ function drawAvatar(identity, state, x, y, scale, viewer){
   ctx.drawImage(image,x,y,32*scale,48*scale);
 }
 function propSize(kind){ var s = SPRITES[kind] || [""]; return {w:s[0].length * S, h:s.length * S}; }
+function roomMetrics(width,height){var rx=width/model.roomCols,ry=height/model.roomRows;return {rx:rx,ry:ry,unit:Math.max(.5,Math.min(rx,ry)/8)};}
+function propGeometry(prop,width,height){
+  var metrics=roomMetrics(width,height),rawX=prop.x*metrics.rx,rawY=prop.y*metrics.ry;
+  var layoutWidths={window:58,plant:32,shelf:28,door:24},visualWidths={window:52,plant:32,shelf:28,door:24,whiteboard:65},heights={desk:45,bench:45,table:54,window:31,whiteboard:49,shelf:61,plant:31,chair:32,door:46};
+  var layoutWidth=layoutWidths[prop.kind]||75,visualWidth=visualWidths[prop.kind]||layoutWidth,artHeight=heights[prop.kind]||45;
+  var rawScale=Math.max(.3,Math.min(metrics.unit*1.85,(height-rawY-2*metrics.unit)/artHeight,(width-rawX-2*metrics.unit)/layoutWidth)),scale=Math.max(1,Math.round(rawScale));
+  return {x:Math.round(rawX),y:Math.round(rawY),rawX:rawX,rawY:rawY,width:visualWidth*scale,height:artHeight*scale,scale:scale,rawScale:rawScale,unit:metrics.unit};
+}
+function progressBoardGeometry(width,height){var metrics=roomMetrics(width,height);return {x:24*metrics.rx,y:metrics.ry,width:27*metrics.rx,height:Math.max(7*metrics.ry,66*metrics.unit),unit:metrics.unit};}
+function surfaceForFloor(floor){if(mode==='room')return {x:0,y:0,width:canvas.width,height:canvas.height};var box=roomBox(floor);return {x:Math.round(box.x*T),y:Math.round(box.y*T),width:Math.round(box.width*T),height:Math.round(box.height*T)};}
+function canvasPoint(event){var rect=canvas.getBoundingClientRect();return {x:(event.clientX-rect.left)*canvas.width/rect.width,y:(event.clientY-rect.top)*canvas.height/rect.height};}
+function inside(point,rect){return point.x>=rect.x&&point.x<rect.x+rect.width&&point.y>=rect.y&&point.y<rect.y+rect.height;}
 function fillText(value, x, y, size, color){ ctx.fillStyle = color || PALETTE[0]; ctx.font = "bold " + Math.max(5, Math.round((size || 10) * U)) + "px monospace"; ctx.textBaseline = "top"; ctx.fillText(short(value, 36), x, y); }
 function roomByKey(key){ if (!model) return null; for (var i = 0; i < model.floors.length; i++) if (model.floors[i].key === key) return model.floors[i]; return null; }
 function visibleRooms(){ if (!model) return []; return model.floors.filter(function(f){ return showRecent || !f.completedAt; }); }
@@ -375,7 +387,7 @@ function furniture(kind, x, y, unit){
 }
 function drawRoomBase(floor){
   drawBackdrop(model.roomCols, model.roomRows, floor);
-  var rx = canvas.width / model.roomCols, ry = canvas.height / model.roomRows, unit = Math.max(.5, Math.min(rx, ry) / 8), labelUnit = Math.min(U, Math.max(1, unit * 1.25));
+  var metrics=roomMetrics(canvas.width,canvas.height),rx=metrics.rx,ry=metrics.ry,unit=metrics.unit,labelUnit = Math.min(U, Math.max(1, unit * 1.25));
   var savedU = U; U = labelUnit;
   // Sage rugs and oak furniture give each phase a real place in the room.
   floor.phaseAreas.forEach(function(a){
@@ -385,10 +397,8 @@ function drawRoomBase(floor){
     }
   });
   floor.props.filter(function(p){return p.kind!=='rug'&&p.kind!=='clock';}).forEach(function(p){
-    var px=p.x*rx,py=p.y*ry;
+    var geometry=propGeometry(p,canvas.width,canvas.height),px=geometry.rawX,py=geometry.rawY,artUnit=geometry.rawScale;
     if(p.kind!=='window'){ctx.fillStyle='rgba(43,36,31,.14)';ctx.fillRect(px+4*unit,py+28*unit,45*unit,6*unit);}
-    var heights={desk:45,bench:45,table:54,window:31,whiteboard:49,shelf:61,plant:31,chair:32,door:46};
-    var artUnit=Math.max(.3,Math.min(unit*1.85,(canvas.height-py-2*unit)/(heights[p.kind]||45),(canvas.width-px-2*unit)/(p.kind==='window'?58:p.kind==='plant'?32:p.kind==='shelf'?28:p.kind==='door'?24:75)));
     furniture(p.kind,px,py,artUnit);
     if(p.kind==='shelf')for(var book=0;book<Math.min(5,floor.books.lit);book++){ctx.fillStyle=PALETTE[14];ctx.fillRect(px+(4+book*4)*Math.round(artUnit),py+4*Math.round(artUnit),3*Math.round(artUnit),2*Math.round(artUnit));}
     if(p.kind==='desk')for(var paper=0;paper<Math.min(4,floor.papers[p.key]||0);paper++){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+44*artUnit,py+(20-paper)*artUnit,9*artUnit,2*artUnit);}
@@ -397,12 +407,13 @@ function drawRoomBase(floor){
   var titleX=2*rx,titleY=ry,w=19*rx;
   ctx.fillStyle=PALETTE[4];ctx.fillRect(titleX,titleY,w,4*ry);ctx.fillStyle=PALETTE[6];ctx.fillRect(titleX+2*unit,titleY+2*unit,w-4*unit,4*ry-4*unit);
   fillText(short(floor.title,20),titleX+6*unit,titleY+6*unit,11);fillText(statusText(floor.status),titleX+6*unit,titleY+22*unit,8,PALETTE[4]);
-  var b=floor.board,bx=24*rx,by=ry,bw=27*rx,bh=Math.max(6*ry,57*unit);
+  var b=floor.board,board=progressBoardGeometry(canvas.width,canvas.height),bx=board.x,by=board.y,bw=board.width,bh=board.height;
   ctx.fillStyle=PALETTE[9];ctx.fillRect(bx,by,bw,bh);ctx.fillStyle=PALETTE[15];ctx.fillRect(bx+2*unit,by+2*unit,bw-4*unit,bh-4*unit);
-  fillText(t('progress')+'  '+b.passed+'/'+(b.total||'?'),bx+6*unit,by+5*unit,11,PALETTE[1]);
-  ctx.fillStyle=PALETTE[3];ctx.fillRect(bx+6*unit,by+20*unit,bw-12*unit,5*unit);ctx.fillStyle=PALETTE[2];ctx.fillRect(bx+6*unit,by+20*unit,(bw-12*unit)*Math.min(1,b.total?b.passed/b.total:0),5*unit);
-  fillText(t('verify')+' '+outcomeText(b.verify)+'  '+t('review')+' '+outcomeText(b.review),bx+6*unit,by+30*unit,8,PALETTE[4]);
-  if(b.pending)fillText('! '+t('pending')+' '+b.pending,bx+6*unit,by+42*unit,8,PALETTE[13]);
+  fillText('▣ '+t('clickWork'),bx+6*unit,by+5*unit,8,PALETTE[1]);
+  fillText(t('progress')+'  '+b.passed+'/'+(b.total||'?'),bx+6*unit,by+16*unit,10,PALETTE[1]);
+  ctx.fillStyle=PALETTE[3];ctx.fillRect(bx+6*unit,by+29*unit,bw-12*unit,5*unit);ctx.fillStyle=PALETTE[2];ctx.fillRect(bx+6*unit,by+29*unit,(bw-12*unit)*Math.min(1,b.total?b.passed/b.total:0),5*unit);
+  fillText(t('verify')+' '+outcomeText(b.verify)+'  '+t('review')+' '+outcomeText(b.review),bx+6*unit,by+40*unit,8,PALETTE[4]);
+  if(b.pending)fillText('! '+t('pending')+' '+b.pending,bx+6*unit,by+53*unit,8,PALETTE[13]);
   var oldS=S;S=Math.max(1,Math.round(unit));var cx=52*rx,cy=ry;draw('clock',cx,cy);
   ctx.strokeStyle=PALETTE[13];ctx.lineWidth=2*S;ctx.beginPath();ctx.moveTo(cx+8*S,cy+7*S);var angle=-Math.PI/2+2*Math.PI*floor.clock;ctx.lineTo(cx+8*S+Math.cos(angle)*5*S,cy+7*S+Math.sin(angle)*5*S);ctx.stroke();S=oldS;
   U=savedU;
@@ -520,7 +531,7 @@ function renderRoomImage(floor, width, height){
   roomCanvases[floor.key]={canvas:roomCanvas,signature:signature};return roomCanvas;
 }
 function drawOverviewRoom(floor){
-  var box=roomBox(floor),surface={x:Math.round(box.x*T),y:Math.round(box.y*T),width:Math.round(box.width*T),height:Math.round(box.height*T)};
+  var surface=surfaceForFloor(floor);
   ctx.save();ctx.beginPath();ctx.rect(surface.x,surface.y,surface.width,surface.height);ctx.clip();
   var image=renderRoomImage(floor,surface.width,surface.height);if(image)ctx.drawImage(image,surface.x,surface.y);
   floor.actors.forEach(function(actor){drawActor(floor,actor,surface);});
@@ -548,7 +559,7 @@ function renderRoomNav(rooms){
 }
 function updateHeader(){
   if(document.documentElement)document.documentElement.lang=lang==='zh'?'zh-Hant':'en';
-  canvas.setAttribute('aria-label',lang==='zh'?'方向鍵或 WASD 移動 Supervisor；Enter 進入房間或查看細節；Esc 返回。':'Arrow keys or WASD move Supervisor; Enter opens rooms or details; Escape returns.');
+  canvas.setAttribute('aria-label',(lang==='zh'?'方向鍵或 WASD 移動 Supervisor；Enter 進入房間或查看細節；Esc 返回。':'Arrow keys or WASD move Supervisor; Enter opens rooms or details; Escape returns.')+' '+t('keyboardWork'));
   var rooms = visibleRooms(), people = rooms.reduce(function(n, f){ return n + f.actors.length; }, 0);
   crumb.textContent = mode === "room" && activeRoom() ? activeRoom().title : t("overview") + " · " + rooms.length + " " + t("rooms") + " · " + people + " " + t("people");
   backButton.hidden = mode !== "room"; backButton.textContent = "← " + t("back"); recentButton.textContent = (showRecent ? "✓ " + t("recentOn") : "▣ " + t("recent")) + (hasRecent() ? " (" + model.floors.filter(function(f){ return !!f.completedAt; }).length + ")" : "");
@@ -607,6 +618,35 @@ function renderDetailItem(item, box){
   if (item.kind === "heading") { var heading = document.createElement("p"); heading.textContent = item.value; box.appendChild(heading); return; }
   addLine(box, item.label, item.value);
 }
+function progressText(progress){return progress ? progress.passed+'/'+(progress.total||'?')+' · '+t('verify')+' '+outcomeText(progress.verify||'pending')+' · '+t('review')+' '+outcomeText(progress.review||'pending') : t('unknown');}
+function workItemsFor(floor){
+  var items=[
+    {kind:'line',label:t('task'),value:floor.board.taskId==='unassigned'?t('unassigned'):floor.board.taskId},
+    {kind:'line',label:t('status'),value:statusText(floor.status)},
+    {kind:'line',label:t('progress'),value:progressText({passed:floor.board.passed,total:floor.board.total,verify:floor.board.verify,review:floor.board.review})},
+    {kind:'line',label:t('pending'),value:String(floor.board.pending)}
+  ];
+  floor.actors.forEach(function(actor){
+    items.push({kind:'work',floorKey:floor.key,actorKey:actor.key,label:t('owner')+': '+actor.label+' · '+roleText(actor.kind),value:t('currentWork')+': '+localizeText(actor.narration)+' · '+t('phase')+': '+phaseLabel(actor.phase)+' · '+t('status')+': '+statusText(actor.status)+' · '+t('progress')+': '+progressText(actor.progress)+' · '+t('pending')+': '+actor.questionCount});
+  });
+  floor.questions.forEach(function(question){items.push({kind:'question',label:t('question')+' · ! '+question.questionId,value:question.prompt});});
+  if (!floor.actors.length && !floor.questions.length) items.push({kind:'line',label:t('people'),value:'0'});
+  return items;
+}
+function renderWorkItem(item,box){
+  if(item.kind==='work'){
+    var row=document.createElement('p'),button=document.createElement('button'),detail=document.createElement('span');
+    button.type='button';button.textContent=item.label;button.title=t('details');button.addEventListener('click',function(){var floor=roomByKey(item.floorKey),actor=floor&&floor.actors.find(function(candidate){return candidate.key===item.actorKey;});if(floor&&actor)openActorDetail(floor,actor);});
+    detail.textContent=' · '+safeText(item.value);row.appendChild(button);row.appendChild(detail);box.appendChild(row);return;
+  }
+  if(item.kind==='question'){addLine(box,item.label,localizeText(item.value));return;}
+  renderDetailItem(item,box);
+}
+function openWorkList(floor){
+  if(!detailTarget||detailTarget.floorKey!==floor.key||detailTarget.view!=='work')detailPage=0;
+  detailSignature=JSON.stringify(sourceFor(floor));detailTarget={floorKey:floor.key,actorKey:null,view:'work'};
+  showDialog(floor.title+' · '+t('workList'),function(box){pageItems(workItemsFor(floor),box,renderWorkItem);});
+}
 function openActorDetail(floor, actor){
   var source = sourceFor(floor), items = [], entries = [];
   if (source && actor.kind !== "reviewer" && floor.kind === "run") { var found = source.agents.find(function(a){ return a.id === actor.id; }); if (found && found.diff) items = found.diff.paths || []; }
@@ -624,11 +664,11 @@ function openActorDetail(floor, actor){
   if (actor.progress) detailItems.push({kind:"line", label:t("progress"), value:actor.progress.passed + "/" + actor.progress.total + "  " + t("verify") + " " + outcomeText(actor.progress.verify || "-") + "  " + t("review") + " " + outcomeText(actor.progress.review || "-")});
   if (actor.questionCount && floor.questions.length) floor.questions.forEach(function(question){ detailItems.push({kind:"line", label:"! " + question.questionId, value:question.prompt}); });
   if (entries.length) { detailItems.push({kind:"heading", value:t("files") + " / " + t("commands") + ":"}); entries.forEach(function(entry){ detailItems.push(entry); }); }
-  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: actor.key}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
+  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: actor.key, view:'actor'}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
 }
 function openRoomDetail(floor){
   if (!detailTarget || detailTarget.floorKey !== floor.key || detailTarget.actorKey !== null) detailPage = 0;
-  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: null}; var source = sourceFor(floor), items = source && source.diff ? source.diff.paths || [] : [], entries = [];
+  detailSignature=JSON.stringify(sourceFor(floor)); detailTarget = {floorKey: floor.key, actorKey: null, view:'room'}; var source = sourceFor(floor), items = source && source.diff ? source.diff.paths || [] : [], entries = [];
   items.forEach(function(item){ entries.push({kind:"file", value:item}); });
   if (source && source.commands) source.commands.forEach(function(item){ entries.push({kind:"command", value:item}); });
   var detailItems = [
@@ -644,25 +684,40 @@ function openRoomDetail(floor){
 }
 function openSelectedDetail(){
   var target = detailTarget, floor = target ? roomByKey(target.floorKey) : activeRoom(); if (!floor) return;
+  if (target && target.view === 'work') return openWorkList(floor);
   if (target && target.actorKey) { var actor = floor.actors.find(function(a){ return a.key === target.actorKey; }); if (actor) return openActorDetail(floor, actor); }
   return openRoomDetail(floor);
 }
 function hitOverview(event){
-  var rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width / T, y = (event.clientY - rect.top) * canvas.height / rect.height / T;
+  var point=canvasPoint(event),x=point.x/T,y=point.y/T;
   return visibleRooms().find(function(f){ var b = roomBox(f); return x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height; }) || null;
 }
-function hitActor(event, floor){
-  var rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
-  for (var i = floor.actors.length - 1; i >= 0; i--) { var a=floor.actors[i],box=actorBox(a,{x:0,y:0,width:canvas.width,height:canvas.height});if(x>=box.x&&x<box.x+32*box.scale&&y>=box.y&&y<box.y+48*box.scale)return a; }
+function hitActor(event, floor, surface){
+  var point=canvasPoint(event);surface=surface||{x:0,y:0,width:canvas.width,height:canvas.height};
+  for (var i = floor.actors.length - 1; i >= 0; i--) { var a=floor.actors[i],box=actorBox(a,surface);if(inside(point,{x:box.x,y:box.y,width:32*box.scale,height:48*box.scale}))return a; }
+  return null;
+}
+function hitWorkBoard(event,floor,surface){
+  var point=canvasPoint(event),board=progressBoardGeometry(surface.width,surface.height);
+  board.x+=surface.x;board.y+=surface.y;
+  if(inside(point,board))return 'progress';
+  var whiteboard=floor.props.find(function(prop){return prop.kind==='whiteboard';});
+  if(whiteboard){var rect=propGeometry(whiteboard,surface.width,surface.height);rect.x+=surface.x;rect.y+=surface.y;if(inside(point,rect))return 'whiteboard';}
   return null;
 }
 canvas.addEventListener("click", function(event){
   if (!model) return;
-  if (mode === "overview") { var floor = hitOverview(event); if (floor) { selectedKey = floor.key; enterRoom(); } return; }
-  var room = activeRoom(); if (!room) return; var actor = hitActor(event, room); if (actor) openActorDetail(room, actor); else openRoomDetail(room);
+  if (mode === "overview") {
+    var floor = hitOverview(event); if (!floor) return; selectedKey=floor.key;var surface=surfaceForFloor(floor),actor=hitActor(event,floor,surface);
+    if(actor){enterRoom();openActorDetail(activeRoom()||floor,actor);return;}
+    if(hitWorkBoard(event,floor,surface)){openWorkList(floor);return;}
+    enterRoom();return;
+  }
+  var room = activeRoom(); if (!room) return; var roomSurface=surfaceForFloor(room), actor = hitActor(event, room, roomSurface); if (actor) openActorDetail(room, actor); else if (hitWorkBoard(event,room,roomSurface)) openWorkList(room); else openRoomDetail(room);
 });
 canvas.addEventListener("keydown", function(event){
   if (event.key === "Escape" || event.key === "Backspace") { event.preventDefault(); if (!statusBox.hidden) closeDialog(); else if (mode === "room") goOverview(); return; }
+  if (event.key === "l" || event.key === "L") { var workFloor=activeRoom()||roomByKey(selectedKey)||visibleRooms()[0]; if (workFloor) { event.preventDefault(); openWorkList(workFloor); return; } }
   if (mode === "overview" || mode === "room") {
     var move = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1], a:[-1,0], d:[1,0], w:[0,-1], s:[0,1], A:[-1,0], D:[1,0], W:[0,-1], S:[0,1]}[event.key];
     if (move) { event.preventDefault(); moveSupervisor(move[0], move[1]); return; }

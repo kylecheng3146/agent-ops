@@ -79,6 +79,10 @@ function clientScript(): string {
   return page.match(/<script[^>]*>([\s\S]*)<\/script>/u)![1]!;
 }
 
+function treeText(node: FakeElement): string {
+  return node.textContent + node.children.map(treeText).join("");
+}
+
 test("the inline client bootstraps rooms, keyboard controls and remembered language", async () => {
   const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "language", "live"];
   const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
@@ -115,7 +119,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.equal(elements.get("room-nav")!.children.length, 1);
   assert.match(elements.get("crumb")!.textContent, /1 rooms/);
   type AvatarState = {x: number; y: number; direction?: string; walking?: boolean};
-  const vm = context as unknown as {render: () => void; poll: () => void; frame: number; navPage: number; selectedKey: string; T: number; model: {roomCols: number; roomRows: number; floors: {key: string; actors: {key: string; id: string; x: number; y: number}[]}[]}; positions: Record<string, AvatarState>; roomCanvases: Record<string, {canvas: FakeElement}>; avatarImages: Record<string, FakeElement>; drawAvatar: (id: string, state: AvatarState, x: number, y: number, scale: number, viewer: boolean) => void; actorBox: (actor: {key: string; x: number; y: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; scale: number}; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; mode: string; reducedMotion: boolean; supervisor: AvatarState & {targetX: number; targetY: number}; roomSupervisor: AvatarState & {targetX: number; targetY: number}};
+  const vm = context as unknown as {render: () => void; poll: () => void; frame: number; navPage: number; selectedKey: string; T: number; mode: string; detailPage: number; model: {roomCols: number; roomRows: number; floors: {key: string; kind: string; actors: {key: string; id: string; x: number; y: number}[]; props: {kind: string; x: number; y: number}[]}[]}; positions: Record<string, AvatarState>; roomCanvases: Record<string, {canvas: FakeElement}>; avatarImages: Record<string, FakeElement>; drawAvatar: (id: string, state: AvatarState, x: number, y: number, scale: number, viewer: boolean) => void; actorBox: (actor: {key: string; x: number; y: number}, surface: {x: number; y: number; width: number; height: number}) => {x: number; y: number; scale: number}; progressBoardGeometry: (width: number, height: number) => {x: number; y: number; width: number; height: number}; propGeometry: (prop: {x: number; y: number; kind: string}, width: number, height: number) => {x: number; y: number; width: number; height: number}; surfaceForFloor: (floor: {key: string}) => {x: number; y: number; width: number; height: number}; roomEntrances: () => {floor: {key: string}; x: number; y: number}[]; hallwayBounds: () => {x: number; width: number}; reducedMotion: boolean; supervisor: AvatarState & {targetX: number; targetY: number}; roomSupervisor: AvatarState & {targetX: number; targetY: number}};
   const drawings: {id: string; direction: string | undefined; walking: boolean | undefined; viewer: boolean; scale: number}[] = [];
   const drawAvatar = vm.drawAvatar;
   vm.drawAvatar = (id, state, x, y, scale, viewer) => {drawings.push({id, direction: state.direction, walking: state.walking, viewer, scale});drawAvatar(id, state, x, y, scale, viewer);};
@@ -238,4 +242,81 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   const focused = activeElement;
   vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
   assert.equal(activeElement, focused, "unchanged polling preserves dialog focus");
+
+  // Both boards expose the same complete room work list, while actor hits keep priority.
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  if (vm.mode === "room") elements.get("back")!.click();
+  snapshot = {
+    generatedAt: "x",
+    runs: [{runId: "team-room", title: "team-room", status: "running", phase: "implementing",
+      budget: {limitMs: 1000, usedMs: 400, remainingMs: 600},
+      questions: [{questionId: "q-team", prompt: "Choose a port"}],
+      agents: [
+        {id: "lead", role: "coordinator", status: "running", phase: "planning", taskId: "task-lead", progress: {passed: 2, total: 4, verify: "PASS", review: null}, worktree: "coord", diff: {files: 2, insertions: 2, deletions: 0, paths: ["src/lead.ts"], recent: "src/lead.ts"}, narration: "editing src/lead.ts"},
+        {id: "builder", role: "worker", status: "verifying", phase: "verifying", taskId: "task-build", progress: {passed: 1, total: 3, verify: null, review: null}, worktree: "worker", diff: {files: 1, insertions: 1, deletions: 0, paths: ["tests/build.ts"], recent: "tests/build.ts"}, narration: "writing tests"}
+      ],
+      reviewers: [{slot: 1, since: "2026-10-07T00:00:00.000Z", taskId: "review-task", root: null}], commands: ["agent-ops run status team-room"]}],
+    lobby: [{name: "ordinary", branch: "main", sessionId: "ordinary", diff: {files: 1, insertions: 1, deletions: 0, paths: ["src/ordinary.ts"], recent: "src/ordinary.ts"}, narration: "editing src/ordinary.ts", commands: ["agent-ops worktree list"], phase: "implementing", status: "running", taskId: "ordinary-task", progress: {passed: 1, total: 2, verify: null, review: null}, questions: [{questionId: "q-ordinary", prompt: "Pick a reviewer"}], host: "codex"}],
+    reviews: []
+  };
+  vm.poll(); await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const team = vm.model.floors.find(floor => floor.kind === "run")!;
+  const teamOverview = vm.surfaceForFloor(team), overviewBoard = vm.progressBoardGeometry(teamOverview.width, teamOverview.height);
+  canvas.events.get("click")?.({clientX: teamOverview.x + overviewBoard.x + overviewBoard.width / 2, clientY: teamOverview.y + overviewBoard.y + overviewBoard.height / 2});
+  assert.equal(status.hidden, false);
+  assert.match(status.children[0]!.textContent, /工作清單/u);
+  const workPages: string[] = [];
+  for (let page = 0; page < 30; page++) {
+    workPages.push(treeText(status));
+    const next = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "下一頁");
+    if (!next) break;
+    next.click();
+  }
+  const workText = workPages.join("");
+  for (const value of ["lead", "builder", "reviewer 1", "src/lead.ts", "Choose a port", "驗證", "進度"]) assert.ok(workText.includes(value), `work list includes ${value}`);
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  assert.equal(status.hidden, true);
+  assert.equal(activeElement, canvas, "Escape returns focus to the canvas after an overview board click");
+  keydownCanvas({key: "l", preventDefault: () => {}});
+  assert.match(status.children[0]!.textContent, /工作清單/u, "L opens the selected room work list from the overview");
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+
+  const teamButton = elements.get("room-nav")!.children.find(button => button.textContent.includes("team-room"))!;
+  teamButton.click();
+  const teamRoom = vm.model.floors.find(floor => floor.kind === "run")!, lead = teamRoom.actors.find(actor => actor.id === "lead")!;
+  const leadBox = vm.actorBox(lead, {x: 0, y: 0, width: canvas.width, height: canvas.height});
+  canvas.events.get("click")?.({clientX: leadBox.x + 16 * leadBox.scale, clientY: leadBox.y + 24 * leadBox.scale});
+  assert.equal(status.children[0]!.textContent, "lead", "actor clicks win over the planning whiteboard");
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  elements.get("back")!.click();
+  const ordinaryButton = elements.get("room-nav")!.children.find(button => button.textContent.includes("ordinary"))!;
+  ordinaryButton.click();
+  const ordinary = vm.model.floors.find(floor => floor.kind === "desk")!, whiteboard = ordinary.props.find(prop => prop.kind === "whiteboard")!;
+  const whiteboardRect = vm.propGeometry(whiteboard, canvas.width, canvas.height);
+  canvas.events.get("click")?.({clientX: whiteboardRect.x + whiteboardRect.width / 2, clientY: whiteboardRect.y + whiteboardRect.height / 2});
+  assert.match(status.children[0]!.textContent, /工作清單/u);
+  const detailWorkPages: string[] = [];
+  for (let page = 0; page < 20; page++) {
+    detailWorkPages.push(treeText(status));
+    const next = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "下一頁");
+    if (!next) break;
+    next.click();
+  }
+  assert.ok(detailWorkPages.join("").includes("Pick a reviewer"), "detail-room whiteboard includes pending questions");
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  assert.equal(activeElement, canvas, "Escape restores focus after an enlarged-room whiteboard click");
+  elements.get("language")!.click();
+  vm.detailPage = 0;
+  keydownCanvas({key: "L", preventDefault: () => {}});
+  assert.match(status.children[0]!.textContent, /Work list/u);
+  const englishPages: string[] = [];
+  for (let page = 0; page < 20; page++) {
+    englishPages.push(treeText(status));
+    const next = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "Next");
+    if (!next) break;
+    next.click();
+  }
+  const englishText = englishPages.join("");
+  assert.ok(englishText.includes("Owner") && englishText.includes("Current work"), "English work list localizes owner and current work");
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
 });
