@@ -21,6 +21,8 @@ export interface ReviewSlotOptions {
   readonly staleMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly onWait?: (line: string) => void;
+  /** Shown by the office view; identifies who holds the slot, never what it reviews. */
+  readonly holder?: { readonly taskId?: string; readonly root?: string };
 }
 
 function alive(pid: number): boolean {
@@ -75,7 +77,7 @@ export async function withReviewSlot<T>(
           for (;;) {
             try {
               await mkdir(path);
-              await writeFile(join(path, "owner.json"), JSON.stringify({pid: process.pid, at: Date.now(), token}));
+              await writeFile(join(path, "owner.json"), JSON.stringify({...options.holder, pid: process.pid, at: Date.now(), token}));
               return true;
             } catch (error) {
               if ((error as {code?: string}).code !== "EEXIST") throw error;

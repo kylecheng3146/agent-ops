@@ -683,6 +683,7 @@ process.exitCode = await runCli(
                 : async (request) => await withReviewSlot({
                     dir: slotDir,
                     signal,
+                    holder: {root, ...(reviewArgs.taskId === undefined ? {} : {taskId: reviewArgs.taskId})},
                     onWait: (line) => {
                       process.stderr.write(`${progressPrefix}${line}\n`);
                     }
