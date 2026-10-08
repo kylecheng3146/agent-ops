@@ -84,7 +84,7 @@ function treeText(node: FakeElement): string {
 }
 
 test("the inline client bootstraps rooms, keyboard controls and remembered language", async () => {
-  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "language", "live"];
+  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live"];
   const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
   elements.get("status")!.hidden = true;
   const canvas = elements.get("office")!;
@@ -447,4 +447,37 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   assert.equal(vm.mode, "overview", "a disappeared room returns to the overview");
   assert.equal(activeElement, canvas, "closing a disappeared room returns focus to the canvas");
   status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+});
+
+test("rooms from several repositories wear nameplates and filter by repository", async () => {
+  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live"];
+  const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
+  elements.get("status")!.hidden = true;
+  elements.get("repo-filter")!.hidden = true;
+  const canvas = elements.get("office")!;
+  canvas.width = 576; canvas.height = 304;
+  const desk = (repo: string) => ({name: "session-a", branch: "main", sessionId: "same", repo, narration: "editing",
+    diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}, commands: []});
+  const snapshot: OfficeSnapshot = {generatedAt: "x", runs: [], lobby: [desk("shop"), desk("api")], reviews: []};
+  const context = {
+    document: {cookie: "", activeElement: null, getElementById: (id: string) => elements.get(id)!, createElement: (tag = "div") => new FakeElement("", tag), addEventListener: () => {}},
+    window: {devicePixelRatio: 1, innerWidth: 1200, innerHeight: 800, matchMedia: () => ({matches: false}), addEventListener: () => {}},
+    navigator: {language: "en-US", clipboard: {writeText: async () => {}}},
+    localStorage: {getItem: () => null, setItem: () => {}},
+    fetch: async () => ({ok: true, json: async () => snapshot}),
+    location: {search: ""}, requestAnimationFrame: () => 0, setInterval: () => 0, console, Math, Promise
+  };
+  runInNewContext(clientScript(), context);
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const filter = elements.get("repo-filter")!;
+  assert.equal(filter.hidden, false);
+  assert.deepEqual(filter.children.map(option => option.value), ["", "api", "shop"]);
+  assert.equal(elements.get("room-nav")!.children.length, 2);
+  assert.match(treeText(elements.get("room-nav")!), /api · session-a/u);
+  assert.ok(canvas.paintedText.includes("shop") && canvas.paintedText.includes("api"), "each room wears its repository nameplate");
+  filter.value = "shop";
+  filter.events.get("change")!();
+  assert.equal(elements.get("room-nav")!.children.length, 1);
+  assert.match(treeText(elements.get("room-nav")!), /shop · session-a/u);
+  assert.match(elements.get("crumb")!.textContent, /1 rooms/u);
 });

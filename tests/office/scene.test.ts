@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readdir } from "node:fs/promises";
 import test from "node:test";
 
-import { buildOfficeSnapshot, type OfficeSnapshot } from "../../runtime/src/office/snapshot.js";
+import { buildOfficeSnapshot, mergeOfficeSnapshots, type OfficeSnapshot } from "../../runtime/src/office/snapshot.js";
 import { sceneModel } from "../../runtime/src/office/scene.js";
 import { officePage, PALETTE, SPRITES } from "../../runtime/src/office/page.js";
 import { NOW, runFixture } from "./fixture.js";
@@ -126,6 +126,19 @@ test("sibling worktrees keep stable room identities and crowded phases stay insi
   assert.ok(model.floors.every(f => f.overview.x >= 0 && f.overview.y >= 0 && f.overview.x + f.overview.width <= model.cols + 1e-6 && f.overview.y + f.overview.height <= model.rows + 1e-6));
 });
 
+test("equal room names in two repositories stay two rooms, grouped and labelled by repository", () => {
+  const one = snapshot();
+  const merged = mergeOfficeSnapshots([{repo: "shop", snapshot: one}, {repo: "api", snapshot: one}], NOW);
+  const model = sceneModel(merged);
+  assert.equal(model.floors.length, sceneModel(one).floors.length * 2);
+  assert.equal(new Set(model.floors.map(floor => floor.key)).size, model.floors.length);
+  assert.deepEqual([...new Set(model.floors.map(floor => floor.repo))], ["api", "shop"]);
+  assert.ok(model.floors.every(floor => floor.title.startsWith(floor.repo + " · ")));
+  assert.ok(sceneModel(one).floors.every(floor => floor.repo === null));
+  const embedded = new Function(`return (${sceneModel.toString()})`)() as typeof sceneModel;
+  assert.deepEqual(embedded(merged), model);
+});
+
 test("an empty building has no fake lobby room", () => {
   const model = sceneModel({generatedAt: "x", runs: [], lobby: [], reviews: []});
   assert.equal(model.floors.length, 0);
@@ -138,6 +151,7 @@ test("the inline page embeds the tested scene, fixed viewport controls and safe 
   assert.match(page, /id="office" tabindex="0"/u);
   assert.match(page, /id="back"/u);
   assert.match(page, /id="recent"/u);
+  assert.match(page, /<select id="repo-filter" hidden><\/select>/u);
   assert.match(page, /id="language"/u);
   assert.match(page, /prefers-reduced-motion/u);
   assert.match(page, /localStorage/u);

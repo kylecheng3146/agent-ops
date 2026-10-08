@@ -81,6 +81,8 @@ export interface SceneFloor {
   readonly phase: ScenePhase;
   readonly status: string;
   readonly completedAt: string | null;
+  /** The repository's name when the building spans several; null otherwise. */
+  readonly repo: string | null;
   readonly overview: SceneOverviewBox;
 }
 
@@ -137,6 +139,13 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
   });
   const floors: SceneFloor[] = [];
   const dialogue: string[] = [];
+  // Two repositories may hold rooms with the same name; the repo keeps their keys apart.
+  const repoOf = (value: unknown): string | null => {
+    const repo = optional(value).repo;
+    return typeof repo === "string" && repo.length > 0 ? repo : null;
+  };
+  const scoped = (repo: string | null, key: string): string => repo === null ? key : "repo:" + repo + "|" + key;
+  const titled = (repo: string | null, title: string): string => short(repo === null ? title : repo + " · " + title, 34);
   const makeAreas = (): ScenePhaseArea[] => PHASES.map(phase => {
     const area = areas[phase];
     return {phase, x: area.x, y: area.y, width: area.width, height: area.height, prop: area.prop, label: labels[phase]};
@@ -161,9 +170,11 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     const extra = optional(run);
     const completedAt = typeof extra.completedAt === "string" ? extra.completedAt : null;
     const questions = run.questions;
-    const props = makeProps(run.runId);
+    const repo = repoOf(run);
+    const key = scoped(repo, run.runId);
+    const props = makeProps(key);
     const actors: SceneActor[] = [];
-    const papers: Record<string, number> = {[run.runId + ":implementing"]: Math.min(8, run.agents.reduce((sum, agent) => sum + (agent.diff?.files ?? 0), 0))};
+    const papers: Record<string, number> = {[key + ":implementing"]: Math.min(8, run.agents.reduce((sum, agent) => sum + (agent.diff?.files ?? 0), 0))};
     let passed = 0, total = 0, verify: "PASS" | "FAIL" | null = null, review: "PASS" | "FAIL" | null = null;
     run.agents.forEach((agent, index) => {
       const phase = agent.phase;
@@ -172,7 +183,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       const phaseCount = run.agents.filter(candidate => candidate.phase === phase).length;
       const point = position(phase, phaseIndex, phaseCount);
       if ((phase === "implementing" || phase === "unknown") && phaseIndex > 0) {
-        const deskKey = run.runId + ":desk:" + agent.id;
+        const deskKey = key + ":desk:" + agent.id;
         props.push({kind: "desk", x: point.x - 2, y: point.y - 5, key: deskKey, phase: "implementing", label: short(agent.id)});
         papers[deskKey] = Math.min(8, agent.diff?.files ?? 0);
       }
@@ -180,7 +191,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       total += p?.total ?? 0;
       if (p?.verify === "FAIL") verify = "FAIL"; else if (p?.verify === "PASS" && verify === null) verify = "PASS";
       if (p?.review === "FAIL") review = "FAIL"; else if (p?.review === "PASS" && review === null) review = "PASS";
-      actors.push({key: run.runId + ":" + agent.id, id: agent.id, kind: agent.role, x: point.x, y: point.y, alert: agent.role === "coordinator" && questions.length > 0,
+      actors.push({key: key + ":" + agent.id, id: agent.id, kind: agent.role, x: point.x, y: point.y, alert: agent.role === "coordinator" && questions.length > 0,
         label: short(agent.id), status: agent.status, phase, taskId: agent.taskId || "unassigned", progress: p,
         narration: agent.narration, questionCount: agent.role === "coordinator" ? questions.length : 0, host: "unknown"});
       dialogue.push(`${run.title}: ${agent.id} ${agent.narration}.`);
@@ -189,17 +200,17 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       const reviewerIndex = actors.filter(actor => actor.phase === "reviewing").length;
       const reviewerCount = run.agents.filter(agent => agent.phase === "reviewing").length + run.reviewers.length;
       const point = position("reviewing", reviewerIndex, reviewerCount);
-      actors.push({key: run.runId + ":review:" + reviewer.slot, id: "reviewer " + reviewer.slot, kind: "reviewer", x: point.x, y: point.y, alert: false,
+      actors.push({key: key + ":review:" + reviewer.slot, id: "reviewer " + reviewer.slot, kind: "reviewer", x: point.x, y: point.y, alert: false,
         label: "reviewer " + reviewer.slot, status: "reviewing", phase: "reviewing", taskId: reviewer.taskId ?? "unassigned",
         progress: null, narration: "reviewing", questionCount: 0, host: "unknown"});
     });
     const rootProgress = {passed, total, verify, review};
     const taskId = run.agents.find(agent => agent.role === "coordinator")?.taskId ?? "unassigned";
     if (questions.length > 0) dialogue.push(`${run.title}: waiting for your answer — ${questions[0]!.prompt}`);
-    return {key: run.runId, sourceIndex: null, kind: "run", title: short(run.title, 34), top: 0, props, actors, phaseAreas: makeAreas(), questions,
+    return {key, sourceIndex: null, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions,
       board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: passed, total},
       clock: run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 0, phase: run.phase, status: run.status,
-      completedAt, overview: {x: 0, y: 0, width: 0, height: 0}};
+      completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
   const makeDesk = (desk: OfficeSnapshot["lobby"][number], index: number): SceneFloor => {
     const extra = optional(desk);
@@ -213,7 +224,8 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       return {questionId: typeof item.questionId === "string" ? item.questionId : "unknown", prompt: typeof item.prompt === "string" ? item.prompt : ""};
     });
     const completedAt = typeof extra.completedAt === "string" ? extra.completedAt : null;
-    const key = "session:" + [desk.sessionId || "unknown", desk.branch || "unknown", desk.name || "session"].join(":");
+    const repo = repoOf(desk);
+    const key = scoped(repo, "session:" + [desk.sessionId || "unknown", desk.branch || "unknown", desk.name || "session"].join(":"));
     const props = makeProps(key);
     const point = position(phase, 0, 1);
 
@@ -222,24 +234,27 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       phase, taskId, progress: p, narration: desk.narration, questionCount: questions.length, host};
     if (questions.length > 0) dialogue.push(`${desk.name}: waiting for your answer.`);
     dialogue.push(`${desk.name}: ${desk.narration}.`);
-    return {key, sourceIndex: index, kind: "desk", title: short(desk.name, 34), top: 0, props, actors: [actor], phaseAreas: makeAreas(),
+    return {key, sourceIndex: index, kind: "desk", title: titled(repo, desk.name), top: 0, props, actors: [actor], phaseAreas: makeAreas(),
       board: boardFor(p, status, taskId, questions.length), questions, papers: {[key + ":implementing"]: Math.min(8, desk.diff.files)}, books: {lit: p?.passed ?? 0, total: p?.total ?? 0},
-      clock: 1, phase, status, completedAt, overview: {x: 0, y: 0, width: 0, height: 0}};
+      clock: 1, phase, status, completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
   snapshot.runs.forEach(run => floors.push(makeRun(run)));
   snapshot.lobby.forEach((desk, index) => floors.push(makeDesk(desk, index)));
   snapshot.reviews.forEach((review, index) => {
-    const key = "review:" + review.slot + ":" + index;
+    const repo = repoOf(review);
+    const key = scoped(repo, "review:" + review.slot + ":" + index);
     const props = makeProps(key);
     const point = position("reviewing", 0);
     const actor: SceneActor = {key: key + ":actor", id: "reviewer " + review.slot, kind: "reviewer", x: point.x, y: point.y, alert: false, label: "reviewer " + review.slot,
       status: "reviewing", phase: "reviewing", taskId: review.taskId ?? "unassigned", progress: null,
       narration: "reviewing", questionCount: 0, host: "unknown"};
     dialogue.push(`Review slot ${review.slot}: ${review.taskId ?? "unassigned"}.`);
-    floors.push({key, sourceIndex: index, kind: "review", title: "Review slot " + review.slot, top: 0, props, actors: [actor], phaseAreas: makeAreas(), questions: [],
+    floors.push({key, sourceIndex: index, kind: "review", title: titled(repo, "Review slot " + review.slot), top: 0, props, actors: [actor], phaseAreas: makeAreas(), questions: [],
       board: boardFor(null, "reviewing", review.taskId ?? "unassigned", 0), papers: {}, books: {lit: 0, total: 0}, clock: 1,
-      phase: "reviewing", status: "reviewing", completedAt: null, overview: {x: 0, y: 0, width: 0, height: 0}});
+      phase: "reviewing", status: "reviewing", completedAt: null, repo, overview: {x: 0, y: 0, width: 0, height: 0}});
   });
+  // Rooms of one repository sit together; the sort is stable inside each.
+  floors.sort((a, b) => (a.repo ?? "").localeCompare(b.repo ?? ""));
   if (dialogue.length === 0) dialogue.push("The office is quiet. No agent is at work.");
   const columns = floors.length === 0 ? 1 : Math.min(floors.length, Math.max(1, Math.ceil(Math.sqrt(floors.length * OVERVIEW_COLS / OVERVIEW_ROWS))));
   const rows = Math.max(1, Math.ceil(floors.length / columns));
