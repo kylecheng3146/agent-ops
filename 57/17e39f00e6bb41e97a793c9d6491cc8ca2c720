@@ -1,0 +1,7 @@
+worktree: session-339b4a84 (agent-ops/session-339b4a84)
+session: 339b4a84-4f14-4487-8b2c-a389003af7d4
+agent-ops task task-db6a235e-2030-422c-b38a-382373893a95: Prepare release 0.7.1
+intent: Bump package.json, package-lock.json and the native clientInfo versions (runtime/src/run/hosts/codex.ts, scripts/probe-native-goals.mjs) to 0.7.1 and insert a dated ## [0.7.1] - 2026-10-08 heading below ## [Unreleased] in CHANGELOG.md; release scans must pass before the PR.
+criteria:
+- version-0-7-1: package.json, package-lock.json and every native clientInfo version read 0.7.1 and the package metadata tests pass
+- changelog-0-7-1: CHANGELOG.md keeps ## [Unreleased] and lists this rounds entries under ## [0.7.1] - 2026-10-08
