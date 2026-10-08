@@ -204,30 +204,46 @@ const STYLE = String.raw`
 :root{color-scheme:light}
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden}
-body{margin:0;background:#2b241f;color:#2b241f;font:clamp(12px,1.25vw,18px)/1.25 "Courier New",monospace}
+body{margin:0;background:#2b241f;color:#2b241f;font:14px/1.45 system-ui,-apple-system,sans-serif}
 button{font:inherit;color:inherit}
 #app{height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:#ead8b8}
 #header{min-height:54px;display:flex;align-items:center;gap:12px;padding:8px 18px;background:#2b241f;color:#fff7e6;border-bottom:4px solid #8a5033;white-space:nowrap}
-#brand{font-weight:bold;font-size:clamp(16px,2vw,26px);letter-spacing:.02em}
+#brand{font:bold clamp(16px,1.4vw,22px)/1.25 "Courier New",monospace;letter-spacing:.02em}
 #crumb{flex:1;overflow:hidden;text-overflow:ellipsis;color:#f2e5c9}
-#header button{border:2px solid #f2e5c9;background:#6d9275;color:#fff7e6;padding:5px 9px;cursor:pointer;box-shadow:2px 2px 0 #000}
+#header button{border:2px solid #f2e5c9;background:#355a4b;color:#fff7e6;padding:5px 9px;cursor:pointer;box-shadow:2px 2px 0 #000}
 #header button:hover,#header button:focus-visible{background:#adc39a;color:#2b241f;outline:3px solid #f2c95c;outline-offset:2px}
 #header button[hidden],#header select[hidden]{display:none}
 #header select{border:2px solid #f2e5c9;background:#355a4b;color:#fff7e6;padding:4px 6px;font:inherit;box-shadow:2px 2px 0 #000}
 #header select:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
 #live{color:#adc39a}
-#wrap{min-height:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:4px;padding:4px 8px;overflow:hidden;background:#ead8b8}
+#workspace{min-height:0;flex:1;display:grid;grid-template-columns:minmax(0,1fr) clamp(330px,28vw,400px);gap:12px;padding:10px}
+#wrap{min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:6px;padding:4px 8px;overflow:hidden;background:#ead8b8}
+#flow{width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:6px 14px;margin:0;padding:6px 8px;list-style:none;background:#fff7e6;border:2px solid #8a5033}
+#flow li:not(:last-child)::after{content:" →";color:#6b5d50}
+#flow li[aria-current=step]{font-weight:bold;color:#355a4b}
+#work-panel{min-width:0;min-height:0;display:flex;flex-direction:column;padding:12px;background:#fff7e6;border:3px solid #6b5d50;box-shadow:4px 4px 0 #8a5033}
+#work-heading{margin:0;font-size:18px;color:#355a4b}
+#work-summary{margin:4px 0 10px;font-size:13px}
+#work-list{min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:8px;padding:2px 4px 4px 0}
+.work-card{flex-shrink:0;padding:10px;border:2px solid #b7c7a3;background:#f2e5c9;overflow-wrap:anywhere}
+.work-card.attention{border-color:#8a5033;border-left-width:5px}
+.work-card button{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;border:0;background:transparent;padding:0;cursor:pointer}
+.work-name{font-weight:bold;font-size:14px;text-decoration:underline;text-underline-offset:3px;color:#355a4b}
+.work-card p{margin:4px 0 0}
+.work-meta,.work-proof{font-size:13px;color:#4b4035}
+.work-action,.work-reason{font-size:13px;font-weight:600;color:#8a5033}
+.work-card button:focus-visible{outline:3px solid #355a4b;outline-offset:3px}
 #office{display:block;max-width:100%;max-height:none;width:auto;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;border:4px solid #6b5d50;box-shadow:6px 6px 0 #8a5033;outline:none;cursor:pointer}
 #office:focus-visible{outline:4px solid #f2c95c;outline-offset:4px}
 #dialogue{width:100%;min-height:2.25em;padding:6px 12px;background:#fff7e6;border:2px solid #8a5033;color:#2b241f;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #room-nav{width:100%;display:flex;justify-content:center;align-items:center;gap:5px;min-height:28px;overflow:hidden}
 #room-nav button{max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:2px solid #8a5033;background:#f2e5c9;padding:3px 7px;cursor:pointer}
-#room-nav button[aria-current=true]{background:#6d9275;color:#fff7e6;border-color:#2b241f}
+#room-nav button[aria-current=true]{background:#355a4b;color:#fff7e6;border-color:#2b241f}
 #room-nav button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
 #status{position:fixed;z-index:4;inset:6dvh 50% auto auto;transform:translateX(50%);width:min(92vw,680px);max-height:88dvh;overflow:hidden;display:flex;flex-direction:column;gap:4px;padding:16px;background:#fff7e6;border:4px solid #6b5d50;box-shadow:8px 8px 0 #2b241f;color:#2b241f}
 #status[hidden]{display:none}
-#status h2{margin:0 0 8px;color:#355a4b;font-size:1.25em}
-#status .dialog-body{min-height:0;overflow:hidden}
+#status h2{margin:0 0 8px;color:#355a4b;font-size:1.25em;overflow-wrap:anywhere}
+#status .dialog-body{min-height:0;overflow:auto}
 #status p{margin:5px 0;overflow-wrap:anywhere;white-space:pre-wrap}
 #status ul{margin:5px 0;padding-left:22px}
 #status li{overflow-wrap:anywhere}
@@ -238,6 +254,7 @@ button{font:inherit;color:inherit}
 #status button{border:2px solid #2b241f;background:#d9aa72;padding:5px 10px;cursor:pointer}
 #status button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:1000px){#workspace{grid-template-columns:1fr;grid-template-rows:minmax(240px,1fr) minmax(180px,.8fr);gap:8px;padding:6px}#work-panel{padding:8px}#work-heading{font-size:16px}}
 @media(max-width:760px){#header{flex-wrap:wrap;gap:6px;padding:6px 8px}#brand{font-size:16px}#header button{order:1;font-size:12px;padding:3px 5px}#crumb{min-width:70px}#live{font-size:12px}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 `;
@@ -249,6 +266,7 @@ var avatarSprite = __AVATAR__, avatarPalette = __AVATAR_COLORS__, avatarImages =
 var canvas = document.getElementById("office"), ctx = canvas.getContext("2d"), app = document.getElementById("app");
 ctx.imageSmoothingEnabled = false;
 var dialogueBox = document.getElementById("dialogue"), statusBox = document.getElementById("status"), roomNav = document.getElementById("room-nav"), wrap = document.getElementById("wrap");
+var workList=document.getElementById('work-list'),workHeading=document.getElementById('work-heading'),workSummary=document.getElementById('work-summary'),flow=document.getElementById('flow'),workSignature='';
 var crumb = document.getElementById("crumb"), backButton = document.getElementById("back"), recentButton = document.getElementById("recent");
 var languageButton = document.getElementById("language"), live = document.getElementById("live"), repoSelect = document.getElementById("repo-filter"), repoFilter = "", repoSignature = "";
 var snapshot = null, model = null, positions = {}, roomCanvases = {}, frame = 0, lineIndex = 0, typed = 0, offline = false;
@@ -259,8 +277,8 @@ var supervisor = {x:43, y:19, targetX:43, targetY:19}, supervisorReady = false, 
 var roomSupervisor = {x:32, y:34, targetX:32, targetY:34};
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var STRINGS = {
-  en: {viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -286,6 +304,7 @@ function localizeText(value){
 function saveLanguage(){ try { localStorage.setItem("agent-office-language", lang); } catch (_) {} try { document.cookie = "agent-office-language=" + lang + "; Max-Age=31536000; Path=/; SameSite=Strict"; } catch (_) {} }
 function safeText(value, fallback){ return typeof value === "string" && value.length ? value : (fallback || t("unknown")); }
 function short(value, limit){ value = safeText(value); limit = limit || 22; return value.length > limit ? value.slice(0, limit - 1) + "…" : value; }
+function shortName(value,limit){value=safeText(value);return value.length>limit?value.slice(0,limit-6)+'…'+value.slice(-5):value;}
 function draw(name, x, y, shirt){
   var rows = SPRITES[name]; if (!rows) return;
   var scale = name === "floor" || name === "wall" || name === "baseboard" ? 1 : S;
@@ -326,8 +345,8 @@ function propGeometry(prop,width,height){
   return {x:Math.round(rawX+(visualXOffsets[prop.kind]||0)*scale),y:visualY,rawX:rawX,rawY:rawY,width:visualWidth*scale,height:visualHeight*scale,scale:scale,rawScale:rawScale,unit:metrics.unit};
 }
 function phaseAreaGeometry(area,width,height){var metrics=roomMetrics(width,height);return {x:area.x*metrics.rx,y:area.y*metrics.ry,width:area.width*metrics.rx,height:area.height*metrics.ry,rx:metrics.rx,ry:metrics.ry,unit:metrics.unit};}
-function progressBoardGeometry(width,height){var metrics=roomMetrics(width,height);return {x:24*metrics.rx,y:metrics.ry,width:27*metrics.rx,height:Math.max(7*metrics.ry,66*metrics.unit),unit:metrics.unit};}
-function pendingBoardGeometry(width,height){var board=progressBoardGeometry(width,height),inset=4*board.unit;return {x:board.x+inset,y:board.y+50*board.unit,width:Math.max(0,board.width-inset*2),height:Math.max(0,Math.min(15*board.unit,board.height-50*board.unit)),unit:board.unit};}
+function progressBoardGeometry(width,height){var metrics=roomMetrics(width,height),boardHeight=6*metrics.ry;return {x:24*metrics.rx,y:metrics.ry,width:27*metrics.rx,height:boardHeight,unit:Math.min(metrics.unit,boardHeight/66)};}
+function pendingBoardGeometry(width,height){var board=progressBoardGeometry(width,height),inset=4*board.unit;if(board.height<60*dpr)return {x:board.x+board.width*.7,y:board.y+inset,width:board.width*.3-inset,height:board.height-inset*2,unit:board.unit};return {x:board.x+inset,y:board.y+50*board.unit,width:Math.max(0,board.width-inset*2),height:15*board.unit,unit:board.unit};}
 function surfaceForFloor(floor){if(mode==='room')return {x:0,y:0,width:canvas.width,height:canvas.height};var box=roomBox(floor);return {x:Math.round(box.x*T),y:Math.round(box.y*T),width:Math.round(box.width*T),height:Math.round(box.height*T)};}
 function canvasPoint(event){var rect=canvas.getBoundingClientRect();return {x:(event.clientX-rect.left)*canvas.width/rect.width,y:(event.clientY-rect.top)*canvas.height/rect.height};}
 function inside(point,rect){return point.x>=rect.x&&point.x<rect.x+rect.width&&point.y>=rect.y&&point.y<rect.y+rect.height;}
@@ -335,7 +354,6 @@ function fillText(value, x, y, size, color){ ctx.fillStyle = color || PALETTE[0]
 function roomByKey(key){ if (!model) return null; for (var i = 0; i < model.floors.length; i++) if (model.floors[i].key === key) return model.floors[i]; return null; }
 function visibleRooms(){ if (!model) return []; return model.floors.filter(function(f){ return (showRecent || !f.completedAt) && (!repoFilter || f.repo === repoFilter); }); }
 function repoNames(){ var names = []; if (model) model.floors.forEach(function(f){ if (f.repo && names.indexOf(f.repo) < 0) names.push(f.repo); }); return names; }
-function repoColor(name){ var hash = 0; for (var i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0; return PALETTE[[1, 4, 9, 13, 0, 8][hash % 6]] || PALETTE[1]; }
 function renderRepoFilter(){
   var names = repoNames(); if (repoFilter && names.indexOf(repoFilter) < 0) repoFilter = "";
   repoSelect.hidden = names.length < 2; repoSelect.setAttribute("aria-label", t("repos"));
@@ -422,17 +440,23 @@ function drawRoomBase(floor){
   floor.phaseAreas.forEach(function(a){var area=phaseAreaGeometry(a,canvas.width,canvas.height),ax=area.x,ay=area.y;ctx.fillStyle=PALETTE[15];ctx.fillRect(ax,ay,Math.min(area.width,72*labelUnit),13*labelUnit);fillText(phaseLabel(a.phase),ax+4*labelUnit,ay+2*labelUnit,9,PALETTE[1]);});
   var titleX=2*rx,titleY=ry,w=19*rx;
   ctx.fillStyle=PALETTE[4];ctx.fillRect(titleX,titleY,w,4*ry);ctx.fillStyle=PALETTE[6];ctx.fillRect(titleX+2*unit,titleY+2*unit,w-4*unit,4*ry-4*unit);
-  fillText(short(floor.title,20),titleX+6*unit,titleY+6*unit,11);fillText(statusText(floor.status),titleX+6*unit,titleY+22*unit,8,PALETTE[4]);
+  var name=floor.repo?floor.title.slice(floor.repo.length+3):floor.title;
+  fillText(shortName(name,20),titleX+6*unit,titleY+6*unit,11);fillText(floor.repo||statusText(floor.status),titleX+6*unit,titleY+22*unit,8,PALETTE[4]);
   var b=floor.board,board=progressBoardGeometry(canvas.width,canvas.height),bx=board.x,by=board.y,bw=board.width,bh=board.height;
   ctx.fillStyle=PALETTE[9];ctx.fillRect(bx,by,bw,bh);ctx.fillStyle=PALETTE[15];ctx.fillRect(bx+2*unit,by+2*unit,bw-4*unit,bh-4*unit);
-  fillText('▣ '+t('clickWork'),bx+6*unit,by+5*unit,8,PALETTE[1]);
+  U=dpr;var compact=bh<60*dpr,boardUnit=board.unit;
+  if(compact){fillText(b.taskId==='unassigned'&&!b.total?t('noTask'):t('workList'),bx+6*boardUnit,by+bh/2-5*dpr,10,PALETTE[1]);}
+  else{
+  fillText('▣ '+t('clickWork'),bx+6*boardUnit,by+5*boardUnit,8,PALETTE[1]);
   // A room without a task has nothing to verify or review; saying "pending" would claim unfinished work.
-  if(b.taskId==='unassigned'&&!b.total){fillText(t('noTask'),bx+6*unit,by+16*unit,10,PALETTE[1]);fillText(t('noTaskHint'),bx+6*unit,by+40*unit,8,PALETTE[4]);}
-  else{fillText(t('progress')+'  '+b.passed+'/'+(b.total||'?'),bx+6*unit,by+16*unit,10,PALETTE[1]);
-  ctx.fillStyle=PALETTE[3];ctx.fillRect(bx+6*unit,by+29*unit,bw-12*unit,5*unit);ctx.fillStyle=PALETTE[2];ctx.fillRect(bx+6*unit,by+29*unit,(bw-12*unit)*Math.min(1,b.total?b.passed/b.total:0),5*unit);
-  fillText(t('verify')+' '+outcomeText(b.verify)+'  '+t('review')+' '+outcomeText(b.review),bx+6*unit,by+40*unit,8,PALETTE[4]);}
+  if(b.taskId==='unassigned'&&!b.total){fillText(t('noTask'),bx+6*boardUnit,by+19*boardUnit,10,PALETTE[1]);fillText(t('noTaskHint'),bx+6*boardUnit,by+40*boardUnit,8,PALETTE[4]);}
+  else{fillText(t('checks')+'  '+b.passed+'/'+(b.total||'?'),bx+6*boardUnit,by+19*boardUnit,10,PALETTE[1]);
+  ctx.fillStyle=PALETTE[3];ctx.fillRect(bx+6*boardUnit,by+32*boardUnit,bw-12*boardUnit,5*boardUnit);ctx.fillStyle=PALETTE[2];ctx.fillRect(bx+6*boardUnit,by+32*boardUnit,(bw-12*boardUnit)*Math.min(1,b.total?b.passed/b.total:0),5*boardUnit);
+  fillText(t('verify')+' '+outcomeText(b.verify)+'  '+t('review')+' '+outcomeText(b.review),bx+6*boardUnit,by+40*boardUnit,8,PALETTE[4]);}
+  }
   var pendingRow=pendingBoardGeometry(canvas.width,canvas.height);
-  if(b.pending)fillText('! '+t('pending')+' '+b.pending,pendingRow.x+2*unit,pendingRow.y+3*unit,8,PALETTE[13]);
+  if(b.pending)fillText(compact?'! '+b.pending:'! '+t('pending')+' '+b.pending,pendingRow.x+2*boardUnit,pendingRow.y+(compact?pendingRow.height/2-4*dpr:3*boardUnit),8,PALETTE[4]);
+  U=labelUnit;
   var oldS=S;S=Math.max(1,Math.round(unit));var cx=52*rx,cy=ry;draw('clock',cx,cy);
   ctx.strokeStyle=PALETTE[13];ctx.lineWidth=2*S;ctx.beginPath();ctx.moveTo(cx+8*S,cy+7*S);var angle=-Math.PI/2+2*Math.PI*floor.clock;ctx.lineTo(cx+8*S+Math.cos(angle)*5*S,cy+7*S+Math.sin(angle)*5*S);ctx.stroke();S=oldS;
   U=savedU;
@@ -446,9 +470,9 @@ function drawActor(floor, actor, surface){
   var px=box.x,py=box.y;
   drawAvatar(actor.id,pos,px,py,S,false);
   if(!pos.walking&&!reducedMotion&&Math.floor(frame/30)%2===0){ctx.fillStyle=PALETTE[15];ctx.fillRect(px+12*S,py+30*S,8*S,4*S);}
-  var text=short(actor.label,10)+' · '+roleText(actor.kind)+' · '+short(statusText(actor.status),8),font=9*U;
+  var text=shortName(actor.id,14)+' · '+roleText(actor.kind),font=9*U;
   ctx.font='bold '+font+'px monospace';var labelWidth=Math.min(surface.width-8*U,(ctx.measureText?ctx.measureText(text).width:text.length*font*.62)+8*U),labelX=Math.max(surface.x+4*U,Math.min(surface.x+surface.width-labelWidth-4*U,px-3*U)),labelY=Math.min(surface.y+surface.height-16*U,py+49*S);
-  ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[13]:PALETTE[0]);
+  ctx.fillStyle=PALETTE[15];ctx.fillRect(labelX,labelY,labelWidth,14*U);ctx.strokeStyle=PALETTE[8];ctx.lineWidth=U;ctx.strokeRect(labelX,labelY,labelWidth,14*U);fillText(text,labelX+3*U,labelY+2*U,9,actor.alert?PALETTE[4]:PALETTE[0]);
   var alert=alertGeometry(actor,surface);
   if(actor.alert)draw('alert',alert.x,alert.y);
   S=oldS;U=oldU;
@@ -461,7 +485,7 @@ function alertGeometry(actor,surface){var box=actorBox(actor,surface);return {x:
 function fitCanvas(){
   var wrapW = wrap && wrap.clientWidth ? wrap.clientWidth : window.innerWidth;
   var wrapH = wrap && wrap.clientHeight ? wrap.clientHeight : window.innerHeight - 54;
-  var reserved = (dialogueBox && dialogueBox.offsetHeight || 36) + (roomNav && roomNav.offsetHeight || 30) + 24;
+  var reserved = (dialogueBox && dialogueBox.offsetHeight || 36) + (roomNav && roomNav.offsetHeight || 30) + (flow && flow.offsetHeight || 36) + 24;
   var maxW = Math.max(220, wrapW - 18), maxH = Math.max(160, wrapH - reserved);
   var ratio = Math.min(maxW / canvas.width, maxH / canvas.height);
   canvas.style.width = Math.max(1, Math.floor(canvas.width * ratio)) + "px"; canvas.style.height = Math.max(1, Math.floor(canvas.height * ratio)) + "px";
@@ -469,7 +493,7 @@ function fitCanvas(){
 function chooseRenderScale(){
   if(!model)return;
   var wrapW=wrap&&wrap.clientWidth?wrap.clientWidth:window.innerWidth,wrapH=wrap&&wrap.clientHeight?wrap.clientHeight:window.innerHeight-54;
-  var reserved=(dialogueBox&&dialogueBox.offsetHeight||36)+(roomNav&&roomNav.offsetHeight||30)+24;
+  var reserved=(dialogueBox&&dialogueBox.offsetHeight||36)+(roomNav&&roomNav.offsetHeight||30)+(flow&&flow.offsetHeight||36)+24;
   var maxW=Math.max(220,wrapW-18),maxH=Math.max(160,wrapH-reserved),nextDpr=Math.max(1,Math.min(3,window.devicePixelRatio||1)),oldT=T;
   model.cols=model.rows*maxW/maxH;
   T=Math.max(4,maxH/model.rows*nextDpr);S=T/4;U=T/8;dpr=nextDpr;
@@ -562,7 +586,6 @@ function drawOverviewRoom(floor){
   var image=renderRoomImage(floor,surface.width,surface.height);if(image)ctx.drawImage(image,surface.x,surface.y);
   floor.actors.forEach(function(actor){drawActor(floor,actor,surface);});
   if(floor.completedAt){ctx.fillStyle='rgba(53,90,75,.18)';ctx.fillRect(surface.x,surface.y,surface.width,surface.height);}
-  if(floor.repo){var plate=short(floor.repo,16),plateWidth=(plate.length*6+8)*U;ctx.fillStyle=repoColor(floor.repo);ctx.fillRect(surface.x+2*U,surface.y+2*U,plateWidth,13*U);ctx.strokeStyle=PALETTE[0];ctx.lineWidth=U;ctx.strokeRect(surface.x+2*U,surface.y+2*U,plateWidth,13*U);fillText(plate,surface.x+6*U,surface.y+4*U,8,PALETTE[15]);}
   ctx.restore();
 }
 function render(){
@@ -582,8 +605,53 @@ function renderRoomNav(rooms){
   if (signature === navSignature) return;
   navSignature = signature; roomNav.textContent = "";
   if (pages > 1) { var previous = document.createElement("button"); previous.type = "button"; previous.textContent = "‹ " + t("previous"); previous.disabled = navPage === 0; previous.addEventListener("click", function(){ navPage--; updateHeader(); }); roomNav.appendChild(previous); }
-  rooms.slice(navPage * NAV_PAGE_SIZE, navPage * NAV_PAGE_SIZE + NAV_PAGE_SIZE).forEach(function(floor, offset){ var button = document.createElement("button"); button.type = "button"; button.textContent = (navPage * NAV_PAGE_SIZE + offset + 1) + ". " + short(floor.title, 18); button.title = t("enter") + ": " + floor.title; button.setAttribute("aria-current", floor.key === selectedKey ? "true" : "false"); button.addEventListener("click", function(){ selectedKey = floor.key; enterRoom(); }); roomNav.appendChild(button); });
+  rooms.slice(navPage * NAV_PAGE_SIZE, navPage * NAV_PAGE_SIZE + NAV_PAGE_SIZE).forEach(function(floor, offset){ var button = document.createElement("button"); button.type = "button"; button.textContent = (navPage * NAV_PAGE_SIZE + offset + 1) + ". " + shortName(floor.title, 18); button.title = t("enter") + ": " + floor.title; button.setAttribute("aria-current", floor.key === selectedKey ? "true" : "false"); button.addEventListener("click", function(){ selectedKey = floor.key; enterRoom(); }); roomNav.appendChild(button); });
   if (pages > 1) { var next = document.createElement("button"); next.type = "button"; next.textContent = t("next") + " ›"; next.disabled = navPage === pages - 1; next.addEventListener("click", function(){ navPage++; updateHeader(); }); roomNav.appendChild(next); }
+}
+function attentionFor(actor){
+  if(actor.questionCount)return t('waiting')+' ('+actor.questionCount+')';
+  if(actor.progress&&actor.progress.verify==='FAIL')return t('verifyFailed');
+  if(actor.progress&&actor.progress.review==='FAIL')return t('reviewFailed');
+  return actor.status==='blocked'?t('blockedUnknown'):'';
+}
+function completionText(floor,actor){
+  if(actor.status==='complete')return statusText(actor.status);
+  if(floor.completedAt)return t('sessionEnded');
+  if(actor.taskId==='unassigned'&&!actor.progress)return t('noTask');
+  return statusText(actor.status)+' · '+t('unfinished');
+}
+function renderWorkPanel(){
+  if(!model||!workList)return;
+  var rooms=mode==='room'&&activeRoom()?[activeRoom()]:visibleRooms();
+  var signature=JSON.stringify([lang,offline,mode,rooms.map(function(f){return [f.key,f.title,f.status,f.phase,f.completedAt,f.actors,f.questions];})]);
+  if(signature===workSignature)return;workSignature=signature;
+  var focusKey=document.activeElement&&document.activeElement.getAttribute?document.activeElement.getAttribute('data-work-key'):null,restoreFocus=null,entries=[];
+  rooms.forEach(function(floor){floor.actors.forEach(function(actor){entries.push({floor:floor,actor:actor,attention:attentionFor(actor)});});});
+  entries.sort(function(a,b){return Number(!!b.attention)-Number(!!a.attention);});
+  workHeading.textContent=t('workList')+' · '+entries.length;
+  workSummary.textContent=offline?t('stale'):t('attention')+' '+entries.filter(function(entry){return !!entry.attention;}).length+' · '+t('detailsAction');
+  workList.textContent='';
+  if(!entries.length){var empty=document.createElement('p');empty.textContent=t('quiet');workList.appendChild(empty);}
+  entries.forEach(function(entry){
+    var floor=entry.floor,actor=entry.actor,card=document.createElement('article'),button=document.createElement('button');
+    card.className='work-card'+(entry.attention?' attention':'');
+    button.type='button';button.className='work-name';button.textContent=actor.id+' ↗';button.title=t('detailsAction');
+    button.setAttribute('aria-label',actor.id+' · '+t('detailsAction'));button.setAttribute('data-work-key',actor.key+':details');
+    button.addEventListener('click',function(){openActorDetail(floor,actor);});card.appendChild(button);
+    if(focusKey===actor.key+':details')restoreFocus=button;
+    var meta=document.createElement('p');meta.className='work-meta';meta.textContent=(floor.repo?floor.repo+' · ':'')+roleText(actor.kind)+' · '+phaseLabel(actor.phase)+' · '+completionText(floor,actor);card.appendChild(meta);
+    var work=document.createElement('p');work.textContent=localizeText(actor.narration);card.appendChild(work);
+    var proof=document.createElement('p');proof.className='work-proof';proof.textContent=actor.taskId==='unassigned'&&!actor.progress?t('noTaskHint'):progressText(actor.progress);card.appendChild(proof);
+    if(entry.attention){var reason=document.createElement('p');reason.className='work-reason';reason.textContent='! '+entry.attention;card.appendChild(reason);}
+    if(actor.questionCount){
+      var question=document.createElement('p');question.textContent=floor.questions[0]?floor.questions[0].prompt:t('unknown');card.appendChild(question);
+      var answer=document.createElement('button');answer.type='button';answer.className='work-action';answer.textContent=t('openQuestion')+' →';answer.setAttribute('data-work-key',actor.key+':questions');answer.addEventListener('click',function(){openQuestionList(floor);});card.appendChild(answer);
+      if(focusKey===actor.key+':questions')restoreFocus=answer;
+    }
+    workList.appendChild(card);
+  });
+  flow.textContent='';['planning','implementing','verifying','reviewing','integrating'].forEach(function(phase,index){var step=document.createElement('li');step.textContent=(index+1)+' '+phaseLabel(phase);if(mode==='room'&&activeRoom().phase===phase)step.setAttribute('aria-current','step');flow.appendChild(step);});
+  if(focusKey&&statusBox.hidden)(restoreFocus||canvas).focus();
 }
 function updateHeader(){
   if(document.documentElement)document.documentElement.lang=lang==='zh'?'zh-Hant':'en';
@@ -594,6 +662,7 @@ function updateHeader(){
   backButton.hidden = mode !== "room"; backButton.textContent = "← " + t("back"); recentButton.textContent = (showRecent ? "✓ " + t("recentOn") : "▣ " + t("recent")) + (hasRecent() ? " (" + model.floors.filter(function(f){ return !!f.completedAt; }).length + ")" : "");
   languageButton.textContent = lang === "zh" ? "繁中 / EN" : "EN / 繁中"; live.textContent = offline ? t("offline") : t("connected");
   renderRoomNav(rooms);
+  renderWorkPanel();
 }
 function tickDialogue(){
   if (!model) return;
@@ -617,12 +686,14 @@ function showDialog(title, fill){
   if (app) { app.inert = true; app.setAttribute("aria-hidden", "true"); }
   close.focus();
 }
-function closeDialog(){ statusBox.hidden = true; if (app) { app.inert = false; app.removeAttribute("aria-hidden"); } var previous = detailPreviousFocus || canvas; if (!previous || previous.isConnected === false || !previous.focus) previous = canvas; dialogClose = null; detailPreviousFocus = null; if (previous && previous.focus) previous.focus(); }
+function closeDialog(){ statusBox.hidden = true; if (app) { app.inert = false; app.removeAttribute("aria-hidden"); } var previous = detailPreviousFocus || canvas; if(previous.isConnected===false&&workList&&previous.getAttribute){var key=previous.getAttribute('data-work-key');previous=Array.prototype.slice.call(workList.querySelectorAll('button')).find(function(button){return button.getAttribute('data-work-key')===key;})||canvas;} if (!previous || previous.isConnected === false || !previous.focus) previous = canvas; dialogClose = null; detailPreviousFocus = null; if (previous && previous.focus) previous.focus(); }
 function addLine(box, label, value){ var p = document.createElement("p"); p.textContent = label + ": " + safeText(value); box.appendChild(p); }
 function addCommand(box, value, copyValue){
   var row = document.createElement("p"), code = document.createElement("code"), button = document.createElement("button");
   code.textContent = value; button.type = "button"; button.textContent = t("copy"); button.addEventListener("click", function(){
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(copyValue || value).then(function(){ button.textContent = t("copied"); }, function(){});
+    function failed(){button.textContent=t('copyFailed');button.title=t('copyHint');button.setAttribute('aria-label',t('copyHint'));}
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(copyValue || value).then(function(){ button.textContent = t("copied");button.removeAttribute('aria-label'); }, failed);
+    else failed();
   }); row.appendChild(code); row.appendChild(button); box.appendChild(row);
 }
 function pageItems(items, box, renderItem){
@@ -636,7 +707,7 @@ function pageItems(items, box, renderItem){
 }
 function sourceFor(floor){
   if (!snapshot) return null;
-  if (floor.kind === "run") return snapshot.runs.find(function(r){ return r.runId === floor.key; }) || null;
+  if (floor.kind === "run") return floor.sourceIndex === null ? null : snapshot.runs[floor.sourceIndex] || null;
   if (floor.kind === "desk") return floor.sourceIndex === null ? null : snapshot.lobby[floor.sourceIndex] || null;
   if (floor.kind === "review") return floor.sourceIndex === null ? null : snapshot.reviews[floor.sourceIndex] || null;
   return null;
@@ -648,8 +719,8 @@ function renderDetailItem(item, box){
   if (item.kind === "heading") { var heading = document.createElement("p"); heading.textContent = item.value; box.appendChild(heading); return; }
   addLine(box, item.label, item.value);
 }
-function progressText(progress){return progress ? progress.passed+'/'+(progress.total||'?')+' · '+t('verify')+' '+outcomeText(progress.verify||'pending')+' · '+t('review')+' '+outcomeText(progress.review||'pending') : t('unknown');}
-function workItemForActor(floor,actor){return {kind:'work',floorKey:floor.key,actorKey:actor.key,label:t('owner')+': '+actor.label+' · '+roleText(actor.kind),value:t('currentWork')+': '+localizeText(actor.narration)+' · '+t('phase')+': '+phaseLabel(actor.phase)+' · '+t('status')+': '+statusText(actor.status)+' · '+t('progress')+': '+progressText(actor.progress)+' · '+t('pending')+': '+actor.questionCount};}
+function progressText(progress){return progress ? t('checks')+' '+progress.passed+'/'+(progress.total||'?')+' · '+t('verify')+' '+outcomeText(progress.verify||'pending')+' · '+t('review')+' '+outcomeText(progress.review||'pending') : t('checks')+' '+t('unknown');}
+function workItemForActor(floor,actor){return {kind:'work',floorKey:floor.key,actorKey:actor.key,label:t('owner')+': '+actor.id+' · '+roleText(actor.kind),value:t('currentWork')+': '+localizeText(actor.narration)+' · '+t('phase')+': '+phaseLabel(actor.phase)+' · '+t('status')+': '+completionText(floor,actor)+' · '+progressText(actor.progress)+' · '+t('pending')+': '+actor.questionCount};}
 function workItemsFor(floor){
   var items=[
     {kind:'line',label:t('task'),value:floor.board.taskId==='unassigned'?t('unassigned'):floor.board.taskId},
@@ -709,15 +780,15 @@ function openActorDetail(floor, actor){
   if (!detailTarget || detailTarget.floorKey !== floor.key || detailTarget.actorKey !== actor.key) detailPage = 0;
   var detailItems = [
     {kind:"line", label:lang==='zh'?'職責':'Role', value:roleText(actor.kind)},
-    {kind:"line", label:t("status"), value:statusText(actor.status)}, {kind:"line", label:t("phase"), value:phaseLabel(actor.phase)},
+    {kind:"line", label:t("status"), value:completionText(floor,actor)}, {kind:"line", label:t("phase"), value:phaseLabel(actor.phase)},
     {kind:"line", label:t("task"), value:actor.taskId === "unassigned" ? t("unassigned") : actor.taskId},
     {kind:"line", label:t("host"), value:localizeText(actor.host)}, {kind:"line", label:t("now"), value:localizeText(actor.narration)}
   ];
   if (actor.questionCount) detailItems.push({kind:"line", label:t("pending"), value:String(actor.questionCount)});
-  if (actor.progress) detailItems.push({kind:"line", label:t("progress"), value:actor.progress.passed + "/" + actor.progress.total + "  " + t("verify") + " " + outcomeText(actor.progress.verify || "-") + "  " + t("review") + " " + outcomeText(actor.progress.review || "-")});
+  if (actor.progress) detailItems.push({kind:"line", label:t("checks"), value:progressText(actor.progress)});
   if (actor.questionCount && floor.questions.length) floor.questions.forEach(function(question){ detailItems.push({kind:"line", label:"! " + question.questionId, value:question.prompt}); });
   if (entries.length) { detailItems.push({kind:"heading", value:t("files") + " / " + t("commands") + ":"}); entries.forEach(function(entry){ detailItems.push(entry); }); }
-  detailSignature=sourceSignature(floor); detailTarget = {floorKey: floor.key, actorKey: actor.key, view:'actor'}; showDialog(actor.label, function(box){ pageItems(detailItems, box, renderDetailItem); });
+  detailSignature=sourceSignature(floor); detailTarget = {floorKey: floor.key, actorKey: actor.key, view:'actor'}; showDialog(actor.id, function(box){ pageItems(detailItems, box, renderDetailItem); });
 }
 function openRoomDetail(floor){
   if (!detailTarget || detailTarget.floorKey !== floor.key || detailTarget.actorKey !== null) detailPage = 0;
@@ -727,7 +798,7 @@ function openRoomDetail(floor){
   var detailItems = [
     {kind:"line", label:t("status"), value:statusText(floor.status)}, {kind:"line", label:t("phase"), value:phaseLabel(floor.phase)},
     {kind:"line", label:t("task"), value:floor.board.taskId === "unassigned" ? t("unassigned") : floor.board.taskId},
-    {kind:"line", label:t("progress"), value:floor.board.passed + "/" + (floor.board.total || "?")},
+    {kind:"line", label:t("checks"), value:floor.board.passed + "/" + (floor.board.total || "?")},
     {kind:"line", label:t("verify"), value:outcomeText(floor.board.verify)}, {kind:"line", label:t("review"), value:outcomeText(floor.board.review)},
     {kind:"line", label:t("pending"), value:String(floor.board.pending)}
   ];
@@ -839,6 +910,6 @@ export function officePage(nonce: string): string {
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>agent-ops Office · Preview</title><style nonce="${nonce}">${STYLE}</style></head>
 <body><div id="app"><header id="header"><div id="brand">agent-ops Office · Preview</div><div id="crumb">Office overview</div><button id="back" type="button" hidden>← Back to overview</button><button id="recent" type="button">▣ Recently completed</button><select id="repo-filter" hidden></select><button id="language" type="button">繁中 / EN</button><span id="live" aria-live="polite">● Connected</span></header>
-<main id="wrap"><canvas id="office" tabindex="0" width="576" height="304" aria-label="Office rooms; use arrow keys and Enter to explore"></canvas><div id="dialogue" role="status" aria-live="polite"></div><nav id="room-nav" aria-label="Office rooms"></nav></main></div>
+<main id="workspace"><section id="wrap" aria-label="Pixel office"><ol id="flow" aria-label="Workflow"></ol><canvas id="office" tabindex="0" width="576" height="304" aria-label="Office rooms; use arrow keys and Enter to explore"></canvas><div id="dialogue"></div><nav id="room-nav" aria-label="Office rooms"></nav></section><aside id="work-panel" aria-labelledby="work-heading"><h2 id="work-heading">Work list</h2><p id="work-summary"></p><div id="work-list"></div></aside></main></div>
 <section id="status" role="dialog" aria-modal="true" aria-labelledby="status-title" tabindex="-1" hidden></section><script nonce="${nonce}">${script}</script></body></html>`;
 }

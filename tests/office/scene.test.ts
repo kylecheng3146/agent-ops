@@ -145,6 +145,29 @@ test("an empty building has no fake lobby room", () => {
   assert.deepEqual(model.dialogue, ["The office is quiet. No agent is at work."]);
 });
 
+test("room identities and run sources survive truncation and repository scoping", () => {
+  const base = snapshot(), title = "same-prefix-long-session-name-but-a-distinct-full-title";
+  const model = sceneModel({...base, runs: [{...base.runs[0]!, title, repo: "shop"}], lobby: []});
+  const run = model.floors.find(floor => floor.kind === "run")!;
+  assert.equal(run.title, "shop · " + title);
+  assert.equal(run.sourceIndex, 0);
+});
+
+test("a team cannot claim PASS while another member's proof is missing", () => {
+  const base = snapshot(), run = base.runs[0]!;
+  const progress = {passed: 2, total: 2, verify: "PASS" as const, review: "PASS" as const};
+  const agents = run.agents.map((actor, index) => ({...actor, progress: index === 0 ? progress : null}));
+  const board = (actors: typeof agents) => sceneModel({...base, runs: [{...run, agents: actors}], lobby: []}).floors[0]!.board;
+  assert.equal(board(agents).verify, "pending");
+  assert.equal(board(agents).review, "pending");
+  const allPassed = agents.map(actor => ({...actor, progress}));
+  assert.equal(board(allPassed).verify, "PASS");
+  assert.equal(board(allPassed).review, "PASS");
+  const failed = {...agents[0]!, progress: {...progress, verify: "FAIL" as const, review: "FAIL" as const}};
+  assert.equal(sceneModel({...base, runs: [{...run, agents: [failed, ...agents.slice(1)]}]}).floors[0]!.board.verify, "FAIL");
+  assert.equal(sceneModel({...base, runs: [{...run, agents: []}]}).floors[0]!.board.review, "pending");
+});
+
 test("the inline page embeds the tested scene, fixed viewport controls and safe paging", async () => {
   const page = officePage("n0nce");
   assert.ok(page.includes(sceneModel.toString()));

@@ -131,7 +131,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     return {passed: typeof p.passed === "number" ? p.passed : 0, total: typeof p.total === "number" ? p.total : 0,
       verify: p.verify === "PASS" || p.verify === "FAIL" ? p.verify : null, review: p.review === "PASS" || p.review === "FAIL" ? p.review : null};
   };
-  const short = (value: string, limit = 18) => value.length > limit ? value.slice(0, limit - 1) + "…" : value;
+  const short = (value: string, limit = 18) => value.length > limit ? value.slice(0, limit - 6) + "…" + value.slice(-5) : value;
   const optional = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
   const boardFor = (progress: SceneProgress | null, status: string, taskId: string, pending: number): SceneBoard => ({
     passed: progress?.passed ?? 0, total: progress?.total ?? 0,
@@ -145,7 +145,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     return typeof repo === "string" && repo.length > 0 ? repo : null;
   };
   const scoped = (repo: string | null, key: string): string => repo === null ? key : "repo:" + repo + "|" + key;
-  const titled = (repo: string | null, title: string): string => short(repo === null ? title : repo + " · " + title, 34);
+  const titled = (repo: string | null, title: string): string => repo === null ? title : repo + " · " + title;
   const makeAreas = (): ScenePhaseArea[] => PHASES.map(phase => {
     const area = areas[phase];
     return {phase, x: area.x, y: area.y, width: area.width, height: area.height, prop: area.prop, label: labels[phase]};
@@ -166,7 +166,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     {kind: "plant", x: 57, y: 34, key: key + ":plant-bottom"},
     {kind: "door", x: 65, y: 33, key: key + ":door"}
   ];
-  const makeRun = (run: OfficeSnapshot["runs"][number]): SceneFloor => {
+  const makeRun = (run: OfficeSnapshot["runs"][number], index: number): SceneFloor => {
     const extra = optional(run);
     const completedAt = typeof extra.completedAt === "string" ? extra.completedAt : null;
     const questions = run.questions;
@@ -189,8 +189,8 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       }
       passed += p?.passed ?? 0;
       total += p?.total ?? 0;
-      if (p?.verify === "FAIL") verify = "FAIL"; else if (p?.verify === "PASS" && verify === null) verify = "PASS";
-      if (p?.review === "FAIL") review = "FAIL"; else if (p?.review === "PASS" && review === null) review = "PASS";
+      if (p?.verify === "FAIL") verify = "FAIL";
+      if (p?.review === "FAIL") review = "FAIL";
       actors.push({key: key + ":" + agent.id, id: agent.id, kind: agent.role, x: point.x, y: point.y, alert: agent.role === "coordinator" && questions.length > 0,
         label: short(agent.id), status: agent.status, phase, taskId: agent.taskId || "unassigned", progress: p,
         narration: agent.narration, questionCount: agent.role === "coordinator" ? questions.length : 0, host: "unknown"});
@@ -204,10 +204,12 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
         label: "reviewer " + reviewer.slot, status: "reviewing", phase: "reviewing", taskId: reviewer.taskId ?? "unassigned",
         progress: null, narration: "reviewing", questionCount: 0, host: "unknown"});
     });
+    if (verify === null && run.agents.length && run.agents.every(agent => agent.progress?.verify === "PASS")) verify = "PASS";
+    if (review === null && run.agents.length && run.agents.every(agent => agent.progress?.review === "PASS")) review = "PASS";
     const rootProgress = {passed, total, verify, review};
     const taskId = run.agents.find(agent => agent.role === "coordinator")?.taskId ?? "unassigned";
     if (questions.length > 0) dialogue.push(`${run.title}: waiting for your answer — ${questions[0]!.prompt}`);
-    return {key, sourceIndex: null, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions,
+    return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions,
       board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: passed, total},
       clock: run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 0, phase: run.phase, status: run.status,
       completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
@@ -238,7 +240,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       board: boardFor(p, status, taskId, questions.length), questions, papers: {[key + ":implementing"]: Math.min(8, desk.diff.files)}, books: {lit: p?.passed ?? 0, total: p?.total ?? 0},
       clock: 1, phase, status, completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
-  snapshot.runs.forEach(run => floors.push(makeRun(run)));
+  snapshot.runs.forEach((run, index) => floors.push(makeRun(run, index)));
   snapshot.lobby.forEach((desk, index) => floors.push(makeDesk(desk, index)));
   snapshot.reviews.forEach((review, index) => {
     const repo = repoOf(review);

@@ -60,6 +60,7 @@ class FakeElement {
   appendChild(child: FakeElement): FakeElement { this.children.push(child); return child; }
   addEventListener(name: string, handler: (event?: unknown) => void): void { this.events.set(name, handler); }
   setAttribute(name: string, value: string): void { this.attrs.set(name, value); }
+  getAttribute(name: string): string | null { return this.attrs.get(name) ?? null; }
   removeAttribute(name: string): void { this.attrs.delete(name); }
   focus(): void { activeElement = this; }
   click(): void { this.events.get("click")?.({}); }
@@ -84,7 +85,7 @@ function treeText(node: FakeElement): string {
 }
 
 test("the inline client bootstraps rooms, keyboard controls and remembered language", async () => {
-  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live"];
+  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "flow"];
   const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
   elements.get("status")!.hidden = true;
   const canvas = elements.get("office")!;
@@ -126,11 +127,11 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
   vm.drawAvatar = (id, state, x, y, scale, viewer) => {drawings.push({id, direction: state.direction, walking: state.walking, viewer, scale});drawAvatar(id, state, x, y, scale, viewer);};
   const keydownCanvas = canvas.events.get("keydown")!;
   assert.equal(canvas.width, 2364, "backing width matches full available width at DPR 2");
-  assert.equal(canvas.height, 1312);
+  assert.equal(canvas.height, 1240);
   assert.ok(canvas.paintedText.includes("You"), "English overview localizes the viewer badge");
   assert.ok(!canvas.paintedText.includes("你"));
   assert.equal(canvas.style.width, "1182px");
-  assert.equal(canvas.style.height, "656px");
+  assert.equal(canvas.style.height, "620px");
   const cached = Object.values(vm.roomCanvases)[0]!.canvas;
   vm.render();
   assert.equal(drawings.find(draw => draw.viewer)!.scale, Math.max(...drawings.filter(draw => !draw.viewer).map(draw => draw.scale)), "the overview viewer has the same scale as the largest room people");
@@ -450,7 +451,7 @@ test("the inline client bootstraps rooms, keyboard controls and remembered langu
 });
 
 test("rooms from several repositories wear nameplates and filter by repository", async () => {
-  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live"];
+  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "flow"];
   const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
   elements.get("status")!.hidden = true;
   elements.get("repo-filter")!.hidden = true;
@@ -475,7 +476,7 @@ test("rooms from several repositories wear nameplates and filter by repository",
   assert.deepEqual(filter.children.map(option => option.value), ["", "api", "shop"]);
   assert.equal(elements.get("room-nav")!.children.length, 2);
   assert.match(treeText(elements.get("room-nav")!), /api · session-a/u);
-  assert.ok(canvas.paintedText.includes("shop") && canvas.paintedText.includes("api"), "each room wears its repository nameplate");
+  assert.ok(treeText(elements.get("work-list")!).includes("shop") && treeText(elements.get("work-list")!).includes("api"), "the work list keeps repository context visible");
   // Boards are painted on each room's own canvas.
   const painted = created.flatMap(element => element.paintedText);
   assert.ok(painted.includes("No task"), "a room without a task says so");
@@ -485,4 +486,117 @@ test("rooms from several repositories wear nameplates and filter by repository",
   assert.equal(elements.get("room-nav")!.children.length, 1);
   assert.match(treeText(elements.get("room-nav")!), /shop · session-a/u);
   assert.match(elements.get("crumb")!.textContent, /1 rooms/u);
+  assert.doesNotMatch(treeText(elements.get("work-list")!), /api/u);
+});
+
+test("eight sessions keep full identities, honest proof states and actionable read-only details", async () => {
+  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "flow"];
+  const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
+  elements.get("status")!.hidden = true;
+  const names = Array.from({length: 8}, (_, index) => `shared-session-name-long-enough-to-truncate-${index}`);
+  let snapshot: OfficeSnapshot = {generatedAt: "x", runs: [], reviews: [], lobby: names.map((name, index) => ({
+    name, sessionId: name, branch: "main", narration: `editing src/work-${index}.ts`, phase: "verifying",
+    status: index === 7 ? "blocked" : "active", taskId: `task-${index}`,
+    progress: {passed: 2, total: 2, verify: "PASS", review: null},
+    questions: index === 7 ? [{questionId: "q-7", prompt: "Which version should ship?"}] : [],
+    diff: {files: 1, insertions: 1, deletions: 0, paths: [`src/work-${index}.ts`], recent: null},
+    commands: [`agent-ops task status --session ${name}`]
+  }))};
+  let offline = false, copied = "", clipboardFailure = false;
+  const context = {
+    document: {cookie: "", get activeElement() { return activeElement; }, getElementById: (id: string) => elements.get(id)!, createElement: (tag = "div") => new FakeElement("", tag), addEventListener: () => {}},
+    window: {devicePixelRatio: 2, innerWidth: 1440, innerHeight: 900, matchMedia: () => ({matches: false}), addEventListener: () => {}},
+    navigator: {language: "zh-TW", clipboard: {writeText: async (value: string) => {if(clipboardFailure)throw new Error("unavailable");copied = value;}}},
+    localStorage: {getItem: () => null, setItem: () => {}},
+    fetch: async () => {if(offline)throw new Error("offline");return {ok: true, json: async () => snapshot};},
+    location: {search: ""}, requestAnimationFrame: () => 0, setInterval: () => 0, console, Math, Promise
+  };
+  runInNewContext(clientScript(), context);
+  const vm = context as unknown as {poll: () => void; shortName: (name: string, limit: number) => string; progressBoardGeometry: (width: number, height: number) => {x: number; y: number; width: number; height: number}; phaseAreaGeometry: (area: object, width: number, height: number) => {x: number; y: number}; model: {floors: {phaseAreas: {x: number; y: number}[]}[]}};
+  const refresh = async () => {vm.poll();await new Promise<void>(resolve => setTimeout(resolve, 0));};
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const list = elements.get("work-list")!, status = elements.get("status")!;
+  assert.equal(list.children.length, 8);
+  assert.equal(list.children[0]!.children[0]!.textContent, names[7] + " ↗", "the pending answer is first");
+  for (const name of names) assert.ok(treeText(list).includes(name));
+  assert.notEqual(vm.shortName(names[0]!,14),vm.shortName(names[1]!,14),"small scene badges retain the distinguishing suffix");
+  assert.match(treeText(list), /驗收條件 2\/2 · 驗證 PASS · 審查 尚未完成/u);
+  assert.match(treeText(list), /進行中 · 尚未完成/u);
+  assert.match(treeText(list), /Which version should ship\?/u);
+  assert.equal(elements.get("flow")!.children.map(step => step.textContent).join(" → "), "1 規劃 → 2 開發 → 3 驗證 → 4 審查 → 5 整合");
+  for (const [width, height] of [[2880, 1600], [980, 280], [220, 160]]) {
+    const board = vm.progressBoardGeometry(width!, height!);
+    for (const area of vm.model.floors[0]!.phaseAreas) {
+      const rect = vm.phaseAreaGeometry(area, width!, height!);
+      assert.ok(board.y + board.height < rect.y, "the board never reaches a phase heading");
+    }
+  }
+  const first = list.children[0]!.children[0]!;
+  first.focus();
+  await refresh();
+  assert.equal(list.children[0]!.children[0], first, "unchanged polling preserves the card and keyboard focus");
+  snapshot = {...snapshot, lobby: snapshot.lobby.map(desk => ({...desk, narration: "writing tests"}))};
+  await refresh();
+  assert.equal(activeElement, list.children[0]!.children[0], "changed polling restores focus to the same actor");
+  assert.match(treeText(list), /撰寫測試/u);
+  list.children[0]!.children[0]!.click();
+  assert.equal(status.children[0]!.textContent, names[7], "detail titles retain the full identity");
+  const pages: string[] = [];
+  for(let page=0;page<10;page++){
+    pages.push(treeText(status));
+    const copy = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "複製");
+    if(copy){copy.click();await Promise.resolve();}
+    const next = status.querySelectorAll("button:not([disabled])").find(button => button.textContent === "下一頁");
+    if(!next)break;next.click();
+  }
+  assert.ok(pages.join("").includes("src/work-7.ts"));
+  assert.equal(copied, snapshot.lobby[7]!.commands[0]);
+  clipboardFailure = true;
+  const copyButton=status.querySelectorAll("button:not([disabled])").find(button=>button.textContent==="已複製")!;
+  copyButton.click();await Promise.resolve();
+  assert.equal(copyButton.textContent,"手動複製","clipboard denial exposes a manual fallback");
+  assert.match(copyButton.getAttribute('aria-label')!,/無法存取剪貼簿/u);
+  clipboardFailure=false;
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  const question = list.children[0]!.querySelectorAll("button").find(button => button.textContent.includes("查看問題"))!;
+  question.click();
+  assert.match(treeText(status), /Which version should ship\?/u);
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  offline = true;await refresh();
+  assert.match(elements.get("work-summary")!.textContent, /最後已知狀態/u);
+  offline = false;
+  snapshot = {...snapshot, lobby: snapshot.lobby.map((desk, index) => index === 7 ? {...desk, questions: [], status: "active", progress: {...desk.progress!, verify: "FAIL"}} : desk)};
+  await refresh();
+  assert.match(treeText(list.children[0]!), /驗證未通過/u);
+  snapshot = {...snapshot, lobby: [{...snapshot.lobby[0]!, taskId: null, progress: null}]};
+  await refresh();
+  assert.match(treeText(list), /無任務/u);
+  assert.doesNotMatch(treeText(list), /PASS/u);
+  elements.get("language")!.click();
+  assert.match(treeText(list), /No task/u);
+  const completed = {...snapshot.lobby[0]!, name: "completed-session", status: "complete", completedAt: "2026-10-08T00:00:00.000Z"};
+  snapshot = {...snapshot, lobby: [...snapshot.lobby, completed]};await refresh();
+  assert.doesNotMatch(treeText(list), /completed-session/u);
+  elements.get("recent")!.click();
+  assert.match(treeText(list), /completed-session/u);
+  assert.match(treeText(list), /complete/u);
+  elements.get("recent")!.click();
+  assert.doesNotMatch(treeText(list), /completed-session/u);
+
+  // A repository prefix must not disconnect a team from its commands.
+  const command = "agent-ops run status scoped-team";
+  snapshot = {generatedAt: "x", lobby: [], reviews: [], runs: [{runId: "scoped-team", repo: "shop", title: "scoped-team",
+    status: "active", phase: "implementing", budget: {limitMs: 1000, usedMs: 0, remainingMs: 1000}, questions: [], reviewers: [], commands: [command],
+    agents: [{id: names[0]!, role: "coordinator", status: "running", phase: "implementing", taskId: "team-task", progress: null, worktree: null, diff: null, narration: "writing tests"}]}]};
+  await refresh();list.children[0]!.children[0]!.click();
+  for(let page=0;page<10;page++){
+    const copy=status.querySelectorAll("button:not([disabled])").find(button=>button.textContent==="Copy");
+    if(copy){copy.click();await Promise.resolve();break;}
+    const next=status.querySelectorAll("button:not([disabled])").find(button=>button.textContent==="Next");
+    assert.ok(next);next.click();
+  }
+  assert.equal(copied, command);
+  status.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  snapshot = {...snapshot, runs: []};await refresh();
+  assert.match(treeText(list), /The office is quiet/u);
 });
