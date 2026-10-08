@@ -139,7 +139,8 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
       root: options.projectRoot,
       firstSeenAt: previous?.firstSeenAt ?? at,
       lastSeenAt: at,
-      status: options.event === "stop" || options.event === "end" ? "idle" : "active",
+      // A session that only started is waiting at its prompt; work begins with activity.
+      status: options.event === "activity" ? "active" : "idle",
       ...(options.agentId ?? previous?.agentId ? {agentId: options.agentId ?? previous?.agentId} : {}),
       ...(options.runId ?? previous?.runId ? {runId: options.runId ?? previous?.runId} : {}),
       ...(options.workerId ?? previous?.workerId ? {workerId: options.workerId ?? previous?.workerId} : {}),
