@@ -82,7 +82,7 @@ function sessionIdentity(options: OfficeSessionObservation): string | undefined 
 }
 
 function officeEvent(event: string): OfficeSessionEvent {
-  return event === "SessionStart" ? "start" : event === "Stop" ? "stop" : "activity";
+  return event === "SessionStart" ? "start" : event === "Stop" ? "stop" : event === "SessionEnd" ? "end" : "activity";
 }
 
 /** Phase hints come only from normalized native event kinds and exact agent-ops argv. */
@@ -154,7 +154,7 @@ export async function observeOfficeSession(options: OfficeSessionObservation): P
     // A resumed session may outlive the ten-minute idle shutdown. Reusing the
     // same ensure path revives the user's server without creating a tab
     // unless this call actually wins a new-server start claim.
-    if (options.event !== "Stop") await ensureBackgroundOffice(options.root, undefined, openOfficeBrowser);
+    if (options.event !== "Stop" && options.event !== "SessionEnd") await ensureBackgroundOffice(options.root, undefined, openOfficeBrowser);
   } catch {
     // Office is display-only; a missing Git checkout, lock or launcher never blocks a host hook.
   }

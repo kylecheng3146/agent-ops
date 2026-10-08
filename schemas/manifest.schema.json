@@ -144,7 +144,8 @@
               "PostCompact",
               "SubagentStart",
               "SubagentStop",
-              "Stop"
+              "Stop",
+              "SessionEnd"
             ]
           }
         },

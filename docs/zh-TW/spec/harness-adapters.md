@@ -187,7 +187,10 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   帶有 repository 名稱，key 以其區隔，頁面可依 repository 篩選。仍留有 0.7
   per-repository 紀錄的 repository 第一次回報時，會 bootout 其 launchd job 並
   刪除該紀錄，絕不對其 pid 發送訊號。`worktree finish` 成功後會記錄 session
-  完成，使房間關閉；只有新的啟動或 active task 會重新開啟。Session metadata
+  完成，使房間關閉；只有新的啟動或 active task 會重新開啟。啟用 Office 時，Claude Code
+  另有受管理的 `SessionEnd` hook：對話關閉時房間也隨之關閉，即使沒有 task。它不輸出
+  任何內容，也絕不讓 host 失敗。其他 host 沒有結束事件，依活動逾時處理。沒有 task 的
+  房間白板顯示「無任務」，而非待驗證與待審查。Session metadata
   只記錄有界限的識別資訊、已知工作狀態與活動時間，不包含 native transcript、
   prompt、tool 或檔案內容。啟動與活動觀察失敗均為 advisory。
   Server 綁定 127.0.0.1 的隨機 port，要求 URL 中不可猜測的 token，拒絕該位址與

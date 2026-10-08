@@ -686,9 +686,11 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     assert.equal(initial.config.features.office?.enabled, true);
     assert.ok(initial.capabilities.includes("office-presence"));
     assert.ok(!initial.capabilities.includes("command-policy"));
-    for (const harness of ["claude", "codex", "agy"]) {
+    for (const harness of ["codex", "agy"]) {
       assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === harness)!.events, ["SessionStart", "PreToolUse", "Stop"]);
     }
+    // Only Claude publishes the end of a conversation, which closes its Office room.
+    assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "claude")!.events, ["SessionStart", "PreToolUse", "Stop", "SessionEnd"]);
     const plugin = writeOperation(initial, ".opencode/plugins/agent-ops.js");
     assert.match(plugin.content, /runManagedHook\(\$, "SessionStart"/);
     await applyInstallPlan(root, initial);

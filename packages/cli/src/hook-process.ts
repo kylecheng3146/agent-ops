@@ -397,6 +397,29 @@ function completionGateFor(
  * Runs one hook invocation. Exit code stays zero because native JSON carries
  * decisions; only an explicitly installed agy completion gate fails closed.
  */
+/**
+ * Claude's SessionEnd: the conversation closed, so its Office room closes too.
+ * Display-only and fail-open: it writes no output and never fails the host.
+ */
+async function closeOfficeSession(io: HookProcessIo, dependencies: HookProcessDependencies): Promise<number> {
+  try {
+    if (process.env.AGENT_OPS_DISABLE === "1" || dependencies.office === undefined) return 0;
+    const input = parseInput(await readStdin(io.stdin));
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return 0;
+    const fields = input as {cwd?: unknown; session_id?: unknown};
+    const root = dependencies.root ?? (typeof fields.cwd === "string" ? fields.cwd : process.cwd());
+    const outcome = await hookConfigOutcome(root, dependencies.loadConfig);
+    if (outcome.kind === "invalid" || outcome.config.features.office?.enabled !== true) return 0;
+    await dependencies.office({
+      root, harness: "claude", event: "SessionEnd", input, validated: true,
+      ...(typeof fields.session_id === "string" ? {sessionId: fields.session_id} : {})
+    });
+  } catch {
+    // Office never blocks a session, least of all one that is ending.
+  }
+  return 0;
+}
+
 export async function runHookProcess(
   argv: readonly string[],
   io: HookProcessIo,
@@ -404,6 +427,7 @@ export async function runHookProcess(
   dependencies: HookProcessDependencies = {}
 ): Promise<number> {
   const [harness, event] = argv;
+  if (harness === "claude" && event === "SessionEnd") return await closeOfficeSession(io, dependencies);
   // Both hosts whose Stop hook can actually refuse a stop. codex never fires
   // Stop under `codex exec` and rejects `permissionDecision:ask`, so its
   // escape hatch could not be user-approved; opencode can only deny a tool

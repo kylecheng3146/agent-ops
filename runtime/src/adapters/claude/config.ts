@@ -183,6 +183,11 @@ export function buildClaudeHookSettings(
   } else if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
+  // Stop only ends a turn. SessionEnd is the one signal that the conversation
+  // closed, so a session that never had a task can still leave the Office.
+  if (capabilities.includes("office-presence")) {
+    hooks.SessionEnd = [matcherGroup("SessionEnd", runtimePath)];
+  }
   return { hooks };
 }
 

@@ -10,7 +10,8 @@ export const CLAUDE_SUPPORTED_EVENTS = [
   "PostCompact",
   "SubagentStart",
   "SubagentStop",
-  "Stop"
+  "Stop",
+  "SessionEnd"
 ] as const;
 
 export type ClaudeSupportedEvent =
