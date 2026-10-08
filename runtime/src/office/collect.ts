@@ -152,6 +152,20 @@ export async function worktreeDiff(git: OfficeGit, path: string, base: string): 
   return {files: paths.length, insertions, deletions, paths: paths.slice(0, MAX_PATHS), recent: recent ?? paths[0] ?? null};
 }
 
+/**
+ * Work already in the target branch by some route other than `worktree finish`
+ * (a merged pull request): commits past its base, all reachable from the
+ * target, and nothing uncommitted. A fresh worktree (HEAD at base) is not merged.
+ * ponytail: ancestry only, so a squash-merged branch stays visible until removed.
+ */
+export async function worktreeMerged(git: OfficeGit, path: string, base: string, targetBranch: string): Promise<boolean> {
+  const head = (await git(path, ["rev-parse", "HEAD"])).stdout.trim();
+  if (!/^[0-9a-f]{40,64}$/u.test(head) || head === base || !/^[A-Za-z0-9._/-]{1,128}$/u.test(targetBranch)) return false;
+  if ((await git(path, ["merge-base", "--is-ancestor", head, `refs/heads/${targetBranch}`])).exitCode !== 0) return false;
+  const status = await git(path, ["status", "--porcelain"]);
+  return status.exitCode === 0 && status.stdout.trim() === "";
+}
+
 /** Each run is read on its own: one unreadable run must not hide the building. */
 export async function readRuns(commonDir: string): Promise<RunState[]> {
   const directory = join(commonDir, "agent-ops", "runs");
@@ -214,14 +228,20 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
   now = Date.now()): Promise<OfficeInput> {
   const worktrees: OfficeWorktreeInput[] = [];
   const discovered: Array<{readonly path: string; readonly record: NonNullable<Awaited<ReturnType<typeof readWorktreeRecord>>>}> = [];
+  const merged = new Set<string>();
   for (const entry of parseWorktreeListPorcelain((await git(mainRoot, ["worktree", "list", "--porcelain"])).stdout)) {
     const path = await realpath(resolve(entry.path)).catch(() => resolve(entry.path));
     const record = await readWorktreeRecord(path).catch(() => null);
     if (record === null) continue;
+    if (record.runId === undefined && await worktreeMerged(git, path, record.base, record.targetBranch)) {
+      // A subagent's worktree shares its coordinator's session, which stays.
+      if (record.agentId === undefined) merged.add(record.sessionId);
+      continue;
+    }
     discovered.push({path, record});
   }
-  const sessions = await readSessions(mainRoot, commonDir, now,
-    [mainRoot, ...discovered.map(item => item.path)]);
+  const sessions = (await readSessions(mainRoot, commonDir, now,
+    [mainRoot, ...discovered.map(item => item.path)])).filter(session => !merged.has(session.sessionId));
   for (const {path, record} of discovered) {
     const session = sessions.find(item => item.sessionId === record.sessionId);
     const task = await attachedTaskView(path, record.sessionId, session?.taskId);
