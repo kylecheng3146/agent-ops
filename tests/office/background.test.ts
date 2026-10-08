@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ensureBackgroundOffice, officeEnabled, officeHome, observeOfficeSession, serveOffice } from "../../packages/cli/src/office-entry.js";
+import { ensureBackgroundOffice, officeEnabled, officeEvent, officeHome, observeOfficeSession, serveOffice } from "../../packages/cli/src/office-entry.js";
 import { DEFAULT_CONFIG } from "../../packages/cli/src/context.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { LaunchdController } from "../../runtime/src/run/macOS.js";
@@ -15,6 +15,15 @@ import { claimOffice, createOfficeServer } from "../../runtime/src/office/server
 let home = "";
 test.before(async () => { home = await realpath(await mkdtemp(join(tmpdir(), "office-bg-home-"))); process.env.AGENT_OPS_HOME = home; });
 test.after(async () => { delete process.env.AGENT_OPS_HOME; await rm(home, {recursive: true, force: true}); });
+
+test("agy's per-invocation start is work; other hosts' start waits at the prompt", () => {
+  assert.equal(officeEvent("agy", "SessionStart"), "activity");
+  assert.equal(officeEvent("claude", "SessionStart"), "start");
+  assert.equal(officeEvent("codex", "SessionStart"), "start");
+  assert.equal(officeEvent("agy", "Stop"), "stop");
+  assert.equal(officeEvent("claude", "SessionEnd"), "end");
+  assert.equal(officeEvent("claude", "UserPromptSubmit"), "activity");
+});
 
 test("disabled Office Preview records no presence and never starts a server or browser", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "office-bg-disabled-")));

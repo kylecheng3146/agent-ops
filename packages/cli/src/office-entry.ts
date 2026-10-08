@@ -81,8 +81,10 @@ function sessionIdentity(options: OfficeSessionObservation): string | undefined 
   );
 }
 
-function officeEvent(event: string): OfficeSessionEvent {
-  return event === "SessionStart" ? "start" : event === "Stop" ? "stop" : event === "SessionEnd" ? "end" : "activity";
+/** agy's SessionStart is its native PreInvocation, sent as each invocation's work begins. */
+export function officeEvent(harness: string, event: string): OfficeSessionEvent {
+  if (event === "SessionStart") return harness === "agy" ? "activity" : "start";
+  return event === "Stop" ? "stop" : event === "SessionEnd" ? "end" : "activity";
 }
 
 /** Phase hints come only from normalized native event kinds and exact agent-ops argv. */
@@ -142,7 +144,7 @@ export async function observeOfficeSession(options: OfficeSessionObservation): P
       harness: options.harness,
       projectRoot: mainRoot,
       commonDir,
-      event: officeEvent(options.event),
+      event: officeEvent(options.harness, options.event),
       ...(options.agentId === undefined ? {} : {agentId: options.agentId}),
       ...(process.env.AGENT_OPS_RUN_ID === undefined ? {} : {runId: process.env.AGENT_OPS_RUN_ID}),
       ...(process.env.AGENT_OPS_WORKER_ID === undefined ? {} : {workerId: process.env.AGENT_OPS_WORKER_ID}),
