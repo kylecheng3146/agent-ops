@@ -12,6 +12,16 @@ export interface OfficeDiff {
   readonly recent: string | null;
 }
 
+/** One acceptance criterion and its newest verify outcome; a null status means not verified yet. */
+export interface OfficeCriterion {
+  readonly id: string;
+  readonly description: string;
+  readonly status: "PASS" | "FAIL" | "UNKNOWN" | null;
+  readonly finishedAt: string | null;
+  readonly failureClass: string | null;
+  readonly exitCode: number | null;
+}
+
 export interface OfficeWorktreeInput {
   readonly name: string;
   readonly path: string;
@@ -23,6 +33,8 @@ export interface OfficeWorktreeInput {
   readonly status?: string;
   readonly taskId?: string | null;
   readonly progress?: RunTaskProgress | null;
+  readonly title?: string;
+  readonly criteria?: readonly OfficeCriterion[];
   readonly completedAt?: string | null;
   readonly host?: string;
 }
@@ -48,6 +60,8 @@ export interface OfficeInput {
 export interface OfficeSessionView extends OfficeSessionRecord {
   readonly taskStatus?: string;
   readonly progress?: RunTaskProgress | null;
+  readonly title?: string;
+  readonly criteria?: readonly OfficeCriterion[];
 }
 
 export type OfficePhase = RunPhase | "unknown";
@@ -89,6 +103,8 @@ export interface OfficeDesk {
   readonly status?: string;
   readonly taskId?: string | null;
   readonly progress?: RunTaskProgress | null;
+  readonly title?: string;
+  readonly criteria?: readonly OfficeCriterion[];
   readonly questions?: readonly {readonly questionId: string; readonly prompt: string}[];
   readonly completedAt?: string | null;
   readonly host?: string;
@@ -181,6 +197,8 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(worktree.status === undefined && session?.taskStatus === undefined && session?.status === undefined ? {} : {status: worktree.status ?? session?.taskStatus ?? session?.status}),
       ...(worktree.taskId === undefined && session?.taskId === undefined ? {} : {taskId: worktree.taskId ?? session?.taskId ?? null}),
       ...(worktree.progress === undefined && session?.progress === undefined ? {} : {progress: worktree.progress ?? session?.progress ?? null}),
+      ...(worktree.title === undefined && session?.title === undefined ? {} : {title: worktree.title ?? session?.title}),
+      ...(worktree.criteria === undefined && session?.criteria === undefined ? {} : {criteria: worktree.criteria ?? session?.criteria ?? []}),
       ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
     });
@@ -202,6 +220,8 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       status: session.taskStatus ?? session.status,
       ...(session.taskId === undefined ? {} : {taskId: session.taskId}),
       ...(session.progress === undefined ? {} : {progress: session.progress}),
+      ...(session.title === undefined ? {} : {title: session.title}),
+      ...(session.criteria === undefined ? {} : {criteria: session.criteria}),
       ...(completedAt === null ? {} : {completedAt}),
       ...(session.host === undefined ? {} : {host: session.host})
     });

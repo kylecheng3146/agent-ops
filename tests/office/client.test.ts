@@ -489,6 +489,61 @@ test("rooms from several repositories wear nameplates and filter by repository",
   assert.doesNotMatch(treeText(elements.get("work-list")!), /api/u);
 });
 
+test("room mode lists the room's acceptance criteria in the right column; the overview keeps the work list", async () => {
+  const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "flow"];
+  const elements = new Map(ids.map(id => [id, new FakeElement(id)]));
+  elements.get("status")!.hidden = true;
+  const canvas = elements.get("office")!;
+  canvas.width = 576; canvas.height = 304;
+  const hostile = "<img src=x onerror=alert(1)> formats tax";
+  const snapshot: OfficeSnapshot = {generatedAt: "x", runs: [], reviews: [], lobby: [{
+    name: "session-a", branch: "main", sessionId: "s-a", narration: "editing src/tax.ts", phase: "verifying", status: "active",
+    taskId: "task-a", progress: {passed: 1, total: 3, verify: "FAIL", review: null}, title: "Receipt totals",
+    criteria: [
+      {id: "totals", description: "Receipt lists totals", status: "PASS", finishedAt: "2026-10-09T01:00:00.000Z", failureClass: null, exitCode: null},
+      {id: "locale", description: hostile, status: "FAIL", finishedAt: "2026-10-09T02:00:00.000Z", failureClass: "exit-code", exitCode: 1},
+      {id: "snapshots", description: "Snapshots still pass", status: null, finishedAt: null, failureClass: null, exitCode: null}
+    ],
+    questions: [{questionId: "q-1", prompt: "Show tax separately?"}],
+    diff: {files: 1, insertions: 1, deletions: 0, paths: ["src/tax.ts"], recent: null},
+    commands: ["agent-ops task status --session s-a"]
+  }]};
+  const context = {
+    document: {cookie: "", activeElement: null, getElementById: (id: string) => elements.get(id)!, createElement: (tag = "div") => new FakeElement("", tag), addEventListener: () => {}},
+    window: {devicePixelRatio: 1, innerWidth: 1200, innerHeight: 800, matchMedia: () => ({matches: false}), addEventListener: () => {}},
+    navigator: {language: "en-US", clipboard: {writeText: async () => {}}},
+    localStorage: {getItem: () => null, setItem: () => {}},
+    fetch: async () => ({ok: true, json: async () => snapshot}),
+    location: {search: ""}, requestAnimationFrame: () => 0, setInterval: () => 0, console, Math, Promise
+  };
+  runInNewContext(clientScript(), context);
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const vm = context as unknown as {mode: string};
+  const list = elements.get("work-list")!, heading = elements.get("work-heading")!;
+  assert.equal(vm.mode, "overview");
+  assert.match(heading.textContent, /^Work list · 1$/u, "the overview shows the global work list");
+  assert.doesNotMatch(treeText(list), /Receipt lists totals/u);
+
+  elements.get("room-nav")!.children[0]!.click();
+  assert.equal(vm.mode, "room");
+  assert.equal(heading.textContent, "Acceptance checks · 1/3");
+  const cards = list.children.filter(child => child.getAttribute("data-criterion") !== null);
+  assert.deepEqual(cards.map(card => card.getAttribute("data-criterion")), ["totals", "locale", "snapshots"], "every criterion, in task order");
+  assert.deepEqual(cards.map(card => card.className), ["work-card criterion pass", "work-card criterion fail", "work-card criterion pending"]);
+  assert.deepEqual(cards.map(card => card.children[0]!.textContent), ["totals · PASS", "locale · FAIL", "snapshots · Not verified yet"]);
+  assert.equal(cards[1]!.children[1]!.textContent, hostile, "task text is shown literally");
+  assert.equal(cards[1]!.children[2]!.textContent, "exit-code · exit 1 · 2026-10-09 02:00");
+  const text = treeText(list);
+  assert.ok(text.includes("Show tax separately?") && text.includes("agent-ops task status --session s-a"), "questions and commands follow the criteria");
+  assert.ok(text.indexOf("Snapshots still pass") < text.indexOf("Show tax separately?"));
+
+  elements.get("back")!.click();
+  assert.equal(vm.mode, "overview");
+  assert.match(heading.textContent, /^Work list · 1$/u, "leaving the room restores the work list");
+  const panelSource = /function renderRoomPanel\(floor\)\{[\s\S]*?\n\}/u.exec(clientScript())![0];
+  assert.doesNotMatch(panelSource, /innerHTML/u, "the room panel never parses task text as HTML");
+});
+
 test("eight sessions keep full identities, honest proof states and actionable read-only details", async () => {
   const ids = ["office", "dialogue", "status", "room-nav", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "flow"];
   const elements = new Map(ids.map(id => [id, new FakeElement(id)]));

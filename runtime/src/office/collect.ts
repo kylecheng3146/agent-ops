@@ -14,7 +14,7 @@ import {FileEvidenceStore} from "../verify/evidence.js";
 import {readPrivateFile} from "../security/permissions.js";
 import {OFFICE_SESSION_RETENTION_MS, readOfficeSessions} from "./sessions.js";
 import {buildOfficeSnapshot, mergeOfficeSnapshots} from "./snapshot.js";
-import type {OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
+import type {OfficeCriterion, OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
 import {forgetOfficeRepos, readOfficeRepos} from "./repos.js";
 import type {OfficeHome} from "./server.js";
 
@@ -33,6 +33,8 @@ interface OfficeTaskView {
   readonly status: StoredTaskRecord["status"];
   readonly phase: OfficePhase;
   readonly progress: {readonly verify: "PASS" | "FAIL" | null; readonly review: "PASS" | "FAIL" | null; readonly passed: number; readonly total: number};
+  readonly title: string;
+  readonly criteria: readonly OfficeCriterion[];
   readonly completedAt: string | null;
 }
 
@@ -80,13 +82,19 @@ async function taskView(root: string, record: StoredTaskRecord): Promise<OfficeT
   }
   const evidence = [...latest.values()].map(item => item.evidence);
   let passed = 0;
+  const criteria: OfficeCriterion[] = [];
   for (const criterion of record.task.criteria) {
     const rows = evidence.filter(item => item.criterionId === criterion.id);
-    const result = criteriaProgress([criterion], {
-      results: rows.map(item => ({status: item.status})),
-      acceptance: rows.flatMap(item => item.acceptance?.checks.map(check => ({criterionId: criterion.id, status: check.status})) ?? [])
-    });
+    const checks = rows.flatMap(item => item.acceptance?.checks.map(check => ({criterionId: criterion.id, status: check.status})) ?? []);
+    const result = criteriaProgress([criterion], {results: rows.map(item => ({status: item.status})), acceptance: checks});
     passed += result.passed;
+    // The row is PASS exactly when it counts toward `passed`, so the list and the n/m summary agree.
+    const seen = [...rows.map(item => item.status), ...checks.map(check => check.status)];
+    const status = result.passed === 1 ? "PASS" as const : seen.includes("FAIL") ? "FAIL" as const : seen.includes("UNKNOWN") ? "UNKNOWN" as const : null;
+    const last = rows.reduce<VerificationEvidence | null>((current, item) =>
+      current === null || Date.parse(item.finishedAt) >= Date.parse(current.finishedAt) ? item : current, null);
+    criteria.push({id: criterion.id, description: criterion.description, status, finishedAt: last?.finishedAt ?? null,
+      failureClass: status === "PASS" || last === null ? null : last.failureClass, exitCode: status === "PASS" ? null : last?.exitCode ?? null});
   }
   const total = record.task.criteria.length;
   const verify = evidence.some(item => item.status === "FAIL" || item.status === "UNKNOWN")
@@ -108,7 +116,7 @@ async function taskView(root: string, record: StoredTaskRecord): Promise<OfficeT
         : evidence.length > 0
           ? "implementing"
           : "planning";
-  return {taskId: record.task.id, status: record.status, phase, progress, completedAt: record.completedAt};
+  return {taskId: record.task.id, status: record.status, phase, progress, title: record.task.title, criteria, completedAt: record.completedAt};
 }
 
 async function taskState(root: string): Promise<ReturnType<typeof parseTaskStateSource> | null> {
@@ -196,7 +204,7 @@ async function readSessions(mainRoot: string, commonDir: string, now: number,
         : observedPhase ?? task.phase;
     return task === null
       ? session
-      : {...session, taskId: task.taskId, phase, taskStatus: task.status, progress: task.progress,
+      : {...session, taskId: task.taskId, phase, taskStatus: task.status, progress: task.progress, title: task.title, criteria: task.criteria,
         completedAt: task.completedAt, status: task.status === "complete" ? "idle" as const : session.status};
   }));
   return views.filter(session => session.completedAt === undefined || session.completedAt === null ||
@@ -256,7 +264,7 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
     worktrees.push(task === null
       ? session === undefined ? base : {...base, ...(officePhase(session.phase) === undefined ? {} : {phase: officePhase(session.phase)}), status: session.status,
           ...(session.taskId === undefined ? {} : {taskId: session.taskId}), host: session.host ?? session.harness}
-      : {...base, phase, status: task.status, taskId: task.taskId, progress: task.progress,
+      : {...base, phase, status: task.status, taskId: task.taskId, progress: task.progress, title: task.title, criteria: task.criteria,
           ...(task.completedAt === null ? {} : {completedAt: task.completedAt}), host: session?.host ?? session?.harness});
   }
   return {runs: await readRuns(commonDir), worktrees, sessions, reviews: await readReviewSlots(commonDir), now};

@@ -230,6 +230,13 @@ button{font:inherit;color:inherit}
 .work-card button{display:block;width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;border:0;background:transparent;padding:0;cursor:pointer}
 .work-name{font-weight:bold;font-size:14px;text-decoration:underline;text-underline-offset:3px;color:#355a4b}
 .work-card p{margin:4px 0 0}
+.criterion{border-left-width:5px}
+.criterion.pass{border-color:#6d9275}
+.criterion.fail{border-color:#c86f4a}
+.criterion.unknown{border-color:#6b5d50}
+.criterion.pending{border-color:#d9aa72}
+.work-section{margin:6px 0 0;font-size:14px;color:#355a4b}
+.work-command{display:block;padding:4px 6px;background:#f2e5c9;font:12px/1.4 monospace;overflow-wrap:anywhere}
 .work-meta,.work-proof{font-size:13px;color:#4b4035}
 .work-action,.work-reason{font-size:13px;font-weight:600;color:#8a5033}
 .work-card button:focus-visible{outline:3px solid #355a4b;outline-offset:3px}
@@ -277,8 +284,8 @@ var supervisor = {x:43, y:19, targetX:43, targetY:19}, supervisorReady = false, 
 var roomSupervisor = {x:32, y:34, targetX:32, targetY:34};
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var STRINGS = {
-  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -623,8 +630,9 @@ function completionText(floor,actor){
 function renderWorkPanel(){
   if(!model||!workList)return;
   var rooms=mode==='room'&&activeRoom()?[activeRoom()]:visibleRooms();
-  var signature=JSON.stringify([lang,offline,mode,rooms.map(function(f){return [f.key,f.title,f.status,f.phase,f.completedAt,f.actors,f.questions];})]);
+  var signature=JSON.stringify([lang,offline,mode,rooms.map(function(f){return [f.key,f.title,f.status,f.phase,f.completedAt,f.actors,f.questions,f.criteria];})]);
   if(signature===workSignature)return;workSignature=signature;
+  if(mode==='room'&&activeRoom()){renderRoomPanel(activeRoom());renderFlow();return;}
   var focusKey=document.activeElement&&document.activeElement.getAttribute?document.activeElement.getAttribute('data-work-key'):null,restoreFocus=null,entries=[];
   rooms.forEach(function(floor){floor.actors.forEach(function(actor){entries.push({floor:floor,actor:actor,attention:attentionFor(actor)});});});
   entries.sort(function(a,b){return Number(!!b.attention)-Number(!!a.attention);});
@@ -650,8 +658,41 @@ function renderWorkPanel(){
     }
     workList.appendChild(card);
   });
-  flow.textContent='';['planning','implementing','verifying','reviewing','integrating'].forEach(function(phase,index){var step=document.createElement('li');step.textContent=(index+1)+' '+phaseLabel(phase);if(mode==='room'&&activeRoom().phase===phase)step.setAttribute('aria-current','step');flow.appendChild(step);});
+  renderFlow();
   if(focusKey&&statusBox.hidden)(restoreFocus||canvas).focus();
+}
+function renderFlow(){flow.textContent='';['planning','implementing','verifying','reviewing','integrating'].forEach(function(phase,index){var step=document.createElement('li');step.textContent=(index+1)+' '+phaseLabel(phase);if(mode==='room'&&activeRoom().phase===phase)step.setAttribute('aria-current','step');flow.appendChild(step);});}
+function criterionStatusText(status){return status==='PASS'?t('critPass'):status==='FAIL'?t('critFail'):status==='UNKNOWN'?t('critUnknown'):t('critPending');}
+function panelText(tag,className,text){var node=document.createElement(tag);if(className)node.className=className;node.textContent=text;return node;}
+// Room mode: the right column lists this room's acceptance criteria, questions and commands. Task text is data, so textContent only.
+function renderRoomPanel(floor){
+  var criteria=floor.criteria||[],passed=criteria.filter(function(c){return c.status==='PASS';}).length;
+  workHeading.textContent=t('checks')+' · '+passed+'/'+criteria.length;
+  workSummary.textContent=offline?t('stale'):floor.title;
+  workList.textContent='';
+  if(!criteria.length)workList.appendChild(panelText('p','',t('noCriteria')));
+  criteria.forEach(function(c){
+    var card=document.createElement('article');card.className='work-card criterion '+(c.status?c.status.toLowerCase():'pending');card.setAttribute('data-criterion',c.id);
+    card.appendChild(panelText('p','work-name',c.id+' · '+criterionStatusText(c.status)));
+    card.appendChild(panelText('p','',c.description));
+    var meta=[];if(c.status&&c.status!=='PASS'){if(c.failureClass)meta.push(c.failureClass);if(c.exitCode!==null&&c.exitCode!==undefined)meta.push('exit '+c.exitCode);}
+    if(c.finishedAt)meta.push(c.finishedAt.replace('T',' ').slice(0,16));
+    if(meta.length)card.appendChild(panelText('p','work-meta',meta.join(' · ')));
+    workList.appendChild(card);
+  });
+  if(floor.questions.length){
+    workList.appendChild(panelText('h3','work-section',t('questions')+' · '+floor.questions.length));
+    floor.questions.forEach(function(question){
+      var card=document.createElement('article');card.className='work-card attention';card.appendChild(panelText('p','',question.prompt));
+      var answer=document.createElement('button');answer.type='button';answer.className='work-action';answer.textContent=t('openQuestion')+' →';answer.addEventListener('click',function(){openQuestionList(floor);});card.appendChild(answer);
+      workList.appendChild(card);
+    });
+  }
+  var source=sourceFor(floor);
+  if(source&&source.commands&&source.commands.length){
+    workList.appendChild(panelText('h3','work-section',t('commands')));
+    source.commands.forEach(function(command){workList.appendChild(panelText('code','work-command',command));});
+  }
 }
 function updateHeader(){
   if(document.documentElement)document.documentElement.lang=lang==='zh'?'zh-Hant':'en';

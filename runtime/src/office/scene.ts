@@ -55,6 +55,15 @@ export interface SceneBoard {
   readonly taskId: string;
 }
 
+export interface SceneCriterion {
+  readonly id: string;
+  readonly description: string;
+  readonly status: "PASS" | "FAIL" | "UNKNOWN" | null;
+  readonly finishedAt: string | null;
+  readonly failureClass: string | null;
+  readonly exitCode: number | null;
+}
+
 export interface SceneOverviewBox {
   readonly x: number;
   readonly y: number;
@@ -73,6 +82,8 @@ export interface SceneFloor {
   readonly phaseAreas: readonly ScenePhaseArea[];
   readonly board: SceneBoard;
   readonly questions: readonly {readonly questionId: string; readonly prompt: string}[];
+  /** The attached task's acceptance criteria; empty for runs, review slots and desks without a task. */
+  readonly criteria: readonly SceneCriterion[];
   /** Props and actors are in room-local tiles. Paper stack height per desk key. */
   readonly papers: Readonly<Record<string, number>>;
   readonly books: {readonly lit: number; readonly total: number};
@@ -209,7 +220,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     const rootProgress = {passed, total, verify, review};
     const taskId = run.agents.find(agent => agent.role === "coordinator")?.taskId ?? "unassigned";
     if (questions.length > 0) dialogue.push(`${run.title}: waiting for your answer — ${questions[0]!.prompt}`);
-    return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions,
+    return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions, criteria: [],
       board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: passed, total},
       clock: run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 0, phase: run.phase, status: run.status,
       completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
@@ -226,6 +237,15 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       return {questionId: typeof item.questionId === "string" ? item.questionId : "unknown", prompt: typeof item.prompt === "string" ? item.prompt : ""};
     });
     const completedAt = typeof extra.completedAt === "string" ? extra.completedAt : null;
+    // Inline checks, no named helper: the page embeds sceneModel via toString, so it cannot carry bundler helpers.
+    const criteria: SceneCriterion[] = (Array.isArray(extra.criteria) ? extra.criteria : []).map(value => {
+      const item = optional(value);
+      return {id: typeof item.id === "string" ? item.id : "unknown", description: typeof item.description === "string" ? item.description : "",
+        status: item.status === "PASS" || item.status === "FAIL" || item.status === "UNKNOWN" ? item.status : null,
+        finishedAt: typeof item.finishedAt === "string" ? item.finishedAt : null,
+        failureClass: typeof item.failureClass === "string" ? item.failureClass : null,
+        exitCode: typeof item.exitCode === "number" ? item.exitCode : null};
+    });
     const repo = repoOf(desk);
     const key = scoped(repo, "session:" + [desk.sessionId || "unknown", desk.branch || "unknown", desk.name || "session"].join(":"));
     const props = makeProps(key);
@@ -237,7 +257,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     if (questions.length > 0) dialogue.push(`${desk.name}: waiting for your answer.`);
     dialogue.push(`${desk.name}: ${desk.narration}.`);
     return {key, sourceIndex: index, kind: "desk", title: titled(repo, desk.name), top: 0, props, actors: [actor], phaseAreas: makeAreas(),
-      board: boardFor(p, status, taskId, questions.length), questions, papers: {[key + ":implementing"]: Math.min(8, desk.diff.files)}, books: {lit: p?.passed ?? 0, total: p?.total ?? 0},
+      board: boardFor(p, status, taskId, questions.length), questions, criteria, papers: {[key + ":implementing"]: Math.min(8, desk.diff.files)}, books: {lit: p?.passed ?? 0, total: p?.total ?? 0},
       clock: 1, phase, status, completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
   snapshot.runs.forEach((run, index) => floors.push(makeRun(run, index)));
@@ -251,7 +271,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
       status: "reviewing", phase: "reviewing", taskId: review.taskId ?? "unassigned", progress: null,
       narration: "reviewing", questionCount: 0, host: "unknown"};
     dialogue.push(`Review slot ${review.slot}: ${review.taskId ?? "unassigned"}.`);
-    floors.push({key, sourceIndex: index, kind: "review", title: titled(repo, "Review slot " + review.slot), top: 0, props, actors: [actor], phaseAreas: makeAreas(), questions: [],
+    floors.push({key, sourceIndex: index, kind: "review", title: titled(repo, "Review slot " + review.slot), top: 0, props, actors: [actor], phaseAreas: makeAreas(), questions: [], criteria: [],
       board: boardFor(null, "reviewing", review.taskId ?? "unassigned", 0), papers: {}, books: {lit: 0, total: 0}, clock: 1,
       phase: "reviewing", status: "reviewing", completedAt: null, repo, overview: {x: 0, y: 0, width: 0, height: 0}});
   });

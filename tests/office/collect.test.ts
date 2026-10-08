@@ -100,6 +100,58 @@ test("collects only the newest verification candidate and requires its review", 
   }
 });
 
+test("each desk lists its criteria with the newest outcome, consistent with the n/m summary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-office-criteria-"));
+  const child = join(root, ".worktrees", "session-mixed");
+  const commonDir = join(root, ".git");
+  try {
+    await mkdir(commonDir, {recursive: true});
+    await mkdir(child, {recursive: true});
+    await writeWorktreeRecord({schemaVersion: 1, name: "session-mixed", branch: "agent-ops/session-mixed", path: child,
+      mainRoot: root, targetBranch: "main", base: "a".repeat(40), sessionId: "session-mixed", createdAt: "2026-10-07T00:00:00.000Z"});
+    const tasks = new TaskService(new FileTaskStore(join(child, ".agent-ops", "tasks", "state.json"), child), {completion: completionContext(child)});
+    const created = await tasks.create({title: "Mixed proof", criteria: [
+      {id: "totals", description: "Receipt lists totals", verifierIds: ["unit"]},
+      {id: "locale", description: "Tax follows the <b>locale</b>", verifierIds: ["unit"]},
+      {id: "snapshots", description: "Snapshots still pass", verifierIds: ["unit"]}
+    ], sessionId: "session-mixed", policyConfigHash: calculateConfigHash(COMPLETION_CONFIG)});
+    const original = await passingCompletionEvidence(child, created, COMPLETION_CONFIG);
+    const store = new FileEvidenceStore(child, child);
+    const failed = await store.save(buildVerificationEvidence({taskId: created.task.id, criterionId: "locale",
+      command: COMPLETION_CONFIG.verification.commands[0]!, config: COMPLETION_CONFIG, sourceFingerprint: "d".repeat(64), scope: "project",
+      startedAt: "2026-10-07T02:00:00.000Z", finishedAt: "2026-10-07T02:00:00.000Z", status: "FAIL", exitCode: 1, testCount: 0,
+      failureClass: "exit-code", toolVersions: {}}));
+    // "snapshots" never ran: it must read as not verified, not as a failure.
+    await tasks.recordEvidence(created.task.id, {totals: original.totals!, locale: [...original.locale!, failed]});
+    const git: OfficeGit = async (cwd, args) => cwd === root && args[0] === "worktree"
+      ? {exitCode: 0, stdout: `worktree ${root}\n\nworktree ${child}\nbranch refs/heads/agent-ops/session-mixed\n\n`}
+      : {exitCode: 0, stdout: ""};
+    const input = await collectOfficeInput(root, commonDir, git, Date.parse("2026-10-07T03:00:00.000Z"));
+    const worktree = input.worktrees[0]!;
+    assert.equal(worktree.title, "Mixed proof");
+    assert.deepEqual(worktree.criteria, [
+      {id: "totals", description: "Receipt lists totals", status: "PASS", finishedAt: "2026-07-23T12:00:01Z", failureClass: null, exitCode: null},
+      {id: "locale", description: "Tax follows the <b>locale</b>", status: "FAIL", finishedAt: "2026-10-07T02:00:00.000Z", failureClass: "exit-code", exitCode: 1},
+      {id: "snapshots", description: "Snapshots still pass", status: null, finishedAt: null, failureClass: null, exitCode: null}
+    ]);
+    const desk = buildOfficeSnapshot(input).lobby[0]!;
+    assert.deepEqual(desk.criteria, worktree.criteria, "the snapshot desk carries the rows unchanged");
+    assert.equal(desk.title, "Mixed proof");
+    assert.equal(desk.criteria!.filter(row => row.status === "PASS").length, desk.progress!.passed, "PASS rows match the passed count");
+    assert.equal(desk.criteria!.length, desk.progress!.total, "every criterion has a row");
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("a desk without an attached task carries no criteria", () => {
+  const snapshot = buildOfficeSnapshot({runs: [], reviews: [], now: Date.parse("2026-10-07T03:00:00.000Z"), worktrees: [{
+    name: "bare", path: "/tmp/bare", branch: "agent-ops/bare", sessionId: "bare",
+    diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}
+  }]});
+  assert.equal(snapshot.lobby[0]!.criteria, undefined);
+});
+
 test("collect hides a worktree already merged into its target, and only that one", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-office-merged-"));
   const commonDir = join(root, ".git");
