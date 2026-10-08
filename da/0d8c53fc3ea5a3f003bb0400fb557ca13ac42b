@@ -1,0 +1,10 @@
+worktree: session-b6cee90c (agent-ops/session-b6cee90c)
+session: b6cee90c-f71c-49ac-834e-86182ff04d11
+agent-ops task task-2dbbcf1b-b21e-425d-b5b5-8f745e0b3b5e: update --auto-run on|off
+intent: update gains --auto-run on|off and an interactive prompt (default current choice; only macOS with claude or codex, TTY, no --yes, no flag). on adds run (implies loop); off removes only run, keeping loop. Preauth follows profiles. Plan summary shows Auto-run; help, configuration guide en+zh-TW, CHANGELOG.
+criteria:
+- flag-on: update --auto-run on adds run (and loop) to config profiles, writes the auto-run instruction into managed CLAUDE.md and the Claude run preauth (test)
+- flag-off: update --auto-run off removes only run, keeps loop, and drops the run preauth and instruction (test)
+- prompt: the auto-run prompt is asked only when TTY, no --yes, no flag, darwin, and claude or codex installed; its default is the current choice; otherwise profiles are preserved (test)
+- surface: update plan summary shows Auto-run enabled/disabled; update --help lists --auto-run; configuration guide en and zh-TW and CHANGELOG document it
+- suite-passes: npm test passes
