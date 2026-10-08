@@ -1,0 +1,7 @@
+worktree: session-339b4a84 (agent-ops/session-339b4a84)
+session: 339b4a84-4f14-4487-8b2c-a389003af7d4
+agent-ops task task-8364de9d-b5d4-47fd-9cfe-7ce830cee8bb: Fix Office CI failures on Windows and Node 26
+intent: CI for 0.7.0 and the 0.7.1 PR fails: on Node 26 the private-state heartbeat FileHandle, referenced only by an interval closure, is closed by GC once a test resets mocked timers (now an error); on Windows background.test builds a darwin LaunchdController without a uid and asserts POSIX directory modes. Keep heartbeat handles strongly referenced for the process lifetime; make the tests platform-correct.
+criteria:
+- heartbeat-retained: A private-state heartbeat handle is never closed by garbage collection, even after mocked timers are reset
+- windows-office-tests: Office background tests pass a uid to the darwin launchd fake and assert POSIX directory modes only off Windows
