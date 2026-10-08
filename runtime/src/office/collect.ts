@@ -18,7 +18,7 @@ export type OfficeGit = (cwd: string, args: readonly string[]) => Promise<{exitC
 
 const run = promisify(execFile);
 export const officeGit: OfficeGit = async (cwd, args) => {
-  try {return {exitCode: 0, stdout: (await run("git", [...args], {cwd, maxBuffer: 8 * 1024 * 1024})).stdout};}
+  try {return {exitCode: 0, stdout: (await run("git", [...args], {cwd, maxBuffer: 8 * 1024 * 1024, windowsHide: true})).stdout};}
   catch {return {exitCode: 1, stdout: ""};}
 };
 

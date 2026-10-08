@@ -53,7 +53,7 @@ export function projectConfigRoot(root: string): string {
     const common = execFileSync(
       "git",
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }
     ).trim();
     if (basename(common) !== ".git") {
       return root;
@@ -219,7 +219,8 @@ export function repositoryRemoteUrl(root: string): string {
   try {
     return execFileSync("git", ["config", "--get", "remote.origin.url"], {
       cwd: root,
-      encoding: "utf8"
+      encoding: "utf8",
+      windowsHide: true
     }).trim();
   } catch {
     return `local:${root}`;
@@ -257,7 +258,7 @@ export async function repositoryTrust(
 export async function runPolicyContext(root: string) {
   let common: string;
   try {common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    {cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim();} catch {return null;}
+    {cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim();} catch {return null;}
   const source = await readPrivateFile(join(root, ".agent-ops/tasks/worktree.json"), root);
   const record = source === null ? null : JSON.parse(source) as {runId?: string; workerId?: string; workerGeneration?: number;
     ownerSessionId?: string; coordinatorId?: string};
@@ -271,8 +272,8 @@ export async function runPolicyContext(root: string) {
   const proofProcess = worker?.proofProcess ?? saved.proofProcess;
   let proof = false;
   if (proofProcess != null && String(proofProcess.processId) === process.env.AGENT_OPS_RUN_PROOF_PID) {
-    try {proof = execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim() === String(proofProcess.processId) &&
-      execFileSync("ps", ["-o", "lstart=", "-p", String(proofProcess.processId)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim() === proofProcess.processIdentity;}
+    try {proof = execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim() === String(proofProcess.processId) &&
+      execFileSync("ps", ["-o", "lstart=", "-p", String(proofProcess.processId)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim() === proofProcess.processIdentity;}
     catch {proof = false;}
   }
   if ((!proof && (worker === undefined || record?.runId !== runId || record.workerId !== worker.workerId ||
