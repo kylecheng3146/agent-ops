@@ -119,8 +119,9 @@ test("the overview groups rooms by repository, puts rooms that need an answer fi
   assert.equal(vm.mode, "room");
   assert.ok(vm.selectedKey.endsWith("asking-shop"));
   const canvas = elements.get("office")!;
-  assert.equal(canvas.width % 576, 0); assert.equal(canvas.height % 320, 0); assert.equal(canvas.width / 576, canvas.height / 320);
-  assert.equal(vm.scale, 2, "1440x900 fits the room twice");
+  assert.ok(Math.abs(vm.scale - (1440 - 32) / 576) < 1e-9, "the room fills the available width of a 1440x900 window");
+  assert.equal(canvas.style.width, Math.round(576 * vm.scale) + "px");
+  assert.ok(Math.abs(canvas.width / canvas.height - 576 / 320) < 0.01, "the room keeps its 9:5 shape");
   elements.get("back")!.click();
   assert.equal(vm.mode, "overview");
   overview.events.get("keydown")!({key: "3", preventDefault: () => {}});
@@ -143,7 +144,10 @@ test("a room renders with whole pixels only, no canvas text, and a whiteboard dr
   for (const call of numeric) for (const arg of call.args.slice(1)) if (typeof arg === "number") assert.ok(Number.isInteger(arg), `${call.name} uses whole pixels: ${call.args.slice(1).join(",")}`);
   assert.equal(calls.filter(call => call.name === "fillText" || call.name === "strokeText").length, 0, "the canvas draws no text");
   const canvas = elements.get("office")!;
-  assert.deepEqual([canvas.width, canvas.height], [576 * vm.scale, 320 * vm.scale]);
+  assert.deepEqual([canvas.width, canvas.height], [Math.round(576 * vm.scale) * 2, Math.round(320 * vm.scale) * 2], "the backing store follows device pixels");
+  assert.equal((canvas.getContext() as {imageSmoothingEnabled?: boolean}).imageSmoothingEnabled, false, "the stretch stays nearest-neighbour");
+  const stretch = calls.filter(call => call.name === "drawImage" && call.args[0] === canvas).at(-1)!;
+  assert.deepEqual(stretch.args.slice(2), [0, 0, canvas.width, canvas.height], "the pixel-exact layer fills the canvas");
   const board = vm.LAYOUT.board;
   const noteAt = (index: number) => calls.find(call => call.name === "drawImage" && call.args[2] === board.x + vm.notePosition(index).x && call.args[3] === board.y + vm.notePosition(index).y);
   assert.equal(noteAt(0)?.args[1], vm.images.notePass, "PASS is a green note");
@@ -273,7 +277,7 @@ test("the room panel lists criteria, the language is remembered, dialogs page an
   // A click on the person opens their details, which page and copy long commands whole.
   vm.render();
   const figure = vm.lastFigures[0]!;
-  canvas.click({clientX: (figure.x + 17) * vm.scale, clientY: (figure.y + 25) * vm.scale});
+  canvas.click({clientX: (figure.x + 17) * canvas.width / 576, clientY: (figure.y + 25) * canvas.height / 320});
   assert.equal(status.children[0]!.textContent, "receipt");
   const texts: string[] = [];
   for (let page = 0; page < 6; page++) {

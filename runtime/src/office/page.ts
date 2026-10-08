@@ -32,7 +32,7 @@ button{font:inherit;color:inherit}
 .card-title{font-weight:bold;color:#2b241f;overflow-wrap:anywhere}
 .card-meta{font-size:13px;color:#4b4035}
 .empty{padding:20px}
-#room-view{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:4px 8px}
+#room-view{display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 8px}
 #hud{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;width:100%;padding:6px 10px;background:#fff7e6;border:2px solid #8a5033}
 .hud-title{font-size:15px;margin-right:4px;overflow-wrap:anywhere}
 .hud-bar{display:inline-block;width:110px;height:10px;background:#e2cda6;border:2px solid #2b241f}
@@ -229,8 +229,9 @@ function stepAlong(state){
   state.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down");
   state.x = next.x; state.y = next.y; state.step++;
 }
-function advance(){ Object.keys(people).forEach(function(key){ stepAlong(people[key]); }); stepAlong(viewer); }
-function walkPose(state){ return state.dir + ["1", "0", "2", "0"][(state.step >> 2) % 4]; }
+/** People cover two grid cells a frame, the viewer three. */
+function advance(){ Object.keys(people).forEach(function(key){ stepAlong(people[key]); stepAlong(people[key]); }); stepAlong(viewer); stepAlong(viewer); stepAlong(viewer); }
+function walkPose(state){ return state.dir + ["1", "0", "2", "0"][(state.step >> 3) % 4]; }
 /** Everyone drawn in a room: sprite top-left, draw depth, pose and feet. */
 function figures(floor){
   var out = [];
@@ -331,22 +332,25 @@ function renderOverview(){
   Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); });
 }
 
-// ---- room view: the room at the largest whole-number scale, text in HTML over it ----
+// ---- room view: the pixel-exact room layer stretched to fill the space, text in HTML over it ----
 function roomScale(){
-  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 16, height = window.innerHeight - 170;
-  return Math.max(1, Math.floor(Math.min(width / ROOM_W, height / ROOM_H)));
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight) - ((hud && hud.offsetHeight) || 44) - 40;
+  return Math.max(0.5, Math.min(width / ROOM_W, height / ROOM_H));
 }
 function renderRoomView(){
   var floor = activeRoom(); if (!floor) return;
   scale = roomScale();
-  if (canvas.width !== ROOM_W * scale) canvas.width = ROOM_W * scale;
-  if (canvas.height !== ROOM_H * scale) canvas.height = ROOM_H * scale;
-  canvas.style.width = canvas.width + "px"; canvas.style.height = canvas.height + "px";
+  // The CSS box fills the space; the backing store follows the device pixels so nearest-neighbour stays sharp.
+  var cssW = Math.round(ROOM_W * scale), cssH = Math.round(ROOM_H * scale), dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  var backW = Math.round(cssW * dpr), backH = Math.round(cssH * dpr);
+  if (canvas.width !== backW) canvas.width = backW;
+  if (canvas.height !== backH) canvas.height = backH;
+  canvas.style.width = cssW + "px"; canvas.style.height = cssH + "px";
   labels.style.width = canvas.style.width; labels.style.height = canvas.style.height;
   if (!stageCanvas) stageCanvas = makeCanvas();
   lastFigures = renderRoom(floor, stageCanvas.getContext("2d"));
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(stageCanvas, 0, 0, ROOM_W * scale, ROOM_H * scale);
+  ctx.drawImage(stageCanvas, 0, 0, backW, backH);
   renderHud(floor); renderLabels(floor, lastFigures);
 }
 function renderHud(floor){
@@ -637,8 +641,11 @@ function freeAt(p){
 }
 function moveViewer(dx, dy){
   viewer.dir = dx ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down"); viewer.path = [];
-  var next = {x: viewer.x + dx * 4, y: viewer.y + dy * 4};
-  if (freeAt(next)) { viewer.x = next.x; viewer.y = next.y; viewer.step++; }
+  for (var i = 0; i < 4; i++) {
+    var next = {x: viewer.x + dx * 2, y: viewer.y + dy * 2};
+    if (!freeAt(next)) break;
+    viewer.x = next.x; viewer.y = next.y; viewer.step += 2;
+  }
   render();
 }
 function walkTo(point){
