@@ -1,0 +1,8 @@
+worktree: session-339b4a84 (agent-ops/session-339b4a84)
+session: 339b4a84-4f14-4487-8b2c-a389003af7d4
+agent-ops task task-c0bc7523-90dd-4f5c-9607-52d6d15da34a: Office closes ended sessions and labels taskless rooms
+intent: A Claude session that ends without a task stayed an open room until retention, its board claiming verify/review not done. Register a managed Claude SessionEnd hook when office-presence is active (loop and non-loop installs); the hook records completedAt for that session in office-sessions.json, fail-open and never blocking. Rooms without a task show a no-task board instead of pending verify/review.
+criteria:
+- session-end-registered: Claude settings with office-presence carry one managed SessionEnd hook, in loop and non-loop installs, and uninstall removes it
+- session-end-closes-room: A Claude SessionEnd hook records completedAt for that session so its room moves to recently completed, and never blocks or fails the host
+- taskless-board: A room with no task shows a no-task board, not verify and review pending
