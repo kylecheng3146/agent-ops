@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-08
+
 - Office now spans repositories: one user-global server (under
   `~/.agent-ops/state/office/`) shows every Office-enabled repository, with
   repository nameplates and a repository filter. A 0.7 per-repository server
