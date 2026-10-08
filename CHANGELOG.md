@@ -4,6 +4,15 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Office shows a session that has only started as idle instead of in progress;
+  a submitted prompt or tool activity marks it active. agy's per-invocation
+  start still counts as activity.
+- Outside the project loop, Claude Code and Codex get a managed
+  `UserPromptSubmit` hook when Office or command policy is enabled. Office
+  records the turn's start; command policy refuses a prompt carrying a literal
+  credential, as the loop already does. Runtime failures let the prompt
+  through. Run `agent-ops update` to register it.
+
 ## [0.7.3] - 2026-10-08
 
 - Office hides a worktree whose work already reached its target branch by

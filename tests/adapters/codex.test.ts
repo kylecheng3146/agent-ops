@@ -56,6 +56,17 @@ const LOOP_EVENTS = [
   "SubagentStop"
 ] as const;
 
+test("outside the loop, Office or command policy adds one managed Codex prompt hook", () => {
+  for (const capabilities of [["office-presence"], ["command-policy"]] as const) {
+    const prompt = buildCodexHookConfig(capabilities, RUNTIME_PATH).hooks.UserPromptSubmit;
+    assert.equal(prompt?.length, 1, capabilities.join(","));
+    assert.match(JSON.stringify(prompt), /codex UserPromptSubmit --managed-by=agent-ops/u);
+  }
+  assert.equal(buildCodexHookConfig(["lifecycle-summary"], RUNTIME_PATH).hooks.UserPromptSubmit, undefined);
+  // The loop's own launcher already owns the prompt.
+  assert.match(JSON.stringify(buildCodexHookConfig(["project-loop", "office-presence"], RUNTIME_PATH).hooks.UserPromptSubmit), /agent-ops-loop\.sh/u);
+});
+
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
   const existing = await fixture();
   const managed = buildCodexHookConfig(

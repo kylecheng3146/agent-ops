@@ -253,7 +253,7 @@ test("disables owned Stop handlers while preserving foreign handlers", async () 
     const manifest = JSON.parse(
       await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
     ) as { hooks?: { events: string[] }[] };
-    assert.deepEqual(manifest.hooks?.[0]?.events, ["PreToolUse"]);
+    assert.deepEqual(manifest.hooks?.[0]?.events, ["UserPromptSubmit", "PreToolUse"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

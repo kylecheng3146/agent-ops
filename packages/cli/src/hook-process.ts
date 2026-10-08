@@ -45,6 +45,8 @@ import {readWorktreeRecord} from "../../../runtime/src/parallel/service.js";
 import {FileRunRepository} from "../../../runtime/src/run/service.js";
 import {validateWorkerStopHandoff} from "../../../runtime/src/run/worker-gate.js";
 import { runLifecycleAdvisory } from "../../../runtime/src/hooks/advisory.js";
+import { evaluateGuardrail } from "../../../runtime/src/guardrails/evaluate.js";
+import { resolveCapabilities } from "../../../runtime/src/install/profiles.js";
 import {
   STOP_VERIFICATION_ENV,
   StopVerificationService
@@ -420,6 +422,44 @@ async function closeOfficeSession(io: HookProcessIo, dependencies: HookProcessDe
   return 0;
 }
 
+/**
+ * A prompt submitted outside the project loop: Office records the turn's work
+ * starting, and command policy refuses a literal credential the way the loop
+ * does. Every runtime failure lets the prompt through.
+ */
+async function promptSubmitted(harness: "claude" | "codex", io: HookProcessIo, dependencies: HookProcessDependencies): Promise<number> {
+  try {
+    if (process.env.AGENT_OPS_DISABLE === "1") return 0;
+    const input = parseInput(await readStdin(io.stdin));
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return 0;
+    const fields = input as {cwd?: unknown; session_id?: unknown; prompt?: unknown};
+    const root = dependencies.root ?? (typeof fields.cwd === "string" ? fields.cwd : process.cwd());
+    const outcome = await hookConfigOutcome(root, dependencies.loadConfig);
+    if (outcome.kind === "invalid") return 0;
+    const config = outcome.config;
+    if (dependencies.office !== undefined && config.features.office?.enabled === true) {
+      await dependencies.office({
+        root, harness, event: "UserPromptSubmit", input, validated: true,
+        ...(typeof fields.session_id === "string" ? {sessionId: fields.session_id} : {})
+      }).catch(() => undefined);
+    }
+    if (config.profiles.length === 0 || !resolveCapabilities(config).capabilities.includes("command-policy")) return 0;
+    // ponytail: the loop's 64 KiB prompt bound; a larger prompt goes unchecked.
+    const prompt = fields.prompt;
+    if (typeof prompt !== "string" || prompt.length === 0 || prompt.length > 64 * 1024 || prompt.includes("\0")) return 0;
+    if (evaluateGuardrail({kind: "content", content: prompt, scope: root}).action !== "block") return 0;
+    const reason = "agent-ops blocked a suspected secret.";
+    if (harness === "claude") {
+      io.writeStdout(JSON.stringify({decision: "block", reason}));
+      return 0;
+    }
+    io.writeStderr(reason + "\n");
+    return 2;
+  } catch {
+    return 0;
+  }
+}
+
 export async function runHookProcess(
   argv: readonly string[],
   io: HookProcessIo,
@@ -428,6 +468,7 @@ export async function runHookProcess(
 ): Promise<number> {
   const [harness, event] = argv;
   if (harness === "claude" && event === "SessionEnd") return await closeOfficeSession(io, dependencies);
+  if ((harness === "claude" || harness === "codex") && event === "UserPromptSubmit") return await promptSubmitted(harness, io, dependencies);
   // Both hosts whose Stop hook can actually refuse a stop. codex never fires
   // Stop under `codex exec` and rejects `permissionDecision:ask`, so its
   // escape hatch could not be user-approved; opencode can only deny a tool

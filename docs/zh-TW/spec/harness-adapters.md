@@ -189,7 +189,12 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   刪除該紀錄，絕不對其 pid 發送訊號。`worktree finish` 成功後會記錄 session
   完成，使房間關閉；只有新的啟動或 active task 會重新開啟。啟用 Office 時，Claude Code
   另有受管理的 `SessionEnd` hook：對話關閉時房間也隨之關閉，即使沒有 task。它不輸出
-  任何內容，也絕不讓 host 失敗。其他 host 沒有結束事件，依活動逾時處理。沒有 task 的
+  任何內容，也絕不讓 host 失敗。其他 host 沒有結束事件，依活動逾時處理。只有啟動的
+  session 為閒置；送出 prompt 或 tool 活動才標為 active，agy 以 invocation 為單位
+  的啟動視為活動。不在 project loop 時，只要啟用 Office 或 command policy，Claude
+  Code 與 Codex 會有受管理的 `UserPromptSubmit` hook：Office 記錄該輪開始，command
+  policy 以 host 原生格式拒絕含字面憑證的 prompt（Claude `decision: "block"`、Codex
+  exit code 2）。其 runtime 失敗時放行 prompt。沒有 task 的
   房間白板顯示「無任務」，而非待驗證與待審查。Session metadata
   只記錄有界限的識別資訊、已知工作狀態與活動時間，不包含 native transcript、
   prompt、tool 或檔案內容。啟動與活動觀察失敗均為 advisory。
