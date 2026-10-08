@@ -4,6 +4,15 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-08
+
+- Office hides a worktree whose work already reached its target branch by
+  another route than `worktree finish` (a merged pull request): commits past
+  its base, all reachable from the target, and a clean tree. Its session's
+  room goes with it. A squash-merged branch stays visible until removed.
+- An idle Office session that never reported its end now leaves after 30
+  minutes, like an active one; ended rooms keep the two-hour recent window.
+
 ## [0.7.2] - 2026-10-08
 
 - Office closes a Claude Code session's room when the conversation ends, through
