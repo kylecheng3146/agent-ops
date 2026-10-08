@@ -459,8 +459,9 @@ test("rooms from several repositories wear nameplates and filter by repository",
   const desk = (repo: string) => ({name: "session-a", branch: "main", sessionId: "same", repo, narration: "editing",
     diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}, commands: []});
   const snapshot: OfficeSnapshot = {generatedAt: "x", runs: [], lobby: [desk("shop"), desk("api")], reviews: []};
+  const created: FakeElement[] = [];
   const context = {
-    document: {cookie: "", activeElement: null, getElementById: (id: string) => elements.get(id)!, createElement: (tag = "div") => new FakeElement("", tag), addEventListener: () => {}},
+    document: {cookie: "", activeElement: null, getElementById: (id: string) => elements.get(id)!, createElement: (tag = "div") => { const element = new FakeElement("", tag); created.push(element); return element; }, addEventListener: () => {}},
     window: {devicePixelRatio: 1, innerWidth: 1200, innerHeight: 800, matchMedia: () => ({matches: false}), addEventListener: () => {}},
     navigator: {language: "en-US", clipboard: {writeText: async () => {}}},
     localStorage: {getItem: () => null, setItem: () => {}},
@@ -475,6 +476,10 @@ test("rooms from several repositories wear nameplates and filter by repository",
   assert.equal(elements.get("room-nav")!.children.length, 2);
   assert.match(treeText(elements.get("room-nav")!), /api · session-a/u);
   assert.ok(canvas.paintedText.includes("shop") && canvas.paintedText.includes("api"), "each room wears its repository nameplate");
+  // Boards are painted on each room's own canvas.
+  const painted = created.flatMap(element => element.paintedText);
+  assert.ok(painted.includes("No task"), "a room without a task says so");
+  assert.ok(!painted.some(text => /^Verify /u.test(text)), "and claims no pending verify or review");
   filter.value = "shop";
   filter.events.get("change")!();
   assert.equal(elements.get("room-nav")!.children.length, 1);

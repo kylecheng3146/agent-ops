@@ -967,3 +967,23 @@ test("the completion gate answers PreToolUse too, so a permit needs the user", a
   }).hookSpecificOutput;
   assert.equal(specific.permissionDecision, "ask");
 });
+
+test("Claude SessionEnd closes the Office room silently and never fails the host", async () => {
+  const office = {...config(["core"]), features: {...config(["core"]).features, office: {enabled: true}}};
+  const seen: Array<{event: string; sessionId?: string; root: string}> = [];
+  const record = async (observation: {event: string; sessionId?: string; root: string}) => { seen.push(observation); };
+  const input = JSON.stringify({hook_event_name: "SessionEnd", session_id: "ended", cwd: "/repo", reason: "logout"});
+  const ended = io(input);
+  assert.equal(await runHookProcess(["claude", "SessionEnd", "--managed-by=agent-ops"], ended.io, "0.7.2",
+    {loadConfig: async () => office, office: record}), 0);
+  assert.deepEqual(seen.map(item => [item.event, item.sessionId, item.root]), [["SessionEnd", "ended", "/repo"]]);
+  assert.deepEqual([ended.stdout, ended.stderr], [[], []]);
+
+  const off = io(input);
+  assert.equal(await runHookProcess(["claude", "SessionEnd"], off.io, "0.7.2", {loadConfig: async () => config(["core"]), office: record}), 0);
+  const failing = io(input);
+  assert.equal(await runHookProcess(["claude", "SessionEnd"], failing.io, "0.7.2",
+    {loadConfig: async () => office, office: async () => { throw new Error("office down"); }}), 0);
+  assert.equal(seen.length, 1, "a disabled Office records nothing");
+  assert.deepEqual([failing.stdout, failing.stderr], [[], []]);
+});

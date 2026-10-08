@@ -9,7 +9,8 @@ const MAX_SESSIONS = 512;
 const MAX_TEXT = 256;
 const MAX_ROOT = 4_096;
 
-export type OfficeSessionEvent = "start" | "activity" | "stop";
+/** `end`: the host closed the conversation, so the room closes with it. */
+export type OfficeSessionEvent = "start" | "activity" | "stop" | "end";
 
 export interface OfficeSessionRecord {
   readonly schemaVersion: 1;
@@ -139,7 +140,7 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
       root: options.projectRoot,
       firstSeenAt: previous?.firstSeenAt ?? at,
       lastSeenAt: at,
-      status: options.event === "stop" ? "idle" : "active",
+      status: options.event === "stop" || options.event === "end" ? "idle" : "active",
       ...(options.agentId ?? previous?.agentId ? {agentId: options.agentId ?? previous?.agentId} : {}),
       ...(options.runId ?? previous?.runId ? {runId: options.runId ?? previous?.runId} : {}),
       ...(options.workerId ?? previous?.workerId ? {workerId: options.workerId ?? previous?.workerId} : {}),
@@ -148,7 +149,9 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
       ...(options.host ?? previous?.host ? {host: options.host ?? previous?.host} : {}),
       // A finished session keeps its closed room through the tool calls that
       // report the result; only a new start (or resume) reopens it.
-      ...(options.event !== "start" && previous?.completedAt !== undefined ? {completedAt: previous.completedAt} : {})
+      ...(options.event === "end"
+        ? {completedAt: previous?.completedAt ?? at}
+        : options.event !== "start" && previous?.completedAt !== undefined ? {completedAt: previous.completedAt} : {})
     };
     const without = records.filter(record => record.sessionId !== options.sessionId);
     await writePrivateFile(path, JSON.stringify({schemaVersion: 1, sessions: [...without, next].slice(-MAX_SESSIONS)}) + "\n", options.commonDir);

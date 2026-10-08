@@ -56,7 +56,8 @@ const HOOK_EVENT_VALUES = new Set([
   "PostCompact",
   "SubagentStart",
   "SubagentStop",
-  "Stop"
+  "Stop",
+  "SessionEnd"
 ]);
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_EXIT_CODE = 4_294_967_295;

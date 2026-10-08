@@ -468,7 +468,8 @@ test("surfaces non-interactive trust limitations", () => {
     "PostCompact",
     "SubagentStart",
     "SubagentStop",
-    "Stop"
+    "Stop",
+    "SessionEnd"
   ]);
   assert.equal(claudeNonInteractiveTrust(false), "interactive-dialog");
   assert.equal(claudeNonInteractiveTrust(true), "dialog-skipped");
@@ -707,4 +708,16 @@ test("a gated loop install reaches the gate on SessionStart and PreToolUse", () 
   assert.equal(windowsGroups.length, 2);
   assert.equal(windowsGroups[0]?.hooks[0]?.shell, "powershell");
   assert.equal(windowsGroups[1]?.hooks[0]?.command, "node");
+});
+
+test("Office presence adds one managed SessionEnd hook in loop and plain installs", () => {
+  for (const capabilities of [["office-presence"], ["project-loop", "completion-gate", "office-presence"]] as const) {
+    const settings = buildClaudeHookSettings(capabilities, "/runtime/hook-entry.js", "darwin");
+    assert.equal(settings.hooks.SessionEnd?.length, 1, capabilities.join(","));
+    const hook = settings.hooks.SessionEnd![0]!.hooks[0]! as {args?: readonly string[]};
+    assert.deepEqual(hook.args?.slice(1, 4), ["claude", "SessionEnd", "--managed-by=agent-ops"]);
+    assert.equal(isClaudeManagedHandler(hook), true);
+    assert.deepEqual(stripClaudeManagedHooks(settings).hooks ?? {}, {});
+  }
+  assert.equal(buildClaudeHookSettings(["command-policy"], "/runtime/hook-entry.js", "darwin").hooks.SessionEnd, undefined);
 });

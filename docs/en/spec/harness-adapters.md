@@ -217,7 +217,12 @@ Claude or Codex transcripts or file contents.
   first report from a repository that still has a 0.7 per-repository record
   boots its launchd job out and removes that record; its pid is never signalled.
   A successful `worktree finish` records the session's completion so its room
-  closes; only a new start or an active task reopens it. Session metadata contains bounded
+  closes; only a new start or an active task reopens it. With Office enabled,
+  Claude Code also gets a managed `SessionEnd` hook: when the conversation
+  closes, its room closes too, even without a task. It writes no output and
+  never fails the host. Other hosts publish no end event and rely on the
+  activity timeout. A room without a task shows a no-task board rather than
+  pending verification and review. Session metadata contains bounded
   identifiers, known work state and activity times, never native transcripts,
   prompts or tool/file contents. Startup and observation failures are advisory.
   The server binds
