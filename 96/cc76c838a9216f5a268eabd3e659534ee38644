@@ -1,0 +1,8 @@
+worktree: session-04446b1e (agent-ops/session-04446b1e)
+session: 04446b1e-9064-4a81-9572-52f71b4678e3
+agent-ops task task-32e05ce7-a3bd-46fb-8970-b2292f540441: Prepare agent-ops 0.7.3 release
+intent: Bump version 0.7.2 to 0.7.3 in package.json, package-lock.json, codex.ts clientInfo and probe-native-goals.mjs; add a dated 0.7.3 CHANGELOG section below Unreleased describing the Office merged-worktree and idle-session fix. No behavior change.
+criteria:
+- version-bumped: Every 0.7.2 version string (package.json, package-lock root, codex clientInfo, probe clientInfo) reads 0.7.3
+- changelog-entry: CHANGELOG has ## [0.7.3] - 2026-10-08 below an unchanged ## [Unreleased] heading
+- suite-green: npm test passes
