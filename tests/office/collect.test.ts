@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 
-import { collectOfficeInput, type OfficeGit } from "../../runtime/src/office/collect.js";
+import { collectOfficeInput, worktreeMerged, type OfficeGit } from "../../runtime/src/office/collect.js";
+import { recordOfficeSession } from "../../runtime/src/office/sessions.js";
 import { buildOfficeSnapshot } from "../../runtime/src/office/snapshot.js";
 import { writeWorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { TaskService } from "../../runtime/src/task/service.js";
@@ -94,6 +95,42 @@ test("collects only the newest verification candidate and requires its review", 
     await tasks.recordEvidence(created.task.id, {criterion: [...(original.criterion ?? []), failed, passed]});
     const current = await collectOfficeInput(root, commonDir, git, Date.parse("2026-10-07T05:00:00.000Z"));
     assert.deepEqual(current.worktrees[0]?.progress, {verify: "PASS", review: null, passed: 2, total: 2});
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("collect hides a worktree already merged into its target, and only that one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-office-merged-"));
+  const commonDir = join(root, ".git");
+  const base = "b".repeat(40), moved = "c".repeat(40);
+  const trees = {merged: {head: moved, dirty: false}, fresh: {head: base, dirty: false}, dirty: {head: moved, dirty: true}};
+  const now = Date.parse("2026-10-07T01:00:00.000Z");
+  try {
+    await mkdir(commonDir, {recursive: true});
+    for (const name of Object.keys(trees)) {
+      const path = join(root, ".worktrees", name);
+      await mkdir(path, {recursive: true});
+      await writeWorktreeRecord({schemaVersion: 1, name, branch: `agent-ops/${name}`, path, mainRoot: root,
+        targetBranch: "main", base, sessionId: `session-${name}`, createdAt: "2026-10-07T00:00:00.000Z"});
+      await recordOfficeSession({commonDir, projectRoot: root, sessionId: `session-${name}`, harness: "claude", event: "start", now});
+    }
+    const git: OfficeGit = async (cwd, args) => {
+      if (cwd === root && args[0] === "worktree") {
+        return {exitCode: 0, stdout: Object.keys(trees).map(name => `worktree ${join(root, ".worktrees", name)}\n`).join("\n")};
+      }
+      const tree = trees[basename(cwd) as keyof typeof trees];
+      if (args[0] === "rev-parse") return {exitCode: 0, stdout: tree.head + "\n"};
+      if (args[0] === "merge-base") return {exitCode: args[2] === moved && args[3] === "refs/heads/main" ? 0 : 1, stdout: ""};
+      if (args[0] === "status") return {exitCode: 0, stdout: tree.dirty ? " M src/x.ts\n" : ""};
+      return {exitCode: 0, stdout: ""};
+    };
+    // The merged worktree's session would otherwise come back as a (no worktree) room.
+    const snapshot = buildOfficeSnapshot(await collectOfficeInput(root, commonDir, git, now));
+    assert.deepEqual(snapshot.lobby.map(desk => desk.sessionId).sort(), ["session-dirty", "session-fresh"]);
+    assert.equal(await worktreeMerged(git, join(root, ".worktrees", "merged"), base, "main"), true);
+    assert.equal(await worktreeMerged(git, join(root, ".worktrees", "merged"), base, "bad branch"), false,
+      "a branch outside the ref pattern never reaches git");
   } finally {
     await rm(root, {recursive: true, force: true});
   }

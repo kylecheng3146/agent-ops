@@ -106,13 +106,12 @@ async function readRecords(commonDir: string): Promise<OfficeSessionRecord[]> {
 function retained(record: OfficeSessionRecord, now: number): boolean {
   const lastSeen = Date.parse(record.lastSeenAt);
   if (!Number.isFinite(lastSeen)) return false;
-  if (record.status === "active") {
-    // ponytail: one TTL handles crashed hook clients; a persistent host heartbeat can replace it if needed.
+  if (record.status === "active" || record.completedAt === null || record.completedAt === undefined) {
+    // ponytail: one TTL handles crashed hook clients and windows closed without `end`;
+    // a persistent host heartbeat can replace it if needed.
     return now - lastSeen <= OFFICE_SESSION_STALE_MS;
   }
-  const completed = record.completedAt === null || record.completedAt === undefined
-    ? lastSeen
-    : Date.parse(record.completedAt);
+  const completed = Date.parse(record.completedAt);
   return Number.isFinite(completed) && now - completed < OFFICE_SESSION_RETENTION_MS;
 }
 

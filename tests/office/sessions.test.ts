@@ -32,7 +32,8 @@ test("session registry keeps idle turns and prunes stale active sessions", async
       now: started + 1
     });
     assert.equal((await readOfficeSessions(commonDir, started + OFFICE_SESSION_STALE_MS + 1))[0]?.status, "idle");
-    assert.equal((await readOfficeSessions(commonDir, started + OFFICE_SESSION_RETENTION_MS + 2)).length, 0);
+    assert.equal((await readOfficeSessions(commonDir, started + OFFICE_SESSION_STALE_MS + 2)).length, 0,
+      "an idle session that never ended leaves with the active TTL");
 
     await recordOfficeSession({
       commonDir,
@@ -58,6 +59,8 @@ test("a session's end closes its room until it starts again", async () => {
     await record("end", 2_000);
     const ended = (await readOfficeSessions(commonDir, 3_000))[0]!;
     assert.deepEqual([ended.status, ended.completedAt], ["idle", new Date(2_000).toISOString()]);
+    assert.equal((await readOfficeSessions(commonDir, 2_000 + OFFICE_SESSION_RETENTION_MS - 1)).length, 1, "an ended room stays recent");
+    assert.equal((await readOfficeSessions(commonDir, 2_000 + OFFICE_SESSION_RETENTION_MS)).length, 0);
     await record("start", 4_000);
     assert.equal((await readOfficeSessions(commonDir, 5_000))[0]!.completedAt, undefined);
   } finally {
