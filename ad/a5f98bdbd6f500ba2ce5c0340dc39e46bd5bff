@@ -1,0 +1,7 @@
+worktree: session-339b4a84 (agent-ops/session-339b4a84)
+session: 339b4a84-4f14-4487-8b2c-a389003af7d4
+agent-ops task task-dfa2b175-7a70-423a-aec5-49054b49e9f1: Review accepts review-only criteria
+intent: agent-ops review rejected every task with a review-only criterion (verifierIds []) as NOT_RUN missing-verification-evidence, contradicting the spec and task create --help. The precheck that each criterion names a required verifier now applies only to legacy (untyped) criteria; typed criteria already require every mandatory repository command.
+criteria:
+- review-only-reviewed: A task whose review-only criterion has verifierIds [] and current PASS evidence from the mandatory commands reaches review instead of NOT_RUN missing-verification-evidence
+- legacy-still-guarded: A legacy criterion naming no required verifier still yields NOT_RUN missing-verification-evidence
