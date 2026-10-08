@@ -26,7 +26,7 @@ test("disabled Office Preview records no presence and never starts a server or b
       await writeFile(join(root, ".agent-ops/config.json"), JSON.stringify({...DEFAULT_CONFIG, features: {...features, ...(office === undefined ? {} : {office})}}));
       assert.equal(await officeEnabled(root), false);
       await observeOfficeSession({root, harness: "codex", event: "SessionStart", input: {session_id: "disabled"}, validated: true});
-      await assert.rejects(ensureBackgroundOffice(root, new LaunchdController({platform: "darwin", execFile: async () => {throw new Error("must not launch");}}), async () => {throw new Error("must not open");}), (error: unknown) => error instanceof AgentOpsError && error.code === "OFFICE_PREVIEW_DISABLED");
+      await assert.rejects(ensureBackgroundOffice(root, new LaunchdController({platform: "darwin", uid: 501, execFile: async () => {throw new Error("must not launch");}}), async () => {throw new Error("must not open");}), (error: unknown) => error instanceof AgentOpsError && error.code === "OFFICE_PREVIEW_DISABLED");
       await assert.rejects(serveOffice(root), /Office \(Preview\) is disabled/);
       await assert.rejects(stat(join(root, ".git/agent-ops")), {code: "ENOENT"});
       await assert.rejects(stat(officeHome().dir), {code: "ENOENT"});
@@ -74,7 +74,8 @@ test("background office creates its private launchd directory before writing the
     await assert.rejects(ensureBackgroundOffice(root, launchd), /launchctl unavailable in test/u);
     const office = await stat(join(officeHome().dir, "launchd"));
     assert.ok(office.isDirectory());
-    assert.equal(office.mode & 0o777, 0o700);
+    // Windows reports no POSIX permission bits.
+    if (process.platform !== "win32") assert.equal(office.mode & 0o777, 0o700);
     assert.deepEqual(calls, ["bootout", "bootstrap"]);
   } finally {
     await rm(root, {recursive: true, force: true});

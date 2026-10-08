@@ -11,6 +11,7 @@ import {
   rename,
   rm
 } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import {
   basename,
   dirname,
@@ -92,6 +93,10 @@ const execFile = promisify(execFileCallback);
 const lockQueues = new Map<string, Promise<void>>();
 const heartbeatFailures = new Map<string, unknown>();
 const heartbeatPaths = new Set<string>();
+// A heartbeat lives as long as the process. Its handle is held here, not only
+// by the interval below, so a reset or mocked timer can never let garbage
+// collection close it (an uncaught error since Node 26).
+const heartbeatHandles = new Set<FileHandle>();
 const processHeartbeats = new Map<string, Promise<ProcessHeartbeat>>();
 const processIdentityCache = new Map<
   number,
@@ -240,6 +245,7 @@ async function ensureProcessHeartbeat(
       throw error;
     }
     heartbeatPaths.add(heartbeatPath);
+    heartbeatHandles.add(handle);
     registerHeartbeatCleanup();
     const heartbeat: ProcessHeartbeat = {
       device,
@@ -250,6 +256,7 @@ async function ensureProcessHeartbeat(
       void handle.utimes(new Date(), new Date()).catch((error) => {
         heartbeatFailures.set(cacheKey, error);
         clearInterval(timer);
+        heartbeatHandles.delete(handle);
         void handle.close().catch(() => {
           process.emitWarning(
             "A failed private-state heartbeat handle could not be closed."

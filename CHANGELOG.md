@@ -14,6 +14,9 @@ All notable changes to the project are documented here.
   as integrating until retention expired.
 - On Windows, the Office server no longer flashes a cmd window on every poll:
   its git and helper children start with `windowsHide`.
+- Private-state heartbeat handles stay referenced for the process lifetime, so
+  garbage collection never closes one (an uncaught error since Node 26); the
+  Office tests are now correct on Windows.
 - `agent-ops review` (and `batch`) no longer stops a task with a review-only
   criterion as NOT_RUN `missing-verification-evidence`; as documented, such a
   criterion names no verifier and is held to the mandatory repository commands.
