@@ -1,0 +1,9 @@
+worktree: session-04446b1e (agent-ops/session-04446b1e)
+session: 04446b1e-9064-4a81-9572-52f71b4678e3
+agent-ops task task-c97866c1-7d7f-4f93-831c-dc01d198f71b: Office hides merged worktrees and expires idle sessions sooner
+intent: collectOfficeInput skips a non-run worktree whose HEAD differs from its base, is an ancestor of its targetBranch, and has a clean status; that worktree's session is not drawn either. Idle sessions without completedAt expire 30 minutes after lastSeen; completed sessions keep the 2 hour retention.
+criteria:
+- merged-worktree-hidden: A worktree with commits already merged into targetBranch and a clean tree yields no lobby desk and no session room
+- unmerged-worktree-kept: A fresh worktree (HEAD == base) and a merged worktree with uncommitted changes still yield lobby desks
+- idle-session-stale: An idle session without completedAt is pruned after OFFICE_SESSION_STALE_MS; a completed session survives until OFFICE_SESSION_RETENTION_MS
+- suite-green: npm test passes
