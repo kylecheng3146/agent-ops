@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-08
+
 - Office closes a Claude Code session's room when the conversation ends, through
   a managed `SessionEnd` hook added with Office, even when the session had no
   task. Rooms without a task show "No task" instead of pending verify/review.
