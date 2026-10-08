@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { loadConfigFile } from "../../../../runtime/src/config/load.js";
 import type { HarnessInstallAdapter } from "../../../../runtime/src/install/harness.js";
 import type { HookTargetSelection } from "../../../../runtime/src/install/types.js";
 import type { WorktreeConfig } from "../../../../runtime/src/contracts.js";
@@ -47,6 +48,7 @@ export interface UpdateCommandOptions {
   calculateTrustBinding?(config: UpdatePlan["installation"]["config"]): Promise<TrustBinding | null>;
   confirm(plan: UpdatePlan, trust: PublicTrustChange): Promise<boolean>;
   promptWorktree?(message: string): Promise<boolean>;
+  promptOffice?(message: string, enabled: boolean): Promise<boolean>;
 }
 
 export interface UpdateCommandData {
@@ -71,6 +73,7 @@ export function formatUpdatePlan(
     title: "Update plan",
     metadata: [
       `Target version: ${plan.targetVersion}`,
+      `Office (Preview): ${plan.installation.config.features.office?.enabled === true ? "enabled" : "disabled"}`,
       `Harness: ${plan.installation.harness.join(", ")}`,
       ...(plan.installation.config.worktree === undefined
         ? []
@@ -182,9 +185,16 @@ export async function runUpdateCommand(
     }
   }
 
+  let officeEnabled = options.args.office === undefined ? undefined : options.args.office === "on";
+  if (officeEnabled === undefined && options.promptOffice !== undefined && options.isTTY && !options.args.yes) {
+    const {config} = await loadConfigFile(join(options.root, ".agent-ops", "config.json"));
+    officeEnabled = await options.promptOffice("Enable Office (Preview)?", config.features.office?.enabled === true);
+  }
+
   const plan = await createUpdatePlan({
     root: options.root,
     adapters: options.adapters,
+    ...(officeEnabled === undefined ? {} : { officeEnabled }),
     ...(options.args.harness === undefined
       ? {}
       : { harness: options.args.harness }),

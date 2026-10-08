@@ -83,6 +83,7 @@ test("plans a complete project install without writing", async () => {
     });
 
     assert.deepEqual(await readdir(root), ["AGENTS.md"]);
+    assert.equal(plan.config.features.office?.enabled, false, "new installs leave Office Preview disabled");
     assert.deepEqual(plan.profiles, [
       "core",
       "advisory",
@@ -674,5 +675,32 @@ test("failed post-apply validation rolls every write back", async () => {
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Office Preview alone installs presence hooks and preserves the choice on repeated init", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-office-"));
+  try {
+    const options: import("../../runtime/src/install/plan.js").CreateInstallPlanOptions = {root, scope: "project", harness: ["claude", "codex", "agy", "opencode"], profiles: ["core"], adapters: commonHarnessAdapters(), hookRuntimePath: "/runtime/hook-entry.js"};
+    const initial = await createInstallPlan({...options, officeEnabled: true});
+    assert.equal(initial.config.features.office?.enabled, true);
+    assert.ok(initial.capabilities.includes("office-presence"));
+    assert.ok(!initial.capabilities.includes("command-policy"));
+    for (const harness of ["claude", "codex", "agy"]) {
+      assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === harness)!.events, ["SessionStart", "PreToolUse", "Stop"]);
+    }
+    const plugin = writeOperation(initial, ".opencode/plugins/agent-ops.js");
+    assert.match(plugin.content, /runManagedHook\(\$, "SessionStart"/);
+    await applyInstallPlan(root, initial);
+    const repeated = await createInstallPlan(options);
+    assert.equal(repeated.config.features.office?.enabled, true);
+    assert.deepEqual(repeated.manifest.hooks, initial.manifest.hooks);
+    const disabled = await createInstallPlan({...options, officeEnabled: false, allowHarnessChange: true});
+    assert.equal(disabled.config.features.office?.enabled, false);
+    assert.ok(!disabled.capabilities.includes("office-presence"));
+    await applyInstallPlan(root, disabled);
+    assert.equal(disabled.manifest.hooks?.length ?? 0, 0);
+  } finally {
+    await rm(root, {recursive: true, force: true});
   }
 });

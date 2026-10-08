@@ -327,6 +327,13 @@ test("declares only documented event and matcher support", () => {
     })),
     [
       {
+        capability: "office-presence",
+        nativeEvent: "SessionStart",
+        surfaceId: "codex-hooks",
+        support: "degraded",
+        runtimeFailure: "fail-open"
+      },
+      {
         capability: "lifecycle-summary",
         nativeEvent: "SessionStart",
         surfaceId: "codex-hooks",

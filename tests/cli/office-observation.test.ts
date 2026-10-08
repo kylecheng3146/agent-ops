@@ -14,7 +14,7 @@ const config: AgentOpsConfig = {
   schemaVersion: 3,
   profiles: ["core"],
   verification: {commands: []},
-  features: {completionGate: {enabled: false}, stopVerification: {enabled: false}},
+  features: {office: {enabled: true}, completionGate: {enabled: false}, stopVerification: {enabled: false}},
   pathMappings: [],
   securityExceptions: []
 };
@@ -88,6 +88,8 @@ test("AGENT_OPS_DISABLE bypasses Office observation in ordinary hooks", async ()
 test("project-loop entry observes SessionStart and activity through its process boundary", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-office-loop-observe-"));
   try {
+    await mkdir(join(root, ".agent-ops"));
+    await writeFile(join(root, ".agent-ops", "config.json"), JSON.stringify(config));
     await mkdir(join(root, ".codex"));
     await writeFile(join(root, ".codex", "loop-goal.md"), "# Goal\n");
     await writeFile(join(root, ".codex", "loop-state.md"), "# State\n");
@@ -113,6 +115,8 @@ test("project-loop entry observes SessionStart and activity through its process 
 test("project-loop Office observation uses normalized phase hints and stays fail-open", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-office-loop-phase-"));
   try {
+    await mkdir(join(root, ".agent-ops"));
+    await writeFile(join(root, ".agent-ops", "config.json"), JSON.stringify(config));
     await mkdir(join(root, ".codex"));
     const seen: OfficeSessionObservation[] = [];
     const result = await runLoopProcess(["codex", "PreToolUse"], {
@@ -144,5 +148,28 @@ test("invalid and unmanaged loop inputs never start Office", async () => {
   } finally {
     await rm(managed, {recursive: true, force: true});
     await rm(unmanaged, {recursive: true, force: true});
+  }
+});
+
+test("disabled Office Preview bypasses both hook and project-loop observers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-office-opt-in-"));
+  try {
+    await mkdir(join(root, ".agent-ops"));
+    await mkdir(join(root, ".codex"));
+    await writeFile(join(root, ".codex/loop-goal.md"), "# Goal\n");
+    await writeFile(join(root, ".codex/loop-state.md"), "# State\n");
+    let observations = 0;
+    for (const office of [undefined, {enabled: false}]) {
+      const {office: _previous, ...features} = config.features;
+      const disabled = {...config, features: {...features, ...(office === undefined ? {} : {office})}};
+      await writeFile(join(root, ".agent-ops/config.json"), JSON.stringify(disabled));
+      const input = JSON.stringify({cwd: root, session_id: "off", hook_event_name: "SessionStart"});
+      const officeObserver = async () => {observations += 1;};
+      await runHookProcess(["claude", "SessionStart"], {stdin: Readable.from([input]), writeStdout: () => {}, writeStderr: () => {}}, "test", {root, loadConfig: async () => disabled, trust: async () => "TRUSTED", office: officeObserver});
+      await runLoopProcess(["codex", "SessionStart"], {stdin: Readable.from([input]), writeStdout: () => {}, writeStderr: () => {}}, {root, office: officeObserver});
+    }
+    assert.equal(observations, 0);
+  } finally {
+    await rm(root, {recursive: true, force: true});
   }
 });

@@ -46,6 +46,7 @@ export interface CreateUpdatePlanOptions {
   readonly harness?: Harness;
   /** Worktree configuration override; undefined preserves existing. */
   readonly worktree?: WorktreeConfig | null;
+  readonly officeEnabled?: boolean;
   /** Codex's home, for the rules agent-ops keeps there. */
   readonly codexHome?: string;
 }
@@ -226,6 +227,7 @@ export async function createUpdatePlan(
     adapters: options.adapters,
     toolkitVersion: options.toolkitVersion ?? targetVersion,
     allowHarnessChange: true,
+    ...(options.officeEnabled === undefined ? {} : { officeEnabled: options.officeEnabled }),
     ...(options.hookRuntimePath === undefined
       ? {}
       : { hookRuntimePath: options.hookRuntimePath }),

@@ -127,13 +127,13 @@ export function opencodePluginEvents(
   capabilities: readonly Capability[]
 ): readonly OpencodeSupportedEvent[] {
   const events: OpencodeSupportedEvent[] = [];
-  if (capabilities.includes("lifecycle-summary")) {
+  if (capabilities.includes("lifecycle-summary") || capabilities.includes("office-presence")) {
     events.push("SessionStart");
   }
-  if (capabilities.includes("command-policy")) {
+  if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) {
     events.push("PreToolUse");
   }
-  if (capabilities.includes("optional-stop-verify")) {
+  if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     events.push("Stop");
   }
   return events;
@@ -156,6 +156,7 @@ export function buildOpencodePlugin(
   }
   assertRuntimePath(runtimePath);
 
+  const displayOnly = capabilities.includes("office-presence") && !capabilities.includes("command-policy");
   const lines = [
     "// Managed by agent-ops. Do not edit: `agent-ops update` rewrites this file.",
     `const RUNTIME_PATH = ${JSON.stringify(runtimePath)};`,
@@ -180,11 +181,11 @@ export function buildOpencodePlugin(
     "async function runManagedHook($, event, payload) {",
     "  const decision = await invokeRuntime($, event, payload, payload.projectRoot);",
     "  if (decision === null) {",
-    "    if (event === \"PreToolUse\") throw new Error(\"agent-ops: command policy is unavailable\");",
+    ...(displayOnly ? [] : ["    if (event === \"PreToolUse\") throw new Error(\"agent-ops: command policy is unavailable\");"]),
     "    return;",
     "  }",
     "  if (decision.decision === \"deny\") {",
-    "    throw new Error(`agent-ops: ${decision.reason ?? \"denied\"}`);",
+    displayOnly ? "    return;" : "    throw new Error(`agent-ops: ${decision.reason ?? \"denied\"}`);",
     "  }",
     "}",
     "",

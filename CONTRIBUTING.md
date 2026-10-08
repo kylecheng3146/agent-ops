@@ -53,8 +53,7 @@ pull request or ordinary branch push.
 
 ## Maintainer release boundary
 
-The package is prepared as version 0.1.0 but has not been published yet. Before
-publication, configure npm Trusted Publishing for this repository and the
+Before each release, confirm npm Trusted Publishing for this repository and the
 `release` GitHub Environment, create a matching `v<version>` tag on `main`, and
 run the dispatch-only Release workflow. The workflow performs the full gate and
 publishes with OIDC provenance; it does not use an npm token.

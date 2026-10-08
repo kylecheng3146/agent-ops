@@ -81,6 +81,7 @@ export interface ParsedArgs {
   reviewTargets?: ReviewTargetId[];
   /** Explicitly enable the agy project-loop completion gate. */
   completionGate?: boolean;
+  office?: "on" | "off";
   /** Authorizes doctor's expensive review-target authentication probe. */
   checkAuth?: boolean;
   /** Restricts doctor's authentication probe to these review targets. */
@@ -232,6 +233,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let checkAuth = false;
   const checkAuthTargets: ReviewTargetId[] = [];
   let completionGate: boolean | undefined;
+  let office: "on" | "off" | undefined;
   let dryRun = false;
   let json = false;
   let yes = false;
@@ -429,6 +431,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         }
         completionGate = true;
         break;
+      case "--office": {
+        if (office !== undefined) duplicate(token);
+        const value = readOptionValue(argv, index, token);
+        if (value !== "on" && value !== "off") invalidValue(token, value);
+        office = value as "on" | "off";
+        index += 1;
+        break;
+      }
       case "--worktree": {
         if (worktree !== undefined) {
           duplicate(token);
@@ -651,6 +661,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       evidence.length > 0 ||
       reviewTargets.length > 0 ||
       completionGate !== undefined ||
+      office !== undefined ||
       sessionId !== undefined ||
       base !== undefined ||
       parentBase !== undefined ||
@@ -806,6 +817,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "CLI_OPTION_NOT_ALLOWED",
       "--completion-gate may be used only with init."
     );
+  }
+  if (office !== undefined && command !== "init" && command !== "update") {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--office may be used only with init or update.");
   }
   if (worktree !== undefined && command !== "init" && command !== "update") {
     throw new CliArgumentError(
@@ -1056,6 +1070,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(intent === undefined ? {} : { intent }),
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
     ...(completionGate === undefined ? {} : { completionGate }),
+    ...(office === undefined ? {} : { office }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(criterionFiles.length === 0 ? {} : {criterionFiles}),
     ...(criteriaFile === undefined ? {} : {criteriaFile}),

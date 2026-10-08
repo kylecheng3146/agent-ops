@@ -56,14 +56,17 @@ Native authorization decisions retain redacted command scope and rationale;
 missing provider decisions remain unknown. Repair compares actual check outcomes
 and outstanding finding pins rather than source fingerprints.
 
-To see where every agent is, open the office:
+Office is a Preview feature, disabled by default. Enable it in the init/update
+selector (update keeps your current choice), or use explicit flags:
 
 ```sh
+agent-ops update --office on
 agent-ops office
+# Disable later: agent-ops update --office off
 ```
 
 It prints a tokened `http://127.0.0.1:<port>/` URL (also shown by `run start` and
-`run status`) to a read-only, 16-color pixel office with cream walls, oak floors
+`run status`) to a read-only pixel office with cream walls, oak floors
 and sage furniture. The overview fits the viewport without scrolling: each run
 team shares a room, and each ordinary session has its own room, including sessions
 without a task or worktree. The furnished floorplan fills the page below the
@@ -74,11 +77,11 @@ verification, review and integration areas. Short nameplates show their current
 work; room whiteboards show criteria progress, verification and review results,
 and questions waiting for an answer. Clicking a character shows task details,
 changed files and copyable commands. Chinese and English can be switched in the
-header; the page remembers the choice and respects reduced-motion preferences.
+header; the viewer badge reads “You” in English and “你” in Chinese. The page remembers the choice and respects reduced-motion preferences.
 Supervisor movement and character animation run locally without model requests.
 Completed rooms move to Recently completed and remain for at most two hours.
 The page reads agent-ops state and `git diff` paths only, never transcripts or file
-contents. Managed ordinary sessions start the shared repository server
+contents. When enabled, managed ordinary sessions start the shared repository server
 automatically; a newly started Office opens the browser once, and subsequent
 sessions reuse it. The server exits after ten minutes without active runs or
 ordinary sessions. Ordinary-session presence follows hook activity; a crashed

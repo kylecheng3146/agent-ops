@@ -507,6 +507,7 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
 
   assert.deepEqual(completed, {
     command: "init",
+    office: "off",
     scope: "user",
     harness: ["codex"],
     profiles: ["core", "advisory"],
@@ -515,7 +516,7 @@ test("TTY wizard fills only missing choices through injected prompts", async () 
     yes: false,
     rerun: false
   });
-  assert.equal(questions.length, 4);
+  assert.equal(questions.length, 5);
   assert.match(questions[3] ?? "", /external review/i);
 });
 
@@ -528,6 +529,7 @@ test("TTY wizard accepts loop as the selected profile", async () => {
 
   assert.deepEqual(completed, {
     command: "init",
+    office: "off",
     scope: "project",
     harness: ["claude"],
     profiles: ["loop"],

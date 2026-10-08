@@ -17,11 +17,11 @@ export interface OfficeCommandData {
 export async function runOfficeCommand(options: OfficeCommandOptions): Promise<CliEnvelope<OfficeCommandData>> {
   try {
     const url = await options.ensure();
-    if (url !== null) return okEnvelope("OFFICE_READY", { url, text: `Office: ${url}` });
+    if (url !== null) return okEnvelope("OFFICE_READY", { url, text: `Office (Preview): ${url}` });
     let shown = "";
     await options.foreground((served) => {
       shown = served;
-      options.writeStdout(`Office: ${served}\nServing in the foreground; it exits 10 minutes after no run is active.\n`);
+      options.writeStdout(`Office (Preview): ${served}\nServing in the foreground; it exits 10 minutes after no run or session is active.\n`);
     });
     return okEnvelope("OFFICE_CLOSED", { url: shown, text: "Office closed: no run was active for 10 minutes." });
   } catch (cause) {

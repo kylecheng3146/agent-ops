@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG: AgentOpsConfig = {
   profiles: [],
   verification: { commands: [] },
   features: {
+    office: { enabled: false },
     stopVerification: {
       enabled: false
     },

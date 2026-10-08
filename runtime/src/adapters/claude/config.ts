@@ -169,10 +169,10 @@ export function buildClaudeHookSettings(
       }
     }
   } else {
-    if (capabilities.includes("lifecycle-summary")) {
+    if (capabilities.includes("lifecycle-summary") || capabilities.includes("office-presence")) {
       hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
     }
-    if (capabilities.includes("command-policy")) {
+    if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) {
       hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }
@@ -180,7 +180,7 @@ export function buildClaudeHookSettings(
   // handler, and the gated one already reports everything the other would.
   if (capabilities.includes("completion-gate")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath, true)];
-  } else if (capabilities.includes("optional-stop-verify")) {
+  } else if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
   return { hooks };

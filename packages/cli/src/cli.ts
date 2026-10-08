@@ -53,7 +53,7 @@ Commands:
   verify     Run configured verification
   review     Run an independent review or show recorded reports
   run        Start or control a supervised Claude/Codex native goal
-  office     Print the local pixel office view of every agent (starts it if needed)
+  office     Open the local pixel office (Preview; opt-in)
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -67,6 +67,7 @@ Options:
   --profile <core|advisory|guardrails|loop|run>  Repeatable
   --review-target <codex|agy|claude>  Repeatable init option; review pair order
   --completion-gate                  Init only: enable the project-loop completion gate
+  --office <on|off>                   Init/update: enable or disable Office (Preview)
   --worktree <auto|off>              Init/update: configure session worktree isolation
   --check-auth                        Doctor only: probe selected review targets'
                                       authentication with one real call
@@ -99,11 +100,14 @@ Options:
 export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
   office: `Usage: agent-ops office [--json]
 
-Print the URL of this repository's office: a read-only, 16-color pixel page on
+Office (Preview) is opt-in: select it during init/update or run
+agent-ops update --office on. Disable with --office off. A missing choice is off.
+
+Print the URL of this repository's office: a read-only pixel page on
 127.0.0.1. All run teams and ordinary sessions appear in a single-screen room
 overview; walk the Supervisor with arrows/WASD or click a room for details.
 Switch Chinese/English in the header. Movement and animation run locally.
-Managed sessions start the shared server automatically. A new Office opens the
+When enabled, managed sessions start the shared server automatically. A new Office opens the
 browser once; later sessions reuse it. It exits after 10 minutes without active
 runs or sessions. Recently completed rooms remain for at most 2 hours.
 The URL carries an access token; do not share it.
@@ -127,6 +131,7 @@ Options:
   --profile <core|advisory|guardrails|loop|run>  Repeatable
   --review-target <codex|agy|claude>   Repeatable, in fallback-chain order
   --completion-gate                    Enable the project-loop completion gate
+  --office <on|off>                   Office (Preview); default off, update preserves choice
   --worktree <auto|off>                Configure session worktree isolation
   --dry-run                            Print the plan without writing
   --json
@@ -170,6 +175,7 @@ Options:
   --scope <project|user>
   --harness <all|both|agy|claude|codex|opencode|comma-separated>
   --target-version <version>   Offline-capable update target
+  --office <on|off>           Office (Preview); preserve choice unless supplied
   --worktree <auto|off>        Configure session worktree isolation
   --dry-run
   --json

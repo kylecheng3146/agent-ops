@@ -133,8 +133,10 @@ test("TTY with no arguments launches the branded interactive init wizard", async
       profiles: ["core"]
     }
   );
-  assert.equal(questions.length, 5);
+  assert.equal(questions.length, 6);
   assert.match(questions[4] ?? "", /worktree/i);
+  assert.match(questions[5] ?? "", /Office \(Preview\)/);
+  assert.equal(received?.office, "off");
   assert.equal(received?.reviewTargets, undefined);
   assert.equal(received?.worktree, "auto");
 });

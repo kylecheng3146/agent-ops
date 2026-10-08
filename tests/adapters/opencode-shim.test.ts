@@ -63,7 +63,7 @@ function fakeShell(
 }
 
 async function loadPlugin(
-  capabilities: readonly ("lifecycle-summary" | "command-policy" | "optional-stop-verify")[]
+  capabilities: readonly ("office-presence" | "lifecycle-summary" | "command-policy" | "optional-stop-verify")[]
 ): Promise<{
   readonly module: {
     readonly AgentOps: (context: unknown) => Promise<Record<string, unknown>>;
@@ -192,5 +192,21 @@ test("missing runtime fails open for advisory and closed for guardrails", async 
   } finally {
     await advisory.cleanup();
     await guardrail.cleanup();
+  }
+});
+
+test("Office-only observation stays fail-open while Office plus command policy preserves denial", async () => {
+  for (const guarded of [false, true]) {
+    const loaded = await loadPlugin(guarded ? ["office-presence", "command-policy"] : ["office-presence"]);
+    try {
+      const shell = fakeShell(null, new Error("runtime unavailable"));
+      const hooks = await loaded.module.AgentOps({$: shell.$, directory: "/repo"});
+      const before = hooks["tool.execute.before"] as (input: unknown, output: unknown) => Promise<void>;
+      const attempt = before({tool: "bash", sessionID: "office-a"}, {args: {command: "echo hello"}});
+      if (guarded) await assert.rejects(attempt, /command policy is unavailable/);
+      else await attempt;
+    } finally {
+      await loaded.cleanup();
+    }
   }
 });

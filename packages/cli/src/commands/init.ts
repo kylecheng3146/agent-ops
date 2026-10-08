@@ -71,6 +71,7 @@ export function formatInstallPlan(
     title: "Installation plan",
     metadata: [
       `Scope: ${plan.scope}`,
+      `Office (Preview): ${plan.config.features.office?.enabled === true ? "enabled" : "disabled"}`,
       `Harness: ${plan.harness}`,
       `Profiles: ${plan.profiles.join(", ")}`,
       ...(plan.config.worktree === undefined
@@ -202,6 +203,7 @@ export async function runInitCommand(
     scope: args.scope,
     harness: args.harness,
     profiles: args.profiles,
+    ...(args.office === undefined ? {} : { officeEnabled: args.office === "on" }),
     adapters: options.adapters,
     ...(options.toolkitVersion === undefined
       ? {}

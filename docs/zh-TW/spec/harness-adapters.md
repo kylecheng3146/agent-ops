@@ -90,6 +90,7 @@ script，也不得改變一般 permission request。
 
 | Capability | agy | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- | --- |
+| office-presence (Preview) | degraded | degraded | supported | degraded |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
 | completion-gate | supported | unsupported | unsupported | unsupported |
@@ -154,7 +155,7 @@ byte-identical。
 
 ## HARNESS-ADAPTER-008
 
-`agent-ops office` MUST 只依據 agent-ops state 以 read-only 方式呈現進度。
+`agent-ops office`（Preview）MUST 只依據 agent-ops state 以 read-only 方式呈現進度。
 Supervisor 在確定性的轉換點記錄每個 run 與 worker 的 optional phase
 （`planning`、`implementing`、`verifying`、`reviewing`、`integrating`），以及每個
 task 最近一次 verify 與 review 結果與通過/總數 criteria。Phase 出現前寫入的 run
@@ -163,7 +164,18 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
 「writing tests」，其他為「editing <file>」）。Office MUST NOT 讀取 Claude 或 Codex
 的 native transcript 或檔案內容。
 
-- Trigger: Managed 一般 session 啟動或回報活動，或使用者執行
+- Office Preview 透過 `features.office.enabled` 明確啟用。Init MUST 提供預設關閉
+  的選項；互動式 update MUST 以既有選擇為預設。非互動式 update MUST 保留選擇，
+  除非傳入 `--office on|off`。即使只選 core，啟用 Office 也 MUST 安裝 presence
+  hook，但 MUST NOT 同時啟用 command policy、Stop verification 或 lifecycle
+  summary。Office-only OpenCode 的 runtime 失敗 MUST fail-open；與 command
+  policy 同時啟用時 MUST 保留原有拒絕與 runtime unavailable 行為。Agy 啟動事件
+  以 invocation 為單位，OpenCode 以 app 為單位，部分 Codex 模式沒有 Stop；過期
+  presence 依有界限的 hook 活動逾時處理。舊設定可省略此欄位，省略代表關閉；features 維持
+  原有的整個物件 layer 優先順序。關閉時 hook MUST NOT 記錄 Office presence、
+  啟動 server 或開啟瀏覽器，明確的 office 指令 MUST 說明啟用方法。運行中的
+  server MUST 在下一次 15 秒生命週期檢查觀察到關閉選擇後結束。
+- Trigger: 啟用後，Managed 一般 session 啟動或回報活動，或使用者執行
   `agent-ops office`、`agent-ops run start` 或 `agent-ops run status`。
 - Action: Command 重用記錄於 `<git common dir>/agent-ops/office.json` 的 live
   server，否則啟動一個，並印出 URL。一般 session hook 也會自動啟動或重用
@@ -175,7 +187,7 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   port 以外的 Host，所有非 GET 回應 405，並在 run 與一般 session 都沒有活動
   10 分鐘後結束。唯一的 inline page 使用奶油白、淺木與鼠尾草綠的程式內 16 色
   場景 sprite，沒有圖片 asset。32×48 人物各自使用固定的膚色、髮色與服裝色盤，
-  支援四方向走路，並顯示本地化的職責文字。使用者標籤只顯示「你」，總覽大小與
+  支援四方向走路，並顯示本地化的職責文字。使用者標籤在中文顯示「你」、英文顯示「You」，總覽大小與
   最大房間的成員一致。總覽填滿頂部工具列下方的單一
   viewport，同時呈現全部有家具的工作房間，必要時自動縮小且不捲動頁面。
   房間以共用走廊連接；使用者可以用方向鍵或 WASD 操控本機 Supervisor 角色，

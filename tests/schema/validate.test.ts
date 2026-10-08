@@ -43,6 +43,18 @@ function firstErrorCode(result: { errors: { code: string }[] }): string {
   return result.errors[0]?.code ?? "";
 }
 
+test("Office Preview is optional and both validators reject malformed choices", async () => {
+  const config = await readJsonFixture("valid-config.json") as {features: Record<string, unknown>};
+  const schema = await compileJsonSchema("config.schema.json");
+  for (const office of [undefined, {enabled: false}, {enabled: true}, null, {}, {enabled: "yes"}, {enabled: true, extra: true}]) {
+    const candidate = cloneJson(config);
+    if (office !== undefined) candidate.features.office = office;
+    const expected = office === undefined || (typeof office === "object" && office !== null && Object.keys(office).length === 1 && typeof office.enabled === "boolean");
+    assert.equal(validateConfig(candidate).ok, expected);
+    assert.equal(schema(candidate), expected);
+  }
+});
+
 test("accepts fully valid versioned fixtures", async () => {
   const [config, taskFixture, evidence, manifest] = await Promise.all([
     readJsonFixture("valid-config.json"),

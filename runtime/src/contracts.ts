@@ -96,6 +96,10 @@ export interface SecurityException {
 }
 
 export interface AgentOpsFeatures {
+  /** Office Preview is opt-in; older configs may omit this field. */
+  office?: {
+    enabled: boolean;
+  };
   stopVerification: {
     enabled: boolean;
   };

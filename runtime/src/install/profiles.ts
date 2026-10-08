@@ -55,6 +55,7 @@ export function resolveCapabilities(
   config: AgentOpsConfig
 ): ResolvedProfiles {
   const resolved = resolveProfiles(config.profiles);
+  if (config.features.office?.enabled === true) resolved.capabilities.push("office-presence");
   if (config.features.stopVerification.enabled) {
     resolved.capabilities.push("optional-stop-verify");
   }

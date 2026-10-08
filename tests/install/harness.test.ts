@@ -350,6 +350,7 @@ test("support declarations match the current real hook fidelity", () => {
 
   assert.deepEqual(supportByHarness, {
     agy: {
+      "office-presence": {support: "degraded", runtimeFailure: "fail-open"},
       "lifecycle-summary": {
         support: "degraded",
         runtimeFailure: "fail-open"
@@ -368,6 +369,7 @@ test("support declarations match the current real hook fidelity", () => {
       }
     },
     codex: {
+      "office-presence": {support: "degraded", runtimeFailure: "fail-open"},
       "lifecycle-summary": {
         support: "supported",
         runtimeFailure: "fail-open"
@@ -382,6 +384,7 @@ test("support declarations match the current real hook fidelity", () => {
       }
     },
     claude: {
+      "office-presence": {support: "supported", runtimeFailure: "fail-open"},
       "lifecycle-summary": {
         support: "supported",
         runtimeFailure: "fail-open"
@@ -403,6 +406,7 @@ test("support declarations match the current real hook fidelity", () => {
       }
     },
     opencode: {
+      "office-presence": {support: "degraded", runtimeFailure: "fail-open"},
       "lifecycle-summary": {
         support: "degraded",
         runtimeFailure: "fail-open"

@@ -503,7 +503,7 @@ export async function runHookProcess(
         ? await repositoryTrust(root, config, cliVersion)
         : await dependencies.trust(root, config, cliVersion);
     const trusted = trustStatus === "TRUSTED";
-    if (dependencies.office !== undefined) {
+    if (dependencies.office !== undefined && config.features.office?.enabled === true) {
       const normalized = normalizeHookInput(harnessId, parsedInput);
       if (normalized !== null) {
         const phase = officePhaseHint(normalized);

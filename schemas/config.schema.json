@@ -244,6 +244,14 @@
         "stopVerification"
       ],
       "properties": {
+        "office": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
         "completionGate": {
           "type": "object",
           "additionalProperties": false,

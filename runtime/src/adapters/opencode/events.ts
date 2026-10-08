@@ -34,6 +34,14 @@ export const OPENCODE_SESSION_START_FIDELITY = "app-init" as const;
 
 export const OPENCODE_CAPABILITY_REGISTRATIONS = [
   {
+    capability: "office-presence",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    surfaceId: "opencode-plugin",
+    support: "degraded",
+    runtimeFailure: "fail-open"
+  },
+  {
     capability: "lifecycle-summary",
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",

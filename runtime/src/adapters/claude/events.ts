@@ -28,6 +28,14 @@ export function claudeNonInteractiveTrust(
 
 export const CLAUDE_CAPABILITY_REGISTRATIONS = [
   {
+    capability: "office-presence",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    surfaceId: "claude-settings",
+    support: "supported",
+    runtimeFailure: "fail-open"
+  },
+  {
     capability: "lifecycle-summary",
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",

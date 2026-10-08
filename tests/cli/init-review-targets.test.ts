@@ -36,6 +36,8 @@ test("declining external review writes no targets and probes nothing", async () 
     { probeReviewTarget: probe(recorded) }
   );
   assert.equal(args.reviewTargets, undefined);
+  assert.equal(args.office, "off");
+  assert.ok(recorded.questions.some(question => /Office \(Preview\).*\[y\/N\]/.test(question)));
   assert.deepEqual(recorded.probed, []);
   // The external-review question must default to "no".
   assert.ok(
@@ -44,6 +46,18 @@ test("declining external review writes no targets and probes nothing", async () 
   assert.ok(
     recorded.questions.some((question) => /\[y\/N\]|\(y\/N\)/i.test(question))
   );
+});
+
+test("Office Preview can be enabled in setup or selected explicitly for init/update", async () => {
+  const recorded: Recorded = {questions: [], probed: []};
+  const args = await completeInitChoices(parseArgs(["init"]), scriptedIo(["project", "codex", "core", "n", "n", "y"], recorded));
+  assert.equal(args.office, "on");
+  for (const command of ["init", "update"]) {
+    for (const value of ["on", "off"]) assert.equal(parseArgs([command, "--office", value]).office, value);
+    assert.throws(() => parseArgs([command, "--office", "yes"]), CliArgumentError);
+    assert.throws(() => parseArgs([command, "--office", "on", "--office", "off"]), CliArgumentError);
+  }
+  assert.throws(() => parseArgs(["verify", "--office", "on"]), CliArgumentError);
 });
 
 test("accepting external review records the declared order and probes once each", async () => {

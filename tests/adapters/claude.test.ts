@@ -482,6 +482,13 @@ test("surfaces non-interactive trust limitations", () => {
     })),
     [
       {
+        capability: "office-presence",
+        nativeEvent: "SessionStart",
+        surfaceId: "claude-settings",
+        support: "supported",
+        runtimeFailure: "fail-open"
+      },
+      {
         capability: "lifecycle-summary",
         nativeEvent: "SessionStart",
         surfaceId: "claude-settings",

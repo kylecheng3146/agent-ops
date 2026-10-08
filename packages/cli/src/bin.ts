@@ -541,6 +541,8 @@ process.exitCode = await runCli(
                 await plannedTrustBinding(root, config),
               confirm: async (plan, trust) =>
                 await confirmPlan(formatUpdatePlan(plan, trust)),
+              promptOffice: async (message, enabled) =>
+                await selectYesNo(message, { input: process.stdin, output: process.stdout }, enabled),
               promptWorktree: async (message) =>
                 await selectYesNo(
                   message,

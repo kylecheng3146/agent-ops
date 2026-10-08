@@ -1007,3 +1007,42 @@ test("update repairs a drifted managed artifact and reports it", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("update offers Office Preview with the saved default, preserves it non-interactively and accepts overrides", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-office-"));
+  try {
+    await install(root);
+    const configPath = join(root, ".agent-ops/config.json");
+    const read = async () => JSON.parse(await readFile(configPath, "utf8")) as import("../../runtime/src/contracts.js").AgentOpsConfig;
+    const execute = async (extra: string[], isTTY = false, promptOffice?: (message: string, enabled: boolean) => Promise<boolean>) => await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.7.0", ...extra]), root,
+      adapters: commonHarnessAdapters(), isTTY, ...(promptOffice === undefined ? {} : {promptOffice}), confirm: async plan => {assert.match(formatUpdatePlan(plan), /Office \(Preview\):/); return true;}
+    });
+    for (const enabled of [true, false]) {
+      const result = await execute([], true, async (message, saved) => {
+        assert.match(message, /Office \(Preview\)/);
+        assert.equal(saved, !enabled);
+        return enabled;
+      });
+      assert.equal(result.status, "ok");
+      assert.equal((await read()).features.office?.enabled, enabled);
+      assert.equal((await execute(["--yes"], true, async () => {throw new Error("must not prompt");})).status, "ok");
+      assert.equal((await read()).features.office?.enabled, enabled);
+    }
+    for (const choice of ["on", "off"]) {
+      const before = await read();
+      assert.equal((await execute(["--office", choice, "--yes"])).status, "ok");
+      const after = await read();
+      assert.equal(after.features.office?.enabled, choice === "on");
+      assert.deepEqual(after.features.completionGate, before.features.completionGate);
+      assert.deepEqual(after.features.stopVerification, before.features.stopVerification);
+    }
+    const old = await read();
+    delete old.features.office;
+    await writeFile(configPath, JSON.stringify(old));
+    assert.equal((await execute(["--yes"])).status, "ok");
+    assert.equal((await read()).features.office, undefined, "an absent legacy choice is preserved without changing config identity");
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});

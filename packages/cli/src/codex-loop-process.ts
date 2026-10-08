@@ -6,7 +6,7 @@ import {
   type ProjectLoopHarness,
   type ProjectLoopOptions
 } from "../../../runtime/src/hooks/codex-loop.js";
-import {officeLoopPhaseHint, type OfficeSessionObservation} from "./office-entry.js";
+import {officeEnabled, officeLoopPhaseHint, type OfficeSessionObservation} from "./office-entry.js";
 
 const MAX_LOOP_INPUT_BYTES = 64 * 1024;
 
@@ -82,7 +82,7 @@ export async function runLoopProcess(
     const managedRoot = inputIsObject
       ? await resolveProjectLoopRoot(input, dependencies.root ?? process.cwd(), harness).catch(() => null)
       : null;
-    if (dependencies.office !== undefined && managedRoot !== null && process.env.AGENT_OPS_DISABLE !== "1") {
+    if (dependencies.office !== undefined && managedRoot !== null && await officeEnabled(managedRoot)) {
       const phase = officeLoopPhaseHint(input, managedRoot);
       void dependencies.office({
         root: managedRoot,

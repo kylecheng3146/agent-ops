@@ -168,6 +168,13 @@ test("declares opencode hooks and generates a managed plugin source", () => {
     })),
     [
       {
+        capability: "office-presence",
+        nativeEvent: "SessionStart",
+        surfaceId: "opencode-plugin",
+        support: "degraded",
+        runtimeFailure: "fail-open"
+      },
+      {
         capability: "lifecycle-summary",
         nativeEvent: "SessionStart",
         surfaceId: "opencode-plugin",

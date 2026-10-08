@@ -412,3 +412,15 @@ test("a merge of configs without worktree leaves the field absent", () => {
   const merged = mergeConfigLayers([layer("project", config())]);
   assert.equal("worktree" in merged.config, false);
 });
+
+test("Office Preview follows the existing features layer precedence and exposes its source", () => {
+  const user = config({features: {...config().features, office: {enabled: true}}});
+  const project = config({features: {...config().features, office: {enabled: false}}});
+  for (const value of [project, config()]) {
+    const merged = mergeConfigLayers([layer("user", user), layer("project", value)]);
+    assert.equal(explainConfig(merged).features.office.enabled, false);
+    assert.equal(explainConfig(merged).features.office.source, "project");
+    assert.deepEqual(merged.config.features, value.features);
+  }
+  assert.equal(explainConfig(mergeConfigLayers([layer("user", user)])).features.office.enabled, true);
+});

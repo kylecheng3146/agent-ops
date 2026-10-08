@@ -18,14 +18,14 @@ test("agent-ops office prints a live or background-started URL", async () => {
   assert.equal(result.status, "ok");
   assert.equal(result.code, "OFFICE_READY");
   assert.equal(result.data?.url, URL);
-  assert.equal(result.data?.text, `Office: ${URL}`);
+  assert.equal(result.data?.text, `Office (Preview): ${URL}`);
 });
 
 test("without background start the office serves in the foreground and prints its URL first", async () => {
   const out: string[] = [];
   const result = await runOfficeCommand({ensure: async () => null,
     foreground: async (onUrl) => { onUrl(URL); out.push("served"); }, writeStdout: (text) => { out.push(text); }});
-  assert.match(out[0]!, /^Office: http:\/\/127\.0\.0\.1:4321\/\?token=abc\n/u);
+  assert.match(out[0]!, /^Office \(Preview\): http:\/\/127\.0\.0\.1:4321\/\?token=abc\n/u);
   assert.equal(out[1], "served");
   assert.equal(result.code, "OFFICE_CLOSED");
   const failed = await runOfficeCommand({ensure: async () => { throw new AgentOpsError("OFFICE_START_FAILED", "late"); },
@@ -47,11 +47,11 @@ test("run start and run status print the office URL, and an office failure never
     const result = await runRunCommand({...base, args: args(extra), office: async () => URL});
     assert.equal(result.status, "ok");
     assert.equal(result.data?.officeUrl, URL);
-    assert.match(result.data!.text, /\nOffice: http:\/\/127\.0\.0\.1:4321\/\?token=abc$/u);
+    assert.match(result.data!.text, /\nOffice \(Preview\): http:\/\/127\.0\.0\.1:4321\/\?token=abc$/u);
     const failing = await runRunCommand({...base, args: args(extra), office: async () => { throw new Error("launchd down"); }});
     assert.equal(failing.status, "ok");
     assert.equal(failing.data?.officeUrl, undefined);
-    assert.doesNotMatch(failing.data!.text, /Office:/u);
+    assert.doesNotMatch(failing.data!.text, /Office \(Preview\):/u);
   }
   const stopped = await runRunCommand({...base, args: args({runAction: "stop", runId: "run-office-cli"}), office: async () => URL});
   assert.equal(stopped.data?.officeUrl, undefined, "only start and status print the office");

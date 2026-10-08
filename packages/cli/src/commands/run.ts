@@ -125,7 +125,7 @@ async function answerFromArgs(args: RunParsedArgs, root: string): Promise<string
  */
 async function withOffice(options: RunCommandOptions, response: RunCommandData): Promise<RunCommandData> {
   const url = await options.office?.().catch(() => null) ?? null;
-  return url === null ? response : {...response, officeUrl: url, text: `${response.text}\nOffice: ${url}`};
+  return url === null ? response : {...response, officeUrl: url, text: `${response.text}\nOffice (Preview): ${url}`};
 }
 
 export async function runRunCommand(options: RunCommandOptions): Promise<CliEnvelope<RunCommandData>> {

@@ -4,10 +4,19 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
-- `agent-ops office` serves a read-only, token-gated DOS-RPG office on
-  127.0.0.1 showing every run, session worktree and running review. Run state
-  gains optional per-run and per-worker phases and per-task verify/review
-  progress; `run start` and `run status` print the office URL.
+## [0.7.0] - 2026-10-08
+
+- First Office Preview: an opt-in, read-only pixel office with a full-viewport
+  room overview, detailed 32×48 characters, local Supervisor movement, room
+  navigation, clickable work whiteboards, phase areas, workstations and pending
+  questions. Teams share rooms; ordinary managed sessions have their own room.
+  Completed rooms remain for at most two hours. Chinese/English switching is
+  remembered, including the viewer badge (“你” / “You”).
+- Init/update offer an Office (Preview) switch, with new installs disabled by
+  default and updates preserving the existing choice. `--office on|off` is also
+  available. Disabled sessions do not record presence or launch Office; enabled
+  sessions reuse a token-gated loopback server and open one browser tab on start.
+  Animation stays local and makes no model requests.
 
 - The opt-in `run` profile (capability `auto-run`, implies `core` and `loop`)
   tells Claude Code and Codex to hand a change needing more than five

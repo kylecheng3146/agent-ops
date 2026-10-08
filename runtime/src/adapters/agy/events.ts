@@ -2,6 +2,15 @@ import type { CapabilityRegistrationSpec } from "../../install/types.js";
 
 export const AGY_CAPABILITY_REGISTRATIONS = [
   {
+    capability: "office-presence",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    hostEvent: "PreInvocation",
+    surfaceId: "agy-hooks",
+    support: "degraded",
+    runtimeFailure: "fail-open"
+  },
+  {
     capability: "lifecycle-summary",
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",

@@ -529,11 +529,21 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   }
   const featuresUnknown = unknownFieldFailure(
     root.features,
-    ["completionGate", "stopVerification"],
+    ["completionGate", "stopVerification", "office"],
     "$.features"
   );
   if (featuresUnknown !== undefined) {
     return featuresUnknown;
+  }
+  if (root.features.office !== undefined) {
+    if (!isRecord(root.features.office)) {
+      return failure("INVALID_TYPE", "$.features.office", "office must be an object.");
+    }
+    const unknown = unknownFieldFailure(root.features.office, ["enabled"], "$.features.office");
+    if (unknown !== undefined) return unknown;
+    if (typeof root.features.office.enabled !== "boolean") {
+      return failure("INVALID_FEATURE", "$.features.office.enabled", "office.enabled must be a boolean.");
+    }
   }
   if (!isRecord(root.features.stopVerification)) {
     return failure(

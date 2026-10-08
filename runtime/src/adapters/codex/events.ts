@@ -26,6 +26,14 @@ export function codexMatcherSupport(
 
 export const CODEX_CAPABILITY_REGISTRATIONS = [
   {
+    capability: "office-presence",
+    normalizedEvent: "session-start",
+    nativeEvent: "SessionStart",
+    surfaceId: "codex-hooks",
+    support: "degraded",
+    runtimeFailure: "fail-open"
+  },
+  {
     capability: "lifecycle-summary",
     normalizedEvent: "session-start",
     nativeEvent: "SessionStart",

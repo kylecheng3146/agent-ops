@@ -132,14 +132,14 @@ export function buildCodexHookConfig(
       hooks[event] = [loopMatcherGroup(event)];
     }
   } else {
-    if (capabilities.includes("lifecycle-summary")) {
+    if (capabilities.includes("lifecycle-summary") || capabilities.includes("office-presence")) {
       hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
     }
-    if (capabilities.includes("command-policy")) {
+    if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) {
       hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }
-  if (capabilities.includes("optional-stop-verify")) {
+  if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
   return {

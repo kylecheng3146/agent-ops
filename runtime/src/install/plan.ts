@@ -94,6 +94,8 @@ export interface CreateInstallPlanOptions {
   readonly reviewTargets?: readonly ReviewTargetId[];
   /** Explicit opt-in for the agy project-loop completion gate. */
   readonly completionGateEnabled?: boolean;
+  /** Explicit Office Preview choice; undefined preserves an existing choice. */
+  readonly officeEnabled?: boolean;
   /**
    * Update may reconcile an existing managed installation when the selected
    * harness set or capability-implied hooks changes. Init keeps the existing
@@ -241,7 +243,8 @@ function buildConfig(
   reviewTargets: readonly ReviewTargetId[] = [],
   detectedCommands: readonly VerificationCommand[] = [],
   completionGateEnabled = false,
-  worktree?: WorktreeConfig | null
+  worktree?: WorktreeConfig | null,
+  officeEnabled?: boolean
 ): AgentOpsConfig {
   // Absent reviewRoles means external review is disabled; an empty selection
   // must therefore omit the field rather than write an empty array.
@@ -261,13 +264,14 @@ function buildConfig(
     schemaVersion: CONFIG_SCHEMA_VERSION,
     profiles: [...profiles],
     verification,
-    features: existing?.features ?? {
-      stopVerification: {
-        enabled: false
-      },
-      completionGate: {
-        enabled: completionGateEnabled
-      }
+    features: {
+      ...(existing?.features ?? {
+        stopVerification: { enabled: false },
+        completionGate: { enabled: completionGateEnabled }
+      }),
+      ...(officeEnabled === undefined
+        ? (existing === undefined ? { office: { enabled: false } } : {})
+        : { office: { enabled: officeEnabled } })
     },
     pathMappings: existing?.pathMappings ?? [],
     securityExceptions: existing?.securityExceptions ?? [],
@@ -286,7 +290,8 @@ async function planConfig(
   },
   reviewTargets: readonly ReviewTargetId[] = [],
   completionGateEnabled = false,
-  worktree?: WorktreeConfig | null
+  worktree?: WorktreeConfig | null,
+  officeEnabled?: boolean
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -367,7 +372,8 @@ async function planConfig(
     reviewTargets,
     detected.commands,
     completionGateEnabled,
-    worktree
+    worktree,
+    officeEnabled
   );
   const content = `${JSON.stringify(config, null, 2)}\n`;
   return {
@@ -829,6 +835,18 @@ export async function createInstallPlan(
     options.harness,
     options.allowHarnessChange === true
   );
+  const config = await planConfig(
+    options.root,
+    resolved.profiles,
+    existing?.manifest ?? null,
+    options.existingConfig,
+    options.reviewTargets ?? [],
+    completionGateEnabled,
+    options.worktree,
+    options.officeEnabled
+  );
+  resolved.capabilities = resolved.capabilities.filter(capability => capability !== "office-presence");
+  if (config.config.features.office?.enabled === true) resolved.capabilities.push("office-presence");
   const existingOpencodePluginPath = existing?.manifest.artifacts.find(
     ({ id }) => id === "opencode-plugin"
   )?.path;
@@ -953,15 +971,6 @@ export async function createInstallPlan(
 
   const operations: FileOperation[] = [];
   const artifacts: ManagedPathRecord[] = [];
-  const config = await planConfig(
-    options.root,
-    resolved.profiles,
-    existing?.manifest ?? null,
-    options.existingConfig,
-    options.reviewTargets ?? [],
-    completionGateEnabled,
-    options.worktree
-  );
   operations.push(config.operation);
   artifacts.push(config.record);
 

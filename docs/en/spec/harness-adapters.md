@@ -41,7 +41,7 @@ capabilities and MUST track generated source as one whole-file artifact.
 - Action: For opencode, manage `.opencode/plugins/agent-ops.js` in a project or `.config/opencode/plugins/agent-ops.js` at user scope (`$XDG_CONFIG_HOME/opencode/plugins/agent-ops.js` when configured inside the managed user root, or `$OPENCODE_CONFIG_DIR/plugins/agent-ops.js` when that native config directory is configured), leave `opencode.json` untouched, and deduplicate a project `AGENTS.md` contribution by path.
 - Evidence: The manifest contains the plugin hash, the generated source contains only the selected hook registrations, and shared project markers occur once.
 - Positive: `codex,opencode` produces one project AGENTS route and one hashed opencode plugin.
-- Negative: `Add an opencode.json instructions entry or register a plugin for a core-only profile.`
+- Negative: `Add an opencode.json instructions entry or register a plugin for a core-only profile with Office disabled.`
 
 ## HARNESS-ADAPTER-004
 
@@ -106,6 +106,7 @@ The current registration matrix is intentionally asymmetric:
 
 | Capability | agy | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- | --- |
+| office-presence (Preview) | degraded | degraded | supported | degraded |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
 | completion-gate | supported | unsupported | unsupported | unsupported |
@@ -176,7 +177,7 @@ MUST stay byte-identical to the rules without the profile.
 
 ## HARNESS-ADAPTER-008
 
-`agent-ops office` MUST show progress read-only from agent-ops state alone. The
+`agent-ops office` (Preview) MUST show progress read-only from agent-ops state alone. The
 supervisor records an optional phase per run and worker (`planning`,
 `implementing`, `verifying`, `reviewing`, `integrating`) at deterministic
 transitions, and each task's latest verify and review result with passed/total
@@ -186,7 +187,22 @@ base; narration uses paths only (`docs/**` is "writing docs", `tests/**` is
 "writing tests", otherwise "editing <file>"). The office MUST NOT read native
 Claude or Codex transcripts or file contents.
 
-- Trigger: A managed ordinary session starts or reports activity, or a user runs
+- Office Preview is opt-in via `features.office.enabled`. Init MUST offer an
+  off-by-default choice; interactive update MUST default to the existing choice.
+  Non-interactive update MUST preserve it unless `--office on|off` is supplied.
+  Older configs without the optional field remain valid and mean disabled.
+  Enabling Office MUST install its presence hooks even with only `core`; this
+  MUST NOT opt into command policy, Stop verification or lifecycle summaries.
+  Office-only OpenCode runtime failure MUST remain fail-open; adding Office to
+  command policy MUST preserve policy denial and unavailable-runtime behavior.
+  Agy startup is per invocation, OpenCode startup is app-scoped, and Codex
+  Stop delivery is unavailable in some execution modes; stale presence expires
+  using the bounded hook-activity timeout rather than assuming native Stop.
+  Features retain their existing whole-object layer precedence. Disabled hooks
+  MUST NOT record Office presence or start/open Office; the explicit command
+  MUST explain how to enable it. A running server MUST close after observing a
+  disabled choice on its next 15-second lifecycle check.
+- Trigger: When enabled, a managed ordinary session starts or reports activity, or a user runs
   `agent-ops office`, `agent-ops run start` or `agent-ops run status`.
 - Action: The command reuses the live server recorded in
   `<git common dir>/agent-ops/office.json`, or starts one, and prints its URL.
@@ -204,7 +220,7 @@ Claude or Codex transcripts or file contents.
   Its single inline page uses cozy cream, oak and sage in-code 16-color scene
   sprites with no image assets. Each 32×48 character uses its own fixed skin,
   hair and clothing palette, four-direction walking, and localized role labels.
-  The viewer's badge displays `你`; its overview size matches the largest room's
+  The viewer's badge displays `You` in English and `你` in Chinese; its overview size matches the largest room's
   characters. The fixed-viewport overview
   fills the available page below the header and shows all furnished work-unit
   rooms, shrinking rooms as necessary without document scrolling. A shared

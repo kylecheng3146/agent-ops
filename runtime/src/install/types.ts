@@ -5,6 +5,7 @@ export type Capability =
   | "task"
   | "verify"
   | "review"
+  | "office-presence"
   | "lifecycle-summary"
   | "local-log"
   | "command-policy"
@@ -44,6 +45,7 @@ export interface HookTargetSelection {
 
 export interface CapabilityRegistrationSpec {
   readonly capability:
+    | "office-presence"
     | "lifecycle-summary"
     | "command-policy"
     | "completion-gate"

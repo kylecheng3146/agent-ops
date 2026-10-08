@@ -372,12 +372,21 @@ export async function completeInitChoices(
           ))
         : undefined
     );
+    const office = args.office ?? (await selectOption(
+      "Enable Office (Preview)?",
+      [
+        { label: "no", value: "off" as const, description: "Default. Keep the pixel office disabled." },
+        { label: "yes", value: "on" as const, description: "Show sessions and teams in a local, read-only pixel office." }
+      ],
+      selectorIo
+    ));
     await probeReviewTargets(reviewTargets, setup);
     return {
       ...args,
       scope,
       harness,
       profiles,
+      office,
       ...(completionGate ? { completionGate: true } : {}),
       ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
       ...(worktree !== undefined ? { worktree } : {})
@@ -449,11 +458,14 @@ export async function completeInitChoices(
         : undefined
     );
 
+    const office = args.office ?? (affirmative(await session.question("Enable Office (Preview)? [y/N]: ")) ? "on" as const : "off" as const);
+
     return {
       ...args,
       scope,
       harness,
       profiles,
+      office,
       ...(completionGate ? { completionGate: true } : {}),
       ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
       ...(worktree !== undefined ? { worktree } : {})

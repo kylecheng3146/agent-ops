@@ -13,10 +13,28 @@ import { ensurePrivateDirectory } from "../../../runtime/src/security/permission
 import { worktreeDependencies } from "./parallel-deps.js";
 import type {NormalizedHookEvent} from "../../../runtime/src/hooks/events.js";
 import {normalizeShellHookEvent} from "../../../runtime/src/hooks/shell.js";
+import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
+import {loadEffectiveConfig} from "./context.js";
 
 const entry = fileURLToPath(import.meta.url);
 
 export type OfficeBrowser = (url: string) => Promise<void>;
+
+/** Missing or invalid config keeps this Preview disabled. */
+export async function officeEnabled(cwd: string): Promise<boolean> {
+  if (process.env.AGENT_OPS_DISABLE === "1") return false;
+  try {
+    return (await loadEffectiveConfig(cwd, "project")).config.features.office?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+async function requireOffice(cwd: string): Promise<void> {
+  if (!(await officeEnabled(cwd))) {
+    throw new AgentOpsError("OFFICE_PREVIEW_DISABLED", "Office (Preview) is disabled. Enable it with agent-ops update --office on.");
+  }
+}
 
 export interface OfficeSessionObservation {
   readonly root: string;
@@ -115,6 +133,7 @@ export async function observeOfficeSession(options: OfficeSessionObservation): P
   const identity = sessionIdentity(options);
   if (identity === undefined) return;
   try {
+    if (!(await officeEnabled(options.root))) return;
     const {mainRoot, commonDir} = await checkouts(options.root);
     if (identity !== undefined) {
       await recordOfficeSession({
@@ -146,6 +165,7 @@ async function checkouts(cwd: string): Promise<{ mainRoot: string; commonDir: st
 
 /** Serve the office until no run has been active for the idle window. */
 export async function serveOffice(cwd: string, onUrl: (url: string) => void = () => {}, openBrowser?: OfficeBrowser): Promise<void> {
+  await requireOffice(cwd);
   const { mainRoot, commonDir } = await checkouts(cwd);
   // ponytail: one shared 1s snapshot so several polling tabs cost one git scan
   let cached: { at: number; value: Promise<OfficeSnapshot> } | null = null;
@@ -165,7 +185,9 @@ export async function serveOffice(cwd: string, onUrl: (url: string) => void = ()
   }
   onUrl(officeUrl(record));
   if (openBrowser !== undefined) void openBrowser(officeUrl(record)).catch(() => undefined);
-  const timer = setInterval(() => { void office.tick(); }, 15_000);
+  const timer = setInterval(() => {
+    void officeEnabled(cwd).then(enabled => enabled ? office.tick() : finish());
+  }, 15_000);
   await idle;
   clearInterval(timer);
   await releaseOffice(commonDir, record);
@@ -174,6 +196,7 @@ export async function serveOffice(cwd: string, onUrl: (url: string) => void = ()
 
 /** Reuse the live server or start one under launchd; null where launchd is unavailable. */
 export async function ensureBackgroundOffice(cwd: string, launchd = new LaunchdController(), openBrowser?: OfficeBrowser): Promise<string | null> {
+  await requireOffice(cwd);
   const { mainRoot, commonDir } = await checkouts(cwd);
   const live = await readLiveOffice(commonDir);
   if (live !== null) return officeUrl(live);

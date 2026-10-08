@@ -37,6 +37,7 @@ export interface SecurityExceptionExplanation extends SourceExplanation {
 export interface ConfigExplanation {
   schemaVersion: number;
   features: {
+    office: { enabled: boolean; source: ConfigSource; sourcePath: string };
     completionGate: {
       enabled: boolean;
       source: ConfigSource;
@@ -59,6 +60,11 @@ export function explainConfig(merged: MergedConfig): ConfigExplanation {
   return {
     schemaVersion: merged.config.schemaVersion,
     features: {
+      office: {
+        enabled: merged.config.features.office?.enabled === true,
+        source: merged.provenance.features.source,
+        sourcePath: merged.provenance.features.sourcePath
+      },
       completionGate: {
         enabled: merged.config.features.completionGate.enabled,
         source: merged.provenance.features.source,
