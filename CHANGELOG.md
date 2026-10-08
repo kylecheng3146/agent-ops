@@ -4,6 +4,18 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Office now spans repositories: one user-global server (under
+  `~/.agent-ops/state/office/`) shows every Office-enabled repository, with
+  repository nameplates and a repository filter. A 0.7 per-repository server
+  is retired the first time its repository reports.
+- `worktree finish` closes the session's Office room instead of leaving it open
+  as integrating until retention expired.
+- On Windows, the Office server no longer flashes a cmd window on every poll:
+  its git and helper children start with `windowsHide`.
+- The completion gate no longer blocks a session that changed nothing when
+  another session's worktree branch was fast-forwarded into the checkout by
+  hand.
+
 ## [0.7.0] - 2026-10-08
 
 - First Office Preview: an opt-in, read-only pixel office with a full-viewport

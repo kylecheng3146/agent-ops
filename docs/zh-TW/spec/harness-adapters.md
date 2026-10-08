@@ -177,10 +177,17 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   server MUST 在下一次 15 秒生命週期檢查觀察到關閉選擇後結束。
 - Trigger: 啟用後，Managed 一般 session 啟動或回報活動，或使用者執行
   `agent-ops office`、`agent-ops run start` 或 `agent-ops run status`。
-- Action: Command 重用記錄於 `<git common dir>/agent-ops/office.json` 的 live
-  server，否則啟動一個，並印出 URL。一般 session hook 也會自動啟動或重用
-  Office，包含尚未建立 task 或 worktree 的 session。只有成功取得新 server
-  所有權的 process 開啟瀏覽器，後續 session 共用同一個 Office。Session metadata
+- Action: Command 重用記錄於 `~/.agent-ops/state/office/office.json`（設定
+  `AGENT_OPS_HOME` 時位於其下）的使用者唯一 live server，否則啟動一個，並印出
+  URL。一般 session hook 也會自動啟動或重用 Office，包含尚未建立 task 或
+  worktree 的 session。只有成功取得新 server 所有權的 process 開啟瀏覽器，所有
+  repository 的 session 共用同一個 Office。啟用 Office 的 repository 會把 main
+  root 與 Git common directory 登記在同目錄的 `repos.json`。每次收集都重新確認
+  目錄存在且仍啟用，並忘記安靜超過兩小時且沒有內容可顯示的 repository。房間
+  帶有 repository 名稱，key 以其區隔，頁面可依 repository 篩選。仍留有 0.7
+  per-repository 紀錄的 repository 第一次回報時，會 bootout 其 launchd job 並
+  刪除該紀錄，絕不對其 pid 發送訊號。`worktree finish` 成功後會記錄 session
+  完成，使房間關閉；只有新的啟動或 active task 會重新開啟。Session metadata
   只記錄有界限的識別資訊、已知工作狀態與活動時間，不包含 native transcript、
   prompt、tool 或檔案內容。啟動與活動觀察失敗均為 advisory。
   Server 綁定 127.0.0.1 的隨機 port，要求 URL 中不可猜測的 token，拒絕該位址與
