@@ -173,20 +173,19 @@ const officeLabel = (key: string): string => "office-" + createHash("sha256").up
 
 /**
  * Stops and removes the server 0.7 ran for this one repository. Best effort
- * and once: without its record there is nothing left to retire.
+ * and once: without its record there is nothing left to retire. Its pid is
+ * never signalled, since the record is only a file in the checkout; where
+ * launchd is absent the old server simply idles out.
  */
 export async function retireLegacyOffice(mainRoot: string, commonDir: string, launchd = new LaunchdController()): Promise<void> {
   const legacy = legacyOfficeHome(commonDir);
   if (await readPrivateFile(officeRecordPath(legacy), commonDir).catch(() => null) === null) return;
-  const live = await readLiveOffice(legacy);
   if (launchd.supported) {
     await launchd.bootout(createLaunchdDescriptor({
       runId: officeLabel(commonDir), workerId: "server", privateDirectory: join(legacy.dir, "office"),
       command: process.execPath, args: [entry, mainRoot], cwd: mainRoot, pathEnvironment: process.env.PATH
     })).catch(() => {});
   }
-  // The token answered, so the pid is still that server's.
-  if (live !== null) { try { process.kill(live.pid); } catch { /* already gone */ } }
   await rm(officeRecordPath(legacy), {force: true});
   await rm(join(legacy.dir, "office"), {recursive: true, force: true});
 }
