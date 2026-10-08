@@ -49,6 +49,8 @@ export interface BatchOptions {
   readonly width: number;
   readonly signal?: AbortSignal;
   readonly onProgress?: (line: string) => void;
+  /** Each verify or review as it starts, so a display can follow the latest step. Never fails the batch. */
+  readonly onPhase?: (phase: "verifying" | "reviewing") => void;
 }
 
 interface Slot {
@@ -74,6 +76,13 @@ export async function runBatch(
     throw new AgentOpsError("BATCH_INVALID_WIDTH", "Batch width must be a positive integer.");
   }
   const progress = options.onProgress ?? (() => {});
+  const phase = (value: "verifying" | "reviewing"): void => {
+    try {
+      options.onPhase?.(value);
+    } catch {
+      // Display only.
+    }
+  };
   const controller = new AbortController();
   const outer = options.signal;
   if (outer?.aborted === true) {
@@ -120,6 +129,7 @@ export async function runBatch(
       entry.retried = true;
     }
     let result: BatchReview;
+    phase("reviewing");
     try {
       result = await deps.review(id, controller.signal);
     } catch (error) {
@@ -179,6 +189,7 @@ export async function runBatch(
         break;
       }
       let status: "PASS" | "FAIL";
+      phase("verifying");
       try {
         status = await deps.verify(id, controller.signal);
       } catch (error) {

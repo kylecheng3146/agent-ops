@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import {productionRunContext, runPhaseObserver} from "./run-deps.js";
+import {advancePhaseObserver, productionRunContext} from "./run-deps.js";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {recordRunVerification} from "../../../runtime/src/run/verification.js";
 import {runOwnedLocalProof} from "./owned-run-step.js";
 import {runRunCommand} from "./commands/run.js";
 import {runOfficeCommand} from "./commands/office.js";
-import {ensureBackgroundOffice, observeOfficeSession, openOfficeBrowser, serveOffice} from "./office-entry.js";
+import {ensureBackgroundOffice, observeOfficeSession, officePhaseReporter, openOfficeBrowser, serveOffice} from "./office-entry.js";
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -593,13 +593,13 @@ process.exitCode = await runCli(
               ? await resolveCommandSessionId(root)
               : sessionIdFromEnvironment() ?? await readRecordedSessionId(root));
             if (args.action === "advance") {
+              const advanceSession = sessionId ?? await resolveCommandSessionId(root);
               return await runAdvanceCommand({
                 cwd: root,
-                sessionId: sessionId ?? await resolveCommandSessionId(root),
+                sessionId: advanceSession,
                 parentTaskId: args.taskId,
                 deps: worktreeDependencies(),
-                ...(process.env.AGENT_OPS_RUN_ID === undefined || process.env.AGENT_OPS_WORKER_ID === undefined ? {} :
-                  {onPhase: await runPhaseObserver(root, process.env.AGENT_OPS_RUN_ID, process.env.AGENT_OPS_WORKER_ID)})
+                onPhase: await advancePhaseObserver(root, advanceSession)
               });
             }
             const createConfig = args.action === "create"
@@ -848,7 +848,11 @@ process.exitCode = await runCli(
                 signal: controller.signal,
                 onProgress: (line) => {
                   process.stderr.write(`batch: ${line}\n`);
-                }
+                },
+                // The batch's tasks name the sessions whose people follow its steps.
+                phaseReporter: async (taskIds) => await officePhaseReporter(root,
+                  (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read()).sessions
+                    .filter(({taskId}) => taskIds.includes(taskId)).map(({sessionId}) => sessionId))
               });
               if (interruptedBy !== undefined) {
                 process.exit(interruptedBy === "SIGINT" ? 130 : 143);

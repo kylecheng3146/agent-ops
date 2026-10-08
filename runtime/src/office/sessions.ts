@@ -158,6 +158,22 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
   });
 }
 
+/**
+ * A long command's later step (batch, advance) on the session that runs it,
+ * which hooks only see start. Unknown sessions stay unknown.
+ */
+export async function recordOfficeSessionPhase(commonDir: string, sessionId: string, phase: string, now = Date.now()): Promise<void> {
+  const path = officeSessionsPath(commonDir);
+  await withPrivateFileLock(path, commonDir, async () => {
+    const records = prune(await readRecords(commonDir), now);
+    if (!records.some(record => record.sessionId === sessionId)) return;
+    const at = new Date(now).toISOString();
+    const next = records.map(record => record.sessionId === sessionId
+      ? {...record, status: "active" as const, phase, lastSeenAt: at} : record);
+    await writePrivateFile(path, JSON.stringify({schemaVersion: OFFICE_SESSION_SCHEMA_VERSION, sessions: next}) + "\n", commonDir);
+  });
+}
+
 /** Closes a session's room once `worktree finish` merged its work. Unknown sessions stay unknown. */
 export async function markOfficeSessionCompleted(commonDir: string, sessionId: string, now = Date.now()): Promise<void> {
   const path = officeSessionsPath(commonDir);

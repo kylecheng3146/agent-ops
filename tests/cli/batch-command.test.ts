@@ -87,6 +87,29 @@ function options(
   };
 }
 
+test("batch-phase: the batch's tasks name the reporter, and a broken reporter changes no outcome", async () => {
+  const asked: string[][] = [];
+  const reported: string[] = [];
+  const reporting = options(["batch", "--parent", "p", "--yes"], {
+    phaseReporter: async (ids) => {
+      asked.push([...ids].sort());
+      return async (phase) => { reported.push(phase); };
+    }
+  });
+  assert.equal((await runBatchCommand(reporting.options)).code, "BATCH_RESULT");
+  assert.deepEqual(asked, [["a", "b", "p"]]);
+  assert.equal(reported.filter((phase) => phase === "verifying").length, 3);
+  assert.equal(reported.filter((phase) => phase === "reviewing").length, 3);
+
+  for (const phaseReporter of [
+    async () => { throw new Error("no office"); },
+    async () => async () => { throw new Error("write failed"); }
+  ]) {
+    const broken = options(["batch", "--parent", "p", "--yes"], { phaseReporter });
+    assert.equal((await runBatchCommand(broken.options)).code, "BATCH_RESULT");
+  }
+});
+
 test("batch-wiring: selects the tree, resolves bases, skips fresh verify and reviews each task on its own base at width 2", async () => {
   assert.equal(DEFAULT_BATCH_WIDTH, 2);
   const { options: opts, calls } = options(

@@ -12,6 +12,11 @@ All notable changes to the project are documented here.
   records the turn's start; command policy refuses a prompt carrying a literal
   credential, as the loop already does. Runtime failures let the prompt
   through. Run `agent-ops update` to register it.
+- Office follows `agent-ops batch` and `task advance` step by step. Batch moves
+  the sessions attached to its tasks to verify or review as each step starts;
+  advance moves its own session through verify, review and integration. A
+  hook now places `batch` at verify and `task advance` at integration (it was
+  shown as planning).
 
 ## [0.7.3] - 2026-10-08
 

@@ -227,7 +227,12 @@ Claude or Codex transcripts or file contents.
   managed `UserPromptSubmit` hook whenever Office or command policy is enabled:
   Office records the turn's start, and command policy refuses a prompt carrying
   a literal credential in the host's native shape (Claude `decision: "block"`,
-  Codex exit code 2). Its runtime failures let the prompt through. A room without a task shows a no-task board rather than
+  Codex exit code 2). Its runtime failures let the prompt through. Hooks see
+  only a command's start, so `agent-ops batch` reports each verify or review
+  as it starts to the sessions attached to its tasks (the newest step shows),
+  and `task advance` outside a run reports verify, review and integration to
+  its own session. These reports update only a known session, never fail the
+  command, and record nothing while Office is disabled. A room without a task shows a no-task board rather than
   pending verification and review. Session metadata contains bounded
   identifiers, known work state and activity times, never native transcripts,
   prompts or tool/file contents. Startup and observation failures are advisory.

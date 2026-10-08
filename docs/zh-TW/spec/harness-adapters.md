@@ -194,7 +194,10 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   的啟動視為活動。不在 project loop 時，只要啟用 Office 或 command policy，Claude
   Code 與 Codex 會有受管理的 `UserPromptSubmit` hook：Office 記錄該輪開始，command
   policy 以 host 原生格式拒絕含字面憑證的 prompt（Claude `decision: "block"`、Codex
-  exit code 2）。其 runtime 失敗時放行 prompt。沒有 task 的
+  exit code 2）。其 runtime 失敗時放行 prompt。Hook 只看得到指令開始，因此
+  `agent-ops batch` 在每個 verify 或 review 開始時回報給其 task 綁定的 session
+  （顯示最新一步），不在 run 內的 `task advance` 則把驗證、審查、整合回報給自己
+  的 session。這些回報只更新已知 session，絕不讓指令失敗，Office 關閉時不記錄。沒有 task 的
   房間白板顯示「無任務」，而非待驗證與待審查。Session metadata
   只記錄有界限的識別資訊、已知工作狀態與活動時間，不包含 native transcript、
   prompt、tool 或檔案內容。啟動與活動觀察失敗均為 advisory。
