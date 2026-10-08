@@ -19,6 +19,7 @@ import type {IntegrationReceiptBinding} from "../run/integration.js";
 import {canonicalJson} from "../config/hash.js";
 import { listWorktrees } from "./manage.js";
 import {withPrivateFileLock} from "../security/permissions.js";
+import { markOfficeSessionCompleted } from "../office/sessions.js";
 import type { IntegratedChild } from "./integrate.js";
 import {
   assertWorktreeName,
@@ -589,6 +590,8 @@ export async function finishWorktree(
         }
       });
     }
+    // Office is display-only: its room closing never fails or partially fails a finish.
+    await markOfficeSessionCompleted(commonDir, record.sessionId).catch(() => undefined);
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));
     if (options.finalProof !== undefined) {
       for (const child of sessionChildren) {

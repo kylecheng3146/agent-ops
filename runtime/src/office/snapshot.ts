@@ -162,7 +162,8 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
   for (const worktree of input.worktrees) {
     if (worktree.runId !== undefined) continue;
     const session = bySession.get(worktree.sessionId);
-    const completedAt = worktree.completedAt ?? session?.completedAt ?? null;
+    // An active task in a live worktree is new work, whatever closed the session before.
+    const completedAt = worktree.completedAt ?? (worktree.status === "active" ? null : session?.completedAt ?? null);
     if (completedAt !== null && input.now - Date.parse(completedAt) >= COMPLETED_RETENTION_MS) continue;
     lobby.push({
       name: worktree.name,
@@ -176,7 +177,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(worktree.status === undefined && session?.taskStatus === undefined && session?.status === undefined ? {} : {status: worktree.status ?? session?.taskStatus ?? session?.status}),
       ...(worktree.taskId === undefined && session?.taskId === undefined ? {} : {taskId: worktree.taskId ?? session?.taskId ?? null}),
       ...(worktree.progress === undefined && session?.progress === undefined ? {} : {progress: worktree.progress ?? session?.progress ?? null}),
-      ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt: completedAt ?? session?.completedAt ?? null}),
+      ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
     });
     represented.add(worktree.sessionId);
