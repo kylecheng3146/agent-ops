@@ -4,7 +4,9 @@ import test from "node:test";
 
 import { buildOfficeSnapshot, mergeOfficeSnapshots, type OfficeSnapshot } from "../../runtime/src/office/snapshot.js";
 import { sceneModel } from "../../runtime/src/office/scene.js";
-import { officePage, PALETTE, SPRITES } from "../../runtime/src/office/page.js";
+import { officePage } from "../../runtime/src/office/page.js";
+import { avatarColors } from "../../runtime/src/office/art.js";
+import { findPath, walkGrid } from "../../runtime/src/office/layout.js";
 import { NOW, runFixture } from "./fixture.js";
 
 const files = (n: number) => ({files: n, insertions: n, deletions: 0, paths: Array.from({length: n}, (_, i) => `src/f${i}.ts`), recent: "src/f0.ts"});
@@ -185,29 +187,28 @@ test("a team cannot claim PASS while another member's proof is missing", () => {
   assert.equal(sceneModel({...base, runs: [{...run, agents: []}]}).floors[0]!.board.review, "pending");
 });
 
-test("the inline page embeds the tested scene, fixed viewport controls and safe paging", async () => {
+test("the inline page embeds the tested scene, art, layout and walking, and none of the legacy strips", async () => {
   const page = officePage("n0nce");
-  assert.ok(page.includes(sceneModel.toString()));
+  for (const shared of [sceneModel, avatarColors, walkGrid, findPath]) assert.ok(page.includes(shared.toString()), shared.name);
   assert.match(page, /id="office" tabindex="0"/u);
+  assert.match(page, /id="overview"/u);
+  assert.match(page, /id="hud"/u);
+  assert.match(page, /id="labels"/u);
   assert.match(page, /id="back"/u);
   assert.match(page, /id="recent"/u);
   assert.match(page, /<select id="repo-filter" hidden><\/select>/u);
   assert.match(page, /id="language"/u);
   assert.match(page, /prefers-reduced-motion/u);
   assert.match(page, /localStorage/u);
-  assert.match(page, /devicePixelRatio/u);
   assert.match(page, /imageSmoothingEnabled/u);
-  assert.match(page, /Supervisor/u);
   assert.match(page, /ArrowLeft/u);
   assert.match(page, /pageItems/u);
   assert.match(page, /textContent/u);
   assert.doesNotMatch(page, /<img|url\(|src=|href=|\.png|\.gif|@import/u);
   assert.equal((page.match(/<script/gu) ?? []).length, 1);
-  assert.equal(PALETTE.length, 16);
-  for (const [name, rows] of Object.entries(SPRITES)) {
-    for (const row of rows) assert.match(row, /^[0-9a-fS.]+$/u, name);
-    assert.equal(new Set(rows.map(r => r.length)).size, 1, `${name} rows share one width`);
-  }
+  // The hallway, the overview avatar, the bottom room tabs, the dialogue strip and the flow strip are gone.
+  assert.doesNotMatch(page, /id="(room-nav|dialogue|flow)"|getElementById\("(room-nav|dialogue|flow)"\)/u);
+  assert.doesNotMatch(page, /hallwayBounds|drawHallway|supervisor|Supervisor|renderRoomNav|tickDialogue|renderFlow|NAV_PAGE_SIZE/u);
   const embedded = new Function(`return (${sceneModel.toString()})`)() as typeof sceneModel;
   assert.deepEqual(embedded(snapshot()), sceneModel(snapshot()));
   const assets = (await readdir("runtime/src/office")).filter(f => !f.endsWith(".ts"));
