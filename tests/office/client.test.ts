@@ -71,13 +71,13 @@ const settle = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 const desk = (name: string, extra: Record<string, unknown> = {}) => ({name, branch: "main", sessionId: "s-" + name, narration: `editing src/${name}.ts`,
   diff: {files: 1, insertions: 1, deletions: 0, paths: [`src/${name}.ts`], recent: `src/${name}.ts`}, commands: [`agent-ops task status --session s-${name}`], ...extra});
 
-async function boot(initial: OfficeSnapshot, {reduced = false, language = "en-US"} = {}) {
+async function boot(initial: OfficeSnapshot, {reduced = false, language = "en-US", stored = {} as Record<string, string>} = {}) {
   const calls: Call[] = [];
-  const ids = ["app", "wrap", "office", "status", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "overview", "room-view", "hud", "labels"];
+  const ids = ["app", "wrap", "office", "status", "crumb", "back", "recent", "repo-filter", "language", "live", "work-list", "work-heading", "work-summary", "overview", "room-view", "hud", "labels", "workspace", "panel-toggle"];
   const elements = new Map(ids.map(id => [id, new FakeElement(calls, id, id === "office" ? "canvas" : "div")]));
   elements.get("status")!.hidden = true;
   elements.get("room-view")!.hidden = true;
-  const storage = new Map<string, string>();
+  const storage = new Map<string, string>(Object.entries(stored));
   const state = {snapshot: initial, offline: false, copied: ""};
   const document = {cookie: "", get activeElement() { return activeElement; }, getElementById: (id: string) => elements.get(id)!,
     createElement: (tag = "div") => new FakeElement(calls, "", tag), addEventListener: () => {}, documentElement: {lang: ""}};
@@ -93,7 +93,7 @@ async function boot(initial: OfficeSnapshot, {reduced = false, language = "en-US
   await settle();
   const vm = context as unknown as Vm;
   const poll = async (next?: OfficeSnapshot) => { if (next) state.snapshot = next; vm.poll(); await settle(); };
-  return {vm, elements, calls, state, document, poll};
+  return {vm, elements, calls, state, document, poll, storage};
 }
 
 test("the overview groups rooms by repository, puts rooms that need an answer first, and opens rooms at one whole-number scale", async () => {
@@ -315,4 +315,27 @@ test("the repository filter narrows the overview and leaves a room from another 
   filter.value = "shop"; filter.events.get("change")!();
   assert.equal(vm.mode, "overview");
   assert.deepEqual(elements.get("overview")!.children.map(section => section.getAttribute("data-repo")), ["shop"]);
+});
+
+test("the work list folds away so the office takes the whole width, and the choice is remembered", async () => {
+  const snapshot: OfficeSnapshot = {generatedAt: "x", runs: [], reviews: [], lobby: [desk("one")]};
+  const {elements, storage, vm} = await boot(snapshot);
+  const toggle = elements.get("panel-toggle")!, workspace = elements.get("workspace")!;
+  assert.equal(workspace.className, "");
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(toggle.textContent, "Hide list");
+  toggle.click();
+  assert.equal(workspace.className, "collapsed", "the list column is gone");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(toggle.textContent, "Show list");
+  assert.equal(storage.get("agent-office-list"), "collapsed");
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  assert.equal(vm.mode, "room");
+  assert.equal(workspace.className, "collapsed", "the choice holds inside a room");
+  toggle.click();
+  assert.equal(workspace.className, "");
+  assert.equal(storage.get("agent-office-list"), "open");
+  const again = await boot(snapshot, {stored: {"agent-office-list": "collapsed"}});
+  assert.equal(again.elements.get("workspace")!.className, "collapsed", "the next visit starts folded");
+  assert.equal(again.elements.get("panel-toggle")!.getAttribute("aria-expanded"), "false");
 });
