@@ -32,6 +32,8 @@ export interface OfficeReviewSlot {
   readonly since: string;
   readonly taskId: string | null;
   readonly root: string | null;
+  /** The repository's name in a building that spans several. */
+  readonly repo?: string;
 }
 
 export interface OfficeInput {
@@ -73,6 +75,7 @@ export interface OfficeRun {
   readonly reviewers: readonly OfficeReviewSlot[];
   readonly commands: readonly string[];
   readonly completedAt?: string | null;
+  readonly repo?: string;
 }
 
 export interface OfficeDesk {
@@ -91,6 +94,7 @@ export interface OfficeDesk {
   readonly host?: string;
   /** Hook liveness, separate from a task's persistent active status. */
   readonly sessionActive?: boolean;
+  readonly repo?: string;
 }
 
 export interface OfficeSnapshot {
@@ -203,4 +207,14 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
     });
   }
   return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: input.reviews.filter(r => !claimed.has(r))};
+}
+
+/** One building from several repositories' snapshots; every room names its repository. */
+export function mergeOfficeSnapshots(parts: readonly {readonly repo: string; readonly snapshot: OfficeSnapshot}[], now: number): OfficeSnapshot {
+  return {
+    generatedAt: new Date(now).toISOString(),
+    runs: parts.flatMap(({repo, snapshot}) => snapshot.runs.map(run => ({...run, repo}))),
+    lobby: parts.flatMap(({repo, snapshot}) => snapshot.lobby.map(desk => ({...desk, repo}))),
+    reviews: parts.flatMap(({repo, snapshot}) => snapshot.reviews.map(review => ({...review, repo})))
+  };
 }

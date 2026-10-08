@@ -5,11 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ensureBackgroundOffice, officeEnabled, observeOfficeSession, serveOffice } from "../../packages/cli/src/office-entry.js";
+import { ensureBackgroundOffice, officeEnabled, officeHome, observeOfficeSession, serveOffice } from "../../packages/cli/src/office-entry.js";
 import { DEFAULT_CONFIG } from "../../packages/cli/src/context.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { LaunchdController } from "../../runtime/src/run/macOS.js";
 import { claimOffice, createOfficeServer } from "../../runtime/src/office/server.js";
+
+// The user's one Office lives under AGENT_OPS_HOME; keep it out of the real home.
+let home = "";
+test.before(async () => { home = await realpath(await mkdtemp(join(tmpdir(), "office-bg-home-"))); process.env.AGENT_OPS_HOME = home; });
+test.after(async () => { delete process.env.AGENT_OPS_HOME; await rm(home, {recursive: true, force: true}); });
 
 test("disabled Office Preview records no presence and never starts a server or browser", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "office-bg-disabled-")));
@@ -24,6 +29,7 @@ test("disabled Office Preview records no presence and never starts a server or b
       await assert.rejects(ensureBackgroundOffice(root, new LaunchdController({platform: "darwin", execFile: async () => {throw new Error("must not launch");}}), async () => {throw new Error("must not open");}), (error: unknown) => error instanceof AgentOpsError && error.code === "OFFICE_PREVIEW_DISABLED");
       await assert.rejects(serveOffice(root), /Office \(Preview\) is disabled/);
       await assert.rejects(stat(join(root, ".git/agent-ops")), {code: "ENOENT"});
+      await assert.rejects(stat(officeHome().dir), {code: "ENOENT"});
     }
   } finally {
     await rm(root, {recursive: true, force: true});
@@ -66,7 +72,7 @@ test("background office creates its private launchd directory before writing the
       return {stdout: "", stderr: ""};
     }});
     await assert.rejects(ensureBackgroundOffice(root, launchd), /launchctl unavailable in test/u);
-    const office = await stat(join(root, ".git", "agent-ops", "office"));
+    const office = await stat(join(officeHome().dir, "launchd"));
     assert.ok(office.isDirectory());
     assert.equal(office.mode & 0o777, 0o700);
     assert.deepEqual(calls, ["bootout", "bootstrap"]);
@@ -89,7 +95,7 @@ test("background startup opens one injected browser page for one shared server",
         bootstraps += 1;
         const server = createOfficeServer({snapshot: async () => ({generatedAt: new Date().toISOString(), runs: [], lobby: [], reviews: []}), onIdle: () => {}});
         closeServer = server.close;
-        assert.ok(await claimOffice(join(root, ".git"), server) !== null);
+        assert.ok(await claimOffice(officeHome(), server) !== null);
       }
       return {stdout: "", stderr: ""};
     }});

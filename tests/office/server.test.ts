@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { claimOffice, createOfficeServer, ensureOffice, officeRecordPath, readLiveOffice, releaseOffice,
+import { claimOffice, createOfficeServer, ensureOffice, officeRecordPath, readLiveOffice, releaseOffice, userOfficeHome,
   OFFICE_IDLE_MS } from "../../runtime/src/office/server.js";
 import {buildOfficeSnapshot, type OfficeSessionView, type OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
 
@@ -118,24 +118,25 @@ test("unfinished task state does not keep a stopped or expired session alive", a
   await expired.close();
 });
 
-test("one server per repository: the record is reused, never duplicated, and released", async () => {
+test("one server per user: the record is reused, never duplicated, and released", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-"));
+  const home = userOfficeHome(commonDir);
   const first = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
   const second = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
   try {
-    assert.equal(await readLiveOffice(commonDir), null);
-    const record = await claimOffice(commonDir, first);
+    assert.equal(await readLiveOffice(home), null);
+    const record = await claimOffice(home, first);
     assert.ok(record !== null);
-    assert.deepEqual(JSON.parse(await readFile(officeRecordPath(commonDir), "utf8")), record);
-    assert.equal((await readLiveOffice(commonDir))?.token, first.token);
-    assert.equal(await claimOffice(commonDir, second), null);
+    assert.deepEqual(JSON.parse(await readFile(officeRecordPath(home), "utf8")), record);
+    assert.equal((await readLiveOffice(home))?.token, first.token);
+    assert.equal(await claimOffice(home, second), null);
     assert.equal(second.server.listening, false);
     let started = 0;
-    const url = await ensureOffice(commonDir, async () => { started += 1; });
+    const url = await ensureOffice(home, async () => { started += 1; });
     assert.equal(started, 0);
     assert.equal(url, `http://127.0.0.1:${record.port}/?token=${first.token}`);
-    await releaseOffice(commonDir, record);
-    assert.equal(await readLiveOffice(commonDir), null);
+    await releaseOffice(home, record);
+    assert.equal(await readLiveOffice(home), null);
   } finally {
     await first.close();
     await rm(commonDir, {recursive: true, force: true});
@@ -144,13 +145,14 @@ test("one server per repository: the record is reused, never duplicated, and rel
 
 test("concurrent startup claims one server before any caller opens a page", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-start-"));
+  const home = userOfficeHome(commonDir);
   const first = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
   const second = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
   let starts = 0;
   try {
     const [left, right] = await Promise.all([
-      ensureOffice(commonDir, async () => { starts += 1; assert.ok(await claimOffice(commonDir, first) !== null); }, {pollMs: 5}),
-      ensureOffice(commonDir, async () => { starts += 1; assert.ok(await claimOffice(commonDir, second) !== null); }, {pollMs: 5})
+      ensureOffice(home, async () => { starts += 1; assert.ok(await claimOffice(home, first) !== null); }, {pollMs: 5}),
+      ensureOffice(home, async () => { starts += 1; assert.ok(await claimOffice(home, second) !== null); }, {pollMs: 5})
     ]);
     assert.equal(starts, 1);
     assert.equal(left, right);
@@ -163,14 +165,15 @@ test("concurrent startup claims one server before any caller opens a page", asyn
 
 test("a stale record is not reused and a fresh server is started", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-"));
+  const home = userOfficeHome(commonDir);
   const office = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
   try {
-    const record = await claimOffice(commonDir, office);
+    const record = await claimOffice(home, office);
     await office.close();
-    assert.equal(await readLiveOffice(commonDir), null, "a closed server does not answer");
+    assert.equal(await readLiveOffice(home), null, "a closed server does not answer");
     const next = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
     try {
-      const url = await ensureOffice(commonDir, async () => { await claimOffice(commonDir, next); }, {pollMs: 10});
+      const url = await ensureOffice(home, async () => { await claimOffice(home, next); }, {pollMs: 10});
       assert.notEqual(url, `http://127.0.0.1:${record!.port}/?token=${office.token}`);
       assert.ok(url.endsWith(next.token));
     } finally {
