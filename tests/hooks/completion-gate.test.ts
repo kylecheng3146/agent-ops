@@ -208,6 +208,51 @@ test("preexisting Git-visible changes and read-only turns stop normally", async 
   }
 });
 
+async function mergeBranch(root: string, branch: string, file: string): Promise<void> {
+  await execFile("git", ["checkout", "-q", "-b", branch], { cwd: root });
+  await writeFile(join(root, file), `${branch}\n`);
+  await execFile("git", ["add", file], { cwd: root });
+  await execFile("git", ["commit", "-q", "-m", branch], { cwd: root });
+  await execFile("git", ["checkout", "-q", "-"], { cwd: root });
+  await execFile("git", ["merge", "--ff-only", branch], { cwd: root });
+}
+
+test("another session's worktree merged by hand is not this session's change", async () => {
+  const root = await repository();
+  try {
+    const { gate } = setup(root);
+    await gate.initialize(SESSION);
+    await mergeBranch(root, "agent-ops/session-other001", "one.txt");
+    await mergeBranch(root, "agent-ops/session-other002-child", "two.txt");
+    assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_ALLOWED");
+    // The baseline moved with it, so a later edit is still this session's own.
+    await writeFile(join(root, "source.txt"), "changed\n");
+    assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_TASK_REQUIRED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a plain commit or this session's own branch since the baseline still needs a task", async () => {
+  for (const move of ["commit", "own-merge"] as const) {
+    const root = await repository();
+    try {
+      const { gate } = setup(root);
+      await gate.initialize(SESSION);
+      await mergeBranch(root, "agent-ops/session-other001", "one.txt");
+      if (move === "own-merge") {
+        await mergeBranch(root, "agent-ops/session-conversa-child", "own.txt");
+      } else {
+        await writeFile(join(root, "source.txt"), "committed\n");
+        await execFile("git", ["commit", "-q", "-am", "direct"], { cwd: root });
+      }
+      assert.equal((await gate.handle(stop()))?.code, "COMPLETION_GATE_TASK_REQUIRED", move);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("a session change blocks without a task and non-final stops stay allowed", async () => {
   const root = await repository();
   try {

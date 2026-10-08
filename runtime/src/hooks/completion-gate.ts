@@ -17,10 +17,10 @@ import {
   collectChangeSurface,
   type GitRunner
 } from "../verify/change-surface.js";
-import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
+import { calculateSourceFingerprint, worktreeFingerprint } from "../verify/source-fingerprint.js";
 import {resolveReviewScope} from "../review/scope.js";
 import type { HookResult, NormalizedHookEvent } from "./events.js";
-import { NOTES_REF, noteSessionLine, readWorktreeRecord } from "../parallel/service.js";
+import { NOTES_REF, noteSessionLine, readWorktreeRecord, sessionWorktreeName } from "../parallel/service.js";
 
 const FINGERPRINT = /^[a-f0-9]{64}$/u;
 const SESSION = /^[^\0\r\n]{1,256}$/u;
@@ -450,6 +450,33 @@ export class CompletionGateService {
     return new TextDecoder().decode(log.stdout).split("\0").some((note) => note.split("\n").includes(line));
   }
 
+  /**
+   * Whether a clean checkout moved since the baseline only by fast-forward
+   * merges of other sessions' worktree branches. `worktree finish` rebases
+   * open sessions itself; a merge run by hand does not, and would otherwise
+   * read as this session's change. The branch reflog is walked back to the
+   * entry whose clean fingerprint is the baseline; any other move counts.
+   */
+  async #onlyOtherSessionsMerged(baseline: string, sessionId: string): Promise<boolean> {
+    const runner = this.#options.gitRunner;
+    if ((await collectChangeSurface(runner)).paths.length > 0) return false;
+    const branch = await runner.run(["symbolic-ref", "-q", "HEAD"]);
+    if (branch.exitCode !== 0) return false;
+    // ponytail: newest 200 branch moves only; an older baseline needs a one-time allow-stop
+    const log = await runner.run(["reflog", "--format=%H%x00%gs", "-n", "200",
+      new TextDecoder().decode(branch.stdout).trim(), "--"]);
+    if (log.exitCode !== 0) return false;
+    const own = `agent-ops/${sessionWorktreeName(sessionId)}`;
+    const entries = new TextDecoder().decode(log.stdout).split("\n").filter((line) => line !== "");
+    for (const [index, entry] of entries.entries()) {
+      const [head = "", subject = ""] = entry.split("\0");
+      if (index > 0 && worktreeFingerprint(head) === baseline) return true;
+      const merged = /^merge (agent-ops\/session-[a-z0-9-]+): Fast-forward$/u.exec(subject)?.[1];
+      if (merged === undefined || merged === own || merged.startsWith(`${own}-`)) return false;
+    }
+    return false;
+  }
+
   async #validateTask(sessionId: string): Promise<HookResult | null> {
     let stored;
     try {
@@ -534,7 +561,11 @@ export class CompletionGateService {
         ? "The session baseline is unavailable; continue once so PreInvocation can initialize it."
         : "The session baseline is unavailable: its SessionStart never reached this checkout. The next tool call records one; if this repeats, run agent-ops doctor.");
     }
-    const changed = state.baselineFingerprint !== fingerprint && state.permitFingerprint !== fingerprint;
+    let changed = state.baselineFingerprint !== fingerprint && state.permitFingerprint !== fingerprint;
+    if (changed && await this.#onlyOtherSessionsMerged(state.baselineFingerprint, sessionId)) {
+      await this.#store.mutate(sessionId, (current) => ({ ...(current ?? state), baselineFingerprint: fingerprint }));
+      changed = false;
+    }
     const delegated = this.#delegatedRoots(state);
     if (delegated.length > 0) {
       // This checkout only has to stay untouched; the work, its task and its

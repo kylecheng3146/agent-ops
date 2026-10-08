@@ -45,6 +45,11 @@ export async function calculateSourceFingerprint(
       hash: sha256(bytes)
     });
   }
+  return worktreeFingerprint(head, paths);
+}
+
+/** A worktree-mode fingerprint; with no paths, that of a clean checkout at `head`. */
+export function worktreeFingerprint(head: string, paths: ReadonlyArray<Record<string, unknown>> = []): string {
   return sha256(JSON.stringify({
     domain: "agent-ops-source-v1",
     mode: "worktree",
