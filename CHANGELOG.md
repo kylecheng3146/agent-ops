@@ -12,6 +12,9 @@ All notable changes to the project are documented here.
   as integrating until retention expired.
 - On Windows, the Office server no longer flashes a cmd window on every poll:
   its git and helper children start with `windowsHide`.
+- `agent-ops review` (and `batch`) no longer stops a task with a review-only
+  criterion as NOT_RUN `missing-verification-evidence`; as documented, such a
+  criterion names no verifier and is held to the mandatory repository commands.
 - The completion gate no longer blocks a session that changed nothing when
   another session's worktree branch was fast-forwarded into the checkout by
   hand.
