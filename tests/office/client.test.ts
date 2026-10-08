@@ -503,9 +503,10 @@ test("eight sessions keep full identities, honest proof states and actionable re
     commands: [`agent-ops task status --session ${name}`]
   }))};
   let offline = false, copied = "", clipboardFailure = false;
+  const windowEvents = new Map<string, () => void>();
   const context = {
     document: {cookie: "", get activeElement() { return activeElement; }, getElementById: (id: string) => elements.get(id)!, createElement: (tag = "div") => new FakeElement("", tag), addEventListener: () => {}},
-    window: {devicePixelRatio: 2, innerWidth: 1440, innerHeight: 900, matchMedia: () => ({matches: false}), addEventListener: () => {}},
+    window: {devicePixelRatio: 2, innerWidth: 1440, innerHeight: 900, matchMedia: () => ({matches: false}), addEventListener: (name: string, handler: () => void) => windowEvents.set(name, handler)},
     navigator: {language: "zh-TW", clipboard: {writeText: async (value: string) => {if(clipboardFailure)throw new Error("unavailable");copied = value;}}},
     localStorage: {getItem: () => null, setItem: () => {}},
     fetch: async () => {if(offline)throw new Error("offline");return {ok: true, json: async () => snapshot};},
@@ -524,6 +525,10 @@ test("eight sessions keep full identities, honest proof states and actionable re
   assert.match(treeText(list), /進行中 · 尚未完成/u);
   assert.match(treeText(list), /Which version should ship\?/u);
   assert.equal(elements.get("flow")!.children.map(step => step.textContent).join(" → "), "1 規劃 → 2 開發 → 3 驗證 → 4 審查 → 5 整合");
+  context.window.innerWidth=960;context.window.innerHeight=720;windowEvents.get('resize')!();
+  assert.ok(elements.get('room-nav')!.children.some(button=>button.textContent.includes('下一頁')),'shrinking the window immediately paginates room navigation');
+  context.window.innerWidth=1440;context.window.innerHeight=900;windowEvents.get('resize')!();
+  assert.ok(!elements.get('room-nav')!.children.some(button=>button.textContent.includes('下一頁')),'growing the window restores the full navigation row');
   for (const [width, height] of [[2880, 1600], [980, 280], [220, 160]]) {
     const board = vm.progressBoardGeometry(width!, height!);
     for (const area of vm.model.floors[0]!.phaseAreas) {

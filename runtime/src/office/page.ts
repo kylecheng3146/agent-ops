@@ -601,7 +601,7 @@ function renderRoomNav(rooms){
   if (mode !== "overview") { if (navSignature !== lang + "|room") { roomNav.textContent = ""; navSignature = lang + "|room"; } return; }
   var pages = Math.max(1, Math.ceil(rooms.length / NAV_PAGE_SIZE));
   navPage = Math.max(0, Math.min(navPage, pages - 1));
-  var signature = lang + "|overview|" + (showRecent ? "recent" : "active") + "|" + selectedKey + "|" + navPage + "|" + rooms.map(function(f){ return f.key; }).join(",");
+  var signature = lang + "|overview|" + (showRecent ? "recent" : "active") + "|" + selectedKey + "|" + navPage + "|" + NAV_PAGE_SIZE + "|" + rooms.map(function(f){ return f.key; }).join(",");
   if (signature === navSignature) return;
   navSignature = signature; roomNav.textContent = "";
   if (pages > 1) { var previous = document.createElement("button"); previous.type = "button"; previous.textContent = "‹ " + t("previous"); previous.disabled = navPage === 0; previous.addEventListener("click", function(){ navPage--; updateHeader(); }); roomNav.appendChild(previous); }
@@ -899,7 +899,7 @@ languageButton.addEventListener("click", changeLanguage); statusBox.addEventList
 });
 function poll(){ fetch("snapshot.json" + location.search, {cache:"no-store"}).then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then(function(s){ snapshot = s; model = sceneModel(s); offline = false; var selectedMissing=mode==='room'&&!!selectedKey&&!roomByKey(selectedKey),dialogMissing=!statusBox.hidden&&!!detailTarget&&!roomByKey(detailTarget.floorKey); if(selectedMissing||dialogMissing){if(dialogMissing)detailPreviousFocus=canvas;if(!statusBox.hidden)closeDialog();detailTarget=null;detailPage=0;detailSignature="";mode='overview';} if (!selectedKey || !roomByKey(selectedKey)) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); if (!statusBox.hidden && detailTarget && roomByKey(detailTarget.floorKey)) { var signature=sourceSignature(roomByKey(detailTarget.floorKey)); if(signature!==detailSignature){detailSignature=signature;openSelectedDetail();} } }, function(){ offline = true; updateHeader(); }); }
 function loop(){ frame++; render(); tickDialogue(); requestAnimationFrame(loop); }
-updateHeader(); poll(); setInterval(poll, 2000); window.addEventListener("resize", render); requestAnimationFrame(loop);
+updateHeader(); poll(); setInterval(poll, 2000); window.addEventListener("resize", function(){updateHeader();render();}); requestAnimationFrame(loop);
 `;
 
 /** One inline page; the nonce binds its only script and style under the server's CSP. */
