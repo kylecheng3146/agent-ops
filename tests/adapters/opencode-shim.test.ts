@@ -210,3 +210,19 @@ test("Office-only observation stays fail-open while Office plus command policy p
     }
   }
 });
+
+test("Office-only hooks retain an explicit runtime denial when policy changes", async () => {
+  const loaded = await loadPlugin(["office-presence"]);
+  try {
+    const allow = fakeShell(JSON.stringify({decision: "allow"}));
+    const deny = fakeShell(JSON.stringify({decision: "deny", reason: "destructive-force-push"}));
+    // Effective policy can change after plugin initialization.
+    let calls = 0;
+    const dynamicShell: FakeShell["$"] = (strings, ...values) => (++calls === 1 ? allow.$ : deny.$)(strings, ...values);
+    const hooks = await loaded.module.AgentOps({$: dynamicShell, directory: "/repo"});
+    const before = hooks["tool.execute.before"] as (input: unknown, output: unknown) => Promise<void>;
+    await assert.rejects(before({tool: "bash", sessionID: "office-a"}, {args: {command: "git push --force origin main"}}), /destructive-force-push/);
+  } finally {
+    await loaded.cleanup();
+  }
+});

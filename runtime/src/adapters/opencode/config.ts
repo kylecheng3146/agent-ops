@@ -185,7 +185,7 @@ export function buildOpencodePlugin(
     "    return;",
     "  }",
     "  if (decision.decision === \"deny\") {",
-    displayOnly ? "    return;" : "    throw new Error(`agent-ops: ${decision.reason ?? \"denied\"}`);",
+    "    throw new Error(`agent-ops: ${decision.reason ?? \"denied\"}`);",
     "  }",
     "}",
     "",
