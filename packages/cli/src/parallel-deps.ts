@@ -33,7 +33,8 @@ export function gitRunner(root: string) {
           stdout: execFileSync("git", [...gitArgs], {
             cwd: root,
             encoding: "buffer",
-            stdio: ["ignore", "pipe", "ignore"]
+            stdio: ["ignore", "pipe", "ignore"],
+            windowsHide: true
           })
         };
       } catch (error) {
@@ -68,7 +69,7 @@ export function worktreeDependencies(): FinishDependencies {
     });
   return {
     git: async (cwd, gitArgs) => await new Promise((resolve) => {
-      execFile("git", [...gitArgs], { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      execFile("git", [...gitArgs], { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true },
         (error, stdout, stderr) => resolve({
           exitCode: error === null ? 0 : typeof error.code === "number" ? error.code : 1,
           stdout,
@@ -110,6 +111,7 @@ export function worktreeDependencies(): FinishDependencies {
         encoding: "utf8",
         timeout: step.timeoutMs,
         maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true,
         ...(process.platform === "win32" ? { shell: true } : {})
       }, (error, stdout, stderr) => resolve({
         exitCode: error === null

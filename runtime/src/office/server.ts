@@ -4,7 +4,7 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import {AgentOpsError} from "../fs/paths.js";
-import {readPrivateFile, withPrivateFileLock, writePrivateFile} from "../security/permissions.js";
+import {localStatePaths, readPrivateFile, withPrivateFileLock, writePrivateFile} from "../security/permissions.js";
 import {officePage} from "./page.js";
 import type {OfficeSnapshot} from "./snapshot.js";
 
@@ -18,8 +18,20 @@ export interface OfficeRecord {
   readonly startedAt: string;
 }
 
-export const officeRecordPath = (commonDir: string): string => join(commonDir, "agent-ops", "office.json");
-const officeStartLockPath = (commonDir: string): string => join(commonDir, "agent-ops", "office-start.lock");
+/** Where one Office keeps its record: `dir` inside the private-file `anchor`. */
+export interface OfficeHome {
+  readonly anchor: string;
+  readonly dir: string;
+}
+
+/** The user's one Office, beside the other per-user agent-ops state. */
+export const userOfficeHome = (homeDirectory: string): OfficeHome =>
+  ({anchor: homeDirectory, dir: join(localStatePaths(homeDirectory).root, "office")});
+/** Where 0.7 kept one Office per repository. */
+export const legacyOfficeHome = (commonDir: string): OfficeHome => ({anchor: commonDir, dir: join(commonDir, "agent-ops")});
+
+export const officeRecordPath = (home: OfficeHome): string => join(home.dir, "office.json");
+const officeStartLockPath = (home: OfficeHome): string => join(home.dir, "office-start.lock");
 export const officeUrl = (record: Pick<OfficeRecord, "port" | "token">): string =>
   `http://127.0.0.1:${record.port}/?token=${record.token}`;
 
@@ -104,8 +116,8 @@ function alive(pid: number): boolean {
 }
 
 /** A recorded server counts only if its process lives and it answers with its own token. */
-export async function readLiveOffice(commonDir: string): Promise<OfficeRecord | null> {
-  const source = await readPrivateFile(officeRecordPath(commonDir), commonDir).catch(() => null);
+export async function readLiveOffice(home: OfficeHome): Promise<OfficeRecord | null> {
+  const source = await readPrivateFile(officeRecordPath(home), home.anchor).catch(() => null);
   if (source === null) return null;
   try {
     const record = JSON.parse(source) as OfficeRecord;
@@ -118,29 +130,29 @@ export async function readLiveOffice(commonDir: string): Promise<OfficeRecord | 
 }
 
 /**
- * Starts serving unless another live server already owns the repository.
+ * Starts serving unless another live server already owns this home.
  * Returns null when this process should exit because one is already running.
  */
-export async function claimOffice(commonDir: string, office: OfficeServer, pid = process.pid): Promise<OfficeRecord | null> {
-  return await withPrivateFileLock(officeRecordPath(commonDir), commonDir, async () => {
-    if (await readLiveOffice(commonDir) !== null) return null;
+export async function claimOffice(home: OfficeHome, office: OfficeServer, pid = process.pid): Promise<OfficeRecord | null> {
+  return await withPrivateFileLock(officeRecordPath(home), home.anchor, async () => {
+    if (await readLiveOffice(home) !== null) return null;
     const record: OfficeRecord = {pid, port: await office.listen(), token: office.token, startedAt: new Date().toISOString()};
-    await writePrivateFile(officeRecordPath(commonDir), JSON.stringify(record) + "\n", commonDir);
+    await writePrivateFile(officeRecordPath(home), JSON.stringify(record) + "\n", home.anchor);
     return record;
   });
 }
 
 /** Reuse the live server, or start one and wait for it to record itself. */
-export async function ensureOffice(commonDir: string, start: () => Promise<void>,
+export async function ensureOffice(home: OfficeHome, start: () => Promise<void>,
   options: {readonly timeoutMs?: number; readonly pollMs?: number} = {}): Promise<string> {
-  return await withPrivateFileLock(officeStartLockPath(commonDir), commonDir, async () => {
-    const live = await readLiveOffice(commonDir);
+  return await withPrivateFileLock(officeStartLockPath(home), home.anchor, async () => {
+    const live = await readLiveOffice(home);
     if (live !== null) return officeUrl(live);
     await start();
     const deadline = Date.now() + (options.timeoutMs ?? 10_000);
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, options.pollMs ?? 200));
-      const started = await readLiveOffice(commonDir);
+      const started = await readLiveOffice(home);
       if (started !== null) return officeUrl(started);
     }
     throw new AgentOpsError("OFFICE_START_FAILED", "The office server did not record itself in time.");
@@ -148,9 +160,9 @@ export async function ensureOffice(commonDir: string, start: () => Promise<void>
 }
 
 /** Drop the record on exit, unless another server has replaced it. */
-export async function releaseOffice(commonDir: string, record: OfficeRecord): Promise<void> {
-  await withPrivateFileLock(officeRecordPath(commonDir), commonDir, async () => {
-    const source = await readPrivateFile(officeRecordPath(commonDir), commonDir).catch(() => null);
-    if (source !== null && (JSON.parse(source) as OfficeRecord).token === record.token) await rm(officeRecordPath(commonDir), {force: true});
+export async function releaseOffice(home: OfficeHome, record: OfficeRecord): Promise<void> {
+  await withPrivateFileLock(officeRecordPath(home), home.anchor, async () => {
+    const source = await readPrivateFile(officeRecordPath(home), home.anchor).catch(() => null);
+    if (source !== null && (JSON.parse(source) as OfficeRecord).token === record.token) await rm(officeRecordPath(home), {force: true});
   });
 }

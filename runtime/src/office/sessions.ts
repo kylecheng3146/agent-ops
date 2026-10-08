@@ -146,9 +146,24 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
       ...(options.taskId ?? previous?.taskId ? {taskId: options.taskId ?? previous?.taskId} : {}),
       ...(options.phase ?? previous?.phase ? {phase: options.phase ?? previous?.phase} : {}),
       ...(options.host ?? previous?.host ? {host: options.host ?? previous?.host} : {}),
-      ...(options.event === "stop" && previous?.completedAt !== undefined ? {completedAt: previous.completedAt} : {})
+      // A finished session keeps its closed room through the tool calls that
+      // report the result; only a new start (or resume) reopens it.
+      ...(options.event !== "start" && previous?.completedAt !== undefined ? {completedAt: previous.completedAt} : {})
     };
     const without = records.filter(record => record.sessionId !== options.sessionId);
     await writePrivateFile(path, JSON.stringify({schemaVersion: 1, sessions: [...without, next].slice(-MAX_SESSIONS)}) + "\n", options.commonDir);
+  });
+}
+
+/** Closes a session's room once `worktree finish` merged its work. Unknown sessions stay unknown. */
+export async function markOfficeSessionCompleted(commonDir: string, sessionId: string, now = Date.now()): Promise<void> {
+  const path = officeSessionsPath(commonDir);
+  await withPrivateFileLock(path, commonDir, async () => {
+    const records = prune(await readRecords(commonDir), now);
+    if (!records.some(record => record.sessionId === sessionId)) return;
+    const at = new Date(now).toISOString();
+    const next = records.map(record => record.sessionId === sessionId
+      ? {...record, status: "idle" as const, phase: "integrating", lastSeenAt: at, completedAt: at} : record);
+    await writePrivateFile(path, JSON.stringify({schemaVersion: OFFICE_SESSION_SCHEMA_VERSION, sessions: next}) + "\n", commonDir);
   });
 }

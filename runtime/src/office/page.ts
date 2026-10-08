@@ -212,7 +212,9 @@ button{font:inherit;color:inherit}
 #crumb{flex:1;overflow:hidden;text-overflow:ellipsis;color:#f2e5c9}
 #header button{border:2px solid #f2e5c9;background:#6d9275;color:#fff7e6;padding:5px 9px;cursor:pointer;box-shadow:2px 2px 0 #000}
 #header button:hover,#header button:focus-visible{background:#adc39a;color:#2b241f;outline:3px solid #f2c95c;outline-offset:2px}
-#header button[hidden]{display:none}
+#header button[hidden],#header select[hidden]{display:none}
+#header select{border:2px solid #f2e5c9;background:#355a4b;color:#fff7e6;padding:4px 6px;font:inherit;box-shadow:2px 2px 0 #000}
+#header select:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
 #live{color:#adc39a}
 #wrap{min-height:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:4px;padding:4px 8px;overflow:hidden;background:#ead8b8}
 #office{display:block;max-width:100%;max-height:none;width:auto;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;border:4px solid #6b5d50;box-shadow:6px 6px 0 #8a5033;outline:none;cursor:pointer}
@@ -248,7 +250,7 @@ var canvas = document.getElementById("office"), ctx = canvas.getContext("2d"), a
 ctx.imageSmoothingEnabled = false;
 var dialogueBox = document.getElementById("dialogue"), statusBox = document.getElementById("status"), roomNav = document.getElementById("room-nav"), wrap = document.getElementById("wrap");
 var crumb = document.getElementById("crumb"), backButton = document.getElementById("back"), recentButton = document.getElementById("recent");
-var languageButton = document.getElementById("language"), live = document.getElementById("live");
+var languageButton = document.getElementById("language"), live = document.getElementById("live"), repoSelect = document.getElementById("repo-filter"), repoFilter = "", repoSignature = "";
 var snapshot = null, model = null, positions = {}, roomCanvases = {}, frame = 0, lineIndex = 0, typed = 0, offline = false;
 var mode = "overview", selectedKey = null, showRecent = false, detailPage = 0, dialogClose = null, detailPreviousFocus = null, detailTarget = null;
 var detailSignature = "";
@@ -257,8 +259,8 @@ var supervisor = {x:43, y:19, targetX:43, targetY:19}, supervisorReady = false, 
 var roomSupervisor = {x:32, y:34, targetX:32, targetY:34};
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var STRINGS = {
-  en: {viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -331,7 +333,15 @@ function canvasPoint(event){var rect=canvas.getBoundingClientRect();return {x:(e
 function inside(point,rect){return point.x>=rect.x&&point.x<rect.x+rect.width&&point.y>=rect.y&&point.y<rect.y+rect.height;}
 function fillText(value, x, y, size, color){ ctx.fillStyle = color || PALETTE[0]; ctx.font = "bold " + Math.max(5, Math.round((size || 10) * U)) + "px monospace"; ctx.textBaseline = "top"; ctx.fillText(short(value, 36), x, y); }
 function roomByKey(key){ if (!model) return null; for (var i = 0; i < model.floors.length; i++) if (model.floors[i].key === key) return model.floors[i]; return null; }
-function visibleRooms(){ if (!model) return []; return model.floors.filter(function(f){ return showRecent || !f.completedAt; }); }
+function visibleRooms(){ if (!model) return []; return model.floors.filter(function(f){ return (showRecent || !f.completedAt) && (!repoFilter || f.repo === repoFilter); }); }
+function repoNames(){ var names = []; if (model) model.floors.forEach(function(f){ if (f.repo && names.indexOf(f.repo) < 0) names.push(f.repo); }); return names; }
+function repoColor(name){ var hash = 0; for (var i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0; return PALETTE[[1, 4, 9, 13, 0, 8][hash % 6]] || PALETTE[1]; }
+function renderRepoFilter(){
+  var names = repoNames(); if (repoFilter && names.indexOf(repoFilter) < 0) repoFilter = "";
+  repoSelect.hidden = names.length < 2; repoSelect.setAttribute("aria-label", t("repos"));
+  var signature = lang + "|" + repoFilter + "|" + names.join("\n"); if (signature === repoSignature) return; repoSignature = signature;
+  repoSelect.textContent = ""; [""].concat(names).forEach(function(name){ var option = document.createElement("option"); option.value = name; option.textContent = name || t("allRepos"); option.selected = name === repoFilter; repoSelect.appendChild(option); });
+}
 function activeRoom(){ return selectedKey ? roomByKey(selectedKey) : null; }
 function hasRecent(){ return !!(model && model.floors.some(function(f){ return !!f.completedAt; })); }
 function setCanvasSize(width, height){
@@ -549,7 +559,9 @@ function drawOverviewRoom(floor){
   ctx.save();ctx.beginPath();ctx.rect(surface.x,surface.y,surface.width,surface.height);ctx.clip();
   var image=renderRoomImage(floor,surface.width,surface.height);if(image)ctx.drawImage(image,surface.x,surface.y);
   floor.actors.forEach(function(actor){drawActor(floor,actor,surface);});
-  if(floor.completedAt){ctx.fillStyle='rgba(53,90,75,.18)';ctx.fillRect(surface.x,surface.y,surface.width,surface.height);}ctx.restore();
+  if(floor.completedAt){ctx.fillStyle='rgba(53,90,75,.18)';ctx.fillRect(surface.x,surface.y,surface.width,surface.height);}
+  if(floor.repo){var plate=short(floor.repo,16),plateWidth=(plate.length*6+8)*U;ctx.fillStyle=repoColor(floor.repo);ctx.fillRect(surface.x+2*U,surface.y+2*U,plateWidth,13*U);ctx.strokeStyle=PALETTE[0];ctx.lineWidth=U;ctx.strokeRect(surface.x+2*U,surface.y+2*U,plateWidth,13*U);fillText(plate,surface.x+6*U,surface.y+4*U,8,PALETTE[15]);}
+  ctx.restore();
 }
 function render(){
   if(!model)return;chooseRenderScale();var floor=activeRoom();
@@ -574,6 +586,7 @@ function renderRoomNav(rooms){
 function updateHeader(){
   if(document.documentElement)document.documentElement.lang=lang==='zh'?'zh-Hant':'en';
   canvas.setAttribute('aria-label',(lang==='zh'?'方向鍵或 WASD 移動 Supervisor；Enter 進入房間或查看細節；Esc 返回。':'Arrow keys or WASD move Supervisor; Enter opens rooms or details; Escape returns.')+' '+t('keyboardWork')+'；'+t('keyboardPhase')+'；'+t('keyboardQuestions'));
+  renderRepoFilter();
   var rooms = visibleRooms(), people = rooms.reduce(function(n, f){ return n + f.actors.length; }, 0);
   crumb.textContent = mode === "room" && activeRoom() ? activeRoom().title : t("overview") + " · " + rooms.length + " " + t("rooms") + " · " + people + " " + t("people");
   backButton.hidden = mode !== "room"; backButton.textContent = "← " + t("back"); recentButton.textContent = (showRecent ? "✓ " + t("recentOn") : "▣ " + t("recent")) + (hasRecent() ? " (" + model.floors.filter(function(f){ return !!f.completedAt; }).length + ")" : "");
@@ -800,6 +813,7 @@ canvas.addEventListener("keydown", function(event){
   if (event.key === "Enter" && mode === "overview") { event.preventDefault(); enterRoom(); }
   if (event.key === "Enter" && mode === "room") { event.preventDefault(); openSelectedDetail(); }
 });
+repoSelect.addEventListener("change", function(){ repoFilter = repoSelect.value; navPage = 0; if (activeRoom() && repoFilter && activeRoom().repo !== repoFilter) mode = "overview"; if (!selectedKey || visibleRooms().every(function(f){ return f.key !== selectedKey; })) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); });
 backButton.addEventListener("click", goOverview); recentButton.addEventListener("click", function(){ showRecent = !showRecent; if (!showRecent && activeRoom() && activeRoom().completedAt) mode = "overview"; updateHeader(); render(); });
 languageButton.addEventListener("click", changeLanguage); statusBox.addEventListener("keydown", function(event){
   if (event.key === "Escape") { event.preventDefault(); closeDialog(); return; }
@@ -822,7 +836,7 @@ export function officePage(nonce: string): string {
   return `<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>agent-ops Office · Preview</title><style nonce="${nonce}">${STYLE}</style></head>
-<body><div id="app"><header id="header"><div id="brand">agent-ops Office · Preview</div><div id="crumb">Office overview</div><button id="back" type="button" hidden>← Back to overview</button><button id="recent" type="button">▣ Recently completed</button><button id="language" type="button">繁中 / EN</button><span id="live" aria-live="polite">● Connected</span></header>
+<body><div id="app"><header id="header"><div id="brand">agent-ops Office · Preview</div><div id="crumb">Office overview</div><button id="back" type="button" hidden>← Back to overview</button><button id="recent" type="button">▣ Recently completed</button><select id="repo-filter" hidden></select><button id="language" type="button">繁中 / EN</button><span id="live" aria-live="polite">● Connected</span></header>
 <main id="wrap"><canvas id="office" tabindex="0" width="576" height="304" aria-label="Office rooms; use arrow keys and Enter to explore"></canvas><div id="dialogue" role="status" aria-live="polite"></div><nav id="room-nav" aria-label="Office rooms"></nav></main></div>
 <section id="status" role="dialog" aria-modal="true" aria-labelledby="status-title" tabindex="-1" hidden></section><script nonce="${nonce}">${script}</script></body></html>`;
 }

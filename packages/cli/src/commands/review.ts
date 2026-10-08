@@ -341,7 +341,14 @@ async function preflightReview(
   ) {
     return { ok: false, reason: "stale-verification" };
   }
-  if (context.criteria.some((criterion) => !options.config!.verification.commands.some(
+  const typed = (criterion: (typeof context.criteria)[number]): boolean => {
+    const owner = context.criterionOwners?.get(criterion.id);
+    return context.records.find(r => r.task.id === (owner?.taskId ?? context.taskId))?.task.criteria
+      .find(c => c.id === (owner?.criterionId ?? criterion.id))?.acceptance !== undefined;
+  };
+  // A typed criterion (review-only included) is held to every required
+  // repository command below, so only a legacy one must name its own.
+  if (context.criteria.some((criterion) => !typed(criterion) && !options.config!.verification.commands.some(
     ({ id, required }) => required && (criterion.verifierIds ?? []).includes(id)))) {
     return { ok: false, reason: "missing-verification-evidence" };
   }
@@ -349,10 +356,9 @@ async function preflightReview(
   const commands: ReviewVerificationCommandSummary[] = [];
   for (const criterion of context.criteria) {
     const owner = context.criterionOwners?.get(criterion.id);
-    const typed = context.records.find(r => r.task.id === (owner?.taskId ?? context.taskId))?.task.criteria
-      .find(c => c.id === (owner?.criterionId ?? criterion.id))?.acceptance !== undefined;
+    const isTyped = typed(criterion);
     for (const commandId of new Set([...(criterion.verifierIds ?? []),
-      ...(typed ? options.config.verification.commands.filter(c => c.required).map(c => c.id) : [])])) {
+      ...(isTyped ? options.config.verification.commands.filter(c => c.required).map(c => c.id) : [])])) {
       const command = options.config.verification.commands.find(
         (candidate) => candidate.id === commandId
       );

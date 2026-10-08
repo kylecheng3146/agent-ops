@@ -32,6 +32,8 @@ export interface OfficeReviewSlot {
   readonly since: string;
   readonly taskId: string | null;
   readonly root: string | null;
+  /** The repository's name in a building that spans several. */
+  readonly repo?: string;
 }
 
 export interface OfficeInput {
@@ -73,6 +75,7 @@ export interface OfficeRun {
   readonly reviewers: readonly OfficeReviewSlot[];
   readonly commands: readonly string[];
   readonly completedAt?: string | null;
+  readonly repo?: string;
 }
 
 export interface OfficeDesk {
@@ -91,6 +94,7 @@ export interface OfficeDesk {
   readonly host?: string;
   /** Hook liveness, separate from a task's persistent active status. */
   readonly sessionActive?: boolean;
+  readonly repo?: string;
 }
 
 export interface OfficeSnapshot {
@@ -162,7 +166,8 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
   for (const worktree of input.worktrees) {
     if (worktree.runId !== undefined) continue;
     const session = bySession.get(worktree.sessionId);
-    const completedAt = worktree.completedAt ?? session?.completedAt ?? null;
+    // An active task in a live worktree is new work, whatever closed the session before.
+    const completedAt = worktree.completedAt ?? (worktree.status === "active" ? null : session?.completedAt ?? null);
     if (completedAt !== null && input.now - Date.parse(completedAt) >= COMPLETED_RETENTION_MS) continue;
     lobby.push({
       name: worktree.name,
@@ -176,7 +181,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(worktree.status === undefined && session?.taskStatus === undefined && session?.status === undefined ? {} : {status: worktree.status ?? session?.taskStatus ?? session?.status}),
       ...(worktree.taskId === undefined && session?.taskId === undefined ? {} : {taskId: worktree.taskId ?? session?.taskId ?? null}),
       ...(worktree.progress === undefined && session?.progress === undefined ? {} : {progress: worktree.progress ?? session?.progress ?? null}),
-      ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt: completedAt ?? session?.completedAt ?? null}),
+      ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
     });
     represented.add(worktree.sessionId);
@@ -202,4 +207,14 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
     });
   }
   return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: input.reviews.filter(r => !claimed.has(r))};
+}
+
+/** One building from several repositories' snapshots; every room names its repository. */
+export function mergeOfficeSnapshots(parts: readonly {readonly repo: string; readonly snapshot: OfficeSnapshot}[], now: number): OfficeSnapshot {
+  return {
+    generatedAt: new Date(now).toISOString(),
+    runs: parts.flatMap(({repo, snapshot}) => snapshot.runs.map(run => ({...run, repo}))),
+    lobby: parts.flatMap(({repo, snapshot}) => snapshot.lobby.map(desk => ({...desk, repo}))),
+    reviews: parts.flatMap(({repo, snapshot}) => snapshot.reviews.map(review => ({...review, repo})))
+  };
 }

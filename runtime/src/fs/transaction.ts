@@ -162,7 +162,8 @@ async function runAnchoredMutation(
     const child = spawn(process.execPath, [MUTATION_WORKER_PATH, encodedRequest], {
       cwd: parent,
       shell: false,
-      stdio: ["pipe", "ignore", "pipe"]
+      stdio: ["pipe", "ignore", "pipe"],
+      windowsHide: true
     });
     let standardError = "";
     let settled = false;

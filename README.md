@@ -81,9 +81,14 @@ header; the viewer badge reads “You” in English and “你” in Chinese. Th
 Supervisor movement and character animation run locally without model requests.
 Completed rooms move to Recently completed and remain for at most two hours.
 The page reads agent-ops state and `git diff` paths only, never transcripts or file
-contents. When enabled, managed ordinary sessions start the shared repository server
-automatically; a newly started Office opens the browser once, and subsequent
-sessions reuse it. The server exits after ten minutes without active runs or
+contents. One Office serves every repository you work in: each Office-enabled
+repository registers itself when its sessions report, rooms wear their
+repository's nameplate, and a header menu filters the building to one
+repository. Repositories that are removed, opt out, or stay quiet for two hours
+leave the building. When enabled, managed ordinary sessions start your one
+server automatically; a newly started Office opens the browser once, and
+subsequent sessions in any repository reuse it. A finished worktree's room
+moves to Recently completed as soon as `worktree finish` merges it. The server exits after ten minutes without active runs or
 ordinary sessions. Ordinary-session presence follows hook activity; a crashed
 or silent session expires after 30 minutes without an event. Office failures
 remain advisory and never block session work.

@@ -204,11 +204,20 @@ Claude or Codex transcripts or file contents.
   disabled choice on its next 15-second lifecycle check.
 - Trigger: When enabled, a managed ordinary session starts or reports activity, or a user runs
   `agent-ops office`, `agent-ops run start` or `agent-ops run status`.
-- Action: The command reuses the live server recorded in
-  `<git common dir>/agent-ops/office.json`, or starts one, and prints its URL.
-  Ordinary session hooks also start or reuse it, including before a task or
-  worktree exists. Only the successful new-server owner opens the browser;
-  other sessions share the same Office. Session metadata contains bounded
+- Action: The command reuses the user's one live server recorded in
+  `~/.agent-ops/state/office/office.json` (under `AGENT_OPS_HOME` when set), or
+  starts one, and prints its URL. Ordinary session hooks also start or reuse it,
+  including before a task or worktree exists. Only the successful new-server
+  owner opens the browser; sessions in every repository share the same Office.
+  An Office-enabled repository registers its main root and Git common directory
+  in `repos.json` beside that record. Each collection re-checks that the
+  directory exists and the repository still opts in, and forgets a repository
+  quiet for two hours with nothing left to show. Rooms carry their repository's
+  name, their keys are scoped by it, and the page filters by repository. The
+  first report from a repository that still has a 0.7 per-repository record
+  boots its launchd job out and removes that record; its pid is never signalled.
+  A successful `worktree finish` records the session's completion so its room
+  closes; only a new start or an active task reopens it. Session metadata contains bounded
   identifiers, known work state and activity times, never native transcripts,
   prompts or tool/file contents. Startup and observation failures are advisory.
   The server binds

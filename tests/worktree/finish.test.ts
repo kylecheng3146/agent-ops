@@ -24,6 +24,7 @@ import {
 } from "../../runtime/src/parallel/finish.js";
 import { addWorktree, ensureSessionWorktree, type WorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { evaluateWorktreeWrite } from "../../runtime/src/parallel/guard.js";
+import { readOfficeSessions, recordOfficeSession } from "../../runtime/src/office/sessions.js";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { runWorktreeCommand } from "../../packages/cli/src/commands/parallel.js";
 import { saveFixtureReviewAttestation } from "../review/attestation-fixture.js";
@@ -203,6 +204,49 @@ test("finish fast-forwards, records the task in notes and retires the worktree",
     assert.equal((await store.read("idle-session"))?.baselineFingerprint, now);
     assert.equal((await gateFor(root, CONFIG).handle(stopEvent("idle-session")))?.code, "COMPLETION_GATE_ALLOWED");
     assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("finish closes the session's Office room, and only a new start reopens it", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const commonDir = join(root, ".git");
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    const observe = async (event: "start" | "activity" | "stop") => await recordOfficeSession({
+      sessionId: SESSION, harness: "claude", projectRoot: root, commonDir, event });
+    await observe("start");
+    await completeWork(record, "source.txt", "alpha work\n");
+
+    await finishWorktree(d, { cwd: root, name: "alpha" });
+
+    const closed = (await readOfficeSessions(commonDir)).find(item => item.sessionId === SESSION);
+    assert.equal(typeof closed?.completedAt, "string");
+    assert.equal(closed?.status, "idle");
+    await observe("activity");
+    await observe("stop");
+    assert.equal((await readOfficeSessions(commonDir)).find(item => item.sessionId === SESSION)?.completedAt, closed?.completedAt);
+    await observe("start");
+    assert.equal((await readOfficeSessions(commonDir)).find(item => item.sessionId === SESSION)?.completedAt, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable Office session file never fails finish", async () => {
+  const root = await repository();
+  try {
+    const d = finishDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    await mkdir(join(root, ".git", "agent-ops", "office-sessions.json"), { recursive: true });
+    const head = await completeWork(record, "source.txt", "alpha work\n").then(() => git(record.path, "rev-parse", "HEAD"));
+
+    const result = await finishWorktree(d, { cwd: root, name: "alpha" });
+
+    assert.equal(result.mergedHead, head);
+    assert.deepEqual(result.warnings, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

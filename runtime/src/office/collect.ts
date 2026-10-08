@@ -1,4 +1,5 @@
 import {execFile} from "node:child_process";
+import {createHash} from "node:crypto";
 import {readdir, readFile, realpath, stat} from "node:fs/promises";
 import {basename, join, resolve} from "node:path";
 import {promisify} from "node:util";
@@ -12,13 +13,16 @@ import {findReviewAttestation} from "../review/attestation.js";
 import {FileEvidenceStore} from "../verify/evidence.js";
 import {readPrivateFile} from "../security/permissions.js";
 import {OFFICE_SESSION_RETENTION_MS, readOfficeSessions} from "./sessions.js";
-import type {OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeWorktreeInput} from "./snapshot.js";
+import {buildOfficeSnapshot, mergeOfficeSnapshots} from "./snapshot.js";
+import type {OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
+import {forgetOfficeRepos, readOfficeRepos} from "./repos.js";
+import type {OfficeHome} from "./server.js";
 
 export type OfficeGit = (cwd: string, args: readonly string[]) => Promise<{exitCode: number; stdout: string}>;
 
 const run = promisify(execFile);
 export const officeGit: OfficeGit = async (cwd, args) => {
-  try {return {exitCode: 0, stdout: (await run("git", [...args], {cwd, maxBuffer: 8 * 1024 * 1024})).stdout};}
+  try {return {exitCode: 0, stdout: (await run("git", [...args], {cwd, maxBuffer: 8 * 1024 * 1024, windowsHide: true})).stdout};}
   catch {return {exitCode: 1, stdout: ""};}
 };
 
@@ -236,4 +240,42 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
           ...(task.completedAt === null ? {} : {completedAt: task.completedAt}), host: session?.host ?? session?.harness});
   }
   return {runs: await readRuns(commonDir), worktrees, sessions, reviews: await readReviewSlots(commonDir), now};
+}
+
+export interface OfficeBuilding {
+  readonly snapshot: OfficeSnapshot;
+  /** Repositories still in the building; none left means the server may go. */
+  readonly repos: number;
+}
+
+/**
+ * Every registered repository that still exists and still opts in, as one
+ * building. One that vanished or opted out is forgotten, and so is one that
+ * stayed quiet past the retention window with nothing left to show.
+ */
+export async function collectOfficeBuilding(home: OfficeHome, enabled: (mainRoot: string) => Promise<boolean>,
+  git: OfficeGit = officeGit, now = Date.now()): Promise<OfficeBuilding> {
+  const parts: Array<{readonly repo: string; readonly snapshot: OfficeSnapshot}> = [];
+  const forget: string[] = [];
+  const names = new Set<string>();
+  for (const repo of await readOfficeRepos(home)) {
+    if (!await stat(repo.commonDir).then(item => item.isDirectory(), () => false) || !await enabled(repo.mainRoot).catch(() => false)) {
+      forget.push(repo.commonDir);
+      continue;
+    }
+    // One unreadable repository must not hide the rest of the building.
+    const snapshot = await collectOfficeInput(repo.mainRoot, repo.commonDir, git, now).then(buildOfficeSnapshot, () => null);
+    if (snapshot === null) continue;
+    if (snapshot.runs.length + snapshot.lobby.length + snapshot.reviews.length === 0 &&
+      now - Date.parse(repo.lastSeenAt) >= OFFICE_SESSION_RETENTION_MS) {
+      forget.push(repo.commonDir);
+      continue;
+    }
+    let name = basename(repo.mainRoot);
+    if (names.has(name)) name += "~" + createHash("sha256").update(repo.commonDir).digest("hex").slice(0, 4);
+    names.add(name);
+    parts.push({repo: name, snapshot});
+  }
+  await forgetOfficeRepos(home, forget).catch(() => undefined);
+  return {snapshot: mergeOfficeSnapshots(parts, now), repos: parts.length};
 }
