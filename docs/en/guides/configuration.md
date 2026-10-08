@@ -448,6 +448,13 @@ To narrow an existing installation, pass the desired list to `agent-ops update
 --harness`; shared paths remain managed while removed harness-owned artifacts,
 markers, and hooks are reconciled.
 
+Update keeps the configured profiles. To add or remove the opt-in `run`
+profile on an existing installation, pass `agent-ops update --auto-run on` or
+`--auto-run off`; `off` removes only `run`, and the `loop` it brought stays
+(use `init` to change other profiles). Without the flag, an interactive update
+on macOS with Claude Code or Codex installed asks once, defaulting to the
+current choice; `--yes` and non-interactive updates preserve it.
+
 To remove only one integrated harness, use `agent-ops uninstall --harness agy`
 (or another installed id). The remaining manifest and shared paths stay in
 place; omit `--harness` to remove the complete managed installation.

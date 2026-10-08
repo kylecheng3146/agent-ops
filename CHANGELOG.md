@@ -17,6 +17,11 @@ All notable changes to the project are documented here.
   advance moves its own session through verify, review and integration. A
   hook now places `batch` at verify and `task advance` at integration (it was
   shown as planning).
+- `agent-ops update --auto-run on|off` adds or removes the opt-in `run`
+  profile on an existing installation; `off` keeps the `loop` it brought.
+  Update kept the configured profiles, so installations made before `run`
+  existed could not get it without re-running init. An interactive update on
+  macOS with Claude Code or Codex now asks, defaulting to the current choice.
 
 ## [0.7.3] - 2026-10-08
 

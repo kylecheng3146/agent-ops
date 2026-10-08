@@ -126,7 +126,9 @@ event metadata、回傳有界且 redacted 的 session context，並在 update �
 capability。啟用後，Claude Code 與 Codex 的 managed rules 會將需要超過五項
 acceptance criteria 的變更交給 `agent-ops run`；五項以內仍留在 session 中處理。
 agy rules，以及所有未含 `auto-run` 的 rule file，MUST 與未啟用此 profile 時
-byte-identical。
+byte-identical。Update MUST 保留此 profile，除非提供 `--auto-run on|off`，或在已
+安裝 Claude Code 或 Codex 的 macOS 上互動式 update 詢問（預設為目前選擇）；
+`off` 只移除 `run`，保留 `loop`。
 
 - Trigger: Project 選擇 `run`，且 Claude Code 或 Codex session 遇到需要超過五項
   acceptance criteria 的變更。

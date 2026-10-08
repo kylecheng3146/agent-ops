@@ -395,6 +395,12 @@ config-hash 與 timestamp evidence，且永遠不會完成 task。Config v1 會�
 `agent-ops update --harness`；shared path 會繼續受管理，被移除 harness
 擁有的 artifact、marker 與 hook 則會被安全同步。
 
+Update 會保留已設定的 profile。若要在既有 installation 加入或移除 opt-in 的
+`run` profile，請使用 `agent-ops update --auto-run on` 或 `--auto-run off`；
+`off` 只移除 `run`，它帶入的 `loop` 會保留（其他 profile 請用 `init` 變更）。
+未提供此旗標時，在已安裝 Claude Code 或 Codex 的 macOS 上互動式 update 會詢問
+一次，預設為目前的選擇；`--yes` 與非互動式 update 會保留原設定。
+
 若只要移除單一已整合 harness，可使用
 `agent-ops uninstall --harness agy`（或其他已安裝 id）。剩餘 manifest 與
 shared path 會保留；省略 `--harness` 才會移除整套 managed installation。

@@ -145,7 +145,10 @@ The `run` profile MUST be opt-in, select `core` and `loop` with it, and add only
 the `auto-run` capability. With it, the Claude Code and Codex managed rules hand
 a change that needs more than five acceptance criteria to `agent-ops run`; five
 or fewer stay in the session. agy rules, and every rule file without `auto-run`,
-MUST stay byte-identical to the rules without the profile.
+MUST stay byte-identical to the rules without the profile. Update MUST preserve
+the profile unless `--auto-run on|off` is supplied or an interactive update on
+macOS with Claude Code or Codex asks (default: the current choice); `off`
+removes only `run` and keeps `loop`.
 
 - Trigger: A project selects `run`, and a Claude Code or Codex session meets a
   change that needs more than five acceptance criteria.
