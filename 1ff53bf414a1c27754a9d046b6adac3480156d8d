@@ -1,0 +1,36 @@
+worktree: session-339b4a84 (agent-ops/session-339b4a84)
+session: 339b4a84-4f14-4487-8b2c-a389003af7d4
+agent-ops task task-f760d8ec-5e8b-4baf-827a-3a8f1c48ba0b: Office spans every repo; finished sessions close; gate baseline fix
+intent: One user-global Office server lists rooms from every registered repo (nameplates, repo filter, room keys prefixed by repo), per-repo servers retire automatically, worktree finish records session completedAt in office-sessions.json, and the completion gate no longer blocks a session that changed nothing because of a stale baseline. Windows Office start error fixed once its error text is known. Design: memory multi-repo-office-design.
+criteria:
+- global-office: One user-global Office server collects rooms from every registered repo whose office is enabled; per-repo servers are retired
+- finish-closes-room: worktree finish marks the session completedAt in office-sessions.json so the room moves to recently completed
+- gate-stale-baseline: A session that made no Git-visible change is not blocked at Stop by a stale baseline
+- judgment: Meets the agreed multi-repo Office design and the three bug fixes
+  agent-ops task task-10c3ce4e-b00b-47a6-9665-40a8349dae39: Gate ignores other sessions' worktree merges
+  intent: At Stop with a clean tree, when HEAD moved since the baseline only through fast-forward merges of other sessions' agent-ops/session-* branches (read from the branch reflog; baseline matched to a clean fingerprint of a reflog entry), treat it as no change and move the baseline. Any other HEAD movement still blocks.
+  criteria:
+  - other-session-merge-allowed: Clean tree whose HEAD only fast-forwarded through other sessions agent-ops/session-* merges since the baseline stops without a task
+  - other-moves-still-block: A plain commit or a merge of this sessions own branch since the baseline still requires a task
+  agent-ops task task-09d4c4be-d31a-4420-b4ef-e2dcedf35a11: Office children never open console windows on Windows
+  intent: Every git child the Office server path spawns (office collect, parallel-deps git runner) passes windowsHide: true so the detached server stops flashing cmd windows on Windows.
+  criteria:
+  - office-git-hidden: Office collect git and parallel-deps git execFile/execFileSync calls pass windowsHide true
+  - windows-judgment: No Office server code path spawns a visible console on Windows
+  agent-ops task task-5efc4ca3-5b09-4ce3-934f-736114bee9e9: worktree finish closes the Office room
+  intent: After a successful worktree finish, best-effort write completedAt for the finished session into office-sessions.json; failure never fails finish.
+  criteria:
+  - finish-writes-completed: After worktree finish the session record in office-sessions.json carries completedAt
+  - office-write-best-effort: Office record write failure or absence leaves finish successful
+  agent-ops task task-f21359e0-c1aa-400a-a30f-cf770675617c: One user-global Office server with repo registry
+  intent: Office server record moves to ~/.agent-ops/office/office.json; hooks of office-enabled repos register {mainRoot, commonDir, lastSeenAt} in ~/.agent-ops/office/repos.json; server collects every registered repo, re-checking commonDir exists, office enabled, and recent activity, pruning after 2h quiet; legacy per-repo office.json triggers best-effort launchd bootout and deletion; agent-ops office prints the global URL.
+  criteria:
+  - registry-written: Hook observation registers only office-enabled repos in the user repo registry
+  - collect-all-repos: Global collect includes every registered live repo and drops missing, disabled or long-quiet ones
+  - single-server: Ensuring the office from two repos reuses one user-global server record
+  - legacy-retired: A legacy per-repo office record is booted out and removed once
+  agent-ops task task-d94b41b9-b703-4057-bd21-27c70ce2ad17: Multi-repo Office view: nameplates and repo filter
+  intent: Snapshot floors carry their repo; room keys are prefixed by repo so equal names in two repos stay distinct; room titles read repo · name; the page shows a repo nameplate and repo filter chips.
+  criteria:
+  - repo-keyed-rooms: Two repos with the same worktree name yield two distinct rooms labelled with their repo
+  - page-repo-filter: The page renders repo nameplates and a repo filter
