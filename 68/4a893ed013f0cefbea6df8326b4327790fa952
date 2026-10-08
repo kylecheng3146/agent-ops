@@ -1,0 +1,7 @@
+worktree: session-b6cee90c (agent-ops/session-b6cee90c)
+session: b6cee90c-f71c-49ac-834e-86182ff04d11
+agent-ops task task-1c6ac395-4b71-4d32-8c98-e4cd203da329: Office: SessionStart records idle, not active
+intent: A Claude session that has only started (no prompt yet) shows idle in Office; only activity events mark it active. Change runtime/src/office/sessions.ts status mapping plus a test.
+criteria:
+- start-is-idle: recordOfficeSession with event start writes status idle; activity writes active; stop/end stay idle (tests/office/sessions.test.ts)
+- suite-passes: npm test passes with no regressions in office tests that relied on start=active
