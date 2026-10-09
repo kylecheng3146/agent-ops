@@ -4,6 +4,24 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-09
+
+- Idle Office staff wander the lobby. Each stays 20 to 45 seconds at one of
+  eight spots (the sofa, the cafe table, the water cooler, vending machine,
+  fridge and counter) and then walks to a free one; one person a room walks at
+  a time, and spots by an idle engineer are left alone. Work pulls a wanderer
+  straight to their station, and the way back takes the nearest free spot.
+  Reduced motion turns wandering off.
+- The engineer gets up to read the notices instead of only sitting. A new
+  verify result sends them to the QA status board, and a changed criterion or
+  review result to the whiteboard; while the room waits on QA, review or the
+  merge they glance at the whiteboard every 40 to 90 seconds. An HTML bubble in
+  the room view says only what the snapshot shows (for example
+  "Verify failed: locale"). In a run only the coordinator goes, nobody leaves
+  with a question pending, and under reduced motion the bubble shows at the
+  seat.
+- The viewer's avatar always wears the lightest skin.
+
 ## [0.8.0] - 2026-10-09
 
 - Office is redrawn as a walled six-room office per session or run: planning,
