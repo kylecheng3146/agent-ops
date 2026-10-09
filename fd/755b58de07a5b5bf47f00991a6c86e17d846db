@@ -5,3 +5,23 @@ intent: A Claude session that has only started (no prompt yet) shows idle in Off
 criteria:
 - start-is-idle: recordOfficeSession with event start writes status idle; activity writes active; stop/end stay idle (tests/office/sessions.test.ts)
 - suite-passes: npm test passes with no regressions in office tests that relied on start=active
+
+worktree: session-b6cee90c (agent-ops/session-b6cee90c)
+session: b6cee90c-f71c-49ac-834e-86182ff04d11
+agent-ops task task-673a76c7-fbc7-404d-a4bd-b355c22a9a96: Office activity signals across harnesses
+intent: Fix gaps left by start=idle: agy PreInvocation counts as activity; Claude/Codex non-loop installs register UserPromptSubmit (office activity + command-policy secret block, fail-open).
+criteria:
+- subtasks-complete: Subtasks agy-start-activity and prompt-submit-hook both verified and reviewed together
+- suite-passes: npm test passes on the integrated tree
+  agent-ops task task-8252daa5-03ad-47d8-8d8e-52cf287c36a0: agy start counts as Office activity
+  intent: officeEvent maps agy SessionStart (native PreInvocation, per invocation) to activity; Claude/Codex start stays idle.
+  criteria:
+  - agy-start-active: An agy SessionStart observation records status active; a claude SessionStart records idle (test)
+  - suite-passes: npm test passes
+  agent-ops task task-4a11a8d3-11c4-44dc-baa0-f3554113ce4d: Non-loop UserPromptSubmit hook for Claude and Codex
+  intent: Non-loop Claude/Codex installs register UserPromptSubmit when office-presence or command-policy is on. Hook process: office -> record activity; command-policy -> block secret prompts in native shape via evaluateGuardrail content; runtime errors fail open with no output. Doctor/drift recognize it; spec en+zh-TW and CHANGELOG updated.
+  criteria:
+  - registration: Claude and Codex non-loop hook configs include UserPromptSubmit iff office-presence or command-policy; loop-mode configs unchanged (adapter tests)
+  - office-activity: hook UserPromptSubmit with office enabled records an active Office session and writes no output (hook-process test)
+  - secret-block: with command-policy, a prompt containing a literal credential is blocked in native shape (Claude decision block; Codex exit 2) and a clean prompt or runtime failure produces no block (hook-process tests)
+  - docs-and-suite: spec harness-adapters en and zh-TW plus CHANGELOG mention non-loop UserPromptSubmit; npm test passes
