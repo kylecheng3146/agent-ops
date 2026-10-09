@@ -1,0 +1,10 @@
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-b00dff03-57f1-40f4-9ba4-1fdbb697c1cb: Office engineer glances
+intent: The engineer gets up to read the planning whiteboard or the QA status board when a verify result, criterion change or review result arrives, and glances at the whiteboard every 40-90 s while waiting, showing a data-only HTML speech bubble; never visits staff; coordinator only in runs; no trips with a pending question, on first load or under reduced motion (bubble at seat instead). The viewer avatar gets the lightest skin.
+criteria:
+- look-spots: officeLayout exposes two look spots for the engineer, in front of the planning whiteboard and in front of the QA status board, with feet on the walking grid and reachable from the implementing cubicles; a layout test checks it.
+- event-trips: After the first snapshot, a new verify result sends the room's engineer (the session's engineer, or a run's coordinator only) to the QA board, a changed criterion status or a new review result sends them to the whiteboard, events arriving together make one trip, and an engineer with a pending question stays seated; they return to their seat afterwards. A client test checks it.
+- glance-timer: While the room is verifying, reviewing or integrating and nothing else is happening, the engineer glances at the whiteboard every 40 to 90 seconds and returns to the seat; a client test checks it.
+- glance-bubble: At a look spot the engineer shows an HTML speech bubble built only from snapshot data (verify counts or the first failing criterion id, pending criteria, the review result, or which staff member is being waited on) in the page language, only in the room view; under reduced motion there are no trips and the bubble shows at the seat. A client test checks it.
+- viewer-skin: The viewer avatar always wears the lightest skin ramp regardless of its identity hash; a test checks it.
