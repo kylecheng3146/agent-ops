@@ -323,11 +323,14 @@ test("the work list folds away so the office takes the whole width, and the choi
   const toggle = elements.get("panel-toggle")!, workspace = elements.get("workspace")!;
   assert.equal(workspace.className, "");
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
-  assert.equal(toggle.textContent, "Hide list");
+  assert.equal(toggle.textContent, "Hide list »");
+  const page = officePage("n");
+  assert.match(page, /<aside id="work-panel"[^>]*><div id="panel-head"><h2 id="work-heading">[^<]*<\/h2><button id="panel-toggle"/u, "the toggle lives in the work list heading");
+  assert.doesNotMatch(/<header id="header">[\s\S]*?<\/header>/u.exec(page)![0], /panel-toggle/u, "the page header no longer carries it");
   toggle.click();
   assert.equal(workspace.className, "collapsed", "the list column is gone");
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
-  assert.equal(toggle.textContent, "Show list");
+  assert.equal(toggle.textContent, "« Work list", "folded, the rail offers the list back");
   assert.equal(storage.get("agent-office-list"), "collapsed");
   find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
   assert.equal(vm.mode, "room");
