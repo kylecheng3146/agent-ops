@@ -161,12 +161,12 @@ var languageButton = document.getElementById("language"), live = document.getEle
 var snapshot = null, model = null, frame = 0, offline = false, scale = 1, scaleY = 1;
 var mode = "overview", selectedKey = null, showRecent = false, detailPage = 0, dialogClose = null, detailPreviousFocus = null, detailTarget = null;
 var detailSignature = "";
-var people = {}, viewer = spawnViewer(), doorFrames = {}, images = {}, bases = {}, roomCanvases = {}, overviewSignature = "", hudSignature = "", labelNodes = {}, lastFigures = [], stageCanvas = null;
+var people = {}, staffMemory = {}, viewer = spawnViewer(), doorFrames = {}, images = {}, bases = {}, roomCanvases = {}, overviewSignature = "", hudSignature = "", labelNodes = {}, lastFigures = [], stageCanvas = null;
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 function spawnViewer(){ return {x: Math.round(LAYOUT.spawn.x / 2) * 2, y: Math.round(LAYOUT.spawn.y / 2) * 2, path: [], dir: "up", step: 0}; }
 var STRINGS = {
-  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", panel_task:"Whiteboard", panel_diff:"Screen", panel_verify:"QA board", panel_review:"Review desk", panel_integration:"Sorting table", noChanges:"No changed files yet.", filesCount:"files", notReviewed:"Not reviewed yet.", firstRound:"Round 1", recheck:"Re-check", blocking:"blocking", refutedYes:"The re-check overturned round 1.", refutedNo:"The re-check upheld round 1.", worktree:"Worktree", branch:"Branch", base:"Base", ahead:"Commits ahead", commitStep:"Commit", finishStep:"worktree finish (merge)", hideList:"Hide list »", showList:"« Work list", moveHint:"Arrow keys or WASD walk; Enter talks to the nearest person; Esc returns.", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", lobby:"Lobby", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", panel_task:"白板", panel_diff:"隔間螢幕", panel_verify:"QA 狀態看板", panel_review:"主管桌", panel_integration:"分信桌", noChanges:"目前沒有變更的檔案。", filesCount:"個檔案", notReviewed:"尚未審查。", firstRound:"第 1 輪", recheck:"對抗複查", blocking:"阻擋", refutedYes:"對抗複查推翻了第 1 輪。", refutedNo:"對抗複查維持第 1 輪的結論。", worktree:"Worktree", branch:"分支", base:"基準", ahead:"領先 commit", commitStep:"commit", finishStep:"worktree finish（合併）", hideList:"收合 »", showList:"« 工作清單", moveHint:"方向鍵或 WASD 走動；Enter 和最近的人對話；Esc 返回。", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", lobby:"大廳", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", panel_task:"Whiteboard", panel_diff:"Screen", panel_verify:"QA board", panel_review:"Review desk", panel_integration:"Sorting table", noChanges:"No changed files yet.", filesCount:"files", notReviewed:"Not reviewed yet.", firstRound:"Round 1", recheck:"Re-check", blocking:"blocking", refutedYes:"The re-check overturned round 1.", refutedNo:"The re-check upheld round 1.", worktree:"Worktree", branch:"Branch", base:"Base", ahead:"Commits ahead", commitStep:"Commit", finishStep:"worktree finish (merge)", hideList:"Hide list »", showList:"« Work list", moveHint:"Arrow keys or WASD walk; Enter talks to the nearest person; Esc returns.", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", integrator:"Integrator", staff_verify:"Running verification", staff_review:"Reviewing", staff_wait:"Waiting for the other round", staff_finish:"Merging the worktree", staff_rest:"Resting in the lobby", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", lobby:"Lobby", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", panel_task:"白板", panel_diff:"隔間螢幕", panel_verify:"QA 狀態看板", panel_review:"主管桌", panel_integration:"分信桌", noChanges:"目前沒有變更的檔案。", filesCount:"個檔案", notReviewed:"尚未審查。", firstRound:"第 1 輪", recheck:"對抗複查", blocking:"阻擋", refutedYes:"對抗複查推翻了第 1 輪。", refutedNo:"對抗複查維持第 1 輪的結論。", worktree:"Worktree", branch:"分支", base:"基準", ahead:"領先 commit", commitStep:"commit", finishStep:"worktree finish（合併）", hideList:"收合 »", showList:"« 工作清單", moveHint:"方向鍵或 WASD 走動；Enter 和最近的人對話；Esc 返回。", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", integrator:"整合", staff_verify:"執行驗證中", staff_review:"審查中", staff_wait:"等待另一輪審查", staff_finish:"合併 worktree 中", staff_rest:"在大廳休息", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", lobby:"大廳", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -249,7 +249,44 @@ function roomBase(floor){
 }
 
 // ---- people: a slot in the room of their phase; they walk only when the phase changes ----
-function roomFor(actor){ return ROOM_OF[actor.phase] || "lobby"; }
+/** Engineers plan and build; once the work is with QA, the reviewers or the integrator, they stay at their cubicle. */
+function roomFor(actor){ var room = ROOM_OF[actor.phase] || "lobby"; return room === "verifying" || room === "reviewing" || room === "integrating" ? "implementing" : room; }
+// ---- resident staff: they rest in the lobby and walk to their station while their real process runs ----
+var STAFF_ROLES = ["qa", "reviewerA", "reviewerB", "integrator"], STAFF_FADE = 600;
+function activityOf(floor, kind){ var list = floor.activities || []; for (var i = 0; i < list.length; i++) if (list[i].kind === kind) return list[i]; return null; }
+/** Reviewer nameplates: the running review's targets, else the newest report's rounds, else A and B. */
+function reviewerNames(floor){
+  var review = activityOf(floor, "review"), source = sourceFor(floor), report = source && source.review, names = ["A", "B"];
+  if (review && review.targets.length === 2) names = review.targets.slice();
+  else if (report && report.rounds && report.rounds.length === 2) names = report.rounds.map(function(round){ return safeText(round.target); });
+  return names[0] === names[1] ? [names[0] + " 1", names[1] + " 2"] : names;
+}
+function staffResult(floor, kind){
+  var value = kind === "verify" ? floor.board.verify : kind === "review" ? floor.board.review : floor.completedAt ? "PASS" : "FAIL";
+  return value === "PASS" ? "pass" : value === "FAIL" ? "fail" : null;
+}
+function staffOf(floor){
+  var names = reviewerNames(floor), review = activityOf(floor, "review"), second = !!(review && review.round === 2), at = LAYOUT.staff.stations;
+  var plans = {qa: ["verify", "QA", "qa", at.qa, "verify"], reviewerA: ["review", names[0], "reviewer", second ? at.armchair : at.desk, "review"],
+    reviewerB: ["review", names[1], "reviewer", second ? at.desk : at.armchair, "review"], integrator: ["finish", t("integrator"), "integrator", at.integrator, "integration"]};
+  return STAFF_ROLES.map(function(role, index){
+    var plan = plans[role], busy = !!activityOf(floor, plan[0]), slot = busy ? plan[3] : LAYOUT.staff.rest[index];
+    var narration = !busy ? t("staff_rest") : plan[0] !== "review" ? t("staff_" + plan[0]) : slot === at.desk ? t("staff_review") : t("staff_wait");
+    return {key: floor.key + "|staff:" + role, id: plan[1], kind: plan[2], staff: role, activity: plan[0], panel: plan[4], busy: busy, slot: slot,
+      target: slot.feet.x + "," + slot.feet.y, narration: narration, questionCount: 0, status: busy ? "running" : "idle"};
+  });
+}
+/** Sends one person towards a slot; they walk only when the target changes, and jump under reduced motion. */
+function moveTo(key, slot, target, hidden){
+  var state = people[key];
+  if (!state) { people[key] = {x: slot.feet.x, y: slot.feet.y, path: [], dir: "down", step: 0, target: target, slot: slot, hidden: hidden}; return; }
+  state.hidden = hidden;
+  if (state.target === target) return;
+  state.target = target; state.slot = slot;
+  var path = reducedMotion ? null : findPath(GRID, {x: state.x, y: state.y}, slot.feet);
+  if (path && path.length > 1) state.path = path.slice(1);
+  else { state.path = []; state.x = slot.feet.x; state.y = slot.feet.y; }
+}
 function layoutRoom(id){ for (var i = 0; i < LAYOUT.rooms.length; i++) if (LAYOUT.rooms[i].id === id) return LAYOUT.rooms[i]; return LAYOUT.rooms[LAYOUT.rooms.length - 1]; }
 function placements(floor){
   var counts = {}, byActor = {};
@@ -264,18 +301,21 @@ function syncPeople(){
   model.floors.forEach(function(floor){
     var place = placements(floor).byActor;
     floor.actors.forEach(function(actor){
-      var p = place[actor.key], room = layoutRoom(p.room), slot = room.slots[Math.min(p.index, room.slots.length - 1)], target = p.room + ":" + p.index, state = people[actor.key];
+      var p = place[actor.key], room = layoutRoom(p.room);
       seen[actor.key] = true;
-      if (!state) { people[actor.key] = {x: slot.feet.x, y: slot.feet.y, path: [], dir: "down", step: 0, target: target, slot: slot, hidden: p.index >= room.slots.length}; return; }
-      state.hidden = p.index >= room.slots.length;
-      if (state.target === target) return;
-      state.target = target; state.slot = slot;
-      var path = reducedMotion ? null : findPath(GRID, {x: state.x, y: state.y}, slot.feet);
-      if (path && path.length > 1) state.path = path.slice(1);
-      else { state.path = []; state.x = slot.feet.x; state.y = slot.feet.y; }
+      moveTo(actor.key, room.slots[Math.min(p.index, room.slots.length - 1)], p.room + ":" + p.index, p.index >= room.slots.length);
+    });
+    staffOf(floor).forEach(function(member){
+      var memory = staffMemory[member.key];
+      // A finished process leaves its result in a bubble for a while.
+      var result = member.busy ? null : memory && memory.busy ? {value: staffResult(floor, member.activity), until: frame + STAFF_FADE} : memory ? memory.result : null;
+      staffMemory[member.key] = {busy: member.busy, result: result};
+      seen[member.key] = true;
+      moveTo(member.key, member.slot, member.target, false);
     });
   });
   Object.keys(people).forEach(function(key){ if (!seen[key]) delete people[key]; });
+  Object.keys(staffMemory).forEach(function(key){ if (!seen[key]) delete staffMemory[key]; });
 }
 function stepAlong(state){
   if (!state.path.length) return;
@@ -289,7 +329,7 @@ function walkPose(state){ return state.dir + ["1", "0", "2", "0"][(state.step >>
 /** Everyone drawn in a room: sprite top-left, draw depth, pose and feet. */
 function figures(floor){
   var out = [];
-  floor.actors.forEach(function(actor){
+  floor.actors.concat(staffOf(floor)).forEach(function(actor){
     var state = people[actor.key];
     if (!state || state.hidden) return;
     var walking = state.path.length > 0, slot = state.slot;
@@ -311,10 +351,12 @@ function drawNotes(floor, g){
   shown.forEach(function(criterion, index){ var p = notePosition(index); g.drawImage(spriteImage(noteName(criterion.status)), LAYOUT.board.x + p.x, LAYOUT.board.y + p.y); });
   if (criteria.length > BOARD_SLOTS) { var last = notePosition(BOARD_SLOTS - 1); g.drawImage(spriteImage("notePlus"), LAYOUT.board.x + last.x, LAYOUT.board.y + last.y); }
 }
+function staffBubble(actor){ var memory = staffMemory[actor.key], result = memory && memory.result; return result && result.value && frame < result.until ? result : null; }
 function iconFor(floor, actor){
+  if (actor.staff) { var shown = staffBubble(actor); return actor.busy ? (reducedMotion || (frame >> 5) % 2 === 0 ? "bubbleBusy" : null) : shown ? (shown.value === "pass" ? "bubbleDone" : "bubbleFail") : null; }
   if (actor.questionCount > 0) return "bubbleAlert";
   if (floor.completedAt || actor.status === "complete") return "bubbleDone";
-  if ((actor.phase === "implementing" || actor.phase === "verifying") && (reducedMotion || (frame >> 5) % 2 === 0)) return "bubbleBusy";
+  if (actor.phase === "implementing" && (reducedMotion || (frame >> 5) % 2 === 0)) return "bubbleBusy";
   return null;
 }
 /** Draws one room at 1 art pixel per pixel; returns the people drawn. */
@@ -331,7 +373,14 @@ function renderRoom(floor, g){
   figs.forEach(function(f){ list.push({z: f.z, x: f.x, y: f.y, image: personImage(f.actor.id, f.actor.kind, f.pose)}); });
   if (here) list.push({z: viewer.y, x: viewer.x - 17, y: viewer.y - 49, image: personImage("viewer", "viewer", viewer.path.length ? walkPose(viewer) : viewer.dir + "0")});
   list.sort(function(a, b){ return a.z - b.z; }).forEach(function(entry){ g.drawImage(entry.image, entry.x, entry.y); if (entry.board) drawNotes(floor, g); });
-  figs.forEach(function(f){ var icon = iconFor(floor, f.actor); if (icon) g.drawImage(spriteImage(icon), f.x + 11, f.y - 15 - (icon === "bubbleAlert" && !reducedMotion && (frame >> 4) % 2 ? 1 : 0)); });
+  figs.forEach(function(f){
+    var icon = iconFor(floor, f.actor), shown = f.actor.staff && staffBubble(f.actor), left = shown ? shown.until - frame : Infinity;
+    if (!icon) return;
+    // Result bubbles fade over their last second, unless motion is reduced.
+    g.globalAlpha = reducedMotion || left >= 60 ? 1 : left / 60;
+    g.drawImage(spriteImage(icon), f.x + 11, f.y - 15 - (icon === "bubbleAlert" && !reducedMotion && (frame >> 4) % 2 ? 1 : 0));
+    g.globalAlpha = 1;
+  });
   return figs;
 }
 
@@ -715,6 +764,7 @@ function openQuestionList(floor){
   showDialog(floor.title+' · '+t('questions'),function(box){pageItems(questionItemsFor(floor),box,renderDetailItem);});
 }
 function openActorDetail(floor, actor){
+  if (actor.panel) return openPanel(actor.panel, floor);
   var source = sourceFor(floor), items = [], entries = [];
   if (source && actor.kind !== "reviewer" && floor.kind === "run") { var found = source.agents.find(function(a){ return a.id === actor.id; }); if (found && found.diff) items = found.diff.paths || []; }
   if (source && floor.kind === "desk" && source.diff) items = source.diff.paths || [];
@@ -890,10 +940,10 @@ function hitFigure(point){
 }
 canvas.addEventListener("click", function(event){
   var floor = activeRoom(); if (mode !== "room" || !floor) return;
-  var point = canvasPoint(event), figure = hitFigure(point);
-  if (figure) { openActorDetail(floor, figure.actor); return; }
-  var spot = hitHotspot(point);
+  // Props first: people sitting at a desk or screen must not hide its panel.
+  var point = canvasPoint(event), spot = hitHotspot(point), figure = hitFigure(point);
   if (spot) { openPanel(spot, floor); return; }
+  if (figure) { openActorDetail(floor, figure.actor); return; }
   walkTo({x: Math.round(point.x / 2) * 2, y: Math.round(point.y / 2) * 2});
 });
 function keyboardFloor(){ return activeRoom() || roomByKey(selectedKey) || orderedRooms()[0]; }

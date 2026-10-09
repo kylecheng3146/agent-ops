@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import {runInNewContext} from "node:vm";
 import test from "node:test";
 
-import type {OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
+import {buildOfficeSnapshot, type OfficeSnapshot} from "../../runtime/src/office/snapshot.js";
+import type {OfficeActivity} from "../../runtime/src/office/activity.js";
 import {officePage} from "../../runtime/src/office/page.js";
 
 type Call = {name: string; args: unknown[]};
@@ -60,7 +61,8 @@ interface Vm {
   viewer: {x: number; y: number; path: unknown[]; dir: string};
   people: Record<string, {x: number; y: number; path: unknown[]; slot: {feet: {x: number; y: number}}}>;
   doorFrames: Record<string, number>; images: Record<string, FakeElement>; lastFigures: Figure[];
-  LAYOUT: {rooms: Room[]; board: {x: number; y: number}; spawn: {x: number; y: number}};
+  LAYOUT: {rooms: Room[]; board: {x: number; y: number}; spawn: {x: number; y: number};
+    staff: {stations: Record<"qa" | "desk" | "armchair" | "integrator", {feet: {x: number; y: number}}>; rest: {feet: {x: number; y: number}}[]}};
   GRID: {cols: number; rows: number; free: number[]};
   model: {floors: {key: string; actors: {key: string; id: string}[]}[]};
   notePosition: (index: number) => {x: number; y: number};
@@ -181,7 +183,7 @@ test("the HUD and labels are HTML over the canvas, and the bottom tabs, dialogue
 });
 
 test("people walk through the doors in order only when their phase changes, and doors open while they pass", async () => {
-  const {vm, poll} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("mover", {phase: "planning"})]});
+  const {vm, poll} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("mover")]});
   const key = vm.model.floors[0]!.actors[0]!.key;
   const start = {...vm.people[key]!};
   for (let i = 0; i < 20; i++) vm.tick();
@@ -189,18 +191,18 @@ test("people walk through the doors in order only when their phase changes, and 
   for (let i = 0; i < 20; i++) vm.tick();
   assert.deepEqual([vm.people[key]!.x, vm.people[key]!.y], [start.x, start.y], "no phase change, no movement");
 
-  await poll({generatedAt: "y", runs: [], reviews: [], lobby: [desk("mover", {phase: "verifying"})]});
+  await poll({generatedAt: "y", runs: [], reviews: [], lobby: [desk("mover", {phase: "planning"})]});
   assert.ok(vm.people[key]!.path.length > 10, "a path is planned");
-  const floor = vm.model.floors[0]!.key, first = floor + "|planning-implementing", second = floor + "|implementing-verifying";
+  const floor = vm.model.floors[0]!.key, first = floor + "|integrating-lobby", second = floor + "|reviewing-integrating";
   const opened: Record<string, number[]> = {[first]: [], [second]: []};
   for (let i = 0; i < 2000 && vm.people[key]!.path.length; i++) { vm.tick(); for (const door of [first, second]) opened[door]!.push(vm.doorFrames[door]!); }
   assert.equal(vm.people[key]!.path.length, 0, "the walk ends");
-  assert.deepEqual([vm.people[key]!.x, vm.people[key]!.y], [vm.people[key]!.slot.feet.x, vm.people[key]!.slot.feet.y], "at a verifying place");
+  assert.deepEqual([vm.people[key]!.x, vm.people[key]!.y], [vm.people[key]!.slot.feet.x, vm.people[key]!.slot.feet.y], "at a planning place");
   for (const door of [first, second]) {
     assert.ok(opened[door]!.includes(1) && opened[door]!.includes(2), `${door} goes through ajar and open`);
     assert.equal(opened[door]!.at(-1), 0, `${door} closes again`);
   }
-  assert.ok(opened[first]!.indexOf(2) < opened[second]!.indexOf(2), "planning-implementing opens before implementing-verifying");
+  assert.ok(opened[first]!.indexOf(2) < opened[second]!.indexOf(2), "integrating-lobby opens before reviewing-integrating");
 });
 
 test("the viewer starts at the entrance, walks with arrows and WASD, and stops at walls and furniture", async () => {
@@ -490,4 +492,107 @@ test("an empty office still shows one quiet room, open or folded, that does not 
     vm.render();
     assert.equal(vm.lastFigures.length, 0);
   }
+});
+
+type Staff = "qa" | "reviewerA" | "reviewerB" | "integrator";
+const at = (vm: Vm, key: string) => [vm.people[key]!.x, vm.people[key]!.y];
+const feet = (spot: {feet: {x: number; y: number}}) => [spot.feet.x, spot.feet.y];
+const walk = (vm: Vm, key: string) => { for (let i = 0; i < 3000 && vm.people[key]!.path.length; i++) vm.tick(); assert.equal(vm.people[key]!.path.length, 0, `${key} arrives`); };
+const staffKey = (vm: Vm, role: Staff) => vm.model.floors[0]!.key + "|staff:" + role;
+/** The head bubbles drawn over a room on one frame, as sprite names. */
+function bubbles(vm: Vm, calls: Call[]): string[] {
+  const names = new Map(Object.entries(vm.images).map(([name, image]) => [image, name]));
+  calls.length = 0; vm.frame = (vm.frame | 63) + 1; vm.render(); // a frame where busy bubbles show
+  return calls.filter(call => call.name === "drawImage").map(call => names.get(call.args[1] as FakeElement) ?? "").filter(name => name.startsWith("bubble"));
+}
+const activity = (kind: string, extra: Record<string, unknown> = {}) => ({kind, startedAt: "2026-10-09T00:00:00.000Z", ...extra});
+
+test("every room keeps a resident QA, two reviewers and an integrator in the lobby, and the engineer stays at the cubicle after building", async () => {
+  const {vm} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("resident", {phase: "reviewing"})]});
+  (["qa", "reviewerA", "reviewerB", "integrator"] as const).forEach((role, index) =>
+    assert.deepEqual(at(vm, staffKey(vm, role)), feet(vm.LAYOUT.staff.rest[index]!), `${role} rests in the lobby`));
+  const engineer = vm.model.floors[0]!.actors[0]!.key, cubicle = vm.LAYOUT.rooms.find(room => room.id === "implementing")!;
+  assert.deepEqual(at(vm, engineer), feet(cubicle.slots[0]!), "the engineer sits at the cubicle while the room is reviewing");
+  assert.equal(vm.model.floors[0]!.actors.length, 1, "staff are not counted as the room's agents");
+});
+
+test("QA and the integrator walk to their station while their process runs and back with the result, which fades", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("qa-room", {phase: "verifying", ...extra})]});
+  const {vm, calls, elements, poll} = await boot(room({}));
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  const qa = staffKey(vm, "qa"), integrator = staffKey(vm, "integrator");
+  await poll(room({activities: [activity("verify")]}));
+  assert.ok(vm.people[qa]!.path.length > 10, "QA leaves the lobby");
+  assert.deepEqual(at(vm, integrator), feet(vm.LAYOUT.staff.rest[3]!), "the integrator stays");
+  walk(vm, qa);
+  assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.stations.qa), "QA works at the test bench");
+  assert.deepEqual(bubbles(vm, calls), ["bubbleBusy"], "with a busy bubble");
+  await poll(room({progress: {passed: 2, total: 2, verify: "FAIL", review: null}}));
+  walk(vm, qa);
+  assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.rest[0]!), "and walks back when verify ends");
+  assert.deepEqual(bubbles(vm, calls), ["bubbleFail"], "showing the snapshot's result");
+  await poll(room({progress: {passed: 2, total: 2, verify: "FAIL", review: null}, activities: [activity("finish")]}));
+  walk(vm, integrator);
+  assert.deepEqual(at(vm, integrator), feet(vm.LAYOUT.staff.stations.integrator), "the integrator works at the sorting table");
+  await poll(room({progress: {passed: 2, total: 2, verify: "PASS", review: "PASS"}, completedAt: "2026-10-09T00:10:00.000Z"}));
+  walk(vm, integrator);
+  assert.equal(bubbles(vm, calls).filter(name => name === "bubbleDone").length, 2, "a finished merge shows a check over the integrator, beside the finished engineer's");
+  for (let i = 0; i < 700; i++) vm.tick();
+  assert.deepEqual(bubbles(vm, calls), ["bubbleDone"], "result bubbles go after about ten seconds");
+});
+
+test("both reviewers come for a review and swap the desk for round 2, named after the targets", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("review-room", {phase: "reviewing", ...extra})]});
+  const {vm, elements, poll} = await boot(room({}));
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  const a = staffKey(vm, "reviewerA"), b = staffKey(vm, "reviewerB"), names = () => { vm.render(); return [...vm.lastFigures.filter(f => f.actor.key === a || f.actor.key === b).map(f => f.actor.id)]; };
+  assert.deepEqual(names(), ["A", "B"], "without a review or report they are A and B");
+  await poll(room({activities: [activity("review", {targets: ["agy", "codex"], round: 1, target: "agy"})]}));
+  walk(vm, a); walk(vm, b);
+  assert.deepEqual([at(vm, a), at(vm, b)], [feet(vm.LAYOUT.staff.stations.desk), feet(vm.LAYOUT.staff.stations.armchair)], "round 1: A at the desk, B in an armchair");
+  assert.deepEqual(names(), ["agy", "codex"]);
+  await poll(room({activities: [activity("review", {targets: ["agy", "codex"], round: 2, target: "codex"})]}));
+  walk(vm, a); walk(vm, b);
+  assert.deepEqual([at(vm, a), at(vm, b)], [feet(vm.LAYOUT.staff.stations.armchair), feet(vm.LAYOUT.staff.stations.desk)], "round 2: they swap");
+  await poll(room({review: {status: "PASS", createdAt: "2026-10-09T00:05:00.000Z", reason: null, refuted: false,
+    rounds: [{target: "claude", summary: "", findings: []}, {target: "codex", summary: "", findings: []}]}}));
+  walk(vm, a); walk(vm, b);
+  assert.deepEqual([at(vm, a), at(vm, b)], [feet(vm.LAYOUT.staff.rest[1]!), feet(vm.LAYOUT.staff.rest[2]!)], "both go back to the lobby");
+  assert.deepEqual(names(), ["claude", "codex"], "then the newest report names them");
+});
+
+test("under reduced motion staff jump between the lobby and their station and result bubbles stay still", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("calm", {phase: "verifying", ...extra})]});
+  const {vm, calls, elements, poll} = await boot(room({}), {reduced: true});
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  const qa = staffKey(vm, "qa");
+  await poll(room({activities: [activity("verify")]}));
+  assert.equal(vm.people[qa]!.path.length, 0, "no walk is planned");
+  assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.stations.qa), "QA is already at the bench");
+  await poll(room({progress: {passed: 1, total: 1, verify: "PASS", review: null}}));
+  assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.rest[0]!));
+  const frames = [0, 1].map(() => { calls.length = 0; for (let i = 0; i < 40; i++) vm.tick(); return JSON.stringify(calls.filter(call => call.name === "drawImage").map(call => call.args.slice(2))); });
+  assert.equal(frames[0], frames[1], "the result bubble does not move or fade");
+  assert.deepEqual(bubbles(vm, calls), ["bubbleDone"]);
+});
+
+test("activity records for a session send its staff to work and back, end to end through the snapshot", async () => {
+  const snapshot = (activities: OfficeActivity[]) => buildOfficeSnapshot({now: Date.parse("2026-10-09T00:00:00.000Z"), runs: [], reviews: [], activities,
+    worktrees: [{name: "session-int", path: "/repo/.worktrees/session-int", branch: "agent-ops/session-int", sessionId: "s-int",
+      diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}}]});
+  const record = (kind: OfficeActivity["kind"], extra: Partial<OfficeActivity> = {}): OfficeActivity =>
+    ({kind, pid: 4242, root: "/repo/.worktrees/session-int", startedAt: "2026-10-09T00:00:00.000Z", sessionId: "s-int", ...extra});
+  const {vm, poll} = await boot(snapshot([]));
+  assert.equal(vm.model.floors.length, 1, "the activity joins the session's room, no extra room");
+  await poll(snapshot([record("verify")]));
+  assert.equal(vm.model.floors.length, 1);
+  walk(vm, staffKey(vm, "qa"));
+  assert.deepEqual(at(vm, staffKey(vm, "qa")), feet(vm.LAYOUT.staff.stations.qa), "QA is at the bench while verify runs");
+  await poll(snapshot([record("review", {targets: ["agy", "codex"], round: 1, target: "agy"})]));
+  for (const role of ["qa", "reviewerA", "reviewerB"] as const) walk(vm, staffKey(vm, role));
+  assert.deepEqual(at(vm, staffKey(vm, "qa")), feet(vm.LAYOUT.staff.rest[0]!), "QA is back in the lobby");
+  assert.deepEqual(at(vm, staffKey(vm, "reviewerA")), feet(vm.LAYOUT.staff.stations.desk), "the first reviewer is at the desk");
+  await poll(snapshot([]));
+  walk(vm, staffKey(vm, "reviewerA"));
+  assert.deepEqual(at(vm, staffKey(vm, "reviewerA")), feet(vm.LAYOUT.staff.rest[1]!), "and back when the review ends");
 });

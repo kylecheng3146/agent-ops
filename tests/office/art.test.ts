@@ -21,7 +21,7 @@ test("the room palette has exactly 24 keys and every room sprite uses only them"
 });
 
 test("alert red is reserved for alert sprites", () => {
-  const allowed = new Set(["rackFail", "benchFail", "statusFail", "noteFail", "bubbleAlert"]);
+  const allowed = new Set(["rackFail", "benchFail", "statusFail", "noteFail", "bubbleAlert", "bubbleFail"]);
   const users = Object.entries(sprites).filter(([, rows]) => rows.some(row => row.includes(ALERT_KEY))).map(([name]) => name);
   assert.deepEqual(users.sort(), [...allowed].sort());
   assert.equal(ROOM_PALETTE[ALERT_KEY], "#c86f4a");
@@ -51,7 +51,7 @@ test("doors come in three frames of one size, and the board takes one note per c
 });
 
 test("avatar clothes follow the role while hair and skin follow the person, never in alert red", () => {
-  const roles = ["coordinator", "worker", "reviewer", "visitor", "viewer"];
+  const roles = ["coordinator", "worker", "reviewer", "visitor", "viewer", "qa", "integrator"];
   const looks = roles.map(role => avatarColors("alice", role));
   assert.equal(new Set(looks.map(look => look.D)).size, roles.length, "each role has its own clothes");
   for (const look of looks) for (const key of ["H", "I", "J", "S", "T", "U"]) assert.equal(look[key], looks[0]![key], `${key} stays with the person`);
@@ -59,6 +59,10 @@ test("avatar clothes follow the role while hair and skin follow the person, neve
   assert.deepEqual(avatarColors("alice", "unknown-role").D, avatarColors("alice", "visitor").D, "unknown roles dress as visitors");
   const hairs = new Set(["alice", "bob", "carol", "dave", "erin", "frank"].map(name => avatarColors(name, "worker").I));
   assert.ok(hairs.size > 1, "identities differ");
+  const light = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+  assert.ok(light(avatarColors("alice", "qa").E!) > 650, "QA wears a light lab coat");
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(avatarColors("alice", "integrator").D!.slice(i, i + 2), 16));
+  assert.ok(r! > g! && g! > b! && r! - b! < 80, "the integrator wears khaki, a muted tan");
   for (const colour of AVATAR_COLOURS) assert.notEqual(colour.toLowerCase(), ROOM_PALETTE[ALERT_KEY]);
   for (const look of looks) assert.ok(!Object.values(look).includes(ROOM_PALETTE[ALERT_KEY]!));
   for (const pose of ["down0", "down1", "down2", "up0", "up1", "up2", "right0", "right1", "right2", "hand"]) assert.deepEqual(size(people[pose]!), {w: 34, h: 50}, pose);

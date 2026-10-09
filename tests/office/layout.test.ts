@@ -55,6 +55,15 @@ test("every standing or sitting place is reachable on foot from the entrance", (
       assert.ok(path!.length > 1);
     }
   }
+  const lobby = layout.rooms.find(room => room.id === "lobby")!;
+  assert.equal(layout.staff.rest.length, 4, "QA, two reviewers and the integrator rest in the lobby");
+  for (const slot of [...layout.staff.rest, ...Object.values(layout.staff.stations)]) {
+    assert.ok(slot.feet.x % 2 === 0 && slot.feet.y % 2 === 0, "staff feet lie on the walking grid");
+    assert.ok(findPath(grid, layout.spawn, slot.feet) !== null, `staff place at ${slot.feet.x},${slot.feet.y} is reachable`);
+  }
+  for (const slot of layout.staff.rest) assert.ok(slot.feet.x >= lobby.x && slot.feet.x < lobby.x + lobby.w && slot.feet.y >= lobby.y, "rest places are in the lobby");
+  const feet = [...layout.staff.rest, ...lobby.slots].map(slot => `${slot.feet.x},${slot.feet.y}`);
+  assert.equal(new Set(feet).size, feet.length, "staff rest places and lobby slots never share a spot");
   // Walls are solid: a point inside a wall is never a free cell, and walking between rooms goes through a door.
   assert.equal(findPath(grid, layout.spawn, {x: 190, y: 60}), null, "the planning/implementing wall is solid away from its door");
   const across = findPath(grid, layout.rooms[0]!.slots[0]!.feet, layout.rooms[2]!.slots[1]!.feet)!;

@@ -37,6 +37,8 @@ export interface LayoutRug extends Rect { readonly fill: string; readonly border
 /** A prop that opens a panel: the whiteboard, the cubicle screens, the QA board and bench, the reviewer's desk, the sorting table. */
 export type PanelKind = "task" | "diff" | "verify" | "review" | "integration";
 export interface LayoutHotspot { readonly kind: PanelKind; readonly room: RoomId; readonly rects: readonly Rect[] }
+/** Where resident staff work: QA at the bench, a reviewer at the desk and one in an armchair, the integrator at the sorting table. */
+export type StaffStation = "qa" | "desk" | "armchair" | "integrator";
 
 export interface OfficeLayout {
   readonly width: number;
@@ -55,6 +57,8 @@ export interface OfficeLayout {
   /** The planning whiteboard; criteria notes are laid on it. */
   readonly board: Point;
   readonly hotspots: readonly LayoutHotspot[];
+  /** Resident staff: their work stations, and four lobby places where they rest (QA, reviewer A, reviewer B, integrator). */
+  readonly staff: {readonly stations: Readonly<Record<StaffStation, LayoutSlot>>; readonly rest: readonly LayoutSlot[]};
   /** Floor areas people may stand on: room floors, door gaps and the entrance. */
   readonly open: readonly Rect[];
   /** Furniture footprints, absolute. */
@@ -91,7 +95,7 @@ export function officeLayout(): OfficeLayout {
     room("verifying", 1, 2, "vinyl", [seat(480, 64, "up0", 113, {x: 497, y: 112}), stand(406, 96), stand(452, 96)]),
     room("reviewing", 2, 2, "carpet", [seat(516, 204, "down0", 223, {x: 520, y: 270}), seat(428, 246, "down0", 271, {x: 446, y: 306}), seat(502, 246, "down0", 271, {x: 520, y: 308})]),
     room("integrating", 2, 1, "vinyl", [seat(306, 206, "up0", 256, {x: 323, y: 254}), stand(208, 254), stand(328, 254)]),
-    room("lobby", 2, 0, "checker", [seat(22, 202, "up0", 252, {x: 39, y: 252}), seat(92, 210, "down0", 231, {x: 109, y: 268}), stand(56, 240)])
+    room("lobby", 2, 0, "checker", [seat(22, 202, "up0", 252, {x: 39, y: 252}), stand(138, 210), stand(56, 240)])
   ];
   const items: LayoutItem[] = [];
   const put = (sprite: string, x: number, y: number, inRoom: RoomId, extra: {z?: number; variant?: "verify"; foot?: readonly Rect[]} = {}): void => {
@@ -152,6 +156,12 @@ export function officeLayout(): OfficeLayout {
     items, decor,
     rugs: [{x: 6, y: 50, w: 120, h: 46, fill: "b", border: "c"}, {x: 426, y: 264, w: 100, h: 40, fill: "f", border: "g"}],
     board: {x: 118, y: 42},
+    staff: {
+      stations: {qa: rooms[2]!.slots[0]!, desk: rooms[3]!.slots[0]!, armchair: rooms[3]!.slots[1]!, integrator: rooms[4]!.slots[0]!},
+      // Staff rest on the sofa and the two cafe stools.
+      rest: [seat(84, 210, "down0", 231, {x: 100, y: 268}), seat(106, 210, "down0", 231, {x: 122, y: 268}),
+        seat(94, 252, "right0", 281, {x: 112, y: 310}), seat(138, 252, "left0", 281, {x: 156, y: 310})]
+    },
     hotspots: [
       {kind: "task", room: "planning", rects: [area("board", 118, 42)]},
       // The monitor sits at (30, 1) inside a cubicle, one pixel further in once outlined.

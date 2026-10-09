@@ -160,11 +160,12 @@ export function personSprites(): Readonly<Record<string, Sprite>> {
   };
 }
 
-export type AvatarRole = "coordinator" | "worker" | "reviewer" | "visitor" | "viewer";
+export type AvatarRole = "coordinator" | "worker" | "reviewer" | "visitor" | "viewer" | "qa" | "integrator";
 /** Clothes say the role; hair and skin stay with the person. No entry is the alert red. */
 const CLOTHES: Readonly<Record<AvatarRole, Ramp>> = {
   coordinator: ["#37596d", "#5687a1", "#87b3c7"], worker: ["#3b6658", "#61947b", "#92bea1"],
-  reviewer: ["#625776", "#8c7da4", "#b7a9ca"], visitor: ["#5a5550", "#857d75", "#b0a89e"], viewer: ["#8a6a2b", "#bb893b", "#e3b64f"]
+  reviewer: ["#625776", "#8c7da4", "#b7a9ca"], visitor: ["#5a5550", "#857d75", "#b0a89e"], viewer: ["#8a6a2b", "#bb893b", "#e3b64f"],
+    qa: ["#8d99a3", "#c9d2d9", "#eef2f5"], integrator: ["#76653f", "#a38f62", "#cdbb8c"]
 };
 const HAIR: readonly Ramp[] = [["#302c3b", "#514757", "#756575"], ["#51372f", "#80533d", "#b47c51"], ["#745338", "#a37c4f", "#d1ad72"]];
 const SKIN: readonly Ramp[] = [["#bf8264", "#e6ae87", "#f5cda4"], ["#9b624b", "#c08762", "#e0ae82"], ["#654039", "#96624e", "#bf8c68"]];
@@ -173,7 +174,8 @@ const SKIN: readonly Ramp[] = [["#bf8264", "#e6ae87", "#f5cda4"], ["#9b624b", "#
 export function avatarColors(identity: string, role: string): Record<string, string> {
   const clothes: Record<string, readonly string[]> = {
     coordinator: ["#37596d", "#5687a1", "#87b3c7"], worker: ["#3b6658", "#61947b", "#92bea1"],
-    reviewer: ["#625776", "#8c7da4", "#b7a9ca"], visitor: ["#5a5550", "#857d75", "#b0a89e"], viewer: ["#8a6a2b", "#bb893b", "#e3b64f"]
+    reviewer: ["#625776", "#8c7da4", "#b7a9ca"], visitor: ["#5a5550", "#857d75", "#b0a89e"], viewer: ["#8a6a2b", "#bb893b", "#e3b64f"],
+    qa: ["#8d99a3", "#c9d2d9", "#eef2f5"], integrator: ["#76653f", "#a38f62", "#cdbb8c"]
   };
   const hairs = [["#302c3b", "#514757", "#756575"], ["#51372f", "#80533d", "#b47c51"], ["#745338", "#a37c4f", "#d1ad72"]];
   const skins = [["#bf8264", "#e6ae87", "#f5cda4"], ["#9b624b", "#c08762", "#e0ae82"], ["#654039", "#96624e", "#bf8c68"]];
@@ -262,10 +264,11 @@ function cubicle(mirror: boolean): Sprite {
     g.rect(mirror ? 70 : 8, 12, 6, 6, "3"); g.rect(mirror ? 70 : 8, 12, 6, 1, "4"); g.ball(mirror ? 73 : 11, 9, 4, 3.5, ["f", "g", "h"]);
   });
 }
-function bubble(kind: "alert" | "done" | "busy"): Sprite {
+function bubble(kind: "alert" | "done" | "busy" | "fail"): Sprite {
   return drawn(12, 14, g => {
     g.rect(1, 0, 10, 10, "9"); g.rect(0, 1, 12, 8, "9"); g.rect(4, 10, 3, 1, "9"); g.set(5, 11, "9"); g.rect(1, 8, 10, 1, "8");
     if (kind === "alert") { g.rect(5, 2, 2, 4, "k"); g.rect(5, 7, 2, 1, "k"); }
+    else if (kind === "fail") { g.line(3, 2, 8, 7, "k"); g.line(4, 2, 9, 7, "k"); g.line(8, 2, 3, 7, "k"); g.line(9, 2, 4, 7, "k"); }
     else if (kind === "done") { g.line(3, 5, 5, 7, "g"); g.line(5, 7, 9, 3, "g"); g.line(3, 4, 5, 6, "g"); g.line(5, 6, 8, 3, "g"); }
     else { g.set(3, 5, "i"); g.set(6, 5, "i"); g.set(9, 5, "i"); }
   });
@@ -467,7 +470,7 @@ export function roomSprites(): Readonly<Record<string, Sprite>> {
     board: boardBase(), notePass: note("h"), noteFail: note("k"), notePending: note("l"), noteUnknown: note("j"),
     notePlus: flat(7, 9, g => { g.rect(0, 1, 7, 8, "a"); g.rect(3, 3, 1, 4, "9"); g.rect(1, 5, 5, 1, "9"); g.set(3, 0, "b"); }),
     // head bubbles and doors
-    bubbleAlert: bubble("alert"), bubbleDone: bubble("done"), bubbleBusy: bubble("busy"),
+    bubbleAlert: bubble("alert"), bubbleDone: bubble("done"), bubbleBusy: bubble("busy"), bubbleFail: bubble("fail"),
     sideDoor0: sideDoor(0), sideDoor1: sideDoor(1), sideDoor2: sideDoor(2), frontDoor0: frontDoor(0), frontDoor1: frontDoor(1), frontDoor2: frontDoor(2),
     // tiles: walls (24x40, repeat in x), floors (repeat in both)
     wall: wallBlock(true),
