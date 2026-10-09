@@ -175,3 +175,11 @@ criteria:
   - two-reviewers: During a review both reviewers walk to the review room: in round 1 reviewer A works at the desk while B waits in an armchair, in round 2 they swap; nameplates use the activity's targets, else the newest report's, else A and B. A client test checks both rounds and the names.
   - staff-clothes: QA wears a light lab coat and the integrator khaki; both role palettes are distinct from the others and from the alert red. An art test checks it.
   - staff-reduced-motion: Under prefers-reduced-motion staff jump straight between lobby and station and result bubbles do not animate; a client test checks it.
+
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-62e5ff71-acd7-4379-8fa1-7ee6eb9a14d2: Release 0.8.0
+intent: Prepare release 0.8.0: bump the version in package.json, package-lock.json, the codex clientInfo and the probe script, and date a 0.8.0 changelog section below Unreleased that also describes the Office redesign and resident staff. No behaviour changes.
+criteria:
+- version-bumped: package.json, package-lock.json (both root entries), the codex clientInfo version in runtime/src/run/hosts/codex.ts and both probe clientInfo versions in scripts/probe-native-goals.mjs read 0.8.0, and no tracked file outside CHANGELOG.md and docs still names 0.7.3 as the current version; the test suite passes.
+- changelog-dated: CHANGELOG.md keeps an empty `## [Unreleased]` heading and, below it, a `## [0.8.0] - 2026-10-09` section holding the previous Unreleased entries plus entries for the Office redesign (walled six-room office, folding work list and snap-scrolled overview, acceptance criteria and prop panels, empty room) and the resident staff driven by verify/review/finish activity records; the docs tests pass.
