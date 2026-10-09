@@ -33,12 +33,13 @@ button{font:inherit;color:inherit}
 .repo-head{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;padding:4px 10px;font-size:16px;background:#2b241f;color:#fff7e6;border-left:6px solid #6d9275}
 .repo-alert{color:#f2c95c;font-size:14px}
 .cards{display:flex;flex-wrap:wrap;gap:14px;justify-content:flex-start}
-.card{display:flex;flex-direction:column;align-items:stretch;gap:4px;max-width:100%;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
+.card{position:relative;display:block;max-width:100%;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
+.card-caption{position:absolute;left:10px;bottom:10px;max-width:calc(100% - 20px);display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;padding:3px 10px;background:rgba(43,36,31,.85);border:2px solid #2b241f;pointer-events:none}
 .card canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;border:4px solid #6b5d50;box-shadow:4px 4px 0 #8a5033}
 .card:hover canvas,.card:focus-visible canvas{border-color:#355a4b;outline:3px solid #f2c95c;outline-offset:2px}
 .card:focus-visible{outline:none}
-.card-title{font-weight:bold;color:#2b241f;overflow-wrap:anywhere}
-.card-meta{font-size:13px;color:#4b4035}
+.card-title{font-weight:bold;color:#fff7e6;overflow-wrap:anywhere}
+.card-meta{font-size:13px;color:#f2e5c9}
 .empty{padding:20px}
 .page-grid{display:grid;justify-content:center;gap:14px}
 .pager{display:flex;justify-content:center;align-items:center;gap:12px;min-height:44px}
@@ -312,27 +313,27 @@ function overviewGroups(){
   });
 }
 function orderedRooms(){ return overviewGroups().reduce(function(all, group){ return all.concat(group.rooms); }, []); }
-var CARD_GAP = 14;
+var CARD_GAP = 14, CARD_BORDER = 8;
 /** As many columns as fit at 1x or more; the leftover width is shared so the row reaches the right edge. */
 function overviewScale(){
   var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, columns = Math.max(1, Math.floor((width + CARD_GAP) / (ROOM_W + CARD_GAP)));
-  return Math.max(1, (width - (columns - 1) * CARD_GAP) / columns / ROOM_W);
+  return Math.max(1, (width - (columns - 1) * CARD_GAP - columns * CARD_BORDER) / columns / ROOM_W);
 }
 function summaryFor(floor){
   var criteria = floor.criteria || [], passed = criteria.filter(function(c){ return c.status === "PASS"; }).length;
   return phaseLabel(floor.phase) + " · " + (criteria.length ? t("checks") + " " + passed + "/" + criteria.length : statusText(floor.status)) + (floor.questions.length ? " · ! " + floor.questions.length : "");
 }
-var PAGE_SIZE = 4, CAPTION_H = 44, PAGER_H = 44, overviewPage = 0;
+var PAGE_SIZE = 4, PAGER_H = 44, overviewPage = 0;
 /**
  * Folded list: up to four rooms fill the window without scrolling. Each page
  * takes the column count that makes its cards largest, so four rooms form a
  * 2x2 grid, two split the page in halves and one fills it.
  */
-function pageLayout(count){
-  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight - 70) - PAGER_H - 16, best = {columns: 1, scale: 0.5};
+function pageLayout(count, paged){
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight - 70) - (paged ? PAGER_H : 0) - 16, best = {columns: 1, scale: 0.5};
   for (var columns = 1; columns <= Math.max(1, count); columns++) {
     var rows = Math.ceil(Math.max(1, count) / columns);
-    var fit = Math.min((width - (columns - 1) * CARD_GAP) / columns / ROOM_W, (height - rows * CAPTION_H - (rows - 1) * CARD_GAP) / rows / ROOM_H);
+    var fit = Math.min((width - (columns - 1) * CARD_GAP - columns * CARD_BORDER) / columns / ROOM_W, (height - (rows - 1) * CARD_GAP - rows * CARD_BORDER) / rows / ROOM_H);
     if (fit > best.scale) best = {columns: columns, scale: fit};
   }
   return best;
@@ -345,15 +346,17 @@ function roomCard(floor, number, size){
   card.type = "button"; card.className = "card"; card.setAttribute("data-key", floor.key); card.setAttribute("aria-label", t("enter") + ": " + floor.title);
   view.style.width = Math.floor(ROOM_W * size) + "px"; view.style.height = Math.floor(ROOM_H * size) + "px";
   card.appendChild(view);
-  card.appendChild(panelText("span", "card-title", (number <= 9 ? number + ". " : "") + floor.title));
-  card.appendChild(panelText("span", "card-meta", summaryFor(floor)));
+  var caption = document.createElement("span"); caption.className = "card-caption";
+  caption.appendChild(panelText("span", "card-title", (number <= 9 ? number + ". " : "") + floor.title));
+  caption.appendChild(panelText("span", "card-meta", summaryFor(floor)));
+  card.appendChild(caption);
   card.addEventListener("click", function(){ enterRoom(floor.key); });
   roomCanvases[floor.key] = view;
   return card;
 }
 function drawCards(){ Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); }); }
 function renderOverviewPages(){
-  var rooms = pageRooms(), pages = pageCount(), layout = pageLayout(rooms.length), size = layout.scale;
+  var rooms = pageRooms(), pages = pageCount(), layout = pageLayout(rooms.length, pages > 1), size = layout.scale;
   var signature = JSON.stringify(["pages", lang, size, layout.columns, overviewPage, pages, rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
   if (signature !== overviewSignature) {
     overviewSignature = signature; overviewBox.textContent = ""; roomCanvases = {};

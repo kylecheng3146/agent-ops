@@ -356,14 +356,14 @@ test("overview cards share one scale of at least 1x that fills the width, and gr
   assert.equal(columns, 2);
   assert.ok(width >= 576, "never below 1x");
   assert.ok(columns * width + (columns - 1) * gap <= available, "the row fits");
-  assert.ok(columns * width + (columns - 1) * gap >= available - gap, `the row reaches the right edge (${width}px cards)`);
+  assert.ok(columns * width + (columns - 1) * gap + columns * 8 >= available - gap, `the row, borders included, reaches the right edge (${width}px cards)`);
   const win = (vm as unknown as {window: {innerWidth: number}}).window;
   win.innerWidth = 1700; vm.render();
   const wider = cardWidth();
   assert.ok(wider > width, `more space gives larger cards (${width} -> ${wider})`);
   win.innerWidth = 2000; vm.render();
   const third = cardWidth();
-  assert.ok(third >= 576 && 3 * third + 2 * gap <= 2000 - 32 && 3 * third + 2 * gap >= 2000 - 32 - gap, `a 2000px window takes a third column (${third}px cards)`);
+  assert.ok(third >= 576 && 3 * third + 2 * gap + 24 <= 2000 - 32 && 3 * third + 2 * gap + 24 >= 2000 - 32 - gap, `a 2000px window takes a third column (${third}px cards)`);
 });
 
 test("with the list folded, the overview pages four rooms at a time in a 2x2 grid that fits the window", async () => {
@@ -377,7 +377,9 @@ test("with the list folded, the overview pages four rooms at a time in a 2x2 gri
   const canvases = find(overview, node => node.tagName === "CANVAS"), w = Number.parseInt(canvases[0]!.style.width!, 10), h = Number.parseInt(canvases[0]!.style.height!, 10);
   assert.equal(new Set(canvases.map(c => c.style.width + c.style.height)).size, 1, "one scale for the page");
   assert.ok(2 * w + 14 <= 1440 - 32, "two columns fit the width");
-  assert.ok(2 * h + 2 * 44 + 44 + 14 <= 900 - 70, "two rows plus captions and the pager fit the height");
+  assert.ok(2 * h + 2 * 8 + 14 + 44 <= 900 - 70, "two rows, their borders and the pager fit the height");
+  assert.ok(2 * h + 2 * 8 + 14 + 44 >= 900 - 70 - 16 - 4 || 2 * w + 2 * 8 + 14 >= 1440 - 32 - 4, "and they fill it in one direction");
+  assert.ok(find(overview, node => node.className === "card-caption").length === 4, "captions float over the cards");
   assert.ok(Math.abs(w / h - 576 / 320) < 0.02);
   assert.deepEqual(find(overview, node => node.className === "card-title").map(n => n.textContent.slice(0, 2)), ["1.", "2.", "3.", "4."]);
   const grid = () => find(overview, node => node.className === "cards page-grid")[0]!;
