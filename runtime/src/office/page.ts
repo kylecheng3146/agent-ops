@@ -41,7 +41,7 @@ button{font:inherit;color:inherit}
 .card:focus-visible{outline:none}
 .card-title{font-weight:bold;color:#fff7e6;overflow-wrap:anywhere}
 .card-meta{font-size:13px;color:#f2e5c9}
-.empty{padding:20px}
+.empty-room{cursor:default}
 .page-grid{display:grid;justify-content:center;gap:14px}
 #overview.paged{height:100%;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none;padding:0;gap:0}
 #overview.paged::-webkit-scrollbar{display:none}
@@ -158,7 +158,7 @@ function readCollapsed(){ try { return localStorage.getItem("agent-office-list")
 var workList=document.getElementById('work-list'),workHeading=document.getElementById('work-heading'),workSummary=document.getElementById('work-summary'),workSignature='';
 var crumb = document.getElementById("crumb"), backButton = document.getElementById("back"), recentButton = document.getElementById("recent");
 var languageButton = document.getElementById("language"), live = document.getElementById("live"), repoSelect = document.getElementById("repo-filter"), repoFilter = "", repoSignature = "";
-var snapshot = null, model = null, frame = 0, offline = false, scale = 1;
+var snapshot = null, model = null, frame = 0, offline = false, scale = 1, scaleY = 1;
 var mode = "overview", selectedKey = null, showRecent = false, detailPage = 0, dialogClose = null, detailPreviousFocus = null, detailTarget = null;
 var detailSignature = "";
 var people = {}, viewer = spawnViewer(), doorFrames = {}, images = {}, bases = {}, roomCanvases = {}, overviewSignature = "", hudSignature = "", labelNodes = {}, lastFigures = [], stageCanvas = null;
@@ -371,8 +371,8 @@ var MAX_STRETCH = 1.18;
  * shape stays within MAX_STRETCH of 9:5.
  */
 function pageHeight(){ return Math.max(160, Math.floor((wrap && wrap.clientHeight) || window.innerHeight - 70)); }
-function pageLayout(count){
-  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = pageHeight() - 16, best = {columns: 1, sx: 0.5, sy: 0.5};
+function pageLayout(count, inset){
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = pageHeight() - 16 - (inset || 0), best = {columns: 1, sx: 0.5, sy: 0.5};
   for (var columns = 1; columns <= Math.max(1, count); columns++) {
     var rows = Math.ceil(Math.max(1, count) / columns);
     var sx = (width - (columns - 1) * CARD_GAP - columns * CARD_BORDER) / columns / ROOM_W, sy = (height - (rows - 1) * CARD_GAP - rows * CARD_BORDER) / rows / ROOM_H;
@@ -397,13 +397,26 @@ function roomCard(floor, number, sx, sy){
   roomCanvases[floor.key] = view;
   return card;
 }
-function drawCards(){ Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); }); }
+/** Nobody at work: the office still shows one empty room. */
+var EMPTY_FLOOR = {key: "__empty", title: "", kind: "desk", actors: [], questions: [], criteria: [], phase: "unknown", status: "idle", completedAt: null, repo: null,
+  board: {passed: 0, total: 0, verify: "pending", review: "pending", pending: 0, status: "idle", taskId: "unassigned"}};
+function emptyCard(){
+  var layout = pageLayout(1, panelCollapsed ? 0 : 24), card = el("div", "card empty-room"), view = makeCanvas();
+  view.style.width = Math.floor(ROOM_W * layout.sx) + "px"; view.style.height = Math.floor(ROOM_H * layout.sy) + "px";
+  card.appendChild(view);
+  var caption = el("span", "card-caption"); caption.appendChild(el("span", "card-title", t("quiet"))); card.appendChild(caption);
+  roomCanvases[EMPTY_FLOOR.key] = view;
+  // The open overview pads itself; leave that room so a lone card never scrolls.
+  var sheet = el("section", "page"); sheet.style.height = (pageHeight() - (panelCollapsed ? 0 : 24)) + "px"; sheet.appendChild(card);
+  return sheet;
+}
+function drawCards(){ Object.keys(roomCanvases).forEach(function(key){ var floor = key === EMPTY_FLOOR.key ? EMPTY_FLOOR : roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); }); }
 function renderOverviewPages(){
   var pages = pageCount(), height = pageHeight();
   var signature = JSON.stringify(["pages", lang, height, (wrap && wrap.clientWidth) || window.innerWidth, orderedRooms().map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
   if (signature !== overviewSignature) {
     overviewSignature = signature; overviewBox.textContent = ""; roomCanvases = {};
-    if (!orderedRooms().length) overviewBox.appendChild(panelText("p", "empty", t("quiet")));
+    if (!orderedRooms().length) overviewBox.appendChild(emptyCard());
     for (var page = 0; page < pages && orderedRooms().length; page++) {
       var rooms = pageRooms(page), layout = pageLayout(rooms.length), sheet = document.createElement("section"), grid = document.createElement("div");
       sheet.className = "page"; sheet.setAttribute("data-page", String(page + 1)); sheet.style.height = height + "px";
@@ -421,7 +434,7 @@ function renderOverview(){
   var signature = JSON.stringify([lang, size, groups.map(function(group){ return [group.repo, group.questions, group.rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]; })]);
   if (signature !== overviewSignature) {
     overviewSignature = signature; overviewBox.textContent = ""; roomCanvases = {};
-    if (!groups.length) overviewBox.appendChild(panelText("p", "empty", t("quiet")));
+    if (!groups.length) overviewBox.appendChild(emptyCard());
     var number = 0;
     groups.forEach(function(group){
       var section = document.createElement("section"); section.className = "repo-section"; section.setAttribute("data-repo", group.repo);
@@ -438,15 +451,18 @@ function renderOverview(){
 }
 
 // ---- room view: the pixel-exact room layer stretched to fill the space, text in HTML over it ----
-function roomScale(){
+/** The room view fills the space, stretching at most MAX_STRETCH from 9:5. */
+function roomScales(){
   var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight) - ((hud && hud.offsetHeight) || 44) - 40;
-  return Math.max(0.5, Math.min(width / ROOM_W, height / ROOM_H));
+  var sx = Math.max(0.5, width / ROOM_W), sy = Math.max(0.5, height / ROOM_H);
+  if (sx > sy * MAX_STRETCH) sx = sy * MAX_STRETCH; else if (sy > sx * MAX_STRETCH) sy = sx * MAX_STRETCH;
+  return {x: sx, y: sy};
 }
 function renderRoomView(){
   var floor = activeRoom(); if (!floor) return;
-  scale = roomScale();
+  var scales = roomScales(); scale = scales.x; scaleY = scales.y;
   // The CSS box fills the space; the backing store follows the device pixels so nearest-neighbour stays sharp.
-  var cssW = Math.round(ROOM_W * scale), cssH = Math.round(ROOM_H * scale), dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  var cssW = Math.round(ROOM_W * scale), cssH = Math.round(ROOM_H * scaleY), dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   var backW = Math.round(cssW * dpr), backH = Math.round(cssH * dpr);
   if (canvas.width !== backW) canvas.width = backW;
   if (canvas.height !== backH) canvas.height = backH;
@@ -480,7 +496,7 @@ function label(key, className, text, x, y){
   var node = labelNodes[key];
   if (!node) { node = document.createElement("span"); labelNodes[key] = node; labels.appendChild(node); }
   node.className = className; if (node.textContent !== text) node.textContent = text;
-  node.style.left = x * scale + "px"; node.style.top = y * scale + "px"; node.hidden = false;
+  node.style.left = x * scale + "px"; node.style.top = y * scaleY + "px"; node.hidden = false;
   return node;
 }
 function resetLabels(){ labels.textContent = ""; labelNodes = {}; hudSignature = ""; }

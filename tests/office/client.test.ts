@@ -56,7 +56,7 @@ function find(node: FakeElement, test: (n: FakeElement) => boolean): FakeElement
 type Figure = {actor: {key: string; id: string}; x: number; y: number; feet: {x: number; y: number}};
 type Room = {id: string; x: number; y: number; slots: {x: number; y: number; feet: {x: number; y: number}}[]};
 interface Vm {
-  mode: string; selectedKey: string; frame: number; scale: number; reducedMotion: boolean; detailPage: number;
+  mode: string; selectedKey: string; frame: number; scale: number; scaleY: number; reducedMotion: boolean; detailPage: number;
   viewer: {x: number; y: number; path: unknown[]; dir: string};
   people: Record<string, {x: number; y: number; path: unknown[]; slot: {feet: {x: number; y: number}}}>;
   doorFrames: Record<string, number>; images: Record<string, FakeElement>; lastFigures: Figure[];
@@ -120,8 +120,11 @@ test("the overview groups rooms by repository, puts rooms that need an answer fi
   assert.ok(vm.selectedKey.endsWith("asking-shop"));
   const canvas = elements.get("office")!;
   assert.ok(Math.abs(vm.scale - (1440 - 32) / 576) < 1e-9, "the room fills the available width of a 1440x900 window");
+  assert.ok(Math.abs(vm.scaleY - (900 - 44 - 40) / 320) < 1e-9, "and its height, so no margin stays below");
   assert.equal(canvas.style.width, Math.round(576 * vm.scale) + "px");
-  assert.ok(Math.abs(canvas.width / canvas.height - 576 / 320) < 0.01, "the room keeps its 9:5 shape");
+  assert.equal(canvas.style.height, Math.round(320 * vm.scaleY) + "px");
+  const stretch = vm.scale / vm.scaleY;
+  assert.ok(stretch <= 1.18 + 1e-9 && stretch >= 1 / 1.18 - 1e-9, `the stretch stays within 18% (${stretch.toFixed(3)})`);
   elements.get("back")!.click();
   assert.equal(vm.mode, "overview");
   overview.events.get("keydown")!({key: "3", preventDefault: () => {}});
@@ -144,7 +147,7 @@ test("a room renders with whole pixels only, no canvas text, and a whiteboard dr
   for (const call of numeric) for (const arg of call.args.slice(1)) if (typeof arg === "number") assert.ok(Number.isInteger(arg), `${call.name} uses whole pixels: ${call.args.slice(1).join(",")}`);
   assert.equal(calls.filter(call => call.name === "fillText" || call.name === "strokeText").length, 0, "the canvas draws no text");
   const canvas = elements.get("office")!;
-  assert.deepEqual([canvas.width, canvas.height], [Math.round(576 * vm.scale) * 2, Math.round(320 * vm.scale) * 2], "the backing store follows device pixels");
+  assert.deepEqual([canvas.width, canvas.height], [Math.round(576 * vm.scale) * 2, Math.round(320 * vm.scaleY) * 2], "the backing store follows device pixels");
   assert.equal((canvas.getContext() as {imageSmoothingEnabled?: boolean}).imageSmoothingEnabled, false, "the stretch stays nearest-neighbour");
   const stretch = calls.filter(call => call.name === "drawImage" && call.args[0] === canvas).at(-1)!;
   assert.deepEqual(stretch.args.slice(2), [0, 0, canvas.width, canvas.height], "the pixel-exact layer fills the canvas");
@@ -167,7 +170,7 @@ test("the HUD and labels are HTML over the canvas, and the bottom tabs, dialogue
   const zone = labels.find(node => node.className === "zone-label" && node.textContent === "Planning")!;
   const planning = vm.LAYOUT.rooms[0]!;
   assert.equal(zone.style.left, (planning.x + 4) * vm.scale + "px");
-  assert.equal(zone.style.top, (planning.y + 2) * vm.scale + "px");
+  assert.equal(zone.style.top, (planning.y + 2) * vm.scaleY + "px", "vertical positions use the vertical scale");
   const figure = vm.lastFigures[0]!;
   const plate = labels.find(node => node.className.startsWith("nameplate") && node.textContent === "receipt")!;
   assert.equal(plate.style.left, (figure.x + 17) * vm.scale + "px", "nameplates sit on whole art pixels");
@@ -468,5 +471,23 @@ test("panels say plainly when there is no review or no change yet", async () => 
     canvas.click({clientX: (r.x + 2) * canvas.width / 576, clientY: (r.y + 2) * canvas.height / 320});
     assert.ok(treeText(status).includes(expected), `${kind}: ${expected}`);
     canvas.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  }
+});
+
+test("an empty office still shows one quiet room, open or folded, that does not open", async () => {
+  for (const folded of [false, true]) {
+    const {vm, elements} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: []}, folded ? {stored: {"agent-office-list": "collapsed"}} : {});
+    const overview = elements.get("overview")!;
+    const canvases = find(overview, node => node.tagName === "CANVAS");
+    assert.equal(canvases.length, 1, "exactly one room");
+    assert.equal(find(overview, node => node.className === "card-title")[0]!.textContent, "The office is quiet. No agent is at work.");
+    const w = Number.parseInt(canvases[0]!.style.width!, 10), h = Number.parseInt(canvases[0]!.style.height!, 10);
+    assert.ok(w + 8 >= 1440 - 32 - 2 || h + 8 >= 830 - 16 - 2, `the room fills the page (${w}x${h})`);
+    const card = find(overview, node => node.className === "card empty-room")[0]!;
+    assert.notEqual(card.tagName, "BUTTON", "nothing to open");
+    card.click();
+    assert.equal(vm.mode, "overview");
+    vm.render();
+    assert.equal(vm.lastFigures.length, 0);
   }
 });
