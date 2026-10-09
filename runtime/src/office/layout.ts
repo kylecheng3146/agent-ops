@@ -126,7 +126,7 @@ export function officeLayout(): OfficeLayout {
   put("handTruck", 356, 204, "integrating"); put("crates", 252, 258, "integrating"); put("trash", 236, 294, "integrating");
   // lobby: kitchenette on the wall, sofa, cafe table, plant by the entrance
   put("counter", 8, 184, "lobby"); put("fridge", 92, 176, "lobby"); put("vending", 116, 176, "lobby"); put("cooler", 146, 188, "lobby");
-  put("sofa", 84, 230, "lobby"); put("cafeTable", 120, 270, "lobby"); put("stool", 104, 280, "lobby"); put("stool", 148, 280, "lobby");
+  put("sofa", 84, 230, "lobby"); put("cafeTable", 120, 270, "lobby");
   put("plant", 8, 258, "lobby"); put("trash", 92, 296, "lobby");
 
   const decor: LayoutDecor[] = [
@@ -158,9 +158,9 @@ export function officeLayout(): OfficeLayout {
     board: {x: 118, y: 42},
     staff: {
       stations: {qa: rooms[2]!.slots[0]!, desk: rooms[3]!.slots[0]!, armchair: rooms[3]!.slots[1]!, integrator: rooms[4]!.slots[0]!},
-      // Staff rest on the sofa and the two cafe stools.
-      rest: [seat(84, 210, "down0", 231, {x: 100, y: 268}), seat(106, 210, "down0", 231, {x: 122, y: 268}),
-        seat(94, 252, "right0", 281, {x: 112, y: 310}), seat(138, 252, "left0", 281, {x: 156, y: 310})]
+      // Two sit on the sofa, in front of its back; two stand chatting at the cafe table.
+      rest: [seat(83, 212, "sit", 262, {x: 100, y: 268}), seat(101, 212, "sit", 262, {x: 118, y: 268}),
+        seat(88, 241, "right0", 291, {x: 106, y: 290}), seat(148, 241, "left0", 291, {x: 166, y: 290})]
     },
     hotspots: [
       {kind: "task", room: "planning", rects: [area("board", 118, 42)]},

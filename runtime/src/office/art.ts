@@ -104,12 +104,19 @@ function head(g: Grid, back: boolean): void {
   g.rect(12, 13, 1, 2, "K"); g.rect(19, 13, 1, 2, "K");
   g.set(11, 16, "R"); g.set(20, 16, "R"); g.rect(15, 17, 2, 1, "S");
 }
-function body(g: Grid, {back = false, hand = false, lift = 0}: {back?: boolean; hand?: boolean; lift?: number} = {}): void {
+function body(g: Grid, {back = false, hand = false, lift = 0, sit = false}: {back?: boolean; hand?: boolean; lift?: number; sit?: boolean} = {}): void {
   // lift > 0 raises the left foot, lift < 0 the right one: two walking frames.
   const left = Math.max(0, lift), right = Math.max(0, -lift);
-  g.rect(11, 34, 4, 9 - left, "P"); g.rect(17, 34, 4, 9 - right, "P"); g.rect(11, 33, 10, 3, "P");
-  g.rect(12, 35, 1, 6 - left, "Q"); g.rect(18, 35, 1, 6 - right, "Q");
-  g.rect(10, 43 - left, 5, 3, "B"); g.rect(17, 43 - right, 5, 3, "B"); g.rect(11, 43 - left, 3, 1, "Q"); g.rect(18, 43 - right, 3, 1, "Q");
+  if (sit) {
+    // Seated, seen from the front: a lap, short shins, feet on the floor.
+    g.rect(10, 33, 12, 4, "P"); g.rect(11, 34, 10, 1, "Q");
+    g.rect(11, 37, 4, 5, "P"); g.rect(17, 37, 4, 5, "P"); g.rect(12, 37, 1, 4, "Q"); g.rect(18, 37, 1, 4, "Q");
+    g.rect(10, 42, 5, 3, "B"); g.rect(17, 42, 5, 3, "B"); g.rect(11, 42, 3, 1, "Q"); g.rect(18, 42, 3, 1, "Q");
+  } else {
+    g.rect(11, 34, 4, 9 - left, "P"); g.rect(17, 34, 4, 9 - right, "P"); g.rect(11, 33, 10, 3, "P");
+    g.rect(12, 35, 1, 6 - left, "Q"); g.rect(18, 35, 1, 6 - right, "Q");
+    g.rect(10, 43 - left, 5, 3, "B"); g.rect(17, 43 - right, 5, 3, "B"); g.rect(11, 43 - left, 3, 1, "Q"); g.rect(18, 43 - right, 3, 1, "Q");
+  }
   g.rect(10, 21, 12, 13, "D"); g.set(10, 21, null); g.set(21, 21, null);
   g.rect(11, 22, 1, 9, "E"); g.rect(20, 22, 2, 11, "C"); g.rect(10, 32, 12, 2, "C");
   if (back) g.rect(15, 23, 1, 8, "C");
@@ -150,13 +157,13 @@ function side(stride: boolean): Sprite {
  * mirrors it for left. `down`/`up` walk by lifting alternate feet.
  */
 export function personSprites(): Readonly<Record<string, Sprite>> {
-  const front = (options: {hand?: boolean; lift?: number}) => drawn(32, 48, g => { body(g, options); head(g, false); });
+  const front = (options: {hand?: boolean; lift?: number; sit?: boolean}) => drawn(32, 48, g => { body(g, options); head(g, false); });
   const back = (lift: number) => drawn(32, 48, g => { body(g, {back: true, lift}); head(g, true); });
   return {
     down0: front({}), down1: front({lift: 2}), down2: front({lift: -2}),
     up0: back(0), up1: back(2), up2: back(-2),
     right0: side(false), right1: side(true), right2: side(false),
-    hand: front({hand: true})
+    hand: front({hand: true}), sit: front({sit: true})
   };
 }
 

@@ -65,5 +65,5 @@ test("avatar clothes follow the role while hair and skin follow the person, neve
   assert.ok(r! > g! && g! > b! && r! - b! < 80, "the integrator wears khaki, a muted tan");
   for (const colour of AVATAR_COLOURS) assert.notEqual(colour.toLowerCase(), ROOM_PALETTE[ALERT_KEY]);
   for (const look of looks) assert.ok(!Object.values(look).includes(ROOM_PALETTE[ALERT_KEY]!));
-  for (const pose of ["down0", "down1", "down2", "up0", "up1", "up2", "right0", "right1", "right2", "hand"]) assert.deepEqual(size(people[pose]!), {w: 34, h: 50}, pose);
+  for (const pose of ["down0", "down1", "down2", "up0", "up1", "up2", "right0", "right1", "right2", "hand", "sit"]) assert.deepEqual(size(people[pose]!), {w: 34, h: 50}, pose);
 });
