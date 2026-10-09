@@ -25,3 +25,13 @@ criteria:
   - office-activity: hook UserPromptSubmit with office enabled records an active Office session and writes no output (hook-process test)
   - secret-block: with command-policy, a prompt containing a literal credential is blocked in native shape (Claude decision block; Codex exit 2) and a clean prompt or runtime failure produces no block (hook-process tests)
   - docs-and-suite: spec harness-adapters en and zh-TW plus CHANGELOG mention non-loop UserPromptSubmit; npm test passes
+
+worktree: session-b6cee90c (agent-ops/session-b6cee90c)
+session: b6cee90c-f71c-49ac-834e-86182ff04d11
+agent-ops task task-0ea01318-f003-4e70-a94f-7fd5025bc65c: Office phase follows batch and advance
+intent: batch reports verifying/reviewing at each step start to the parent's attached session (latest step wins); advance outside a run feeds its onPhase to the --session Office session; hook phase map adds batch=verifying, task advance=integrating. Office-enabled only, failures ignored.
+criteria:
+- batch-phase: runBatch emits a phase at each verify start (verifying) and review start (reviewing); the batch command records it on the parent task attached session only with Office enabled, never failing the batch (tests)
+- advance-phase: task advance outside a run records its onPhase phases to the --session Office session; inside a run it still records run phases (test)
+- hook-map: officePhaseHint maps agent-ops batch to verifying and agent-ops task advance to integrating; other task actions stay planning (test)
+- docs-and-suite: CHANGELOG and spec harness-adapters en and zh-TW describe batch/advance phase reporting; npm test passes
