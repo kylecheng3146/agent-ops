@@ -1,0 +1,7 @@
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-0e57ac5b-847d-470d-a372-6228bf3e4411: Order office activity writes
+intent: Fix a race in office activity records: handle.update writes ran concurrently, so a slow round-1 write could land after round 2 (seen on main CI for 0.8.0), and a pending write could recreate the record after end(). Serialize a handle's writes in call order and make end() wait for them and stop later writes. Release 0.8.1 follows separately.
+criteria:
+- ordered-writes: An activity handle writes its record in call order: updates fired without awaiting each other leave the last update on disk, and an update still pending when end() is called never recreates the record after end() removed it. A test in tests/office/activity.test.ts fires overlapping updates and an un-awaited update before end().
+- fail-open-kept: Activity writes stay display-only and fail-open after the change: the existing fail-open and record-lifecycle tests and the review round test in tests/review/chain.test.ts pass, and the full test suite passes.
