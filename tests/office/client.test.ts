@@ -362,3 +362,45 @@ test("overview cards share one scale of at least 1x that fills the width, and gr
   const third = cardWidth();
   assert.ok(third >= 576 && 3 * third + 2 * gap <= 2000 - 32 && 3 * third + 2 * gap >= 2000 - 32 - gap, `a 2000px window takes a third column (${third}px cards)`);
 });
+
+test("with the list folded, the overview pages four rooms at a time in a 2x2 grid that fits the window", async () => {
+  const lobby = ["r1", "r2", "r3", "r4", "r5", "r6"].map(name => desk(name));
+  const {elements, vm} = await boot({generatedAt: "x", runs: [], reviews: [], lobby}, {stored: {"agent-office-list": "collapsed"}});
+  const overview = elements.get("overview")!;
+  const cards = () => find(overview, node => node.className === "card");
+  const label = () => find(overview, node => node.className === "page-label")[0]!.textContent;
+  assert.equal(cards().length, 4, "four rooms on the first page");
+  assert.equal(label(), "Page 1/2");
+  const canvases = find(overview, node => node.tagName === "CANVAS"), w = Number.parseInt(canvases[0]!.style.width!, 10), h = Number.parseInt(canvases[0]!.style.height!, 10);
+  assert.equal(new Set(canvases.map(c => c.style.width + c.style.height)).size, 1, "one scale for the page");
+  assert.ok(2 * w + 14 <= 1440 - 32, "two columns fit the width");
+  assert.ok(2 * h + 2 * 44 + 44 + 14 <= 900 - 70, "two rows plus captions and the pager fit the height");
+  assert.ok(Math.abs(w / h - 576 / 320) < 0.02);
+  assert.deepEqual(find(overview, node => node.className === "card-title").map(n => n.textContent.slice(0, 2)), ["1.", "2.", "3.", "4."]);
+  const grid = () => find(overview, node => node.className === "cards page-grid")[0]!;
+  assert.equal(grid().style.gridTemplateColumns, "repeat(2, max-content)", "four rooms make a 2x2 grid");
+  find(overview, node => node.tagName === "BUTTON" && node.textContent === "Next")[0]!.click();
+  assert.equal(label(), "Page 2/2");
+  assert.equal(cards().length, 2, "the rest on the second page");
+  assert.equal(grid().style.gridTemplateColumns, "repeat(2, max-content)", "two rooms split the page side by side");
+  const half = Number.parseInt(find(overview, node => node.tagName === "CANVAS")[0]!.style.width!, 10);
+  assert.ok(half > w && 2 * half + 14 <= 1440 - 32, `halves are larger than quarters (${w} -> ${half})`);
+  assert.equal(find(overview, node => node.tagName === "BUTTON" && node.textContent === "Next")[0]!.disabled, true);
+  overview.events.get("keydown")!({key: "PageUp", preventDefault: () => {}});
+  assert.equal(label(), "Page 1/2");
+  overview.events.get("keydown")!({key: "PageDown", preventDefault: () => {}});
+  assert.equal(label(), "Page 2/2");
+  // Number keys follow the cards on the current page.
+  overview.events.get("keydown")!({key: "2", preventDefault: () => {}});
+  assert.equal(vm.mode, "room");
+  assert.equal(vm.selectedKey, vm.orderedRooms()[5]!.key, "key 2 on page 2 opens the sixth room");
+});
+
+test("a single room on a folded page fills it", async () => {
+  const {elements} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("only")]}, {stored: {"agent-office-list": "collapsed"}});
+  const overview = elements.get("overview")!;
+  assert.equal(find(overview, node => node.className === "cards page-grid")[0]!.style.gridTemplateColumns, "repeat(1, max-content)");
+  const w = Number.parseInt(find(overview, node => node.tagName === "CANVAS")[0]!.style.width!, 10);
+  assert.ok(w > 1000 && w <= 1440 - 32, `one room takes the page (${w}px)`);
+  assert.equal(find(overview, node => node.className === "pager").length, 0, "no pager for one page");
+});

@@ -34,6 +34,11 @@ button{font:inherit;color:inherit}
 .card-title{font-weight:bold;color:#2b241f;overflow-wrap:anywhere}
 .card-meta{font-size:13px;color:#4b4035}
 .empty{padding:20px}
+.page-grid{display:grid;justify-content:center;gap:14px}
+.pager{display:flex;justify-content:center;align-items:center;gap:12px;min-height:44px}
+.pager button{border:2px solid #2b241f;background:#d9aa72;padding:4px 12px;cursor:pointer}
+.pager button:disabled{opacity:.45;cursor:default}
+.pager button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
 #room-view{display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 8px}
 #hud{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;width:100%;padding:6px 10px;background:#fff7e6;border:2px solid #8a5033}
 .hud-title{font-size:15px;margin-right:4px;overflow-wrap:anywhere}
@@ -311,7 +316,57 @@ function summaryFor(floor){
   var criteria = floor.criteria || [], passed = criteria.filter(function(c){ return c.status === "PASS"; }).length;
   return phaseLabel(floor.phase) + " · " + (criteria.length ? t("checks") + " " + passed + "/" + criteria.length : statusText(floor.status)) + (floor.questions.length ? " · ! " + floor.questions.length : "");
 }
+var PAGE_SIZE = 4, CAPTION_H = 44, PAGER_H = 44, overviewPage = 0;
+/**
+ * Folded list: up to four rooms fill the window without scrolling. Each page
+ * takes the column count that makes its cards largest, so four rooms form a
+ * 2x2 grid, two split the page in halves and one fills it.
+ */
+function pageLayout(count){
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight - 70) - PAGER_H - 16, best = {columns: 1, scale: 0.5};
+  for (var columns = 1; columns <= Math.max(1, count); columns++) {
+    var rows = Math.ceil(Math.max(1, count) / columns);
+    var fit = Math.min((width - (columns - 1) * CARD_GAP) / columns / ROOM_W, (height - rows * CAPTION_H - (rows - 1) * CARD_GAP) / rows / ROOM_H);
+    if (fit > best.scale) best = {columns: columns, scale: fit};
+  }
+  return best;
+}
+function pageCount(){ return Math.max(1, Math.ceil(orderedRooms().length / PAGE_SIZE)); }
+function pageRooms(){ overviewPage = Math.max(0, Math.min(overviewPage, pageCount() - 1)); return orderedRooms().slice(overviewPage * PAGE_SIZE, overviewPage * PAGE_SIZE + PAGE_SIZE); }
+function turnPage(delta){ var next = Math.max(0, Math.min(pageCount() - 1, overviewPage + delta)); if (next === overviewPage) return false; overviewPage = next; render(); return true; }
+function roomCard(floor, number, size){
+  var card = document.createElement("button"), view = makeCanvas();
+  card.type = "button"; card.className = "card"; card.setAttribute("data-key", floor.key); card.setAttribute("aria-label", t("enter") + ": " + floor.title);
+  view.style.width = Math.floor(ROOM_W * size) + "px"; view.style.height = Math.floor(ROOM_H * size) + "px";
+  card.appendChild(view);
+  card.appendChild(panelText("span", "card-title", (number <= 9 ? number + ". " : "") + floor.title));
+  card.appendChild(panelText("span", "card-meta", summaryFor(floor)));
+  card.addEventListener("click", function(){ enterRoom(floor.key); });
+  roomCanvases[floor.key] = view;
+  return card;
+}
+function drawCards(){ Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); }); }
+function renderOverviewPages(){
+  var rooms = pageRooms(), pages = pageCount(), layout = pageLayout(rooms.length), size = layout.scale;
+  var signature = JSON.stringify(["pages", lang, size, layout.columns, overviewPage, pages, rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
+  if (signature !== overviewSignature) {
+    overviewSignature = signature; overviewBox.textContent = ""; roomCanvases = {};
+    if (!rooms.length) overviewBox.appendChild(panelText("p", "empty", t("quiet")));
+    var grid = document.createElement("div"); grid.className = "cards page-grid"; grid.style.gridTemplateColumns = "repeat(" + layout.columns + ", max-content)";
+    rooms.forEach(function(floor, index){ grid.appendChild(roomCard(floor, index + 1, size)); });
+    overviewBox.appendChild(grid);
+    if (pages > 1) {
+      var pager = document.createElement("div"); pager.className = "pager";
+      var previous = document.createElement("button"); previous.type = "button"; previous.textContent = t("previous"); previous.disabled = overviewPage === 0; previous.addEventListener("click", function(){ turnPage(-1); });
+      var next = document.createElement("button"); next.type = "button"; next.textContent = t("next"); next.disabled = overviewPage === pages - 1; next.addEventListener("click", function(){ turnPage(1); });
+      pager.appendChild(previous); pager.appendChild(panelText("span", "page-label", t("page") + " " + (overviewPage + 1) + "/" + pages)); pager.appendChild(next);
+      overviewBox.appendChild(pager);
+    }
+  }
+  drawCards();
+}
 function renderOverview(){
+  if (panelCollapsed) return renderOverviewPages();
   var groups = overviewGroups(), size = overviewScale();
   var signature = JSON.stringify([lang, size, groups.map(function(group){ return [group.repo, group.questions, group.rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]; })]);
   if (signature !== overviewSignature) {
@@ -325,21 +380,11 @@ function renderOverview(){
       head.appendChild(panelText("span", "repo-alert", group.questions ? "! " + group.questions : ""));
       section.appendChild(head);
       var cards = document.createElement("div"); cards.className = "cards";
-      group.rooms.forEach(function(floor){
-        number++;
-        var card = document.createElement("button"), view = makeCanvas();
-        card.type = "button"; card.className = "card"; card.setAttribute("data-key", floor.key); card.setAttribute("aria-label", t("enter") + ": " + floor.title);
-        view.style.width = Math.floor(ROOM_W * size) + "px"; view.style.height = Math.floor(ROOM_H * size) + "px";
-        card.appendChild(view);
-        card.appendChild(panelText("span", "card-title", (number <= 9 ? number + ". " : "") + floor.title));
-        card.appendChild(panelText("span", "card-meta", summaryFor(floor)));
-        card.addEventListener("click", function(){ enterRoom(floor.key); });
-        roomCanvases[floor.key] = view; cards.appendChild(card);
-      });
+      group.rooms.forEach(function(floor){ number++; cards.appendChild(roomCard(floor, number, size)); });
       section.appendChild(cards); overviewBox.appendChild(section);
     });
   }
-  Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); });
+  drawCards();
 }
 
 // ---- room view: the pixel-exact room layer stretched to fill the space, text in HTML over it ----
@@ -701,7 +746,8 @@ canvas.addEventListener("keydown", function(event){
 });
 overviewBox.addEventListener("keydown", function(event){
   if (event.ctrlKey || event.metaKey || event.altKey || sharedKeys(event)) return;
-  if (/^[1-9]$/u.test(event.key)) { var floor = orderedRooms()[Number(event.key) - 1]; if (floor) { event.preventDefault(); enterRoom(floor.key); } }
+  if (panelCollapsed && (event.key === "PageDown" || event.key === "PageUp")) { event.preventDefault(); turnPage(event.key === "PageDown" ? 1 : -1); return; }
+  if (/^[1-9]$/u.test(event.key)) { var floor = (panelCollapsed ? pageRooms() : orderedRooms())[Number(event.key) - 1]; if (floor) { event.preventDefault(); enterRoom(floor.key); } }
 });
 repoSelect.addEventListener("change", function(){ repoFilter = repoSelect.value; if (activeRoom() && repoFilter && activeRoom().repo !== repoFilter) mode = "overview"; if (!selectedKey || visibleRooms().every(function(f){ return f.key !== selectedKey; })) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); });
 backButton.addEventListener("click", goOverview);
