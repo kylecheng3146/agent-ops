@@ -72,13 +72,17 @@ export async function beginActivity(commonDir: string | undefined, start: Activi
   if (current === null) return NOOP;
   // One process may run several reviews at once (batch), so the name carries a sequence too.
   const path = join(activityDirectory(commonDir), `${current.kind}-${pid}-${++sequence}.json`);
-  const write = async (): Promise<void> => {
+  // Writes run one after another in call order, so a slow early write never lands over a later one,
+  // and none runs after end() has removed the record.
+  let queue: Promise<void> = Promise.resolve(), ended = false;
+  const write = (): Promise<void> => (queue = queue.then(async () => {
+    if (ended) return;
     try { await writePrivateFile(path, JSON.stringify(current) + "\n", commonDir); } catch { /* display only */ }
-  };
+  }));
   await write();
   return {
     update: async patch => { const next = activityValue({...current, ...patch}); if (next !== null) { current = next; await write(); } },
-    end: async () => { try { await rm(path, {force: true}); } catch { /* display only */ } }
+    end: async () => { ended = true; await queue; try { await rm(path, {force: true}); } catch { /* display only */ } }
   };
 }
 

@@ -34,6 +34,22 @@ test("an activity record is written privately with allowlisted fields, follows i
   }
 });
 
+test("updates land in call order and none outlives end", async () => {
+  const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-activity-order-"));
+  try {
+    const handle = await beginActivity(commonDir, {kind: "review", root: "/repo"});
+    // Fired without awaiting each other, as the review executor's round callback does.
+    await Promise.all([handle.update({round: 1, target: "agy"}), handle.update({round: 2, target: "codex"})]);
+    const [record] = await readActivities(commonDir);
+    assert.deepEqual([record?.round, record?.target], [2, "codex"], "the last update wins");
+    void handle.update({round: 1});
+    await handle.end();
+    assert.deepEqual(await readdir(activityDirectory(commonDir)), [], "a pending update never brings the record back");
+  } finally {
+    await rm(commonDir, {recursive: true, force: true});
+  }
+});
+
 test("dead processes, malformed files and mismatched names are ignored", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-activity-stale-"));
   try {
