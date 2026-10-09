@@ -35,3 +35,14 @@ criteria:
 - advance-phase: task advance outside a run records its onPhase phases to the --session Office session; inside a run it still records run phases (test)
 - hook-map: officePhaseHint maps agent-ops batch to verifying and agent-ops task advance to integrating; other task actions stay planning (test)
 - docs-and-suite: CHANGELOG and spec harness-adapters en and zh-TW describe batch/advance phase reporting; npm test passes
+
+worktree: session-01a11bb4 (agent-ops/session-01a11bb4)
+session: 01a11bb4-4aee-7303-a418-d9b6e21188b2
+agent-ops task task-b811bd03-2230-4765-9399-b71a93227d1b: Readable pixel office with persistent work list
+intent: Keep the original pixel office art and scene, add a persistent right work list for eight sessions, separate acceptance-check progress from overall completion, keep phase headings unobstructed, preserve read-only CLI-copy interactions and responsive keyboard-accessible drilldown. No new dependencies or control APIs.
+criteria:
+- readable-work-list: A persistent keyboard-accessible work list exposes each visible actor's full name, current work, phase, task status and pending questions across eight concurrent sessions without relying on rotating dialogue.
+- honest-completion: Acceptance checks, verification and review remain separate from task completion; PASS checks with pending review are explicitly unfinished and missing task/progress data is not presented as completed.
+- unobstructed-pixel-scene: The existing pixel rooms, avatars, props and movement remain, while the progress board stays within its header lane and never intersects phase headings; the five phases have an ordered readable legend.
+- readonly-live-drilldown: Roster entries open existing actor details with full identity and copy existing commands; repository/completion/room/language filters and snapshot refresh keep the work list and details current without adding write APIs.
+- responsive-office: The scene and scrollable work list share a desktop layout at 1440x900 and stack at smaller widths; existing keyboard and modal focus controls remain usable and regression tests pass.
