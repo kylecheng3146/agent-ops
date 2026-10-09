@@ -143,3 +143,12 @@ criteria:
   - task-and-diff: The whiteboard panel shows the task title, the five phases with the current one marked, the criteria as notes grouped into not verified, failed and passed, open questions and copyable commands; the screen panel lists changed files with the most recent one marked and the file, insertion and deletion totals with the branch; a client test checks both.
   - verify-and-review: The QA panel shows every criterion with its status, failure class, exit code and time, the failure output tail in a preformatted block when present, and a copyable verify command; the exec desk panel shows the review status, each round's reviewer, summary and findings, whether the re-check refuted, or 'not reviewed yet', plus a copyable review command; a client test checks both, including a missing review.
   - integration: The sorting table panel shows the worktree, branch, base and commits ahead, and the steps commit, verify, review and finish each marked done, failed or pending from the snapshot, plus a copyable worktree finish command; a client test checks a worktree with a failed verify.
+
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-591c75a0-929d-41d1-8bd1-44711a489c77: Office shows an empty room when nobody works
+intent: When the overview has no rooms it shows only the quiet text. Show one empty office room instead, sized like a real card in both the open and folded layouts, with no people and the quiet message as its caption; it does not open.
+criteria:
+- empty-room-open: With no rooms and the work list open, the overview renders exactly one room canvas with no people and a caption carrying the quiet message; the card does not enter a room when clicked; a client test checks it.
+- empty-room-folded: With no rooms and the work list folded, the single empty room fills its page like a one-room page; a client test checks its size and the caption.
+- room-view-fill: The room view stretches the room to fill both the available width and height as long as its shape stays within 18% of 9:5 (otherwise it keeps the limit), with labels placed by the horizontal and vertical scale separately; a client test checks a 1440x900 window leaves no bottom margin and a label position.
