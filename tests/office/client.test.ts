@@ -410,3 +410,63 @@ test("a single room on a folded page fills it", async () => {
   assert.ok(w > 1000 && w <= 1440 - 32, `one room takes the page (${w}px)`);
   assert.equal(overview.children.filter(node => node.className === "page").length, 1, "one page");
 });
+
+test("the five props open their panels from the snapshot, showing every string literally", async () => {
+  const hostile = "<img src=x onerror=alert(1)>";
+  const room = desk("receipt", {phase: "verifying", title: "Receipt totals", status: "active", taskId: "task-r",
+    progress: {passed: 1, total: 3, verify: "FAIL", review: "FAIL"}, base: "a1b2c3d4e5f6", ahead: 3,
+    diff: {files: 2, insertions: 40, deletions: 4, paths: ["src/tax.ts", "src/format.ts"], recent: "src/format.ts"},
+    criteria: [
+      {id: "totals", description: "Receipt lists totals", status: "PASS", finishedAt: "2026-10-09T01:00:00.000Z", failureClass: null, exitCode: null, output: null},
+      {id: "locale", description: "Tax follows the locale", status: "FAIL", finishedAt: "2026-10-09T02:00:00.000Z", failureClass: "test-failure", exitCode: 1, output: "expected 1.234,56\n" + hostile},
+      {id: "snap", description: "Snapshots", status: null, finishedAt: null, failureClass: null, exitCode: null, output: null}],
+    review: {status: "FAIL", createdAt: "2026-10-09T03:00:00.000Z", reason: null, refuted: false, rounds: [
+      {target: "codex", summary: "Looks fine.", findings: []},
+      {target: "claude", summary: "Formatting is wrong.", findings: [{severity: "important", blocking: true, title: "Locale " + hostile, details: "de-DE drops separators", recommendation: "Use Intl.NumberFormat"}]}]},
+    questions: [{questionId: "q1", prompt: "Show tax separately?"}], commands: ["agent-ops worktree list"]});
+  const {vm, elements} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [room]});
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  vm.render();
+  const canvas = elements.get("office")!, status = elements.get("status")!;
+  const hotspots = (vm.LAYOUT as unknown as {hotspots: {kind: string; rects: {x: number; y: number; w: number; h: number}[]}[]}).hotspots;
+  const open = (kind: string) => {
+    const r = hotspots.find(spot => spot.kind === kind)!.rects[0]!;
+    canvas.click({clientX: (r.x + r.w / 2) * canvas.width / 576, clientY: (r.y + r.h / 2) * canvas.height / 320});
+    assert.equal(status.hidden, false, kind);
+    const text = treeText(status);
+    canvas.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+    return {text, className: status.className};
+  };
+  const task = open("task");
+  for (const part of ["Whiteboard · receipt", "Not verified yet · 1", "FAIL · 1", "PASS · 1", "Receipt lists totals", "! Show tax separately?", "agent-ops worktree list"]) assert.ok(task.text.includes(part), `whiteboard shows ${part}`);
+  const diff = open("diff");
+  for (const part of ["main · 2 files · +40 −4", "src/tax.ts", "▶ src/format.ts"]) assert.ok(diff.text.includes(part), `screen shows ${part}`);
+  const verify = open("verify");
+  for (const part of ["locale · FAIL", "test-failure · exit 1 · 2026-10-09 02:00", "expected 1.234,56\n" + hostile, "agent-ops verify --task task-r"]) assert.ok(verify.text.includes(part), `QA board shows ${part}`);
+  const review = open("review");
+  for (const part of ["FAIL", "Round 1 · codex", "Re-check · claude", "[important · blocking] Locale " + hostile, "→ Use Intl.NumberFormat", "The re-check upheld round 1.", "agent-ops review --task task-r --yes"]) assert.ok(review.text.includes(part), `review desk shows ${part}`);
+  const integration = open("integration");
+  for (const part of ["a1b2c3d4e5f6", "3", "✓ Commit", "✗ Verify", "✗ Review", "○ worktree finish (merge)", "agent-ops worktree finish receipt"]) assert.ok(integration.text.includes(part), `sorting table shows ${part}`);
+  assert.equal(integration.className, "panel panel-integration");
+  // Enter next to a prop opens it too.
+  const desk2 = hotspots.find(spot => spot.kind === "review")!.rects[0]!;
+  vm.viewer.x = desk2.x + 20; vm.viewer.y = desk2.y + desk2.h + 6;
+  vm.lastFigures = [];
+  canvas.events.get("keydown")!({key: "Enter", preventDefault: () => {}});
+  assert.match(status.children[0]!.textContent, /^Review desk/u, "Enter beside the reviewer's desk opens its panel");
+  assert.doesNotMatch(/function panelTask[\s\S]*?\nvar PANELS/u.exec(clientScript())![0], /innerHTML/u, "panels never parse snapshot text as HTML");
+});
+
+test("panels say plainly when there is no review or no change yet", async () => {
+  const {vm, elements} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("fresh", {diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}})]});
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  vm.render();
+  const canvas = elements.get("office")!, status = elements.get("status")!;
+  const hotspots = (vm.LAYOUT as unknown as {hotspots: {kind: string; rects: {x: number; y: number; w: number; h: number}[]}[]}).hotspots;
+  for (const [kind, expected] of [["review", "Not reviewed yet."], ["diff", "No changed files yet."]] as const) {
+    const r = hotspots.find(spot => spot.kind === kind)!.rects[0]!;
+    canvas.click({clientX: (r.x + 2) * canvas.width / 576, clientY: (r.y + 2) * canvas.height / 320});
+    assert.ok(treeText(status).includes(expected), `${kind}: ${expected}`);
+    canvas.events.get("keydown")!({key: "Escape", preventDefault: () => {}});
+  }
+});

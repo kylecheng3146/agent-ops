@@ -62,3 +62,16 @@ test("every standing or sitting place is reachable on foot from the entrance", (
     assert.ok(across.some(p => p.x >= door.gap.x - 2 && p.x <= door.gap.x + door.gap.w + 2 && p.y >= door.gap.y && p.y <= door.gap.y + door.gap.h + 4), `the walk passes the ${door.id} door`);
   }
 });
+
+test("each panel prop has a hotspot inside its room or on the wall above it", () => {
+  assert.deepEqual(layout.hotspots.map(spot => spot.kind).sort(), ["diff", "integration", "review", "task", "verify"]);
+  for (const spot of layout.hotspots) {
+    const room = layout.rooms.find(candidate => candidate.id === spot.room)!;
+    for (const r of spot.rects) {
+      assert.ok(r.w > 0 && r.h > 0, spot.kind);
+      assert.ok(r.x >= room.x && r.x + r.w <= room.x + room.w, `${spot.kind} lies between the ${room.id} walls`);
+      const top = room.y === 40 ? 0 : layout.faces.middle.y;
+      assert.ok(r.y >= top && r.y + r.h <= room.y + room.h, `${spot.kind} lies in the ${room.id} room or on its wall`);
+    }
+  }
+});

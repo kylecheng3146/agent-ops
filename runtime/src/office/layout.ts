@@ -34,6 +34,9 @@ export interface LayoutItem {
 export interface LayoutDecor { readonly sprite: string; readonly x: number; readonly y: number; readonly wall: "back" | "middle"; readonly variant?: "verify" }
 export interface LayoutDoor { readonly id: string; readonly kind: "side" | "front"; readonly x: number; readonly y: number; readonly between: readonly [RoomId, RoomId]; readonly gap: Rect }
 export interface LayoutRug extends Rect { readonly fill: string; readonly border: string }
+/** A prop that opens a panel: the whiteboard, the cubicle screens, the QA board and bench, the reviewer's desk, the sorting table. */
+export type PanelKind = "task" | "diff" | "verify" | "review" | "integration";
+export interface LayoutHotspot { readonly kind: PanelKind; readonly room: RoomId; readonly rects: readonly Rect[] }
 
 export interface OfficeLayout {
   readonly width: number;
@@ -51,6 +54,7 @@ export interface OfficeLayout {
   readonly rugs: readonly LayoutRug[];
   /** The planning whiteboard; criteria notes are laid on it. */
   readonly board: Point;
+  readonly hotspots: readonly LayoutHotspot[];
   /** Floor areas people may stand on: room floors, door gaps and the entrance. */
   readonly open: readonly Rect[];
   /** Furniture footprints, absolute. */
@@ -137,6 +141,7 @@ export function officeLayout(): OfficeLayout {
     side("integrating-lobby", VERTICAL[0]!, 258, ["integrating", "lobby"])
   ];
   const entrance = {x: 56, y: ROW2.bottom, w: 34, h: H - ROW2.bottom};
+  const area = (sprite: string, x: number, y: number): Rect => ({x, y, w: sprites[sprite]![0]!.length, h: sprites[sprite]!.length});
   return {
     width: W, height: H,
     faces: {back: {x: 0, y: 3, w: W, h: 31}, middle: {x: 0, y: MIDDLE.top + 3, w: W, h: 31}},
@@ -147,6 +152,14 @@ export function officeLayout(): OfficeLayout {
     items, decor,
     rugs: [{x: 6, y: 50, w: 120, h: 46, fill: "b", border: "c"}, {x: 426, y: 264, w: 100, h: 40, fill: "f", border: "g"}],
     board: {x: 118, y: 42},
+    hotspots: [
+      {kind: "task", room: "planning", rects: [area("board", 118, 42)]},
+      // The monitor sits at (30, 1) inside a cubicle, one pixel further in once outlined.
+      {kind: "diff", room: "implementing", rects: [{x: 198 + 31, y: 40 + 2, w: 26, h: 22}, {x: 288 + 31, y: 40 + 2, w: 26, h: 22}]},
+      {kind: "verify", room: "verifying", rects: [area("statusPass", 400, 3), area("benchPass", 460, 54)]},
+      {kind: "review", room: "reviewing", rects: [area("execDesk", 500, 222)]},
+      {kind: "integration", room: "integrating", rects: [area("sortTable", 296, 202)]}
+    ],
     open: [...rooms.map(({x, y, w, h}) => ({x, y, w, h})), ...doors.map(door => door.gap), entrance],
     blocked: items.flatMap(item => item.footprint)
   };

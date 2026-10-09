@@ -100,6 +100,43 @@ button{font:inherit;color:inherit}
 #status .dialog-pager{border-top:2px solid #d9aa72;padding-top:6px}
 #status button{border:2px solid #2b241f;background:#d9aa72;padding:5px 10px;cursor:pointer}
 #status button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
+#status.panel h2{font-family:"Courier New",monospace}
+.panel-heading{margin:10px 0 4px;font-size:14px;color:#355a4b}
+.panel-meta{font-size:13px;color:#4b4035}
+.panel-phases{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px;padding:0;list-style:none}
+.panel-phases li{padding:2px 8px;border:2px solid #6b5d50;background:#f2e5c9;font-size:13px}
+.panel-phases li.now{background:#355a4b;color:#fff7e6;border-color:#2b241f}
+.panel-notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.panel-column{display:flex;flex-direction:column;gap:6px;min-width:0}
+.note{display:flex;flex-direction:column;gap:2px;padding:6px 8px;border:2px solid #2b241f;font-size:13px;box-shadow:2px 2px 0 rgba(43,36,31,.35);overflow-wrap:anywhere}
+.note.todo{background:#f2c95c}.note.fail{background:#f3c2b4;border-color:#c86f4a}.note.pass{background:#cfe0a4}
+.panel-question{padding:6px 8px;border:2px solid #c86f4a;background:#fdeee8}
+#status.panel-task{border-color:#9c8d7d;background:#fffdf7}
+#status.panel-diff{background:#2f3f4f;color:#e8eef0;border-color:#2b241f}
+#status.panel-diff h2,#status.panel-diff .panel-meta{color:#a9d3d8}
+.panel-files{margin:6px 0;padding-left:18px;font:13px/1.5 monospace}
+.panel-files li.recent{color:#f2c95c}
+#status.panel-verify{background:#2b241f;color:#fff7e6;border-color:#2f3f4f}
+#status.panel-verify h2,#status.panel-verify .panel-meta{color:#a8c46a}
+.panel-leds{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.led-row{display:flex;flex-direction:column;gap:2px;padding:6px 8px 6px 14px;border-left:6px solid #6b5d50;background:#3a2f28}
+.led-row.pass{border-color:#a8c46a}.led-row.fail,.led-row.unknown{border-color:#c86f4a}
+.panel-output{margin:4px 0 0;padding:6px 8px;max-height:220px;overflow:auto;background:#1f1a16;color:#f2e5c9;font:12px/1.4 monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+#status.panel-verify code,#status.panel-diff code{background:#1f1a16;color:#fff7e6}
+#status.panel-review{background:#f0cf93;border-color:#2b241f}
+.stamp{display:inline-block;margin:0 0 6px;padding:2px 10px;border:3px solid currentColor;font:bold 16px "Courier New",monospace;transform:rotate(-4deg)}
+.stamp.pass{color:#3f6b4e}.stamp.fail{color:#a2502f}.stamp.not_run{color:#6b5d50}
+.round{margin:8px 0;padding:8px 10px;background:#fff7e6;border:2px solid #b8743f}
+.panel-findings{margin:6px 0 0;padding-left:18px}
+.panel-findings li{margin:4px 0}.panel-findings li.blocking strong{color:#a2502f}
+.panel-findings .advice{color:#355a4b}
+#status.panel-integration{background:#e8c38c;border-color:#2b241f}
+.panel-facts{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:0;padding:8px;background:#fff7e6;border:2px solid #2b241f}
+.panel-facts dt{font-weight:bold}.panel-facts dd{margin:0;font-family:monospace;overflow-wrap:anywhere}
+.panel-steps{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0;padding:0;list-style:none}
+.panel-steps li{padding:2px 10px;border:2px solid #6b5d50;background:#fff7e6;font-size:13px}
+.panel-steps li.done{border-color:#3f6b4e;color:#3f6b4e}.panel-steps li.failed{border-color:#c86f4a;color:#a2502f}
+@media(max-width:640px){.panel-notes{grid-template-columns:1fr}}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:1000px){#workspace{grid-template-columns:1fr;grid-template-rows:minmax(240px,1fr) minmax(180px,.8fr);gap:8px;padding:6px}#workspace.collapsed{grid-template-columns:1fr;grid-template-rows:1fr auto}#workspace.collapsed #panel-toggle{writing-mode:horizontal-tb;padding:2px 8px}#work-panel{padding:8px}#work-heading{font-size:16px}}
 @media(max-width:760px){#header{flex-wrap:wrap;gap:6px;padding:6px 8px}#brand{font-size:16px}#header button{order:1;font-size:12px;padding:3px 5px}#crumb{min-width:70px}#live{font-size:12px}}
@@ -128,8 +165,8 @@ var people = {}, viewer = spawnViewer(), doorFrames = {}, images = {}, bases = {
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 function spawnViewer(){ return {x: Math.round(LAYOUT.spawn.x / 2) * 2, y: Math.round(LAYOUT.spawn.y / 2) * 2, path: [], dir: "up", step: 0}; }
 var STRINGS = {
-  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", hideList:"Hide list »", showList:"« Work list", moveHint:"Arrow keys or WASD walk; Enter talks to the nearest person; Esc returns.", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", lobby:"Lobby", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", hideList:"收合 »", showList:"« 工作清單", moveHint:"方向鍵或 WASD 走動；Enter 和最近的人對話；Esc 返回。", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", lobby:"大廳", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", panel_task:"Whiteboard", panel_diff:"Screen", panel_verify:"QA board", panel_review:"Review desk", panel_integration:"Sorting table", noChanges:"No changed files yet.", filesCount:"files", notReviewed:"Not reviewed yet.", firstRound:"Round 1", recheck:"Re-check", blocking:"blocking", refutedYes:"The re-check overturned round 1.", refutedNo:"The re-check upheld round 1.", worktree:"Worktree", branch:"Branch", base:"Base", ahead:"Commits ahead", commitStep:"Commit", finishStep:"worktree finish (merge)", hideList:"Hide list »", showList:"« Work list", moveHint:"Arrow keys or WASD walk; Enter talks to the nearest person; Esc returns.", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", lobby:"Lobby", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", panel_task:"白板", panel_diff:"隔間螢幕", panel_verify:"QA 狀態看板", panel_review:"主管桌", panel_integration:"分信桌", noChanges:"目前沒有變更的檔案。", filesCount:"個檔案", notReviewed:"尚未審查。", firstRound:"第 1 輪", recheck:"對抗複查", blocking:"阻擋", refutedYes:"對抗複查推翻了第 1 輪。", refutedNo:"對抗複查維持第 1 輪的結論。", worktree:"Worktree", branch:"分支", base:"基準", ahead:"領先 commit", commitStep:"commit", finishStep:"worktree finish（合併）", hideList:"收合 »", showList:"« 工作清單", moveHint:"方向鍵或 WASD 走動；Enter 和最近的人對話；Esc 返回。", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", lobby:"大廳", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -567,6 +604,7 @@ function goOverview(){ mode = "overview"; resetLabels(); overviewSignature = "";
 function changeLanguage(){ lang = lang === "zh" ? "en" : "zh"; saveLanguage(); hudSignature = ""; updateHeader(); render(); }
 function showDialog(title, fill){
   if (statusBox.hidden) detailPreviousFocus = document.activeElement || canvas;
+  statusBox.className = "";
   statusBox.textContent = ""; var heading = document.createElement("h2"); heading.id = "status-title"; heading.textContent = title; statusBox.appendChild(heading);
   var body = document.createElement("div"); body.className = "dialog-body"; statusBox.appendChild(body); fill(body);
   var actions = document.createElement("div"); actions.className = "actions";
@@ -700,8 +738,110 @@ function openSelectedDetail(){
   if (target && target.view === 'work') return openWorkList(floor);
   if (target && target.view === 'phase') return openPhaseWorkList(floor,target.phase);
   if (target && target.view === 'questions') return openQuestionList(floor);
+  if (target && target.view === 'panel') return openPanel(target.kind, floor);
   if (target && target.actorKey) { var actor = floor.actors.find(function(a){ return a.key === target.actorKey; }); if (actor) return openActorDetail(floor, actor); }
   return openRoomDetail(floor);
+}
+// ---- prop panels: the whiteboard, cubicle screens, QA board, reviewer's desk and sorting table ----
+function hitHotspot(point){
+  for (var i = 0; i < LAYOUT.hotspots.length; i++) { var spot = LAYOUT.hotspots[i]; for (var j = 0; j < spot.rects.length; j++) { var r = spot.rects[j]; if (point.x >= r.x && point.x < r.x + r.w && point.y >= r.y && point.y < r.y + r.h) return spot.kind; } }
+  return null;
+}
+/** The prop the viewer stands next to: within reach of the bottom edge of one of its rectangles. */
+function nearHotspot(){
+  for (var i = 0; i < LAYOUT.hotspots.length; i++) { var spot = LAYOUT.hotspots[i]; for (var j = 0; j < spot.rects.length; j++) { var r = spot.rects[j]; var dx = Math.max(r.x - viewer.x, 0, viewer.x - (r.x + r.w)), dy = Math.max(r.y - viewer.y, 0, viewer.y - (r.y + r.h + 24)); if (dx + dy < 18) return spot.kind; } }
+  return null;
+}
+function el(tag, className, text){ var node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
+function taskIdOf(floor, source){ var id = source && typeof source.taskId === "string" ? source.taskId : floor.board.taskId; return id && id !== "unassigned" ? id : null; }
+function addCommands(box, commands){ if (!commands.length) return; box.appendChild(el("h3", "panel-heading", t("commands"))); commands.forEach(function(command){ addCommand(box, command); }); }
+function panelTask(floor, source, box){
+  var phases = el("ol", "panel-phases");
+  ["planning", "implementing", "verifying", "reviewing", "integrating"].forEach(function(phase){ var step = el("li", phase === floor.phase ? "now" : "", phaseLabel(phase)); if (phase === floor.phase) step.setAttribute("aria-current", "step"); phases.appendChild(step); });
+  box.appendChild(phases);
+  var criteria = floor.criteria || [], groups = [["todo", t("critPending"), function(c){ return c.status === null; }], ["fail", t("critFail"), function(c){ return c.status === "FAIL" || c.status === "UNKNOWN"; }], ["pass", t("critPass"), function(c){ return c.status === "PASS"; }]];
+  if (!criteria.length) box.appendChild(el("p", "", t("noCriteria")));
+  else {
+    var columns = el("div", "panel-notes");
+    groups.forEach(function(group){
+      var items = criteria.filter(group[2]), column = el("div", "panel-column");
+      column.appendChild(el("h3", "panel-heading", group[1] + " · " + items.length));
+      items.forEach(function(c){ var note = el("div", "note " + group[0]); note.appendChild(el("strong", "", c.id)); note.appendChild(el("span", "", c.description)); column.appendChild(note); });
+      columns.appendChild(column);
+    });
+    box.appendChild(columns);
+  }
+  floor.questions.forEach(function(question){ box.appendChild(el("p", "panel-question", "! " + question.prompt)); });
+  addCommands(box, source && source.commands ? source.commands : []);
+}
+function panelDiff(floor, source, box){
+  var diff = source && source.diff ? source.diff : null;
+  if (!diff || !diff.files) { box.appendChild(el("p", "", t("noChanges"))); return; }
+  box.appendChild(el("p", "panel-meta", (source.branch ? source.branch + " · " : "") + diff.files + " " + t("filesCount") + " · +" + diff.insertions + " −" + diff.deletions));
+  var list = el("ul", "panel-files");
+  diff.paths.slice(0, 60).forEach(function(path){ list.appendChild(el("li", path === diff.recent ? "recent" : "", (path === diff.recent ? "▶ " : "") + path)); });
+  box.appendChild(list);
+  if (diff.paths.length > 60) box.appendChild(el("p", "panel-meta", "+" + (diff.paths.length - 60)));
+}
+function panelVerify(floor, source, box){
+  var criteria = floor.criteria || [], taskId = taskIdOf(floor, source);
+  box.appendChild(el("p", "panel-meta", t("verify") + " " + outcomeText(floor.board.verify)));
+  if (!criteria.length) box.appendChild(el("p", "", t("noCriteria")));
+  var list = el("ul", "panel-leds");
+  criteria.forEach(function(c){
+    var row = el("li", "led-row " + (c.status ? c.status.toLowerCase() : "pending"));
+    row.appendChild(el("strong", "", c.id + " · " + criterionStatusText(c.status)));
+    row.appendChild(el("span", "", c.description));
+    var meta = []; if (c.failureClass && c.status !== "PASS") meta.push(c.failureClass); if (c.exitCode !== null && c.exitCode !== undefined && c.status !== "PASS") meta.push("exit " + c.exitCode); if (c.finishedAt) meta.push(c.finishedAt.replace("T", " ").slice(0, 16));
+    if (meta.length) row.appendChild(el("small", "", meta.join(" · ")));
+    if (c.output) row.appendChild(el("pre", "panel-output", c.output));
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  if (taskId) addCommands(box, ["agent-ops verify --task " + taskId]);
+}
+function panelReview(floor, source, box){
+  var review = source && source.review ? source.review : null, taskId = taskIdOf(floor, source);
+  if (!review) box.appendChild(el("p", "", t("notReviewed")));
+  else {
+    box.appendChild(el("p", "stamp " + review.status.toLowerCase(), review.status));
+    box.appendChild(el("p", "panel-meta", review.createdAt.replace("T", " ").slice(0, 16) + (review.reason ? " · " + review.reason : "")));
+    review.rounds.forEach(function(round, index){
+      var part = el("section", "round");
+      part.appendChild(el("h3", "panel-heading", (index === 0 ? t("firstRound") : t("recheck")) + " · " + round.target));
+      if (round.summary) part.appendChild(el("p", "", round.summary));
+      if (round.findings.length) {
+        var findings = el("ul", "panel-findings");
+        round.findings.forEach(function(f){ var item = el("li", f.blocking ? "blocking" : ""); item.appendChild(el("strong", "", "[" + f.severity + (f.blocking ? " · " + t("blocking") : "") + "] " + f.title)); if (f.details) item.appendChild(el("p", "", f.details)); if (f.recommendation) item.appendChild(el("p", "advice", "→ " + f.recommendation)); findings.appendChild(item); });
+        part.appendChild(findings);
+      }
+      box.appendChild(part);
+    });
+    if (review.refuted !== null) box.appendChild(el("p", "panel-meta", review.refuted ? t("refutedYes") : t("refutedNo")));
+  }
+  if (taskId) addCommands(box, ["agent-ops review --task " + taskId + " --yes"]);
+}
+function panelIntegration(floor, source, box){
+  var facts = el("dl", "panel-facts"), add = function(label, value){ facts.appendChild(el("dt", "", label)); facts.appendChild(el("dd", "", value)); };
+  add(t("worktree"), source && source.name ? source.name : t("unknown"));
+  add(t("branch"), source && source.branch ? source.branch : t("unknown"));
+  add(t("base"), source && source.base ? source.base : t("unknown"));
+  add(t("ahead"), source && typeof source.ahead === "number" ? String(source.ahead) : t("unknown"));
+  add(t("files"), source && source.diff ? String(source.diff.files) : "0");
+  box.appendChild(facts);
+  var verify = floor.board.verify, review = floor.board.review, steps = el("ol", "panel-steps");
+  [[t("commitStep"), source && source.ahead > 0 ? "done" : "pending"], [t("verify"), verify === "PASS" ? "done" : verify === "FAIL" ? "failed" : "pending"],
+   [t("review"), review === "PASS" ? "done" : review === "FAIL" ? "failed" : "pending"], [t("finishStep"), floor.completedAt ? "done" : "pending"]]
+    .forEach(function(step){ var item = el("li", step[1], (step[1] === "done" ? "✓ " : step[1] === "failed" ? "✗ " : "○ ") + step[0]); item.setAttribute("data-state", step[1]); steps.appendChild(item); });
+  box.appendChild(steps);
+  if (source && source.name && source.branch && source.branch !== "(no worktree)") addCommands(box, ["agent-ops worktree finish " + source.name]);
+}
+var PANELS = {task: panelTask, diff: panelDiff, verify: panelVerify, review: panelReview, integration: panelIntegration};
+function openPanel(kind, floor){
+  var source = sourceFor(floor);
+  detailSignature = sourceSignature(floor); detailTarget = {floorKey: floor.key, actorKey: null, view: "panel", kind: kind};
+  showDialog(t("panel_" + kind) + " · " + floor.title, function(box){ PANELS[kind](floor, source, box); });
+  statusBox.className = "panel panel-" + kind;
 }
 // ---- input: the viewer walks inside a room; walls and furniture stop them ----
 function freeAt(p){
@@ -732,12 +872,12 @@ function hitFigure(point){
   for (var i = lastFigures.length - 1; i >= 0; i--) { var f = lastFigures[i]; if (point.x >= f.x + 6 && point.x < f.x + 28 && point.y >= f.y && point.y < f.y + 50) return f; }
   return null;
 }
-function hitBoard(point){ var b = LAYOUT.board; return point.x >= b.x && point.x < b.x + 66 && point.y >= b.y && point.y < b.y + 36; }
 canvas.addEventListener("click", function(event){
   var floor = activeRoom(); if (mode !== "room" || !floor) return;
   var point = canvasPoint(event), figure = hitFigure(point);
   if (figure) { openActorDetail(floor, figure.actor); return; }
-  if (hitBoard(point)) { openWorkList(floor); return; }
+  var spot = hitHotspot(point);
+  if (spot) { openPanel(spot, floor); return; }
   walkTo({x: Math.round(point.x / 2) * 2, y: Math.round(point.y / 2) * 2});
 });
 function keyboardFloor(){ return activeRoom() || roomByKey(selectedKey) || orderedRooms()[0]; }
@@ -755,7 +895,7 @@ canvas.addEventListener("keydown", function(event){
   if (phaseKeys[event.key]) { event.preventDefault(); openPhaseWorkList(floor, phaseKeys[event.key]); return; }
   var move = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1], a: [-1, 0], d: [1, 0], w: [0, -1], s: [0, 1], A: [-1, 0], D: [1, 0], W: [0, -1], S: [0, 1]}[event.key];
   if (move) { event.preventDefault(); moveViewer(move[0], move[1]); return; }
-  if (event.key === "Enter") { event.preventDefault(); var near = nearestActor(lastFigures); if (near) openActorDetail(floor, near.actor); else openRoomDetail(floor); }
+  if (event.key === "Enter") { event.preventDefault(); var near = nearestActor(lastFigures), prop = nearHotspot(); if (near) openActorDetail(floor, near.actor); else if (prop) openPanel(prop, floor); else openRoomDetail(floor); }
 });
 overviewBox.addEventListener("keydown", function(event){
   if (event.ctrlKey || event.metaKey || event.altKey || sharedKeys(event)) return;
