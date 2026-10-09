@@ -1,0 +1,7 @@
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-83f1532b-9d61-4023-bb40-54e05c816370: Prepare 0.8.1
+intent: Bump the version to 0.8.1 in package.json, package-lock.json, the codex clientInfo and the probe script, and date a 0.8.1 changelog section for the lobby wander, engineer glances, viewer skin and ordered activity writes, so the local global install reports 0.8.1 and the release can follow. No behaviour changes.
+criteria:
+- version-0-8-1: package.json, both root entries of package-lock.json, the codex clientInfo version in runtime/src/run/hosts/codex.ts and both probe clientInfo versions in scripts/probe-native-goals.mjs read 0.8.1, and no tracked file outside CHANGELOG.md and docs names 0.8.0 as the current version; the test suite passes.
+- changelog-0-8-1: CHANGELOG.md keeps an empty `## [Unreleased]` heading followed by a `## [0.8.1] - 2026-10-09` section describing the idle staff lobby wander, the engineer reading the whiteboard and QA board with data-only speech bubbles, and the lightest-skin viewer avatar; the docs tests pass.
