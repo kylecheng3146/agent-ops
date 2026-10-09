@@ -183,3 +183,11 @@ intent: Prepare release 0.8.0: bump the version in package.json, package-lock.js
 criteria:
 - version-bumped: package.json, package-lock.json (both root entries), the codex clientInfo version in runtime/src/run/hosts/codex.ts and both probe clientInfo versions in scripts/probe-native-goals.mjs read 0.8.0, and no tracked file outside CHANGELOG.md and docs still names 0.7.3 as the current version; the test suite passes.
 - changelog-dated: CHANGELOG.md keeps an empty `## [Unreleased]` heading and, below it, a `## [0.8.0] - 2026-10-09` section holding the previous Unreleased entries plus entries for the Office redesign (walled six-room office, folding work list and snap-scrolled overview, acceptance criteria and prop panels, empty room) and the resident staff driven by verify/review/finish activity records; the docs tests pass.
+
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-3e656172-4dc7-4cfb-b5e8-4ca4b5b88a90: Release 0.8.0 CI fixes
+intent: Make the 0.8.0 release PR's CI green: skip the POSIX mode check of the activity record test on Windows, and make the test's script-extracting regex case-insensitive for CodeQL. Test-only changes.
+criteria:
+- windows-mode: tests/office/activity.test.ts checks the 0600 mode of an activity record only when process.platform is not win32, like tests/office/background.test.ts, so the Windows CI jobs no longer fail on it; the test suite passes.
+- codeql-script-regex: The script-extracting regular expression in tests/office/client.test.ts matches <script> tags case-insensitively (i flag), which clears CodeQL's bad HTML filtering regexp alert; the client tests still pass.
