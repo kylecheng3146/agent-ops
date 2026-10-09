@@ -4,6 +4,30 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-09
+
+- Office is redrawn as a walled six-room office per session or run: planning,
+  implementing, verifying, reviewing, integrating and a lobby in an S, with
+  doors between consecutive phases. People walk the doors to the room of
+  their phase; names, labels and dialogs are HTML over the canvas. The room
+  fills the window, and you can walk in it with the arrow keys or WASD.
+- The Office overview groups rooms by repository. The work list folds away;
+  folded, the overview shows up to four rooms a page that fill the window and
+  snap as you scroll. With no work, one quiet room still shows.
+- Office shows a task's acceptance criteria as notes on the whiteboard and in
+  the room panel. Five props open panels: the whiteboard (task), the cubicle
+  screen (changed files), the QA board and bench (each criterion with the
+  tail of its failure output), the review desk (both review rounds and their
+  findings) and the sorting table (worktree, base, commits ahead, steps left).
+  Reports and output are read read-only, re-redacted and size-capped.
+- Every Office room has resident staff: a QA, two reviewers and an
+  integrator, resting in the lobby. While `verify`, `review` or
+  `worktree finish` runs they walk to the test bench, the review desk and
+  armchair (swapping for round 2, named after the review targets) or the
+  sorting table, and come back with a check or cross. The engineer stays at
+  the cubicle once the work moves on. These commands write a display-only,
+  fail-open activity record under the Git common directory while they run;
+  review slots no longer appear as rooms of their own.
 - Office shows a session that has only started as idle instead of in progress;
   a submitted prompt or tool activity marks it active. agy's per-invocation
   start still counts as activity.
