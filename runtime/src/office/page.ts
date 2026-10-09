@@ -43,10 +43,9 @@ button{font:inherit;color:inherit}
 .card-meta{font-size:13px;color:#f2e5c9}
 .empty{padding:20px}
 .page-grid{display:grid;justify-content:center;gap:14px}
-.pager{display:flex;justify-content:center;align-items:center;gap:12px;min-height:44px}
-.pager button{border:2px solid #2b241f;background:#d9aa72;padding:4px 12px;cursor:pointer}
-.pager button:disabled{opacity:.45;cursor:default}
-.pager button:focus-visible{outline:3px solid #f2c95c;outline-offset:2px}
+#overview.paged{height:100%;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none;padding:0;gap:0}
+#overview.paged::-webkit-scrollbar{display:none}
+.page{scroll-snap-align:start;scroll-snap-stop:always;display:flex;align-items:center;justify-content:center;padding:8px 16px}
 #room-view{display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 8px}
 #hud{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;width:100%;padding:6px 10px;background:#fff7e6;border:2px solid #8a5033}
 .hud-title{font-size:15px;margin-right:4px;overflow-wrap:anywhere}
@@ -324,17 +323,19 @@ function summaryFor(floor){
   var criteria = floor.criteria || [], passed = criteria.filter(function(c){ return c.status === "PASS"; }).length;
   return phaseLabel(floor.phase) + " · " + (criteria.length ? t("checks") + " " + passed + "/" + criteria.length : statusText(floor.status)) + (floor.questions.length ? " · ! " + floor.questions.length : "");
 }
-var PAGE_SIZE = 4, PAGER_H = 44, overviewPage = 0;
+var PAGE_SIZE = 4;
 /** How far a folded card may stretch from the room's 9:5 to fill the page. */
 var MAX_STRETCH = 1.18;
 /**
- * Folded list: up to four rooms fill the window without scrolling. Each page
- * takes the column count that gives its cards the most area (four rooms form
- * a 2x2 grid, two split the page in halves, one fills it), and cards stretch
- * to fill their cell while their shape stays within MAX_STRETCH of 9:5.
+ * Folded list: rooms come in pages of up to four, each page one viewport tall
+ * in a scroller that snaps page by page. Each page takes the column count that
+ * gives its cards the most area (four rooms form a 2x2 grid, two split the page
+ * in halves, one fills it), and cards stretch to fill their cell while their
+ * shape stays within MAX_STRETCH of 9:5.
  */
-function pageLayout(count, paged){
-  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight - 70) - (paged ? PAGER_H : 0) - 16, best = {columns: 1, sx: 0.5, sy: 0.5};
+function pageHeight(){ return Math.max(160, Math.floor((wrap && wrap.clientHeight) || window.innerHeight - 70)); }
+function pageLayout(count){
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = pageHeight() - 16, best = {columns: 1, sx: 0.5, sy: 0.5};
   for (var columns = 1; columns <= Math.max(1, count); columns++) {
     var rows = Math.ceil(Math.max(1, count) / columns);
     var sx = (width - (columns - 1) * CARD_GAP - columns * CARD_BORDER) / columns / ROOM_W, sy = (height - (rows - 1) * CARD_GAP - rows * CARD_BORDER) / rows / ROOM_H;
@@ -344,8 +345,8 @@ function pageLayout(count, paged){
   return best;
 }
 function pageCount(){ return Math.max(1, Math.ceil(orderedRooms().length / PAGE_SIZE)); }
-function pageRooms(){ overviewPage = Math.max(0, Math.min(overviewPage, pageCount() - 1)); return orderedRooms().slice(overviewPage * PAGE_SIZE, overviewPage * PAGE_SIZE + PAGE_SIZE); }
-function turnPage(delta){ var next = Math.max(0, Math.min(pageCount() - 1, overviewPage + delta)); if (next === overviewPage) return false; overviewPage = next; render(); return true; }
+function pageInView(){ return Math.max(0, Math.min(pageCount() - 1, Math.round((overviewBox.scrollTop || 0) / pageHeight()))); }
+function pageRooms(page){ return orderedRooms().slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE); }
 function roomCard(floor, number, sx, sy){
   var card = document.createElement("button"), view = makeCanvas();
   card.type = "button"; card.className = "card"; card.setAttribute("data-key", floor.key); card.setAttribute("aria-label", t("enter") + ": " + floor.title);
@@ -361,25 +362,23 @@ function roomCard(floor, number, sx, sy){
 }
 function drawCards(){ Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); }); }
 function renderOverviewPages(){
-  var rooms = pageRooms(), pages = pageCount(), layout = pageLayout(rooms.length, pages > 1);
-  var signature = JSON.stringify(["pages", lang, layout, overviewPage, pages, rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
+  var pages = pageCount(), height = pageHeight();
+  var signature = JSON.stringify(["pages", lang, height, (wrap && wrap.clientWidth) || window.innerWidth, orderedRooms().map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
   if (signature !== overviewSignature) {
     overviewSignature = signature; overviewBox.textContent = ""; roomCanvases = {};
-    if (!rooms.length) overviewBox.appendChild(panelText("p", "empty", t("quiet")));
-    var grid = document.createElement("div"); grid.className = "cards page-grid"; grid.style.gridTemplateColumns = "repeat(" + layout.columns + ", max-content)";
-    rooms.forEach(function(floor, index){ grid.appendChild(roomCard(floor, index + 1, layout.sx, layout.sy)); });
-    overviewBox.appendChild(grid);
-    if (pages > 1) {
-      var pager = document.createElement("div"); pager.className = "pager";
-      var previous = document.createElement("button"); previous.type = "button"; previous.textContent = t("previous"); previous.disabled = overviewPage === 0; previous.addEventListener("click", function(){ turnPage(-1); });
-      var next = document.createElement("button"); next.type = "button"; next.textContent = t("next"); next.disabled = overviewPage === pages - 1; next.addEventListener("click", function(){ turnPage(1); });
-      pager.appendChild(previous); pager.appendChild(panelText("span", "page-label", t("page") + " " + (overviewPage + 1) + "/" + pages)); pager.appendChild(next);
-      overviewBox.appendChild(pager);
+    if (!orderedRooms().length) overviewBox.appendChild(panelText("p", "empty", t("quiet")));
+    for (var page = 0; page < pages && orderedRooms().length; page++) {
+      var rooms = pageRooms(page), layout = pageLayout(rooms.length), sheet = document.createElement("section"), grid = document.createElement("div");
+      sheet.className = "page"; sheet.setAttribute("data-page", String(page + 1)); sheet.style.height = height + "px";
+      grid.className = "cards page-grid"; grid.style.gridTemplateColumns = "repeat(" + layout.columns + ", max-content)";
+      rooms.forEach(function(floor, index){ grid.appendChild(roomCard(floor, index + 1, layout.sx, layout.sy)); });
+      sheet.appendChild(grid); overviewBox.appendChild(sheet);
     }
   }
   drawCards();
 }
 function renderOverview(){
+  overviewBox.className = panelCollapsed ? "paged" : "";
   if (panelCollapsed) return renderOverviewPages();
   var groups = overviewGroups(), size = overviewScale();
   var signature = JSON.stringify([lang, size, groups.map(function(group){ return [group.repo, group.questions, group.rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]; })]);
@@ -760,8 +759,7 @@ canvas.addEventListener("keydown", function(event){
 });
 overviewBox.addEventListener("keydown", function(event){
   if (event.ctrlKey || event.metaKey || event.altKey || sharedKeys(event)) return;
-  if (panelCollapsed && (event.key === "PageDown" || event.key === "PageUp")) { event.preventDefault(); turnPage(event.key === "PageDown" ? 1 : -1); return; }
-  if (/^[1-9]$/u.test(event.key)) { var floor = (panelCollapsed ? pageRooms() : orderedRooms())[Number(event.key) - 1]; if (floor) { event.preventDefault(); enterRoom(floor.key); } }
+  if (/^[1-9]$/u.test(event.key)) { var floor = (panelCollapsed ? pageRooms(pageInView()) : orderedRooms())[Number(event.key) - 1]; if (floor) { event.preventDefault(); enterRoom(floor.key); } }
 });
 repoSelect.addEventListener("change", function(){ repoFilter = repoSelect.value; if (activeRoom() && repoFilter && activeRoom().repo !== repoFilter) mode = "overview"; if (!selectedKey || visibleRooms().every(function(f){ return f.key !== selectedKey; })) selectedKey = visibleRooms()[0] && visibleRooms()[0].key; updateHeader(); render(); });
 backButton.addEventListener("click", goOverview);
