@@ -62,7 +62,7 @@ interface Vm {
   people: Record<string, {x: number; y: number; path: unknown[]; slot: {feet: {x: number; y: number}}}>;
   doorFrames: Record<string, number>; images: Record<string, FakeElement>; lastFigures: Figure[];
   LAYOUT: {rooms: Room[]; board: {x: number; y: number}; spawn: {x: number; y: number};
-    staff: {stations: Record<"qa" | "desk" | "armchair" | "integrator", {feet: {x: number; y: number}}>; rest: {feet: {x: number; y: number}}[]}};
+    staff: {stations: Record<"qa" | "desk" | "armchair" | "integrator", {feet: {x: number; y: number}}>; spots: {feet: {x: number; y: number}}[]}};
   GRID: {cols: number; rows: number; free: number[]};
   model: {floors: {key: string; actors: {key: string; id: string}[]}[]};
   notePosition: (index: number) => {x: number; y: number};
@@ -506,11 +506,16 @@ function bubbles(vm: Vm, calls: Call[]): string[] {
   return calls.filter(call => call.name === "drawImage").map(call => names.get(call.args[1] as FakeElement) ?? "").filter(name => name.startsWith("bubble"));
 }
 const activity = (kind: string, extra: Record<string, unknown> = {}) => ({kind, startedAt: "2026-10-09T00:00:00.000Z", ...extra});
+/** The lobby spot a staff member is at or heading to, or -1. */
+const spotOf = (vm: Vm, key: string) => vm.LAYOUT.staff.spots.findIndex(spot => spot.feet.x === vm.people[key]!.slot.feet.x && spot.feet.y === vm.people[key]!.slot.feet.y);
+/** Standing still on a lobby spot. */
+const idle = (vm: Vm, key: string) => spotOf(vm, key) >= 0 && vm.people[key]!.path.length === 0 && at(vm, key).join() === feet(vm.LAYOUT.staff.spots[spotOf(vm, key)]!).join();
+const ROLES = ["qa", "reviewerA", "reviewerB", "integrator"] as const;
 
 test("every room keeps a resident QA, two reviewers and an integrator in the lobby, and the engineer stays at the cubicle after building", async () => {
   const {vm} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("resident", {phase: "reviewing"})]});
-  (["qa", "reviewerA", "reviewerB", "integrator"] as const).forEach((role, index) =>
-    assert.deepEqual(at(vm, staffKey(vm, role)), feet(vm.LAYOUT.staff.rest[index]!), `${role} rests in the lobby`));
+  for (const role of ROLES) assert.ok(idle(vm, staffKey(vm, role)), `${role} is in place on a lobby spot`);
+  assert.equal(new Set(ROLES.map(role => spotOf(vm, staffKey(vm, role)))).size, 4, "on four different spots");
   const engineer = vm.model.floors[0]!.actors[0]!.key, cubicle = vm.LAYOUT.rooms.find(room => room.id === "implementing")!;
   assert.deepEqual(at(vm, engineer), feet(cubicle.slots[0]!), "the engineer sits at the cubicle while the room is reviewing");
   assert.equal(vm.model.floors[0]!.actors.length, 1, "staff are not counted as the room's agents");
@@ -523,13 +528,13 @@ test("QA and the integrator walk to their station while their process runs and b
   const qa = staffKey(vm, "qa"), integrator = staffKey(vm, "integrator");
   await poll(room({activities: [activity("verify")]}));
   assert.ok(vm.people[qa]!.path.length > 10, "QA leaves the lobby");
-  assert.deepEqual(at(vm, integrator), feet(vm.LAYOUT.staff.rest[3]!), "the integrator stays");
+  assert.ok(spotOf(vm, integrator) >= 0, "the integrator stays in the lobby");
   walk(vm, qa);
   assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.stations.qa), "QA works at the test bench");
   assert.deepEqual(bubbles(vm, calls), ["bubbleBusy"], "with a busy bubble");
   await poll(room({progress: {passed: 2, total: 2, verify: "FAIL", review: null}}));
   walk(vm, qa);
-  assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.rest[0]!), "and walks back when verify ends");
+  assert.ok(idle(vm, qa), "and walks back to the lobby when verify ends");
   assert.deepEqual(bubbles(vm, calls), ["bubbleFail"], "showing the snapshot's result");
   await poll(room({progress: {passed: 2, total: 2, verify: "FAIL", review: null}, activities: [activity("finish")]}));
   walk(vm, integrator);
@@ -557,7 +562,7 @@ test("both reviewers come for a review and swap the desk for round 2, named afte
   await poll(room({review: {status: "PASS", createdAt: "2026-10-09T00:05:00.000Z", reason: null, refuted: false,
     rounds: [{target: "claude", summary: "", findings: []}, {target: "codex", summary: "", findings: []}]}}));
   walk(vm, a); walk(vm, b);
-  assert.deepEqual([at(vm, a), at(vm, b)], [feet(vm.LAYOUT.staff.rest[1]!), feet(vm.LAYOUT.staff.rest[2]!)], "both go back to the lobby");
+  assert.ok(idle(vm, a) && idle(vm, b), "both go back to the lobby");
   assert.deepEqual(names(), ["claude", "codex"], "then the newest report names them");
 });
 
@@ -570,7 +575,7 @@ test("under reduced motion staff jump between the lobby and their station and re
   assert.equal(vm.people[qa]!.path.length, 0, "no walk is planned");
   assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.stations.qa), "QA is already at the bench");
   await poll(room({progress: {passed: 1, total: 1, verify: "PASS", review: null}}));
-  assert.deepEqual(at(vm, qa), feet(vm.LAYOUT.staff.rest[0]!));
+  assert.ok(idle(vm, qa), "QA is back on a lobby spot at once");
   const frames = [0, 1].map(() => { calls.length = 0; for (let i = 0; i < 40; i++) vm.tick(); return JSON.stringify(calls.filter(call => call.name === "drawImage").map(call => call.args.slice(2))); });
   assert.equal(frames[0], frames[1], "the result bubble does not move or fade");
   assert.deepEqual(bubbles(vm, calls), ["bubbleDone"]);
@@ -590,9 +595,57 @@ test("activity records for a session send its staff to work and back, end to end
   assert.deepEqual(at(vm, staffKey(vm, "qa")), feet(vm.LAYOUT.staff.stations.qa), "QA is at the bench while verify runs");
   await poll(snapshot([record("review", {targets: ["agy", "codex"], round: 1, target: "agy"})]));
   for (const role of ["qa", "reviewerA", "reviewerB"] as const) walk(vm, staffKey(vm, role));
-  assert.deepEqual(at(vm, staffKey(vm, "qa")), feet(vm.LAYOUT.staff.rest[0]!), "QA is back in the lobby");
+  assert.ok(spotOf(vm, staffKey(vm, "qa")) >= 0, "QA is back in the lobby");
   assert.deepEqual(at(vm, staffKey(vm, "reviewerA")), feet(vm.LAYOUT.staff.stations.desk), "the first reviewer is at the desk");
   await poll(snapshot([]));
   walk(vm, staffKey(vm, "reviewerA"));
-  assert.deepEqual(at(vm, staffKey(vm, "reviewerA")), feet(vm.LAYOUT.staff.rest[1]!), "and back when the review ends");
+  assert.ok(spotOf(vm, staffKey(vm, "reviewerA")) >= 0, "and back when the review ends");
+});
+
+test("idle staff wander between free lobby spots, one walker at a time, after staggered 20 to 45 second stays", async () => {
+  // No phase: the engineer idles in the lobby at the counter, so the counter spot is theirs.
+  const {vm} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("wanderers")]});
+  const keys = ROLES.map(role => staffKey(vm, role)), counter = 7;
+  const last = new Map(keys.map(key => [key, spotOf(vm, key)])), moves = new Map(keys.map(key => [key, [] as number[]]));
+  for (let i = 0; i < 12000; i++) {
+    vm.tick();
+    assert.ok(keys.filter(key => vm.people[key]!.path.length > 0).length <= 1, "at most one walks at a time");
+    const held = keys.map(key => spotOf(vm, key));
+    assert.equal(new Set(held).size, 4, "no two hold one spot");
+    assert.ok(!held.includes(counter), "the idle engineer's spot is left alone");
+    for (const key of keys) if (spotOf(vm, key) !== last.get(key)) { moves.get(key)!.push(vm.frame); last.set(key, spotOf(vm, key)); }
+  }
+  const all = [...moves.values()];
+  assert.ok(all.every(list => list.length >= 2), "everyone moves now and then");
+  assert.ok(Math.min(...all.map(list => list[0]!)) >= 300, "nobody leaves in the first five seconds");
+  assert.ok(new Set(all.map(list => list[0])).size === 4, "first departures are staggered");
+  for (const list of all) for (let i = 1; i < list.length; i++) assert.ok(list[i]! - list[i - 1]! >= 1200, "a stay lasts at least twenty seconds");
+});
+
+test("work pulls a wanderer straight to the station, and the way back takes the nearest free spot", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("pulled", {phase: "verifying", ...extra})]});
+  const {vm, calls, poll} = await boot(room({}));
+  const qa = staffKey(vm, "qa");
+  for (let i = 0; i < 4000 && !vm.people[qa]!.path.length; i++) vm.tick();
+  assert.ok(vm.people[qa]!.path.length > 0, "QA is on the way to another spot");
+  await poll(room({activities: [activity("verify")]}));
+  assert.deepEqual([vm.people[qa]!.slot.feet.x, vm.people[qa]!.slot.feet.y], feet(vm.LAYOUT.staff.stations.qa), "and turns to the bench at once");
+  walk(vm, qa);
+  const others = ROLES.slice(1).map(role => spotOf(vm, staffKey(vm, role)));
+  await poll(room({progress: {passed: 1, total: 1, verify: "PASS", review: null}}));
+  const bench = vm.LAYOUT.staff.stations.qa.feet, distance = (index: number) => Math.abs(vm.LAYOUT.staff.spots[index]!.feet.x - bench.x) + Math.abs(vm.LAYOUT.staff.spots[index]!.feet.y - bench.y);
+  const nearest = vm.LAYOUT.staff.spots.map((_, index) => index).filter(index => !others.includes(index) && index !== 7).sort((x, y) => distance(x) - distance(y))[0];
+  assert.equal(spotOf(vm, qa), nearest, "the nearest free spot");
+  walk(vm, qa);
+  const spot = spotOf(vm, qa);
+  assert.ok(bubbles(vm, calls).includes("bubbleDone"), "the result shows on arrival");
+  for (let i = 0; i < 400; i++) { vm.tick(); assert.equal(spotOf(vm, qa), spot, "no wandering while the result shows"); }
+});
+
+test("under reduced motion idle staff never wander", async () => {
+  const {vm} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("still-staff", {phase: "planning"})]}, {reduced: true});
+  const keys = ROLES.map(role => staffKey(vm, role)), start = keys.map(key => at(vm, key).join());
+  for (let i = 0; i < 6000; i++) vm.tick();
+  assert.deepEqual(keys.map(key => at(vm, key).join()), start, "everyone stays where they are");
+  assert.ok(keys.every(key => idle(vm, key)));
 });

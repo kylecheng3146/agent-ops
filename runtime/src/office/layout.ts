@@ -57,8 +57,8 @@ export interface OfficeLayout {
   /** The planning whiteboard; criteria notes are laid on it. */
   readonly board: Point;
   readonly hotspots: readonly LayoutHotspot[];
-  /** Resident staff: their work stations, and four lobby places where they rest (QA, reviewer A, reviewer B, integrator). */
-  readonly staff: {readonly stations: Readonly<Record<StaffStation, LayoutSlot>>; readonly rest: readonly LayoutSlot[]};
+  /** Resident staff: their work stations, and the lobby spots where idle staff spend time. */
+  readonly staff: {readonly stations: Readonly<Record<StaffStation, LayoutSlot>>; readonly spots: readonly LayoutSlot[]};
   /** Floor areas people may stand on: room floors, door gaps and the entrance. */
   readonly open: readonly Rect[];
   /** Furniture footprints, absolute. */
@@ -158,9 +158,11 @@ export function officeLayout(): OfficeLayout {
     board: {x: 118, y: 42},
     staff: {
       stations: {qa: rooms[2]!.slots[0]!, desk: rooms[3]!.slots[0]!, armchair: rooms[3]!.slots[1]!, integrator: rooms[4]!.slots[0]!},
-      // Two sit on the sofa, in front of its back; two stand chatting at the cafe table.
-      rest: [seat(83, 212, "sit", 262, {x: 100, y: 268}), seat(101, 212, "sit", 262, {x: 118, y: 268}),
-        seat(88, 241, "right0", 291, {x: 106, y: 290}), seat(148, 241, "left0", 291, {x: 166, y: 290})]
+      // Where idle staff spend time: the sofa, both sides of the cafe table, then the cooler,
+      // vending machine, fridge and counter, seen from behind.
+      spots: [seat(83, 212, "sit", 262, {x: 100, y: 268}), seat(101, 212, "sit", 262, {x: 118, y: 268}),
+        seat(88, 241, "right0", 291, {x: 106, y: 290}), seat(148, 241, "left0", 291, {x: 166, y: 290}),
+        stand(137, 183, "up0"), stand(113, 181, "up0"), stand(87, 181, "up0"), stand(49, 181, "up0")]
     },
     hotspots: [
       {kind: "task", room: "planning", rects: [area("board", 118, 42)]},

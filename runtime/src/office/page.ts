@@ -251,8 +251,57 @@ function roomBase(floor){
 // ---- people: a slot in the room of their phase; they walk only when the phase changes ----
 /** Engineers plan and build; once the work is with QA, the reviewers or the integrator, they stay at their cubicle. */
 function roomFor(actor){ var room = ROOM_OF[actor.phase] || "lobby"; return room === "verifying" || room === "reviewing" || room === "integrating" ? "implementing" : room; }
-// ---- resident staff: they rest in the lobby and walk to their station while their real process runs ----
-var STAFF_ROLES = ["qa", "reviewerA", "reviewerB", "integrator"], STAFF_FADE = 600;
+// ---- resident staff: they idle in the lobby and walk to their station while their real process runs ----
+var STAFF_ROLES = ["qa", "reviewerA", "reviewerB", "integrator"], STAFF_FADE = 600, staffSpots = {};
+/** Frames a person stays at a lobby spot: 20 to 45 seconds at 60 frames a second, fixed by their key and visit. */
+function dwellFrames(key, visit){ var h = 0, s = key + "#" + visit; for (var i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return 1200 + h % 1501; }
+function keyHash(s){ var h = 0; for (var i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return h; }
+/** Spots an idle engineer stands near are left to them. */
+function engineerNear(floor, spot){
+  var place = placements(floor).byActor, lobby = layoutRoom("lobby");
+  return floor.actors.some(function(actor){ var p = place[actor.key]; if (!p || p.room !== "lobby") return false; var slot = lobby.slots[Math.min(p.index, lobby.slots.length - 1)]; return Math.abs(slot.feet.x - spot.feet.x) < 30 && Math.abs(slot.feet.y - spot.feet.y) < 30; });
+}
+/** The free lobby spots of a room, nearest to a point first. */
+function freeSpots(floor, from, except){
+  var taken = {};
+  STAFF_ROLES.forEach(function(role){ var key = floor.key + "|staff:" + role, held = staffSpots[key]; if (key !== except && held && held.spot !== null) taken[held.spot] = true; });
+  return LAYOUT.staff.spots.map(function(spot, index){ return index; }).filter(function(index){ return !taken[index] && !engineerNear(floor, LAYOUT.staff.spots[index]); })
+    .sort(function(a, b){ var p = LAYOUT.staff.spots[a].feet, q = LAYOUT.staff.spots[b].feet; return (Math.abs(p.x - from.x) + Math.abs(p.y - from.y)) - (Math.abs(q.x - from.x) + Math.abs(q.y - from.y)) || a - b; });
+}
+/**
+ * Where an idle staff member is: a reserved lobby spot. New rooms seat the four on different spots chosen from
+ * the room key, with staggered first moves; coming back from work takes the nearest free spot.
+ */
+function idleSpot(floor, key, index){
+  var held = staffSpots[key];
+  if (!held) {
+    var first = (keyHash(floor.key) + index * 3) % LAYOUT.staff.spots.length, free = freeSpots(floor, LAYOUT.staff.spots[first].feet, key);
+    held = staffSpots[key] = {spot: free.length ? free[0] : null, visit: 0, until: frame + 300 + index * 600};
+  } else if (held.spot === null) {
+    var state = people[key], near = freeSpots(floor, state ? {x: state.x, y: state.y} : LAYOUT.spawn, key);
+    held.spot = near.length ? near[0] : null; held.visit++; held.until = frame + dwellFrames(key, held.visit);
+  }
+  return held.spot === null ? LAYOUT.staff.spots[index] : LAYOUT.staff.spots[held.spot];
+}
+/** One idle person a room at a time, once their stay is over and no result bubble shows, moves to another free spot. */
+function wander(floor){
+  if (reducedMotion) return;
+  var walking = false, ready = null;
+  STAFF_ROLES.forEach(function(role){
+    var key = floor.key + "|staff:" + role, state = people[key], held = staffSpots[key], memory = staffMemory[key];
+    if (state && state.path.length) walking = true;
+    var resting = held && held.spot !== null && !(memory && memory.busy) && !(memory && memory.result && frame < memory.result.until);
+    if (resting && frame >= held.until && (!ready || held.until < staffSpots[ready].until)) ready = key;
+  });
+  if (walking || !ready) return;
+  var held = staffSpots[ready], state = people[ready], here = LAYOUT.staff.spots[held.spot].feet;
+  var options = freeSpots(floor, here, ready).filter(function(index){ return index !== held.spot; });
+  held.visit++; held.until = frame + dwellFrames(ready, held.visit);
+  if (!options.length || !state) return;
+  held.spot = options[dwellFrames(ready, held.visit) % options.length];
+  var spot = LAYOUT.staff.spots[held.spot];
+  moveTo(ready, spot, spot.feet.x + "," + spot.feet.y, false);
+}
 function activityOf(floor, kind){ var list = floor.activities || []; for (var i = 0; i < list.length; i++) if (list[i].kind === kind) return list[i]; return null; }
 /** Reviewer nameplates: the running review's targets, else the newest report's rounds, else A and B. */
 function reviewerNames(floor){
@@ -270,9 +319,12 @@ function staffOf(floor){
   var plans = {qa: ["verify", "QA", "qa", at.qa, "verify"], reviewerA: ["review", names[0], "reviewer", second ? at.armchair : at.desk, "review"],
     reviewerB: ["review", names[1], "reviewer", second ? at.desk : at.armchair, "review"], integrator: ["finish", t("integrator"), "integrator", at.integrator, "integration"]};
   return STAFF_ROLES.map(function(role, index){
-    var plan = plans[role], busy = !!activityOf(floor, plan[0]), slot = busy ? plan[3] : LAYOUT.staff.rest[index];
+    var plan = plans[role], busy = !!activityOf(floor, plan[0]), key = floor.key + "|staff:" + role;
+    // Work releases the lobby spot; the way back takes the nearest free one.
+    if (busy && staffSpots[key]) staffSpots[key].spot = null;
+    var slot = busy ? plan[3] : idleSpot(floor, key, index);
     var narration = !busy ? t("staff_rest") : plan[0] !== "review" ? t("staff_" + plan[0]) : slot === at.desk ? t("staff_review") : t("staff_wait");
-    return {key: floor.key + "|staff:" + role, id: plan[1], kind: plan[2], staff: role, activity: plan[0], panel: plan[4], busy: busy, slot: slot,
+    return {key: key, id: plan[1], kind: plan[2], staff: role, activity: plan[0], panel: plan[4], busy: busy, slot: slot,
       target: slot.feet.x + "," + slot.feet.y, narration: narration, questionCount: 0, status: busy ? "running" : "idle"};
   });
 }
@@ -316,6 +368,7 @@ function syncPeople(){
   });
   Object.keys(people).forEach(function(key){ if (!seen[key]) delete people[key]; });
   Object.keys(staffMemory).forEach(function(key){ if (!seen[key]) delete staffMemory[key]; });
+  Object.keys(staffSpots).forEach(function(key){ if (!seen[key]) delete staffSpots[key]; });
 }
 function stepAlong(state){
   if (!state.path.length) return;
@@ -568,7 +621,7 @@ function renderLabels(floor, figs){
   if (near) label("speech", "speech", shortName(near.actor.id, 14) + ": " + localizeText(near.actor.narration), near.x + 17, near.y - 6);
 }
 function render(){ if (!model) return; if (mode === "room") renderRoomView(); else renderOverview(); }
-function tick(){ frame++; if (!reducedMotion) advance(); render(); }
+function tick(){ frame++; if (!reducedMotion) { if (model) model.floors.forEach(wander); advance(); } render(); }
 function attentionFor(actor){
   if(actor.questionCount)return t('waiting')+' ('+actor.questionCount+')';
   if(actor.progress&&actor.progress.verify==='FAIL')return t('verifyFailed');
