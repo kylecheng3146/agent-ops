@@ -80,6 +80,7 @@ import {
 import { runBatchCommand } from "./commands/batch.js";
 import { createSourceGuard } from "../../../runtime/src/review/batch-guard.js";
 import { withReviewSlot } from "../../../runtime/src/review/slots.js";
+import { withActivity, type ActivityHandle } from "../../../runtime/src/office/activity.js";
 import { memoizePreflight } from "../../../runtime/src/review/batch.js";
 import {
   createReviewExecutor,
@@ -116,6 +117,16 @@ import {
   detectGhostFiles,
   ghostFilesDoctorResult
 } from "../../../runtime/src/install/doctor.js";
+
+/** The repository's common Git directory, where display-only office records live; undefined when git cannot say. */
+async function officeCommonDir(dir: string): Promise<string | undefined> {
+  try {
+    const result = await gitRunner(dir).run(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    return result.exitCode === 0 ? new TextDecoder().decode(result.stdout).trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const HOOK_RUNTIME_PATH = fileURLToPath(
   new URL("./hook-entry.js", import.meta.url)
@@ -685,6 +696,16 @@ process.exitCode = await runCli(
             const slotDir = commonDirResult.exitCode === 0
               ? new TextDecoder().decode(commonDirResult.stdout).trim()
               : undefined;
+            let reviewActivity: ActivityHandle | undefined;
+            const inActivity = (
+              executor: ReturnType<typeof createReviewExecutor>
+            ): ReturnType<typeof createReviewExecutor> =>
+              async (request) => await withActivity(slotDir, {kind: "review", root,
+                ...(reviewArgs.taskId === undefined ? {} : {taskId: reviewArgs.taskId}),
+                ...(reviewSessionId === undefined ? {} : {sessionId: reviewSessionId})}, async (handle) => {
+                reviewActivity = handle;
+                try { return await executor(request); } finally { reviewActivity = undefined; }
+              });
             const inSlot = (
               executor: ReturnType<typeof createReviewExecutor>
             ): ReturnType<typeof createReviewExecutor> =>
@@ -721,7 +742,7 @@ process.exitCode = await runCli(
               ).config),
               config: reviewConfig,
               evidenceStore: new FileEvidenceStore(root, root),
-              execute: inSlot(createReviewExecutor({
+              execute: inActivity(inSlot(createReviewExecutor({
                 runner: registeredRunProofRunner(),
                 targets: configuredReviewTargets,
                 cwd: root,
@@ -751,8 +772,11 @@ process.exitCode = await runCli(
                 signal,
                 onProgress: (line) => {
                   process.stderr.write(`${progressPrefix}${line}\n`);
+                },
+                onRound: (round, target, targets) => {
+                  void reviewActivity?.update({round, target, targets});
                 }
-              }))
+              })))
             };
           };
           if (args.command === "review") {
@@ -882,9 +906,11 @@ process.exitCode = await runCli(
               config,
               CLI_VERSION
             );
+            const verifySessionId = sessionIdFromEnvironment();
             return await runVerifyCommand({
               args,
               taskService,
+              activity: {commonDir: await officeCommonDir(root), root, ...(verifySessionId === undefined ? {} : {sessionId: verifySessionId})},
               service: {verify: async taskId => {
                 const run = await runPolicyContext(root);
                 const report = await new VerificationService({

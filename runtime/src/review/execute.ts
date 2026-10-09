@@ -118,6 +118,8 @@ export interface ReviewExecutorOptions {
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly onProgress?: (message: string) => void;
+  /** Display only: called as each round starts, with its reviewer and the planned pair. */
+  readonly onRound?: (round: 1 | 2, target: ReviewTargetId, targets: readonly ReviewTargetId[]) => void;
   readonly signal?: AbortSignal;
   /**
    * One budget for the whole execution: capability probe, snapshot and both
@@ -978,6 +980,11 @@ async function attemptTargetWithRetry(
 }
 
 /** Builds the `execute` callback with one necessary and one adversarial review. */
+/** Display only: a failing listener never touches the review. */
+function announceRound(options: ReviewExecutorOptions, round: 1 | 2, target: ReviewTargetId, targets: readonly ReviewTargetId[]): void {
+  try { options.onRound?.(round, target, targets); } catch { /* display only */ }
+}
+
 export function createReviewExecutor(
   options: ReviewExecutorOptions
 ): (request: ReviewExecutionRequest) => Promise<ReviewExecutionResult> {
@@ -1100,6 +1107,7 @@ export function createReviewExecutor(
       report("chain: review deadline reached before the first round");
       return { status: "NOT_RUN", reason: "timeout", attempts: [] };
     }
+    announceRound(options, 1, primaryTarget, plannedTargets);
     const primaryOutcome = await attemptTargetWithRetry(
       {
         ...shared,
@@ -1221,6 +1229,7 @@ export function createReviewExecutor(
       };
     }
     // The second round draws on what is left, never a fresh full budget.
+    announceRound(options, 2, adversarialTarget, plannedTargets);
     const adversarialOutcome = await attemptTargetWithRetry(
       {
         ...shared,

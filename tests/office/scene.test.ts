@@ -30,12 +30,12 @@ test("every run and ordinary session desk becomes its own room with all actors",
   const model = sceneModel(snapshot());
   assert.equal(model.floors.filter(f => f.kind === "run").length, 1);
   assert.equal(model.floors.filter(f => f.kind === "desk").length, 9);
-  assert.equal(model.floors.filter(f => f.kind === "review").length, 1);
+  assert.equal(model.floors.filter(f => f.kind === "review").length, 0, "review slots no longer make rooms of their own");
   assert.ok(model.floors.every(f => f.kind !== ("lobby" as never)));
   assert.equal(new Set(model.floors.map(f => f.key)).size, model.floors.length);
   const run = model.floors.find(f => f.kind === "run")!;
   assert.deepEqual(run.phaseAreas.map(a => a.phase), ["planning", "implementing", "verifying", "reviewing", "integrating"]);
-  assert.equal(run.actors.length, 3, "two agents and the unclaimed run reviewer remain visible");
+  assert.equal(run.actors.length, 2, "the run's agents; reviewers now come from activity records as resident staff");
   assert.equal(run.board.pending, 1);
   assert.equal(run.actors.find(a => a.kind === "coordinator")!.alert, true);
   assert.ok(run.actors.every(a => a.label.length <= 18 && a.status.length > 0));

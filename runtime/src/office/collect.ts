@@ -17,6 +17,7 @@ import {OFFICE_SESSION_RETENTION_MS, readOfficeSessions} from "./sessions.js";
 import {buildOfficeSnapshot, mergeOfficeSnapshots} from "./snapshot.js";
 import type {OfficeCriterion, OfficeReview, OfficeReviewRound, OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
 import {forgetOfficeRepos, readOfficeRepos} from "./repos.js";
+import {readActivities} from "./activity.js";
 import type {OfficeHome} from "./server.js";
 
 export type OfficeGit = (cwd: string, args: readonly string[]) => Promise<{exitCode: number; stdout: string}>;
@@ -361,7 +362,8 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
       : {...base, phase, status: task.status, taskId: task.taskId, progress: task.progress, title: task.title, criteria: task.criteria, review: task.review,
           ...(task.completedAt === null ? {} : {completedAt: task.completedAt}), host: session?.host ?? session?.harness});
   }
-  return {runs: await readRuns(commonDir), worktrees, sessions, reviews: await readReviewSlots(commonDir), now};
+  return {runs: await readRuns(commonDir), worktrees, sessions, reviews: await readReviewSlots(commonDir),
+    activities: await readActivities(commonDir).catch(() => []), now};
 }
 
 export interface OfficeBuilding {

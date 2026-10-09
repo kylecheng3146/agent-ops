@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import {
   appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync
 } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
 
 import type { ReviewTargetId } from "../../runtime/src/contracts.js";
+import { beginActivity, readActivities } from "../../runtime/src/office/activity.js";
 import {
   createReviewExecutor,
   DEFAULT_REVIEW_TIMEOUT_MS,
@@ -252,6 +254,7 @@ async function run(
     readonly stallIdleMs?: number;
     readonly chainTimeoutMs?: number;
     readonly cwd?: string;
+    readonly onRound?: (round: 1 | 2, target: ReviewTargetId, targets: readonly ReviewTargetId[]) => void;
   } = {}
 ): Promise<{
   readonly result: Awaited<ReturnType<ReturnType<typeof createReviewExecutor>>>;
@@ -274,7 +277,8 @@ async function run(
     ...(options.stallIdleMs === undefined
       ? {}
       : { stallIdleMs: options.stallIdleMs }),
-    onProgress: (line) => progress.push(line)
+    onProgress: (line) => progress.push(line),
+    ...(options.onRound === undefined ? {} : { onRound: options.onRound })
   });
   return { result: await execute(request()), attempts, progress };
 }
@@ -1596,4 +1600,28 @@ test("a network-unreachable preflight stops as network-unreachable", async () =>
   assert.equal(result.status, "NOT_RUN");
   assert.equal(result.reason, "network-unreachable");
   assert.equal(result.preflight?.[0]?.reason, "network-unreachable");
+});
+
+test("the executor announces each round and its reviewer before it starts, and a failing listener changes nothing", async () => {
+  const rounds: string[] = [];
+  const { result } = await run(["codex", "agy", "claude"], [{ stdout: passing("agy") }, { stdout: failing("codex") }],
+    { onRound: (round, target, targets) => { rounds.push(`${round}:${target}:${targets.join(",")}`); throw new Error("display listener broke"); } });
+  assert.deepEqual(rounds, ["1:agy:agy,codex", "2:codex:agy,codex"], "each round names its reviewer and the planned pair");
+  assert.equal(result.status, "FAIL", "the review result is untouched by the listener");
+});
+
+test("a review activity record follows the rounds as the CLI wires it", async () => {
+  const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-review-activity-"));
+  try {
+    const handle = await beginActivity(commonDir, { kind: "review", root: "/repo", taskId: "task-1" });
+    const updates: Promise<void>[] = [];
+    await run(["codex", "agy", "claude"], [{ stdout: passing("agy") }, { stdout: passing("codex") }],
+      { onRound: (round, target, targets) => { updates.push(handle.update({ round, target, targets })); } });
+    await Promise.all(updates);
+    const [record] = await readActivities(commonDir);
+    assert.deepEqual([record?.round, record?.target, record?.targets], [2, "codex", ["agy", "codex"]]);
+    await handle.end();
+  } finally {
+    await rm(commonDir, { recursive: true, force: true });
+  }
 });

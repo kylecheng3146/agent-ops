@@ -65,6 +65,14 @@ export interface SceneCriterion {
   readonly output: string | null;
 }
 
+export interface SceneActivity {
+  readonly kind: "verify" | "review" | "finish";
+  readonly startedAt: string;
+  readonly targets: readonly string[];
+  readonly round: 1 | 2 | null;
+  readonly target: string | null;
+}
+
 export interface SceneOverviewBox {
   readonly x: number;
   readonly y: number;
@@ -85,6 +93,8 @@ export interface SceneFloor {
   readonly questions: readonly {readonly questionId: string; readonly prompt: string}[];
   /** The attached task's acceptance criteria; empty for runs, review slots and desks without a task. */
   readonly criteria: readonly SceneCriterion[];
+  /** Verify, review and finish processes running for this room. */
+  readonly activities: readonly SceneActivity[];
   /** Props and actors are in room-local tiles. Paper stack height per desk key. */
   readonly papers: Readonly<Record<string, number>>;
   readonly books: {readonly lit: number; readonly total: number};
@@ -208,24 +218,24 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
         narration: agent.narration, questionCount: agent.role === "coordinator" ? questions.length : 0, host: "unknown"});
       dialogue.push(`${run.title}: ${agent.id} ${agent.narration}.`);
     });
-    run.reviewers.forEach((reviewer, index) => {
-      const reviewerIndex = actors.filter(actor => actor.phase === "reviewing").length;
-      const reviewerCount = run.agents.filter(agent => agent.phase === "reviewing").length + run.reviewers.length;
-      const point = position("reviewing", reviewerIndex, reviewerCount);
-      actors.push({key: key + ":review:" + reviewer.slot, id: "reviewer " + reviewer.slot, kind: "reviewer", x: point.x, y: point.y, alert: false,
-        label: "reviewer " + reviewer.slot, status: "reviewing", phase: "reviewing", taskId: reviewer.taskId ?? "unassigned",
-        progress: null, narration: "reviewing", questionCount: 0, host: "unknown"});
-    });
     if (verify === null && run.agents.length && run.agents.every(agent => agent.progress?.verify === "PASS")) verify = "PASS";
     if (review === null && run.agents.length && run.agents.every(agent => agent.progress?.review === "PASS")) review = "PASS";
     const rootProgress = {passed, total, verify, review};
     const taskId = run.agents.find(agent => agent.role === "coordinator")?.taskId ?? "unassigned";
     if (questions.length > 0) dialogue.push(`${run.title}: waiting for your answer — ${questions[0]!.prompt}`);
     return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions, criteria: [],
+      activities: activitiesOf(optional(run).activities),
       board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: passed, total},
       clock: run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 0, phase: run.phase, status: run.status,
       completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
+  const activitiesOf = (value: unknown): SceneActivity[] => (Array.isArray(value) ? value : []).map(raw => {
+    const item = optional(raw);
+    return {kind: item.kind === "verify" || item.kind === "review" || item.kind === "finish" ? item.kind : "verify",
+      startedAt: typeof item.startedAt === "string" ? item.startedAt : "",
+      targets: Array.isArray(item.targets) ? item.targets.filter((t): t is string => typeof t === "string").slice(0, 2) : [],
+      round: item.round === 1 || item.round === 2 ? item.round : null, target: typeof item.target === "string" ? item.target : null};
+  });
   const makeDesk = (desk: OfficeSnapshot["lobby"][number], index: number): SceneFloor => {
     const extra = optional(desk);
     const phase = extra.phase === "planning" || extra.phase === "implementing" || extra.phase === "verifying" || extra.phase === "reviewing" || extra.phase === "integrating" ? extra.phase : "unknown";
@@ -258,24 +268,11 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     if (questions.length > 0) dialogue.push(`${desk.name}: waiting for your answer.`);
     dialogue.push(`${desk.name}: ${desk.narration}.`);
     return {key, sourceIndex: index, kind: "desk", title: titled(repo, desk.name), top: 0, props, actors: [actor], phaseAreas: makeAreas(),
-      board: boardFor(p, status, taskId, questions.length), questions, criteria, papers: {[key + ":implementing"]: Math.min(8, desk.diff.files)}, books: {lit: p?.passed ?? 0, total: p?.total ?? 0},
+      board: boardFor(p, status, taskId, questions.length), questions, criteria, activities: activitiesOf(extra.activities), papers: {[key + ":implementing"]: Math.min(8, desk.diff.files)}, books: {lit: p?.passed ?? 0, total: p?.total ?? 0},
       clock: 1, phase, status, completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
   snapshot.runs.forEach((run, index) => floors.push(makeRun(run, index)));
   snapshot.lobby.forEach((desk, index) => floors.push(makeDesk(desk, index)));
-  snapshot.reviews.forEach((review, index) => {
-    const repo = repoOf(review);
-    const key = scoped(repo, "review:" + review.slot + ":" + index);
-    const props = makeProps(key);
-    const point = position("reviewing", 0);
-    const actor: SceneActor = {key: key + ":actor", id: "reviewer " + review.slot, kind: "reviewer", x: point.x, y: point.y, alert: false, label: "reviewer " + review.slot,
-      status: "reviewing", phase: "reviewing", taskId: review.taskId ?? "unassigned", progress: null,
-      narration: "reviewing", questionCount: 0, host: "unknown"};
-    dialogue.push(`Review slot ${review.slot}: ${review.taskId ?? "unassigned"}.`);
-    floors.push({key, sourceIndex: index, kind: "review", title: titled(repo, "Review slot " + review.slot), top: 0, props, actors: [actor], phaseAreas: makeAreas(), questions: [], criteria: [],
-      board: boardFor(null, "reviewing", review.taskId ?? "unassigned", 0), papers: {}, books: {lit: 0, total: 0}, clock: 1,
-      phase: "reviewing", status: "reviewing", completedAt: null, repo, overview: {x: 0, y: 0, width: 0, height: 0}});
-  });
   // Rooms of one repository sit together; the sort is stable inside each.
   floors.sort((a, b) => (a.repo ?? "").localeCompare(b.repo ?? ""));
   if (dialogue.length === 0) dialogue.push("The office is quiet. No agent is at work.");

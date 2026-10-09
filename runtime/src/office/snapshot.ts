@@ -1,6 +1,7 @@
 import type {RunPhase, RunState, RunTaskProgress} from "../run/service.js";
 import {activeWallTimeMs} from "../run/scheduler.js";
 import type {OfficeSessionRecord} from "./sessions.js";
+import type {OfficeActivity} from "./activity.js";
 
 /** `git diff --stat` of one worktree against its base, paths only. */
 export interface OfficeDiff {
@@ -76,7 +77,18 @@ export interface OfficeInput {
   readonly worktrees: readonly OfficeWorktreeInput[];
   readonly sessions?: readonly OfficeSessionView[];
   readonly reviews: readonly OfficeReviewSlot[];
+  /** Live verify, review and finish processes, from their activity records. */
+  readonly activities?: readonly OfficeActivity[];
   readonly now: number;
+}
+
+/** What a room shows of a running verify, review or finish: no paths, no process ids. */
+export interface OfficeActivityView {
+  readonly kind: OfficeActivity["kind"];
+  readonly startedAt: string;
+  readonly targets?: readonly string[];
+  readonly round?: 1 | 2;
+  readonly target?: string;
 }
 
 /** Registry identity plus task/proof state read from its trusted checkout. */
@@ -113,6 +125,7 @@ export interface OfficeRun {
   readonly reviewers: readonly OfficeReviewSlot[];
   readonly commands: readonly string[];
   readonly completedAt?: string | null;
+  readonly activities?: readonly OfficeActivityView[];
   readonly repo?: string;
 }
 
@@ -137,6 +150,7 @@ export interface OfficeDesk {
   readonly host?: string;
   /** Hook liveness, separate from a task's persistent active status. */
   readonly sessionActive?: boolean;
+  readonly activities?: readonly OfficeActivityView[];
   readonly repo?: string;
 }
 
@@ -205,6 +219,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
     if (worker.nativeSessionId !== null) runSessionIds.add(worker.nativeSessionId);
   });
   const lobby: OfficeDesk[] = [];
+  const deskPaths = new Map<number, string>();
   const represented = new Set<string>();
   for (const worktree of input.worktrees) {
     if (worktree.runId !== undefined) continue;
@@ -232,6 +247,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
     });
+    deskPaths.set(lobby.length - 1, worktree.path);
     represented.add(worktree.sessionId);
   }
   for (const session of sessions) {
@@ -257,7 +273,9 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(session.host === undefined ? {} : {host: session.host})
     });
   }
-  return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: input.reviews.filter(r => !claimed.has(r))};
+  attachActivities(input, runs, lobby, deskPaths);
+  // Review slots no longer make rooms: a running review shows up as reviewers in its own room.
+  return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: []};
 }
 
 /** One building from several repositories' snapshots; every room names its repository. */
@@ -268,4 +286,47 @@ export function mergeOfficeSnapshots(parts: readonly {readonly repo: string; rea
     lobby: parts.flatMap(({repo, snapshot}) => snapshot.lobby.map(desk => ({...desk, repo}))),
     reviews: parts.flatMap(({repo, snapshot}) => snapshot.reviews.map(review => ({...review, repo})))
   };
+}
+
+const ACTIVITY_PHASE = {verify: "verifying", review: "reviewing", finish: "integrating"} as const;
+
+function activityView(activity: OfficeActivity): OfficeActivityView {
+  return {kind: activity.kind, startedAt: activity.startedAt, ...(activity.targets === undefined ? {} : {targets: activity.targets}),
+    ...(activity.round === undefined ? {} : {round: activity.round}), ...(activity.target === undefined ? {} : {target: activity.target})};
+}
+
+/**
+ * Puts each live activity in its room: the same session, else the same task,
+ * else the worktree it runs in. One that matches no room gets a room of its
+ * own for as long as it runs, so nothing that is running goes unseen.
+ */
+function attachActivities(input: OfficeInput, runs: OfficeRun[], lobby: OfficeDesk[], deskPaths: ReadonlyMap<number, string>): void {
+  const runSessions = (run: RunState) => new Set(run.workers.flatMap(worker => [worker.ownerSessionId, worker.nativeSessionId].filter((id): id is string => id !== null)));
+  for (const activity of input.activities ?? []) {
+    const view = activityView(activity);
+    const toDesk = (index: number) => { const desk = lobby[index]!; lobby[index] = {...desk, activities: [...(desk.activities ?? []), view]}; };
+    const toRun = (index: number) => { const run = runs[index]!; runs[index] = {...run, activities: [...(run.activities ?? []), view]}; };
+    const sourceRun = (run: OfficeRun) => input.runs.find(state => state.runId === run.runId);
+    const matchers: Array<[(desk: OfficeDesk, index: number) => boolean, (run: OfficeRun) => boolean]> = [
+      [desk => activity.sessionId !== undefined && desk.sessionId === activity.sessionId,
+        run => activity.sessionId !== undefined && runSessions(sourceRun(run)!).has(activity.sessionId)],
+      [desk => activity.taskId !== undefined && desk.taskId === activity.taskId,
+        run => activity.taskId !== undefined && run.agents.some(agent => agent.taskId === activity.taskId)],
+      [(_, index) => deskPaths.get(index) === activity.root,
+        run => sourceRun(run)!.workers.some(worker => worker.worktree === activity.root)]
+    ];
+    let placed = false;
+    for (const [deskMatch, runMatch] of matchers) {
+      const desk = lobby.findIndex(deskMatch);
+      if (desk >= 0) { toDesk(desk); placed = true; break; }
+      const run = runs.findIndex(candidate => sourceRun(candidate) !== undefined && runMatch(candidate));
+      if (run >= 0) { toRun(run); placed = true; break; }
+    }
+    if (placed) continue;
+    const name = activity.taskId ?? activity.worktree ?? activity.kind;
+    lobby.push({name, branch: "(no worktree)", sessionId: activity.sessionId ?? `activity-${activity.kind}-${activity.pid}`, sessionActive: true,
+      diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}, narration: ACTIVITY_PHASE[activity.kind],
+      commands: activity.taskId === undefined ? [] : [`agent-ops task status --task ${quote(activity.taskId)}`],
+      phase: ACTIVITY_PHASE[activity.kind], status: "active", ...(activity.taskId === undefined ? {} : {taskId: activity.taskId}), activities: [view]});
+  }
 }

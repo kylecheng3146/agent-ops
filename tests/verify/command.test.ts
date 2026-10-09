@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { readActivities } from "../../runtime/src/office/activity.js";
 
 import { parseArgs } from "../../packages/cli/src/args.js";
 import {
@@ -165,4 +169,26 @@ test("verify command redacts and flattens verifier error messages", async () => 
     result.errors[0]?.message ?? "",
     /\[REDACTED_VALUE\]/
   );
+});
+
+test("verify command keeps an office activity record while QA works, and its result never depends on it", async () => {
+  const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-verify-activity-"));
+  try {
+    let during: Awaited<ReturnType<typeof readActivities>> = [];
+    const service: VerificationExecutor = {verify: async () => { during = await readActivities(commonDir); return report("PASS"); }};
+    const result = await runVerifyCommand({args: parseArgs(["verify", "--task", "task-one"]), service, taskService: resolver,
+      activity: {commonDir, root: "/repo/.worktrees/a", sessionId: "s-1"}});
+    assert.equal(result.code, "VERIFICATION_PASSED");
+    assert.equal(during.length, 1, "a record exists while verification runs");
+    assert.deepEqual({kind: during[0]!.kind, taskId: during[0]!.taskId, sessionId: during[0]!.sessionId, root: during[0]!.root},
+      {kind: "verify", taskId: "task-one", sessionId: "s-1", root: "/repo/.worktrees/a"});
+    assert.deepEqual(await readActivities(commonDir), [], "and is gone afterwards");
+    const blocked = join(commonDir, "a-file");
+    await writeFile(blocked, "x");
+    const failing = await runVerifyCommand({args: parseArgs(["verify", "--task", "task-one"]), service: executor("FAIL"), taskService: resolver,
+      activity: {commonDir: blocked, root: "/repo"}});
+    assert.equal(failing.code, "VERIFICATION_FAILED", "an unwritable activity place leaves the result as it is");
+  } finally {
+    await rm(commonDir, {recursive: true, force: true});
+  }
 });

@@ -23,7 +23,7 @@ test("narration is inferred from changed paths only", () => {
   assert.equal(narrate(null), null);
 });
 
-test("snapshot aggregates runs, run worktrees, lobby desks and review slots", () => {
+test("snapshot aggregates runs, run worktrees and lobby desks; review slots make no rooms", () => {
   const legacy = createRunState({root: "/repo", commonDir: "/repo/.git", targetBranch: "main", goal: "Old run",
     host: "codex", ownerSessionId: "o2", runId: "run-legacy-fixture", now: "2026-10-07T00:00:00.000Z"});
   const finished = {...createRunState({root: "/repo", commonDir: "/repo/.git", targetBranch: "main", goal: "Done long ago",
@@ -51,7 +51,7 @@ test("snapshot aggregates runs, run worktrees, lobby desks and review slots", ()
   assert.ok(run!.commands.includes("agent-ops run resume run-office-fixture"));
   assert.ok(run!.commands.includes("agent-ops run stop run-office-fixture"));
   assert.deepEqual(run!.reviewers.map(r => r.slot), [0]);
-  assert.deepEqual(snapshot.reviews.map(r => r.slot), [1]);
+  assert.deepEqual(snapshot.reviews, [], "review slots no longer make rooms of their own");
   assert.deepEqual(snapshot.lobby.map(d => [d.name, d.narration]), [["session-1", "editing src/app.ts"]]);
   assert.ok(snapshot.lobby[0]!.commands.includes("agent-ops worktree finish 'session-1'"));
 });
@@ -131,4 +131,28 @@ test("only review slots held by a live process are reported", async () => {
   } finally {
     await rm(dir, {recursive: true, force: true});
   }
+});
+
+test("live activities join their room by session, then task, then worktree, else get a temporary room", () => {
+  const activity = (pid: number, extra: Record<string, unknown>) =>
+    ({kind: "review" as const, pid, root: "/nowhere", startedAt: "2026-10-07T00:59:00.000Z", ...extra});
+  const snapshot = buildOfficeSnapshot({now: NOW, runs: [runFixture()], reviews: [],
+    worktrees: [
+      {name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: "run-office-fixture", diff: diff([])},
+      {name: "session-1", path: "/repo/.worktrees/session-1", branch: "b3", sessionId: "s3", diff: diff([])}],
+    activities: [
+      activity(11, {sessionId: "s3", targets: ["agy", "codex"], round: 2, target: "codex"}),
+      activity(12, {kind: "verify", root: "/repo/.worktrees/session-1"}),
+      activity(13, {kind: "finish", sessionId: "owner"}),
+      activity(14, {taskId: "lost-task"}),
+      activity(15, {taskId: "child"})]});
+  const desk = snapshot.lobby.find(d => d.sessionId === "s3")!;
+  assert.deepEqual(desk.activities, [
+    {kind: "review", startedAt: "2026-10-07T00:59:00.000Z", targets: ["agy", "codex"], round: 2, target: "codex"},
+    {kind: "verify", startedAt: "2026-10-07T00:59:00.000Z"}], "session match, then worktree match; no pid or path shown");
+  assert.deepEqual(snapshot.runs[0]!.activities?.map(a => a.kind), ["finish", "review"], "the run room by owner session, then by a task it holds");
+  const temporary = snapshot.lobby.find(d => d.name === "lost-task")!;
+  assert.equal(temporary.phase, "reviewing");
+  assert.deepEqual(temporary.activities?.map(a => a.kind), ["review"]);
+  assert.deepEqual(snapshot.reviews, []);
 });
