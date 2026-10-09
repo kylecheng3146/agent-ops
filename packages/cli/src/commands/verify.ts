@@ -1,3 +1,4 @@
+import { withActivity } from "../../../../runtime/src/office/activity.js";
 import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import { redactSecrets } from "../../../../runtime/src/security/redact.js";
 import { safeTaskText } from "../../../../runtime/src/task/render.js";
@@ -30,6 +31,8 @@ export interface VerifyCommandOptions {
   readonly service: VerificationExecutor;
   readonly taskService: VerifyTaskResolver;
   readonly sessionId?: string;
+  /** Display only: where the Office learns that QA is at work. */
+  readonly activity?: {readonly commonDir: string | undefined; readonly root: string; readonly sessionId?: string};
 }
 
 export type PublicVerificationCommandReport = Omit<
@@ -167,9 +170,10 @@ export async function runVerifyCommand(
   options: VerifyCommandOptions
 ): Promise<CliEnvelope<VerifyCommandData | null>> {
   try {
-    const report = publicReport(
-      await options.service.verify(await resolveTaskId(options))
-    );
+    const taskId = await resolveTaskId(options), activity = options.activity;
+    const report = publicReport(await withActivity(activity?.commonDir,
+      {kind: "verify", root: activity?.root ?? "", taskId, ...(activity?.sessionId === undefined ? {} : {sessionId: activity.sessionId})},
+      async () => await options.service.verify(taskId)));
     const text = formatReport(report);
     if (report.status === "PASS") {
       return okEnvelope("VERIFICATION_PASSED", {

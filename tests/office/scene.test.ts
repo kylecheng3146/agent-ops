@@ -4,7 +4,9 @@ import test from "node:test";
 
 import { buildOfficeSnapshot, mergeOfficeSnapshots, type OfficeSnapshot } from "../../runtime/src/office/snapshot.js";
 import { sceneModel } from "../../runtime/src/office/scene.js";
-import { officePage, PALETTE, SPRITES } from "../../runtime/src/office/page.js";
+import { officePage } from "../../runtime/src/office/page.js";
+import { avatarColors } from "../../runtime/src/office/art.js";
+import { findPath, walkGrid } from "../../runtime/src/office/layout.js";
 import { NOW, runFixture } from "./fixture.js";
 
 const files = (n: number) => ({files: n, insertions: n, deletions: 0, paths: Array.from({length: n}, (_, i) => `src/f${i}.ts`), recent: "src/f0.ts"});
@@ -28,12 +30,12 @@ test("every run and ordinary session desk becomes its own room with all actors",
   const model = sceneModel(snapshot());
   assert.equal(model.floors.filter(f => f.kind === "run").length, 1);
   assert.equal(model.floors.filter(f => f.kind === "desk").length, 9);
-  assert.equal(model.floors.filter(f => f.kind === "review").length, 1);
+  assert.equal(model.floors.filter(f => f.kind === "review").length, 0, "review slots no longer make rooms of their own");
   assert.ok(model.floors.every(f => f.kind !== ("lobby" as never)));
   assert.equal(new Set(model.floors.map(f => f.key)).size, model.floors.length);
   const run = model.floors.find(f => f.kind === "run")!;
   assert.deepEqual(run.phaseAreas.map(a => a.phase), ["planning", "implementing", "verifying", "reviewing", "integrating"]);
-  assert.equal(run.actors.length, 3, "two agents and the unclaimed run reviewer remain visible");
+  assert.equal(run.actors.length, 2, "the run's agents; reviewers now come from activity records as resident staff");
   assert.equal(run.board.pending, 1);
   assert.equal(run.actors.find(a => a.kind === "coordinator")!.alert, true);
   assert.ok(run.actors.every(a => a.label.length <= 18 && a.status.length > 0));
@@ -139,35 +141,74 @@ test("equal room names in two repositories stay two rooms, grouped and labelled 
   assert.deepEqual(embedded(merged), model);
 });
 
+test("desk floors carry their task's criteria; runs, review slots and bare desks carry none", () => {
+  const base = snapshot();
+  const rows = [
+    {id: "totals", description: "Receipt lists totals", status: "PASS" as const, finishedAt: "2026-10-07T01:00:00.000Z", failureClass: null, exitCode: null, output: null},
+    {id: "locale", description: "Tax follows the locale", status: "FAIL" as const, finishedAt: "2026-10-07T02:00:00.000Z", failureClass: "exit-code", exitCode: 1, output: null},
+    {id: "snapshots", description: "Snapshots still pass", status: null, finishedAt: null, failureClass: null, exitCode: null, output: null}
+  ];
+  const model = sceneModel({...base, lobby: [{...base.lobby[0]!, criteria: rows}, ...base.lobby.slice(1)]});
+  const desks = model.floors.filter(floor => floor.kind === "desk");
+  assert.deepEqual(desks[0]!.criteria, rows);
+  assert.deepEqual(desks[1]!.criteria, [], "a desk without a task has an empty list");
+  for (const floor of model.floors.filter(item => item.kind !== "desk")) assert.deepEqual(floor.criteria, [], floor.key);
+  const odd = sceneModel({...base, lobby: [{...base.lobby[0]!, criteria: [{id: 7, status: "MAYBE"}] as never}]});
+  assert.deepEqual(odd.floors.find(floor => floor.kind === "desk")!.criteria,
+    [{id: "unknown", description: "", status: null, finishedAt: null, failureClass: null, exitCode: null, output: null}], "malformed rows are normalised, never trusted");
+});
+
 test("an empty building has no fake lobby room", () => {
   const model = sceneModel({generatedAt: "x", runs: [], lobby: [], reviews: []});
   assert.equal(model.floors.length, 0);
   assert.deepEqual(model.dialogue, ["The office is quiet. No agent is at work."]);
 });
 
-test("the inline page embeds the tested scene, fixed viewport controls and safe paging", async () => {
+test("room identities and run sources survive truncation and repository scoping", () => {
+  const base = snapshot(), title = "same-prefix-long-session-name-but-a-distinct-full-title";
+  const model = sceneModel({...base, runs: [{...base.runs[0]!, title, repo: "shop"}], lobby: []});
+  const run = model.floors.find(floor => floor.kind === "run")!;
+  assert.equal(run.title, "shop · " + title);
+  assert.equal(run.sourceIndex, 0);
+});
+
+test("a team cannot claim PASS while another member's proof is missing", () => {
+  const base = snapshot(), run = base.runs[0]!;
+  const progress = {passed: 2, total: 2, verify: "PASS" as const, review: "PASS" as const};
+  const agents = run.agents.map((actor, index) => ({...actor, progress: index === 0 ? progress : null}));
+  const board = (actors: typeof agents) => sceneModel({...base, runs: [{...run, agents: actors}], lobby: []}).floors[0]!.board;
+  assert.equal(board(agents).verify, "pending");
+  assert.equal(board(agents).review, "pending");
+  const allPassed = agents.map(actor => ({...actor, progress}));
+  assert.equal(board(allPassed).verify, "PASS");
+  assert.equal(board(allPassed).review, "PASS");
+  const failed = {...agents[0]!, progress: {...progress, verify: "FAIL" as const, review: "FAIL" as const}};
+  assert.equal(sceneModel({...base, runs: [{...run, agents: [failed, ...agents.slice(1)]}]}).floors[0]!.board.verify, "FAIL");
+  assert.equal(sceneModel({...base, runs: [{...run, agents: []}]}).floors[0]!.board.review, "pending");
+});
+
+test("the inline page embeds the tested scene, art, layout and walking, and none of the legacy strips", async () => {
   const page = officePage("n0nce");
-  assert.ok(page.includes(sceneModel.toString()));
+  for (const shared of [sceneModel, avatarColors, walkGrid, findPath]) assert.ok(page.includes(shared.toString()), shared.name);
   assert.match(page, /id="office" tabindex="0"/u);
+  assert.match(page, /id="overview"/u);
+  assert.match(page, /id="hud"/u);
+  assert.match(page, /id="labels"/u);
   assert.match(page, /id="back"/u);
   assert.match(page, /id="recent"/u);
   assert.match(page, /<select id="repo-filter" hidden><\/select>/u);
   assert.match(page, /id="language"/u);
   assert.match(page, /prefers-reduced-motion/u);
   assert.match(page, /localStorage/u);
-  assert.match(page, /devicePixelRatio/u);
   assert.match(page, /imageSmoothingEnabled/u);
-  assert.match(page, /Supervisor/u);
   assert.match(page, /ArrowLeft/u);
   assert.match(page, /pageItems/u);
   assert.match(page, /textContent/u);
   assert.doesNotMatch(page, /<img|url\(|src=|href=|\.png|\.gif|@import/u);
   assert.equal((page.match(/<script/gu) ?? []).length, 1);
-  assert.equal(PALETTE.length, 16);
-  for (const [name, rows] of Object.entries(SPRITES)) {
-    for (const row of rows) assert.match(row, /^[0-9a-fS.]+$/u, name);
-    assert.equal(new Set(rows.map(r => r.length)).size, 1, `${name} rows share one width`);
-  }
+  // The hallway, the overview avatar, the bottom room tabs, the dialogue strip and the flow strip are gone.
+  assert.doesNotMatch(page, /id="(room-nav|dialogue|flow)"|getElementById\("(room-nav|dialogue|flow)"\)/u);
+  assert.doesNotMatch(page, /hallwayBounds|drawHallway|supervisor|Supervisor|renderRoomNav|tickDialogue|renderFlow|NAV_PAGE_SIZE/u);
   const embedded = new Function(`return (${sceneModel.toString()})`)() as typeof sceneModel;
   assert.deepEqual(embedded(snapshot()), sceneModel(snapshot()));
   const assets = (await readdir("runtime/src/office")).filter(f => !f.endsWith(".ts"));

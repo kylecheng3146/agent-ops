@@ -145,7 +145,10 @@ The `run` profile MUST be opt-in, select `core` and `loop` with it, and add only
 the `auto-run` capability. With it, the Claude Code and Codex managed rules hand
 a change that needs more than five acceptance criteria to `agent-ops run`; five
 or fewer stay in the session. agy rules, and every rule file without `auto-run`,
-MUST stay byte-identical to the rules without the profile.
+MUST stay byte-identical to the rules without the profile. Update MUST preserve
+the profile unless `--auto-run on|off` is supplied or an interactive update on
+macOS with Claude Code or Codex asks (default: the current choice); `off`
+removes only `run` and keeps `loop`.
 
 - Trigger: A project selects `run`, and a Claude Code or Codex session meets a
   change that needs more than five acceptance criteria.
@@ -221,7 +224,18 @@ Claude or Codex transcripts or file contents.
   Claude Code also gets a managed `SessionEnd` hook: when the conversation
   closes, its room closes too, even without a task. It writes no output and
   never fails the host. Other hosts publish no end event and rely on the
-  activity timeout. A room without a task shows a no-task board rather than
+  activity timeout. A session that has only started is idle; a submitted
+  prompt or tool activity marks it active, and agy's per-invocation start
+  counts as activity. Outside the project loop, Claude Code and Codex get a
+  managed `UserPromptSubmit` hook whenever Office or command policy is enabled:
+  Office records the turn's start, and command policy refuses a prompt carrying
+  a literal credential in the host's native shape (Claude `decision: "block"`,
+  Codex exit code 2). Its runtime failures let the prompt through. Hooks see
+  only a command's start, so `agent-ops batch` reports each verify or review
+  as it starts to the sessions attached to its tasks (the newest step shows),
+  and `task advance` outside a run reports verify, review and integration to
+  its own session. These reports update only a known session, never fail the
+  command, and record nothing while Office is disabled. A room without a task shows a no-task board rather than
   pending verification and review. Session metadata contains bounded
   identifiers, known work state and activity times, never native transcripts,
   prompts or tool/file contents. Startup and observation failures are advisory.

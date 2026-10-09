@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ensureBackgroundOffice, officeEnabled, officeHome, observeOfficeSession, serveOffice } from "../../packages/cli/src/office-entry.js";
+import { ensureBackgroundOffice, officeEnabled, officeEvent, officeHome, officePhaseHint, officePhaseReporter, observeOfficeSession, serveOffice } from "../../packages/cli/src/office-entry.js";
+import { advancePhaseObserver } from "../../packages/cli/src/run-deps.js";
+import { normalizeShellHookEvent } from "../../runtime/src/hooks/shell.js";
+import { readOfficeSessions, recordOfficeSession } from "../../runtime/src/office/sessions.js";
 import { DEFAULT_CONFIG } from "../../packages/cli/src/context.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { LaunchdController } from "../../runtime/src/run/macOS.js";
@@ -15,6 +18,53 @@ import { claimOffice, createOfficeServer } from "../../runtime/src/office/server
 let home = "";
 test.before(async () => { home = await realpath(await mkdtemp(join(tmpdir(), "office-bg-home-"))); process.env.AGENT_OPS_HOME = home; });
 test.after(async () => { delete process.env.AGENT_OPS_HOME; await rm(home, {recursive: true, force: true}); });
+
+test("agy's per-invocation start is work; other hosts' start waits at the prompt", () => {
+  assert.equal(officeEvent("agy", "SessionStart"), "activity");
+  assert.equal(officeEvent("claude", "SessionStart"), "start");
+  assert.equal(officeEvent("codex", "SessionStart"), "start");
+  assert.equal(officeEvent("agy", "Stop"), "stop");
+  assert.equal(officeEvent("claude", "SessionEnd"), "end");
+  assert.equal(officeEvent("claude", "UserPromptSubmit"), "activity");
+});
+
+test("advance outside a run moves its own session's person; unknown sessions and a disabled Office stay untouched", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "office-advance-phase-")));
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main", root]);
+    await mkdir(join(root, ".agent-ops"));
+    const configPath = join(root, ".agent-ops/config.json");
+    await writeFile(configPath, JSON.stringify({...DEFAULT_CONFIG, features: {...DEFAULT_CONFIG.features, office: {enabled: true}}}));
+    const commonDir = join(root, ".git");
+    await recordOfficeSession({sessionId: "s", harness: "claude", projectRoot: root, commonDir, event: "start"});
+
+    await (await advancePhaseObserver(root, "s", {}))("reviewing");
+    const [session] = await readOfficeSessions(commonDir);
+    assert.deepEqual([session?.phase, session?.status, session?.harness], ["reviewing", "active", "claude"]);
+
+    await (await advancePhaseObserver(root, "ghost", {}))("verifying");
+    assert.deepEqual((await readOfficeSessions(commonDir)).map(record => record.sessionId), ["s"], "an unknown session is never created");
+
+    // A run worker reports to its run, not to the Office session.
+    await (await advancePhaseObserver(root, "s", {AGENT_OPS_RUN_ID: "run-x", AGENT_OPS_WORKER_ID: "w"}))("integrating").catch(() => {});
+    assert.equal((await readOfficeSessions(commonDir))[0]?.phase, "reviewing");
+
+    await writeFile(configPath, JSON.stringify(DEFAULT_CONFIG));
+    await (await officePhaseReporter(root, ["s"]))("integrating");
+    assert.equal((await readOfficeSessions(commonDir))[0]?.phase, "reviewing", "a disabled Office records nothing");
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("batch starts at verify and advance at integration; other task actions plan", () => {
+  const phase = (command: string) => officePhaseHint(normalizeShellHookEvent(command, "/repo"));
+  assert.equal(phase("agent-ops batch --parent task-1 --yes"), "verifying");
+  assert.equal(phase("agent-ops task advance --task task-1 --session s --yes"), "integrating");
+  assert.equal(phase("agent-ops task complete --task task-1"), "integrating");
+  assert.equal(phase("agent-ops task create --title x"), "planning");
+  assert.equal(phase("agent-ops verify --task task-1"), "verifying");
+});
 
 test("disabled Office Preview records no presence and never starts a server or browser", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "office-bg-disabled-")));

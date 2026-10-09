@@ -1,6 +1,7 @@
 import type {RunPhase, RunState, RunTaskProgress} from "../run/service.js";
 import {activeWallTimeMs} from "../run/scheduler.js";
 import type {OfficeSessionRecord} from "./sessions.js";
+import type {OfficeActivity} from "./activity.js";
 
 /** `git diff --stat` of one worktree against its base, paths only. */
 export interface OfficeDiff {
@@ -10,6 +11,35 @@ export interface OfficeDiff {
   readonly paths: readonly string[];
   /** Most recently modified changed path, by file time; never file contents. */
   readonly recent: string | null;
+}
+
+/** One acceptance criterion and its newest verify outcome; a null status means not verified yet. */
+export interface OfficeCriterion {
+  readonly id: string;
+  readonly description: string;
+  readonly status: "PASS" | "FAIL" | "UNKNOWN" | null;
+  readonly finishedAt: string | null;
+  readonly failureClass: string | null;
+  readonly exitCode: number | null;
+  /** Redacted tail of the failing run's output, when an acceptance replay recorded it. */
+  readonly output: string | null;
+}
+
+/** One review round as recorded in a review report artifact; text redacted and capped. */
+export interface OfficeReviewRound {
+  readonly target: string;
+  readonly summary: string;
+  readonly findings: readonly {readonly severity: string; readonly blocking: boolean; readonly title: string; readonly details: string; readonly recommendation: string}[];
+}
+
+/** The newest review report for a task. */
+export interface OfficeReview {
+  readonly status: "PASS" | "FAIL" | "NOT_RUN";
+  readonly createdAt: string;
+  readonly reason: string | null;
+  readonly rounds: readonly OfficeReviewRound[];
+  /** Whether the adversarial round overturned the first; null when it did not run. */
+  readonly refuted: boolean | null;
 }
 
 export interface OfficeWorktreeInput {
@@ -23,6 +53,12 @@ export interface OfficeWorktreeInput {
   readonly status?: string;
   readonly taskId?: string | null;
   readonly progress?: RunTaskProgress | null;
+  readonly title?: string;
+  readonly criteria?: readonly OfficeCriterion[];
+  readonly review?: OfficeReview | null;
+  /** The worktree's base commit (12 hex) and how many commits it is ahead. */
+  readonly base?: string;
+  readonly ahead?: number;
   readonly completedAt?: string | null;
   readonly host?: string;
 }
@@ -41,13 +77,27 @@ export interface OfficeInput {
   readonly worktrees: readonly OfficeWorktreeInput[];
   readonly sessions?: readonly OfficeSessionView[];
   readonly reviews: readonly OfficeReviewSlot[];
+  /** Live verify, review and finish processes, from their activity records. */
+  readonly activities?: readonly OfficeActivity[];
   readonly now: number;
+}
+
+/** What a room shows of a running verify, review or finish: no paths, no process ids. */
+export interface OfficeActivityView {
+  readonly kind: OfficeActivity["kind"];
+  readonly startedAt: string;
+  readonly targets?: readonly string[];
+  readonly round?: 1 | 2;
+  readonly target?: string;
 }
 
 /** Registry identity plus task/proof state read from its trusted checkout. */
 export interface OfficeSessionView extends OfficeSessionRecord {
   readonly taskStatus?: string;
   readonly progress?: RunTaskProgress | null;
+  readonly title?: string;
+  readonly criteria?: readonly OfficeCriterion[];
+  readonly review?: OfficeReview | null;
 }
 
 export type OfficePhase = RunPhase | "unknown";
@@ -75,6 +125,7 @@ export interface OfficeRun {
   readonly reviewers: readonly OfficeReviewSlot[];
   readonly commands: readonly string[];
   readonly completedAt?: string | null;
+  readonly activities?: readonly OfficeActivityView[];
   readonly repo?: string;
 }
 
@@ -89,11 +140,17 @@ export interface OfficeDesk {
   readonly status?: string;
   readonly taskId?: string | null;
   readonly progress?: RunTaskProgress | null;
+  readonly title?: string;
+  readonly criteria?: readonly OfficeCriterion[];
+  readonly review?: OfficeReview | null;
+  readonly base?: string;
+  readonly ahead?: number;
   readonly questions?: readonly {readonly questionId: string; readonly prompt: string}[];
   readonly completedAt?: string | null;
   readonly host?: string;
   /** Hook liveness, separate from a task's persistent active status. */
   readonly sessionActive?: boolean;
+  readonly activities?: readonly OfficeActivityView[];
   readonly repo?: string;
 }
 
@@ -162,6 +219,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
     if (worker.nativeSessionId !== null) runSessionIds.add(worker.nativeSessionId);
   });
   const lobby: OfficeDesk[] = [];
+  const deskPaths = new Map<number, string>();
   const represented = new Set<string>();
   for (const worktree of input.worktrees) {
     if (worktree.runId !== undefined) continue;
@@ -181,9 +239,15 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(worktree.status === undefined && session?.taskStatus === undefined && session?.status === undefined ? {} : {status: worktree.status ?? session?.taskStatus ?? session?.status}),
       ...(worktree.taskId === undefined && session?.taskId === undefined ? {} : {taskId: worktree.taskId ?? session?.taskId ?? null}),
       ...(worktree.progress === undefined && session?.progress === undefined ? {} : {progress: worktree.progress ?? session?.progress ?? null}),
+      ...(worktree.title === undefined && session?.title === undefined ? {} : {title: worktree.title ?? session?.title}),
+      ...(worktree.criteria === undefined && session?.criteria === undefined ? {} : {criteria: worktree.criteria ?? session?.criteria ?? []}),
+      ...(worktree.review === undefined && session?.review === undefined ? {} : {review: worktree.review ?? session?.review ?? null}),
+      ...(worktree.base === undefined ? {} : {base: worktree.base}),
+      ...(worktree.ahead === undefined ? {} : {ahead: worktree.ahead}),
       ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
     });
+    deskPaths.set(lobby.length - 1, worktree.path);
     represented.add(worktree.sessionId);
   }
   for (const session of sessions) {
@@ -202,11 +266,16 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       status: session.taskStatus ?? session.status,
       ...(session.taskId === undefined ? {} : {taskId: session.taskId}),
       ...(session.progress === undefined ? {} : {progress: session.progress}),
+      ...(session.title === undefined ? {} : {title: session.title}),
+      ...(session.criteria === undefined ? {} : {criteria: session.criteria}),
+      ...(session.review === undefined ? {} : {review: session.review}),
       ...(completedAt === null ? {} : {completedAt}),
       ...(session.host === undefined ? {} : {host: session.host})
     });
   }
-  return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: input.reviews.filter(r => !claimed.has(r))};
+  attachActivities(input, runs, lobby, deskPaths);
+  // Review slots no longer make rooms: a running review shows up as reviewers in its own room.
+  return {generatedAt: new Date(input.now).toISOString(), runs, lobby, reviews: []};
 }
 
 /** One building from several repositories' snapshots; every room names its repository. */
@@ -217,4 +286,47 @@ export function mergeOfficeSnapshots(parts: readonly {readonly repo: string; rea
     lobby: parts.flatMap(({repo, snapshot}) => snapshot.lobby.map(desk => ({...desk, repo}))),
     reviews: parts.flatMap(({repo, snapshot}) => snapshot.reviews.map(review => ({...review, repo})))
   };
+}
+
+const ACTIVITY_PHASE = {verify: "verifying", review: "reviewing", finish: "integrating"} as const;
+
+function activityView(activity: OfficeActivity): OfficeActivityView {
+  return {kind: activity.kind, startedAt: activity.startedAt, ...(activity.targets === undefined ? {} : {targets: activity.targets}),
+    ...(activity.round === undefined ? {} : {round: activity.round}), ...(activity.target === undefined ? {} : {target: activity.target})};
+}
+
+/**
+ * Puts each live activity in its room: the same session, else the same task,
+ * else the worktree it runs in. One that matches no room gets a room of its
+ * own for as long as it runs, so nothing that is running goes unseen.
+ */
+function attachActivities(input: OfficeInput, runs: OfficeRun[], lobby: OfficeDesk[], deskPaths: ReadonlyMap<number, string>): void {
+  const runSessions = (run: RunState) => new Set(run.workers.flatMap(worker => [worker.ownerSessionId, worker.nativeSessionId].filter((id): id is string => id !== null)));
+  for (const activity of input.activities ?? []) {
+    const view = activityView(activity);
+    const toDesk = (index: number) => { const desk = lobby[index]!; lobby[index] = {...desk, activities: [...(desk.activities ?? []), view]}; };
+    const toRun = (index: number) => { const run = runs[index]!; runs[index] = {...run, activities: [...(run.activities ?? []), view]}; };
+    const sourceRun = (run: OfficeRun) => input.runs.find(state => state.runId === run.runId);
+    const matchers: Array<[(desk: OfficeDesk, index: number) => boolean, (run: OfficeRun) => boolean]> = [
+      [desk => activity.sessionId !== undefined && desk.sessionId === activity.sessionId,
+        run => activity.sessionId !== undefined && runSessions(sourceRun(run)!).has(activity.sessionId)],
+      [desk => activity.taskId !== undefined && desk.taskId === activity.taskId,
+        run => activity.taskId !== undefined && run.agents.some(agent => agent.taskId === activity.taskId)],
+      [(_, index) => deskPaths.get(index) === activity.root,
+        run => sourceRun(run)!.workers.some(worker => worker.worktree === activity.root)]
+    ];
+    let placed = false;
+    for (const [deskMatch, runMatch] of matchers) {
+      const desk = lobby.findIndex(deskMatch);
+      if (desk >= 0) { toDesk(desk); placed = true; break; }
+      const run = runs.findIndex(candidate => sourceRun(candidate) !== undefined && runMatch(candidate));
+      if (run >= 0) { toRun(run); placed = true; break; }
+    }
+    if (placed) continue;
+    const name = activity.taskId ?? activity.worktree ?? activity.kind;
+    lobby.push({name, branch: "(no worktree)", sessionId: activity.sessionId ?? `activity-${activity.kind}-${activity.pid}`, sessionActive: true,
+      diff: {files: 0, insertions: 0, deletions: 0, paths: [], recent: null}, narration: ACTIVITY_PHASE[activity.kind],
+      commands: activity.taskId === undefined ? [] : [`agent-ops task status --task ${quote(activity.taskId)}`],
+      phase: ACTIVITY_PHASE[activity.kind], status: "active", ...(activity.taskId === undefined ? {} : {taskId: activity.taskId}), activities: [view]});
+  }
 }

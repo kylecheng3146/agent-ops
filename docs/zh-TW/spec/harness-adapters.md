@@ -126,7 +126,9 @@ event metadata、回傳有界且 redacted 的 session context，並在 update �
 capability。啟用後，Claude Code 與 Codex 的 managed rules 會將需要超過五項
 acceptance criteria 的變更交給 `agent-ops run`；五項以內仍留在 session 中處理。
 agy rules，以及所有未含 `auto-run` 的 rule file，MUST 與未啟用此 profile 時
-byte-identical。
+byte-identical。Update MUST 保留此 profile，除非提供 `--auto-run on|off`，或在已
+安裝 Claude Code 或 Codex 的 macOS 上互動式 update 詢問（預設為目前選擇）；
+`off` 只移除 `run`，保留 `loop`。
 
 - Trigger: Project 選擇 `run`，且 Claude Code 或 Codex session 遇到需要超過五項
   acceptance criteria 的變更。
@@ -189,7 +191,15 @@ base 的 `git diff`；旁白只使用路徑（`docs/**` 為「writing docs」、
   刪除該紀錄，絕不對其 pid 發送訊號。`worktree finish` 成功後會記錄 session
   完成，使房間關閉；只有新的啟動或 active task 會重新開啟。啟用 Office 時，Claude Code
   另有受管理的 `SessionEnd` hook：對話關閉時房間也隨之關閉，即使沒有 task。它不輸出
-  任何內容，也絕不讓 host 失敗。其他 host 沒有結束事件，依活動逾時處理。沒有 task 的
+  任何內容，也絕不讓 host 失敗。其他 host 沒有結束事件，依活動逾時處理。只有啟動的
+  session 為閒置；送出 prompt 或 tool 活動才標為 active，agy 以 invocation 為單位
+  的啟動視為活動。不在 project loop 時，只要啟用 Office 或 command policy，Claude
+  Code 與 Codex 會有受管理的 `UserPromptSubmit` hook：Office 記錄該輪開始，command
+  policy 以 host 原生格式拒絕含字面憑證的 prompt（Claude `decision: "block"`、Codex
+  exit code 2）。其 runtime 失敗時放行 prompt。Hook 只看得到指令開始，因此
+  `agent-ops batch` 在每個 verify 或 review 開始時回報給其 task 綁定的 session
+  （顯示最新一步），不在 run 內的 `task advance` 則把驗證、審查、整合回報給自己
+  的 session。這些回報只更新已知 session，絕不讓指令失敗，Office 關閉時不記錄。沒有 task 的
   房間白板顯示「無任務」，而非待驗證與待審查。Session metadata
   只記錄有界限的識別資訊、已知工作狀態與活動時間，不包含 native transcript、
   prompt、tool 或檔案內容。啟動與活動觀察失敗均為 advisory。

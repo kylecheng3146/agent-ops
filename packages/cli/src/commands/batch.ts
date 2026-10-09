@@ -29,6 +29,8 @@ export interface BatchCommandOptions {
   readonly review: (taskId: string, base: string, signal: AbortSignal) => Promise<BatchReview>;
   readonly signal?: AbortSignal;
   readonly onProgress?: (line: string) => void;
+  /** Builds the step reporter for the batch's tasks; Office moves their sessions' people. */
+  readonly phaseReporter?: (taskIds: readonly string[]) => Promise<(phase: string) => Promise<void>>;
 }
 
 export interface BatchTaskReport {
@@ -125,6 +127,7 @@ export async function runBatchCommand(
   }
 
   const width = args.width ?? DEFAULT_BATCH_WIDTH;
+  const report = await options.phaseReporter?.(plan.map((item) => item.record.task.id)).catch(() => undefined);
   const outcomes = await runBatch(
     plan.map((item) => item.record.task.id),
     {
@@ -136,7 +139,8 @@ export async function runBatchCommand(
     {
       width,
       ...(options.signal === undefined ? {} : { signal: options.signal }),
-      ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress })
+      ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
+      ...(report === undefined ? {} : { onPhase: (phase: string) => void report(phase).catch(() => {}) })
     }
   );
   const byId = new Map<string, BatchTaskOutcome>(outcomes.map((outcome) => [outcome.id, outcome]));

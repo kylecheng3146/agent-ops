@@ -139,7 +139,8 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
       root: options.projectRoot,
       firstSeenAt: previous?.firstSeenAt ?? at,
       lastSeenAt: at,
-      status: options.event === "stop" || options.event === "end" ? "idle" : "active",
+      // A session that only started is waiting at its prompt; work begins with activity.
+      status: options.event === "activity" ? "active" : "idle",
       ...(options.agentId ?? previous?.agentId ? {agentId: options.agentId ?? previous?.agentId} : {}),
       ...(options.runId ?? previous?.runId ? {runId: options.runId ?? previous?.runId} : {}),
       ...(options.workerId ?? previous?.workerId ? {workerId: options.workerId ?? previous?.workerId} : {}),
@@ -154,6 +155,22 @@ export async function recordOfficeSession(options: RecordOfficeSessionOptions): 
     };
     const without = records.filter(record => record.sessionId !== options.sessionId);
     await writePrivateFile(path, JSON.stringify({schemaVersion: 1, sessions: [...without, next].slice(-MAX_SESSIONS)}) + "\n", options.commonDir);
+  });
+}
+
+/**
+ * A long command's later step (batch, advance) on the session that runs it,
+ * which hooks only see start. Unknown sessions stay unknown.
+ */
+export async function recordOfficeSessionPhase(commonDir: string, sessionId: string, phase: string, now = Date.now()): Promise<void> {
+  const path = officeSessionsPath(commonDir);
+  await withPrivateFileLock(path, commonDir, async () => {
+    const records = prune(await readRecords(commonDir), now);
+    if (!records.some(record => record.sessionId === sessionId)) return;
+    const at = new Date(now).toISOString();
+    const next = records.map(record => record.sessionId === sessionId
+      ? {...record, status: "active" as const, phase, lastSeenAt: at} : record);
+    await writePrivateFile(path, JSON.stringify({schemaVersion: OFFICE_SESSION_SCHEMA_VERSION, sessions: next}) + "\n", commonDir);
   });
 }
 

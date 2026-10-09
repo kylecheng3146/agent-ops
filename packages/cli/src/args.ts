@@ -82,6 +82,8 @@ export interface ParsedArgs {
   /** Explicitly enable the agy project-loop completion gate. */
   completionGate?: boolean;
   office?: "on" | "off";
+  /** update: add or remove the `run` profile; `loop` stays either way. */
+  autoRun?: "on" | "off";
   /** Authorizes doctor's expensive review-target authentication probe. */
   checkAuth?: boolean;
   /** Restricts doctor's authentication probe to these review targets. */
@@ -234,6 +236,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const checkAuthTargets: ReviewTargetId[] = [];
   let completionGate: boolean | undefined;
   let office: "on" | "off" | undefined;
+  let autoRun: "on" | "off" | undefined;
   let dryRun = false;
   let json = false;
   let yes = false;
@@ -436,6 +439,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         const value = readOptionValue(argv, index, token);
         if (value !== "on" && value !== "off") invalidValue(token, value);
         office = value as "on" | "off";
+        index += 1;
+        break;
+      }
+      case "--auto-run": {
+        if (autoRun !== undefined) duplicate(token);
+        const value = readOptionValue(argv, index, token);
+        if (value !== "on" && value !== "off") invalidValue(token, value);
+        autoRun = value as "on" | "off";
         index += 1;
         break;
       }
@@ -662,6 +673,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       reviewTargets.length > 0 ||
       completionGate !== undefined ||
       office !== undefined ||
+      autoRun !== undefined ||
       sessionId !== undefined ||
       base !== undefined ||
       parentBase !== undefined ||
@@ -820,6 +832,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   if (office !== undefined && command !== "init" && command !== "update") {
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--office may be used only with init or update.");
+  }
+  if (autoRun !== undefined && command !== "update") {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--auto-run may be used only with update; init selects the run profile.");
   }
   if (worktree !== undefined && command !== "init" && command !== "update") {
     throw new CliArgumentError(
@@ -1071,6 +1086,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
     ...(completionGate === undefined ? {} : { completionGate }),
     ...(office === undefined ? {} : { office }),
+    ...(autoRun === undefined ? {} : { autoRun }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(criterionFiles.length === 0 ? {} : {criterionFiles}),
     ...(criteriaFile === undefined ? {} : {criteriaFile}),

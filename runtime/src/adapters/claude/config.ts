@@ -172,7 +172,10 @@ export function buildClaudeHookSettings(
     if (capabilities.includes("lifecycle-summary") || capabilities.includes("office-presence")) {
       hooks.SessionStart = [matcherGroup("SessionStart", runtimePath)];
     }
+    // The loop has its own prompt hook. Outside it, a prompt is both the
+    // turn's start for Office and content for command policy.
     if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) {
+      hooks.UserPromptSubmit = [matcherGroup("UserPromptSubmit", runtimePath)];
       hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }

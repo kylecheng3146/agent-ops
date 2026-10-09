@@ -257,6 +257,8 @@ Init and update pre-authorize `agent-ops run` for Claude Code and Codex.
 
 ```bash
 agent-ops init --scope project --harness codex,claude --profile run --yes
+# an existing installation: add it, or later remove it (loop stays)
+agent-ops update --auto-run on
 ```
 
 ## Quick start from a source checkout

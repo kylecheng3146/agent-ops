@@ -137,6 +137,13 @@ function hookConfig(
 test("a PreToolUse registration whose matcher lacks a tool the hook now handles counts as drift", () => {
   const preToolUse = (matcher: string) => ({
     hooks: {
+      UserPromptSubmit: [{
+        hooks: [{
+          type: "command",
+          command: "node",
+          args: ["/opt/agent-ops/hook-entry.js", "claude", "UserPromptSubmit", "--managed-by=agent-ops"]
+        }]
+      }],
       PreToolUse: [{
         matcher,
         hooks: [{

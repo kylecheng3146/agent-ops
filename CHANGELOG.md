@@ -4,6 +4,49 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-09
+
+- Office is redrawn as a walled six-room office per session or run: planning,
+  implementing, verifying, reviewing, integrating and a lobby in an S, with
+  doors between consecutive phases. People walk the doors to the room of
+  their phase; names, labels and dialogs are HTML over the canvas. The room
+  fills the window, and you can walk in it with the arrow keys or WASD.
+- The Office overview groups rooms by repository. The work list folds away;
+  folded, the overview shows up to four rooms a page that fill the window and
+  snap as you scroll. With no work, one quiet room still shows.
+- Office shows a task's acceptance criteria as notes on the whiteboard and in
+  the room panel. Five props open panels: the whiteboard (task), the cubicle
+  screen (changed files), the QA board and bench (each criterion with the
+  tail of its failure output), the review desk (both review rounds and their
+  findings) and the sorting table (worktree, base, commits ahead, steps left).
+  Reports and output are read read-only, re-redacted and size-capped.
+- Every Office room has resident staff: a QA, two reviewers and an
+  integrator, resting in the lobby. While `verify`, `review` or
+  `worktree finish` runs they walk to the test bench, the review desk and
+  armchair (swapping for round 2, named after the review targets) or the
+  sorting table, and come back with a check or cross. The engineer stays at
+  the cubicle once the work moves on. These commands write a display-only,
+  fail-open activity record under the Git common directory while they run;
+  review slots no longer appear as rooms of their own.
+- Office shows a session that has only started as idle instead of in progress;
+  a submitted prompt or tool activity marks it active. agy's per-invocation
+  start still counts as activity.
+- Outside the project loop, Claude Code and Codex get a managed
+  `UserPromptSubmit` hook when Office or command policy is enabled. Office
+  records the turn's start; command policy refuses a prompt carrying a literal
+  credential, as the loop already does. Runtime failures let the prompt
+  through. Run `agent-ops update` to register it.
+- Office follows `agent-ops batch` and `task advance` step by step. Batch moves
+  the sessions attached to its tasks to verify or review as each step starts;
+  advance moves its own session through verify, review and integration. A
+  hook now places `batch` at verify and `task advance` at integration (it was
+  shown as planning).
+- `agent-ops update --auto-run on|off` adds or removes the opt-in `run`
+  profile on an existing installation; `off` keeps the `loop` it brought.
+  Update kept the configured profiles, so installations made before `run`
+  existed could not get it without re-running init. An interactive update on
+  macOS with Claude Code or Codex now asks, defaulting to the current choice.
+
 ## [0.7.3] - 2026-10-08
 
 - Office hides a worktree whose work already reached its target branch by

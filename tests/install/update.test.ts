@@ -253,7 +253,7 @@ test("disables owned Stop handlers while preserving foreign handlers", async () 
     const manifest = JSON.parse(
       await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")
     ) as { hooks?: { events: string[] }[] };
-    assert.deepEqual(manifest.hooks?.[0]?.events, ["PreToolUse"]);
+    assert.deepEqual(manifest.hooks?.[0]?.events, ["UserPromptSubmit", "PreToolUse"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1042,6 +1042,76 @@ test("update offers Office Preview with the saved default, preserves it non-inte
     await writeFile(configPath, JSON.stringify(old));
     assert.equal((await execute(["--yes"])).status, "ok");
     assert.equal((await read()).features.office, undefined, "an absent legacy choice is preserved without changing config identity");
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("update --auto-run adds the run profile and removes only it, keeping the loop it brought", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-auto-run-"));
+  try {
+    await installHarnesses(root, "project", ["claude"]);
+    const read = async (path: string) => await readFile(join(root, path), "utf8").catch(() => "");
+    const profiles = async () => (JSON.parse(await read(".agent-ops/config.json")) as {profiles: string[]}).profiles;
+    const summaries: string[] = [];
+    const execute = async (choice: string) => await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.7.0", "--auto-run", choice]), root,
+      adapters: commonHarnessAdapters(), isTTY: true, hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      confirm: async (plan) => { summaries.push(formatUpdatePlan(plan)); return true; }
+    });
+
+    assert.equal((await execute("on")).status, "ok");
+    assert.ok((await profiles()).includes("run"));
+    assert.ok((await profiles()).includes("loop"), "run implies loop");
+    assert.match(await read(".agent-ops/CLAUDE.md"), /With the `run` profile/u);
+    assert.match(await read(".claude/settings.local.json"), /Bash\(agent-ops run \*\)/u);
+    assert.match(summaries[0] ?? "", /Auto-run: enabled/u);
+
+    assert.equal((await execute("off")).status, "ok");
+    assert.match(summaries[1] ?? "", /Auto-run: disabled/u);
+    assert.ok(!(await profiles()).includes("run"));
+    assert.ok((await profiles()).includes("loop"), "the loop run brought stays");
+    assert.doesNotMatch(await read(".agent-ops/CLAUDE.md"), /With the `run` profile/u);
+    assert.doesNotMatch(await read(".claude/settings.local.json"), /agent-ops run/u);
+    assert.throws(() => parseArgs(["init", "--auto-run", "on"]), /only with update/u);
+    assert.throws(() => parseArgs(["update", "--auto-run", "maybe"]));
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("update offers auto-run only interactively on macOS with Claude or Codex, defaulting to the saved choice", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-update-auto-run-prompt-"));
+  try {
+    await installHarnesses(root, "project", ["claude"]);
+    const asked: boolean[] = [];
+    const execute = async (extra: string[], platform: NodeJS.Platform, isTTY = true) => await runUpdateCommand({
+      args: parseArgs(["update", "--target-version", "0.7.0", ...extra]), root,
+      adapters: commonHarnessAdapters(), isTTY, platform, hookRuntimePath: "/opt/agent-ops/hook-entry.js",
+      promptAutoRun: async (message, saved) => {
+        assert.match(message, /auto-run/u);
+        asked.push(saved);
+        return true;
+      },
+      confirm: async () => true
+    });
+    const profiles = async () => (JSON.parse(await readFile(join(root, ".agent-ops/config.json"), "utf8")) as {profiles: string[]}).profiles;
+
+    assert.equal((await execute([], "linux")).status, "ok");
+    assert.deepEqual(asked, [], "background runs exist only on macOS");
+    assert.ok(!(await profiles()).includes("run"));
+    assert.equal((await execute(["--yes"], "darwin")).status, "ok");
+    assert.equal((await execute([], "darwin", false)).status, "error", "a non-TTY update without --yes asks nothing and needs confirmation");
+    assert.deepEqual(asked, []);
+
+    assert.equal((await execute([], "darwin")).status, "ok");
+    assert.deepEqual(asked, [false], "the default is the saved choice");
+    assert.ok((await profiles()).includes("run"));
+    assert.equal((await execute([], "darwin")).status, "ok");
+    assert.deepEqual(asked, [false, true]);
+    assert.equal((await execute(["--auto-run", "off"], "darwin")).status, "ok");
+    assert.deepEqual(asked, [false, true], "a supplied flag is never asked");
+    assert.ok(!(await profiles()).includes("run"));
   } finally {
     await rm(root, {recursive: true, force: true});
   }

@@ -50,6 +50,25 @@ test("session registry keeps idle turns and prunes stale active sessions", async
   }
 });
 
+test("a started session is idle until it shows activity", async () => {
+  const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-start-"));
+  try {
+    const record = (event: "start" | "activity" | "stop" | "end", now: number) => recordOfficeSession({
+      sessionId: "s", harness: "claude", projectRoot: "/repo", commonDir, event, now});
+    const status = async (now: number) => (await readOfficeSessions(commonDir, now))[0]?.status;
+    await record("start", 1_000);
+    assert.equal(await status(1_001), "idle", "a window waiting at its prompt is not working");
+    await record("activity", 2_000);
+    assert.equal(await status(2_001), "active");
+    await record("stop", 3_000);
+    assert.equal(await status(3_001), "idle");
+    await record("end", 4_000);
+    assert.equal(await status(4_001), "idle");
+  } finally {
+    await rm(commonDir, {recursive: true, force: true});
+  }
+});
+
 test("a session's end closes its room until it starts again", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-end-"));
   try {

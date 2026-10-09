@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { loadConfigFile } from "../../../../runtime/src/config/load.js";
+import { parseInstallManifest } from "../../../../runtime/src/fs/manifest.js";
 import type { HarnessInstallAdapter } from "../../../../runtime/src/install/harness.js";
 import type { HookTargetSelection } from "../../../../runtime/src/install/types.js";
 import type { WorktreeConfig } from "../../../../runtime/src/contracts.js";
@@ -49,6 +50,9 @@ export interface UpdateCommandOptions {
   confirm(plan: UpdatePlan, trust: PublicTrustChange): Promise<boolean>;
   promptWorktree?(message: string): Promise<boolean>;
   promptOffice?(message: string, enabled: boolean): Promise<boolean>;
+  promptAutoRun?(message: string, enabled: boolean): Promise<boolean>;
+  /** Background runs exist only on macOS, so only there is auto-run offered. */
+  readonly platform?: NodeJS.Platform;
 }
 
 export interface UpdateCommandData {
@@ -74,6 +78,7 @@ export function formatUpdatePlan(
     metadata: [
       `Target version: ${plan.targetVersion}`,
       `Office (Preview): ${plan.installation.config.features.office?.enabled === true ? "enabled" : "disabled"}`,
+      `Auto-run: ${plan.installation.config.profiles.includes("run") ? "enabled" : "disabled"}`,
       `Harness: ${plan.installation.harness.join(", ")}`,
       ...(plan.installation.config.worktree === undefined
         ? []
@@ -156,6 +161,14 @@ async function existingConfigHasWorktree(root: string): Promise<boolean> {
   }
 }
 
+async function installedHarness(root: string): Promise<readonly string[]> {
+  try {
+    return parseInstallManifest(await readFile(join(root, ".agent-ops", "manifest.json"), "utf8")).harness;
+  } catch {
+    return [];
+  }
+}
+
 export async function runUpdateCommand(
   options: UpdateCommandOptions
 ): Promise<CliEnvelope<UpdateCommandData>> {
@@ -191,10 +204,22 @@ export async function runUpdateCommand(
     officeEnabled = await options.promptOffice("Enable Office (Preview)?", config.features.office?.enabled === true);
   }
 
+  let autoRun = options.args.autoRun === undefined ? undefined : options.args.autoRun === "on";
+  if (autoRun === undefined && options.promptAutoRun !== undefined && options.isTTY && !options.args.yes &&
+      (options.platform ?? process.platform) === "darwin" &&
+      (options.args.harness ?? await installedHarness(options.root)).some((harness) => harness === "claude" || harness === "codex")) {
+    const {config} = await loadConfigFile(join(options.root, ".agent-ops", "config.json"));
+    autoRun = await options.promptAutoRun(
+      "Enable auto-run (hand changes needing more than five acceptance criteria to agent-ops run)?",
+      config.profiles.includes("run")
+    );
+  }
+
   const plan = await createUpdatePlan({
     root: options.root,
     adapters: options.adapters,
     ...(officeEnabled === undefined ? {} : { officeEnabled }),
+    ...(autoRun === undefined ? {} : { autoRun }),
     ...(options.args.harness === undefined
       ? {}
       : { harness: options.args.harness }),

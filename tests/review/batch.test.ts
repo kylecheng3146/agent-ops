@@ -206,3 +206,26 @@ test("preflight-memo: shares one in-flight probe, keeps only ok, probes again af
   await memo("claude");
   assert.equal(probes, 3, "targets are cached separately");
 });
+
+test("each verify and review reports its phase as it starts, the latest step last", async () => {
+  const f = fake({ verifyMs: 5, reviewMs: 30 });
+  const phases: string[] = [];
+  const onPhase = (phase: "verifying" | "reviewing"): void => {
+    phases.push(phase);
+    f.events.push(`phase ${phase}`);
+  };
+  await runBatch(["a", "b"], f.deps, { width: 2, onPhase });
+  assert.deepEqual(phases.filter((phase) => phase === "verifying").length, 2);
+  assert.deepEqual(phases.filter((phase) => phase === "reviewing").length, 2);
+  // Reported right as each step starts, so the newest step is the last report.
+  f.events.forEach((event, index) => {
+    if (event === "phase verifying") assert.match(f.events[index + 1] ?? "", /^verify-start /u);
+    if (event === "phase reviewing") assert.match(f.events[index + 1] ?? "", /^review-start /u);
+  });
+});
+
+test("a failing phase report never fails the batch", async () => {
+  const f = fake({ fresh: ["a"] });
+  const outcomes = await runBatch(["a"], f.deps, { width: 1, onPhase: () => { throw new Error("office down"); } });
+  assert.equal(outcomes[0]?.review?.status, "PASS");
+});

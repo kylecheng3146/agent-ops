@@ -47,6 +47,8 @@ export interface CreateUpdatePlanOptions {
   /** Worktree configuration override; undefined preserves existing. */
   readonly worktree?: WorktreeConfig | null;
   readonly officeEnabled?: boolean;
+  /** Add or remove the `run` profile; undefined preserves it. `loop` stays either way. */
+  readonly autoRun?: boolean;
   /** Codex's home, for the rules agent-ops keeps there. */
   readonly codexHome?: string;
 }
@@ -219,11 +221,19 @@ export async function createUpdatePlan(
     );
   }
 
+  const current = configPreview.migrated.profiles;
+  // `run` implies `loop`; turning run off keeps the loop it brought, since
+  // the config cannot tell an implied loop from a chosen one.
+  const profiles = options.autoRun === true
+    ? current.includes("run") ? current : [...current, "run" as const]
+    : options.autoRun === false && current.includes("run")
+      ? [...current.filter((profile) => profile !== "run"), ...(current.includes("loop") ? [] : ["loop" as const])]
+      : current;
   const installation = await createInstallPlan({
     root: options.root,
     scope: report.manifest.scope,
     harness: options.harness ?? report.manifest.harness,
-    profiles: configPreview.migrated.profiles,
+    profiles,
     adapters: options.adapters,
     toolkitVersion: options.toolkitVersion ?? targetVersion,
     allowHarnessChange: true,
@@ -235,7 +245,7 @@ export async function createUpdatePlan(
       ? {}
       : { hookTargets: options.hookTargets }),
     existingConfig: {
-      value: configPreview.migrated,
+      value: profiles === current ? configPreview.migrated : { ...configPreview.migrated, profiles },
       sourceHash: configPreview.sourceHash
     },
     ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome }),

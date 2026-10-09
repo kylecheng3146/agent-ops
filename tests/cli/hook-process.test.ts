@@ -987,3 +987,49 @@ test("Claude SessionEnd closes the Office room silently and never fails the host
   assert.equal(seen.length, 1, "a disabled Office records nothing");
   assert.deepEqual([failing.stdout, failing.stderr], [[], []]);
 });
+
+test("a prompt outside the loop starts the turn in Office and writes nothing", async () => {
+  const office = {...config(["core"]), features: {...config(["core"]).features, office: {enabled: true}}};
+  const seen: Array<{event: string; sessionId?: string; harness: string}> = [];
+  const record = async (observation: {event: string; sessionId?: string; harness: string}) => { seen.push(observation); };
+  for (const harness of ["claude", "codex"]) {
+    const prompt = io(JSON.stringify({hook_event_name: "UserPromptSubmit", session_id: harness + "-s", cwd: "/repo", prompt: "fix it"}));
+    assert.equal(await runHookProcess([harness, "UserPromptSubmit", "--managed-by=agent-ops"], prompt.io, "0.7.4",
+      {loadConfig: async () => office, office: record}), 0);
+    assert.deepEqual([prompt.stdout, prompt.stderr], [[], []], harness);
+  }
+  assert.deepEqual(seen.map(item => [item.harness, item.event, item.sessionId]),
+    [["claude", "UserPromptSubmit", "claude-s"], ["codex", "UserPromptSubmit", "codex-s"]]);
+});
+
+test("command policy refuses a prompt carrying a literal credential in each host's shape", async () => {
+  const token = `ghp_${"A".repeat(36)}`;
+  const policy = async () => config(["core", "guardrails"]);
+  const submit = (prompt: string) => JSON.stringify({hook_event_name: "UserPromptSubmit", session_id: "s", cwd: "/repo", prompt});
+
+  const claude = io(submit(`use ${token}`));
+  assert.equal(await runHookProcess(["claude", "UserPromptSubmit"], claude.io, "0.7.4", {loadConfig: policy}), 0);
+  assert.equal((JSON.parse(claude.stdout.join("")) as {decision: string}).decision, "block");
+
+  const codex = io(submit(`use ${token}`));
+  assert.equal(await runHookProcess(["codex", "UserPromptSubmit"], codex.io, "0.7.4", {loadConfig: policy}), 2);
+  assert.match(codex.stderr.join(""), /blocked a suspected secret/u);
+  assert.deepEqual(codex.stdout, []);
+
+  const clean = io(submit("fix the bug"));
+  assert.equal(await runHookProcess(["claude", "UserPromptSubmit"], clean.io, "0.7.4", {loadConfig: policy}), 0);
+  assert.deepEqual([clean.stdout, clean.stderr], [[], []]);
+
+  const noPolicy = io(submit(`use ${token}`));
+  assert.equal(await runHookProcess(["claude", "UserPromptSubmit"], noPolicy.io, "0.7.4", {loadConfig: async () => config(["core"])}), 0);
+  assert.deepEqual([noPolicy.stdout, noPolicy.stderr], [[], []], "without command policy a prompt is never refused");
+
+  // Runtime failures let the prompt through: an unreadable config, then malformed input.
+  const broken = io(submit(`use ${token}`));
+  assert.equal(await runHookProcess(["claude", "UserPromptSubmit"], broken.io, "0.7.4",
+    {loadConfig: async () => { throw new Error("unreadable"); }}), 0);
+  assert.deepEqual([broken.stdout, broken.stderr], [[], []]);
+  const garbage = io("not json");
+  assert.equal(await runHookProcess(["codex", "UserPromptSubmit"], garbage.io, "0.7.4", {loadConfig: policy}), 0);
+  assert.deepEqual([garbage.stdout, garbage.stderr], [[], []]);
+});

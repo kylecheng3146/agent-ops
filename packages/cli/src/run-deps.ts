@@ -13,6 +13,7 @@ import {FileRunRepository, RunService, type RunState} from "../../../runtime/src
 import {readPrivateFile, writePrivateFile} from "../../../runtime/src/security/permissions.js";
 import {collectChangeSurface} from "../../../runtime/src/verify/change-surface.js";
 import {worktreeDependencies, gitRunner, trustStore} from "./parallel-deps.js";
+import {officePhaseReporter} from "./office-entry.js";
 import type {RunCommandService} from "./commands/run.js";
 import {NativeRunTransport} from "../../../runtime/src/run/transport.js";
 import {ClaudeGoalHost} from "../../../runtime/src/run/hosts/claude.js";
@@ -133,6 +134,14 @@ export async function runPhaseObserver(cwd: string, runId: string, workerId: str
   const {commonDir} = await resolveCheckouts(worktreeDependencies(), cwd);
   const repository = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
   return async (phase, progress) => await recordRunPhase(repository, runId, workerId, phase, progress);
+}
+
+/** A run worker's advance reports to its run; an ordinary session's moves its own person in Office. */
+export async function advancePhaseObserver(cwd: string, sessionId: string | undefined, env: NodeJS.ProcessEnv = process.env): Promise<AdvancePhaseObserver> {
+  if (env.AGENT_OPS_RUN_ID !== undefined && env.AGENT_OPS_WORKER_ID !== undefined)
+    return await runPhaseObserver(cwd, env.AGENT_OPS_RUN_ID, env.AGENT_OPS_WORKER_ID);
+  const office = await officePhaseReporter(cwd, sessionId === undefined ? [] : [sessionId]);
+  return async phase => await office(phase);
 }
 
 export const runEntry = fileURLToPath(new URL("./run-entry.js", import.meta.url));

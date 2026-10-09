@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { collectOfficeBuilding, type OfficeBuilding } from "../../../runtime/src/office/collect.js";
 import { claimOffice, createOfficeServer, ensureOffice, legacyOfficeHome, officeRecordPath, readLiveOffice, officeUrl, releaseOffice, userOfficeHome, type OfficeHome } from "../../../runtime/src/office/server.js";
 import { registerOfficeRepo } from "../../../runtime/src/office/repos.js";
-import { recordOfficeSession, type OfficeSessionEvent } from "../../../runtime/src/office/sessions.js";
+import { recordOfficeSession, recordOfficeSessionPhase, type OfficeSessionEvent } from "../../../runtime/src/office/sessions.js";
 import { resolveCheckouts } from "../../../runtime/src/parallel/service.js";
 import { createLaunchdDescriptor, LaunchdController } from "../../../runtime/src/run/macOS.js";
 import { ensurePrivateDirectory, readPrivateFile } from "../../../runtime/src/security/permissions.js";
@@ -81,8 +81,10 @@ function sessionIdentity(options: OfficeSessionObservation): string | undefined 
   );
 }
 
-function officeEvent(event: string): OfficeSessionEvent {
-  return event === "SessionStart" ? "start" : event === "Stop" ? "stop" : event === "SessionEnd" ? "end" : "activity";
+/** agy's SessionStart is its native PreInvocation, sent as each invocation's work begins. */
+export function officeEvent(harness: string, event: string): OfficeSessionEvent {
+  if (event === "SessionStart") return harness === "agy" ? "activity" : "start";
+  return event === "Stop" ? "stop" : event === "SessionEnd" ? "end" : "activity";
 }
 
 /** Phase hints come only from normalized native event kinds and exact agent-ops argv. */
@@ -97,13 +99,14 @@ export function officePhaseHint(event: NormalizedHookEvent): string | undefined 
   for (const command of commands) {
     if (basename(command.command) !== "agent-ops") continue;
     const action = command.args[0];
-    const next = action === "verify"
+    // batch and advance report their later steps themselves; this is their first.
+    const next = action === "verify" || action === "batch"
       ? "verifying"
       : action === "review"
         ? "reviewing"
         : action === "worktree" && command.args[1] === "finish"
           ? "integrating"
-          : action === "task" && command.args[1] === "complete"
+          : action === "task" && (command.args[1] === "complete" || command.args[1] === "advance")
             ? "integrating"
             : action === "task"
               ? "planning"
@@ -142,7 +145,7 @@ export async function observeOfficeSession(options: OfficeSessionObservation): P
       harness: options.harness,
       projectRoot: mainRoot,
       commonDir,
-      event: officeEvent(options.event),
+      event: officeEvent(options.harness, options.event),
       ...(options.agentId === undefined ? {} : {agentId: options.agentId}),
       ...(process.env.AGENT_OPS_RUN_ID === undefined ? {} : {runId: process.env.AGENT_OPS_RUN_ID}),
       ...(process.env.AGENT_OPS_WORKER_ID === undefined ? {} : {workerId: process.env.AGENT_OPS_WORKER_ID}),
@@ -157,6 +160,28 @@ export async function observeOfficeSession(options: OfficeSessionObservation): P
     if (options.event !== "Stop" && options.event !== "SessionEnd") await ensureBackgroundOffice(options.root, undefined, openOfficeBrowser);
   } catch {
     // Office is display-only; a missing Git checkout, lock or launcher never blocks a host hook.
+  }
+}
+
+/**
+ * Moves these sessions' people as a batch or advance reaches each step.
+ * Display only: a disabled Office, an unknown session or a failed write records nothing.
+ */
+export async function officePhaseReporter(cwd: string, sessionIds: readonly string[]): Promise<(phase: string) => Promise<void>> {
+  const none = async (): Promise<void> => {};
+  try {
+    if (sessionIds.length === 0 || !(await officeEnabled(cwd))) return none;
+    const {commonDir} = await checkouts(cwd);
+    // One write at a time, in order, so the latest step is the one that stays.
+    let chain = Promise.resolve();
+    return async phase => {
+      chain = chain.then(async () => {
+        for (const sessionId of sessionIds) await recordOfficeSessionPhase(commonDir, sessionId, phase).catch(() => {});
+      });
+      await chain;
+    };
+  } catch {
+    return none;
   }
 }
 

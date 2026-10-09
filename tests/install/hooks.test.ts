@@ -92,13 +92,16 @@ test("codex registration targets its own hook file", () => {
     currentSource: null
   });
   assert.equal(planned?.record.path, CODEX_HOOK_PATH);
-  assert.deepEqual(planned?.record.events, ["PreToolUse"]);
-  assert.equal(
-    planned?.content.includes(
-      `node \\"${RUNTIME_PATH}\\" codex PreToolUse --managed-by=agent-ops`
-    ),
-    true
-  );
+  assert.deepEqual(planned?.record.events, ["UserPromptSubmit", "PreToolUse"]);
+  for (const event of ["UserPromptSubmit", "PreToolUse"]) {
+    assert.equal(
+      planned?.content.includes(
+        `node \\"${RUNTIME_PATH}\\" codex ${event} --managed-by=agent-ops`
+      ),
+      true,
+      event
+    );
+  }
 });
 
 test("loop registration records all native lifecycle events without Stop", () => {

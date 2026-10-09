@@ -1,3 +1,4 @@
+import { withActivity } from "../office/activity.js";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import { join } from "node:path";
@@ -322,7 +323,8 @@ export async function finishWorktree(
   if (record === null) {
     throw finishError("WORKTREE_NOT_FOUND", `No agent-ops worktree named ${name}; see agent-ops worktree list.`);
   }
-  return await withFinishLock(deps, commonDir, async () => {
+  // Display only: the integrator is at work while the finish runs.
+  return await withActivity(commonDir, {kind: "finish", root: record.path, sessionId: record.sessionId, worktree: name}, async () => await withFinishLock(deps, commonDir, async () => {
     const sessionChildren = (await listWorktrees(deps, mainRoot))
       .map(({ record: child }) => child)
       .filter((child) => child.path !== record.path && child.sessionId === record.sessionId &&
@@ -608,5 +610,5 @@ export async function finishWorktree(
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
     return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings,
       ...(receipt === undefined ? {} : { receipt: receipt.path }) };
-  });
+  }));
 }

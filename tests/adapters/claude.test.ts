@@ -721,3 +721,15 @@ test("Office presence adds one managed SessionEnd hook in loop and plain install
   }
   assert.equal(buildClaudeHookSettings(["command-policy"], "/runtime/hook-entry.js", "darwin").hooks.SessionEnd, undefined);
 });
+
+test("outside the loop, Office or command policy adds one managed prompt hook", () => {
+  for (const capabilities of [["office-presence"], ["command-policy"]] as const) {
+    const hook = buildClaudeHookSettings(capabilities, "/runtime/hook-entry.js", "darwin").hooks.UserPromptSubmit?.[0]?.hooks[0] as {args?: readonly string[]} | undefined;
+    assert.deepEqual(hook?.args?.slice(1, 4), ["claude", "UserPromptSubmit", "--managed-by=agent-ops"], capabilities.join(","));
+  }
+  assert.equal(buildClaudeHookSettings(["lifecycle-summary"], "/runtime/hook-entry.js", "darwin").hooks.UserPromptSubmit, undefined);
+  // The loop's own launcher already owns the prompt.
+  const loop = buildClaudeHookSettings(["project-loop", "command-policy", "office-presence"], "/runtime/hook-entry.js", "darwin").hooks.UserPromptSubmit;
+  assert.equal(loop?.length, 1);
+  assert.match(JSON.stringify(loop), /agent-ops-loop\.sh/u);
+});

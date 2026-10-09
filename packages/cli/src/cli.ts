@@ -68,6 +68,7 @@ Options:
   --review-target <codex|agy|claude>  Repeatable init option; review pair order
   --completion-gate                  Init only: enable the project-loop completion gate
   --office <on|off>                   Init/update: enable or disable Office (Preview)
+  --auto-run <on|off>                 Update: add or remove the run profile (loop stays)
   --worktree <auto|off>              Init/update: configure session worktree isolation
   --check-auth                        Doctor only: probe selected review targets'
                                       authentication with one real call
@@ -176,6 +177,7 @@ Options:
   --harness <all|both|agy|claude|codex|opencode|comma-separated>
   --target-version <version>   Offline-capable update target
   --office <on|off>           Office (Preview); preserve choice unless supplied
+  --auto-run <on|off>          Add or remove the run profile (loop stays); preserve unless supplied
   --worktree <auto|off>        Configure session worktree isolation
   --dry-run
   --json
