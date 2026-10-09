@@ -1,0 +1,10 @@
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-0fc892e7-1d65-43dd-8c81-e74011c2beca: Office overview cards fill the width
+intent: Overview cards were fixed at 1x (576px), leaving empty space beside them. Choose the number of columns that fits at no less than 1x, then share the remaining width so every card uses the same scale and the row reaches the right edge; recompute on resize and when the work list folds.
+criteria:
+- cards-fill: With the work list open, a 1440px-wide window lays overview cards in as many columns as fit at 1x or more, all cards share one scale of at least 1, and the columns plus gaps fill the available width to within one card gap; a client test checks it.
+- cards-follow-space: When the available width changes (resize or folding the work list) the overview recomputes the columns and card scale; a client test changes the width and sees larger cards.
+- folded-pages: With the work list folded, the overview groups rooms into pages of at most four, each page exactly one viewport tall, stacked in a vertical scroller with mandatory scroll snapping and no Previous/Next buttons; each page picks the column count that gives its cards the most area, and cards stretch to fill the page in both directions as long as their shape stays within 18% of the room's 9:5 (otherwise they keep the 18% limit and leave a margin), so a 1440x900 window's 2x2 page has no side margins. A client test checks six rooms over two snapped pages.
+- folded-keys: On a folded overview, cards are numbered from 1 on each page and number keys open the matching card on the page currently scrolled into view; a client test scrolls to page 2 and presses a key.
+- fold-rail: The fold toggle sits in the work list's own heading instead of the page header; folded, the list shrinks to a slim rail that keeps only the toggle, labelled to show the list again. A client test checks where the toggle lives and its labels in both states.
