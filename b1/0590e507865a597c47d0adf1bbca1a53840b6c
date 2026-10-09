@@ -1,0 +1,9 @@
+worktree: session-19134051 (agent-ops/session-19134051)
+session: 19134051-3ab8-4f98-98aa-3436a331697a
+agent-ops task task-d4bf6c2a-849e-4fbf-9319-d18f9688e545: Office lobby wander
+intent: Idle resident staff wander between eight authored lobby spots: 20-45 s per spot, one walker per room, reserved destinations, skipping spots near idle engineers, staggered deterministic start; work redirects at once and staff return to the nearest free spot after their result bubble; no wandering under reduced motion. Layout spots plus client logic; no data changes.
+criteria:
+- lobby-spots: officeLayout exposes eight lobby spots for idle staff (two sofa seats, both sides of the cafe table, the water cooler, the vending machine, the fridge and the right end of the counter), each with a pose; every spot's feet lie on the walking grid, are reachable from the entrance and are distinct. A layout test checks it.
+- wander-rules: Idle staff stay 20 to 45 seconds at a spot (deterministic from their key and cycle), then walk to a free spot; at most one staff member per room walks at a time, a chosen spot is reserved, and spots near an idle engineer's lobby slot are skipped. Rooms start with the four staff on four different spots chosen from the room key, already in place, with staggered first departures. A client test checks it.
+- work-first: A wandering staff member called to work turns to their station at once; when the work ends they walk to the nearest free spot and do not wander while their result bubble shows. A client test checks it.
+- wander-reduced-motion: Under prefers-reduced-motion idle staff never wander and work trips still jump straight to the station and back; a client test checks it.
