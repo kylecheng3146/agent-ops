@@ -26,6 +26,7 @@ button{font:inherit;color:inherit}
 #workspace.collapsed #work-heading,#workspace.collapsed #work-summary,#workspace.collapsed #work-list{display:none}
 #workspace.collapsed #panel-head{flex:1}
 #workspace.collapsed #panel-toggle{writing-mode:vertical-rl;padding:10px 4px;letter-spacing:.1em}
+#workspace.collapsed #wrap{overflow:hidden}
 #workspace{min-height:0;flex:1;display:grid;grid-template-columns:minmax(0,1fr) clamp(330px,28vw,400px);gap:12px;padding:10px}
 #wrap{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:#ead8b8}
 #overview{display:flex;flex-direction:column;gap:18px;padding:4px 8px 16px;outline:none}
@@ -324,27 +325,31 @@ function summaryFor(floor){
   return phaseLabel(floor.phase) + " · " + (criteria.length ? t("checks") + " " + passed + "/" + criteria.length : statusText(floor.status)) + (floor.questions.length ? " · ! " + floor.questions.length : "");
 }
 var PAGE_SIZE = 4, PAGER_H = 44, overviewPage = 0;
+/** How far a folded card may stretch from the room's 9:5 to fill the page. */
+var MAX_STRETCH = 1.18;
 /**
  * Folded list: up to four rooms fill the window without scrolling. Each page
- * takes the column count that makes its cards largest, so four rooms form a
- * 2x2 grid, two split the page in halves and one fills it.
+ * takes the column count that gives its cards the most area (four rooms form
+ * a 2x2 grid, two split the page in halves, one fills it), and cards stretch
+ * to fill their cell while their shape stays within MAX_STRETCH of 9:5.
  */
 function pageLayout(count, paged){
-  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight - 70) - (paged ? PAGER_H : 0) - 16, best = {columns: 1, scale: 0.5};
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, height = ((wrap && wrap.clientHeight) || window.innerHeight - 70) - (paged ? PAGER_H : 0) - 16, best = {columns: 1, sx: 0.5, sy: 0.5};
   for (var columns = 1; columns <= Math.max(1, count); columns++) {
     var rows = Math.ceil(Math.max(1, count) / columns);
-    var fit = Math.min((width - (columns - 1) * CARD_GAP - columns * CARD_BORDER) / columns / ROOM_W, (height - (rows - 1) * CARD_GAP - rows * CARD_BORDER) / rows / ROOM_H);
-    if (fit > best.scale) best = {columns: columns, scale: fit};
+    var sx = (width - (columns - 1) * CARD_GAP - columns * CARD_BORDER) / columns / ROOM_W, sy = (height - (rows - 1) * CARD_GAP - rows * CARD_BORDER) / rows / ROOM_H;
+    if (sx > sy * MAX_STRETCH) sx = sy * MAX_STRETCH; else if (sy > sx * MAX_STRETCH) sy = sx * MAX_STRETCH;
+    if (sx * sy > best.sx * best.sy) best = {columns: columns, sx: sx, sy: sy};
   }
   return best;
 }
 function pageCount(){ return Math.max(1, Math.ceil(orderedRooms().length / PAGE_SIZE)); }
 function pageRooms(){ overviewPage = Math.max(0, Math.min(overviewPage, pageCount() - 1)); return orderedRooms().slice(overviewPage * PAGE_SIZE, overviewPage * PAGE_SIZE + PAGE_SIZE); }
 function turnPage(delta){ var next = Math.max(0, Math.min(pageCount() - 1, overviewPage + delta)); if (next === overviewPage) return false; overviewPage = next; render(); return true; }
-function roomCard(floor, number, size){
+function roomCard(floor, number, sx, sy){
   var card = document.createElement("button"), view = makeCanvas();
   card.type = "button"; card.className = "card"; card.setAttribute("data-key", floor.key); card.setAttribute("aria-label", t("enter") + ": " + floor.title);
-  view.style.width = Math.floor(ROOM_W * size) + "px"; view.style.height = Math.floor(ROOM_H * size) + "px";
+  view.style.width = Math.floor(ROOM_W * sx) + "px"; view.style.height = Math.floor(ROOM_H * (sy || sx)) + "px";
   card.appendChild(view);
   var caption = document.createElement("span"); caption.className = "card-caption";
   caption.appendChild(panelText("span", "card-title", (number <= 9 ? number + ". " : "") + floor.title));
@@ -356,13 +361,13 @@ function roomCard(floor, number, size){
 }
 function drawCards(){ Object.keys(roomCanvases).forEach(function(key){ var floor = roomByKey(key); if (floor) renderRoom(floor, roomCanvases[key].getContext("2d")); }); }
 function renderOverviewPages(){
-  var rooms = pageRooms(), pages = pageCount(), layout = pageLayout(rooms.length, pages > 1), size = layout.scale;
-  var signature = JSON.stringify(["pages", lang, size, layout.columns, overviewPage, pages, rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
+  var rooms = pageRooms(), pages = pageCount(), layout = pageLayout(rooms.length, pages > 1);
+  var signature = JSON.stringify(["pages", lang, layout, overviewPage, pages, rooms.map(function(f){ return [f.key, f.title, f.status, f.phase, f.completedAt, f.questions.length, (f.criteria || []).map(function(c){ return c.status; })]; })]);
   if (signature !== overviewSignature) {
     overviewSignature = signature; overviewBox.textContent = ""; roomCanvases = {};
     if (!rooms.length) overviewBox.appendChild(panelText("p", "empty", t("quiet")));
     var grid = document.createElement("div"); grid.className = "cards page-grid"; grid.style.gridTemplateColumns = "repeat(" + layout.columns + ", max-content)";
-    rooms.forEach(function(floor, index){ grid.appendChild(roomCard(floor, index + 1, size)); });
+    rooms.forEach(function(floor, index){ grid.appendChild(roomCard(floor, index + 1, layout.sx, layout.sy)); });
     overviewBox.appendChild(grid);
     if (pages > 1) {
       var pager = document.createElement("div"); pager.className = "pager";
