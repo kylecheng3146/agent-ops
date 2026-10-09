@@ -161,12 +161,12 @@ var languageButton = document.getElementById("language"), live = document.getEle
 var snapshot = null, model = null, frame = 0, offline = false, scale = 1, scaleY = 1;
 var mode = "overview", selectedKey = null, showRecent = false, detailPage = 0, dialogClose = null, detailPreviousFocus = null, detailTarget = null;
 var detailSignature = "";
-var people = {}, staffMemory = {}, viewer = spawnViewer(), doorFrames = {}, images = {}, bases = {}, roomCanvases = {}, overviewSignature = "", hudSignature = "", labelNodes = {}, lastFigures = [], stageCanvas = null;
+var people = {}, staffMemory = {}, glances = {}, viewer = spawnViewer(), doorFrames = {}, images = {}, bases = {}, roomCanvases = {}, overviewSignature = "", hudSignature = "", labelNodes = {}, lastFigures = [], stageCanvas = null;
 var reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 function spawnViewer(){ return {x: Math.round(LAYOUT.spawn.x / 2) * 2, y: Math.round(LAYOUT.spawn.y / 2) * 2, path: [], dir: "up", step: 0}; }
 var STRINGS = {
-  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", panel_task:"Whiteboard", panel_diff:"Screen", panel_verify:"QA board", panel_review:"Review desk", panel_integration:"Sorting table", noChanges:"No changed files yet.", filesCount:"files", notReviewed:"Not reviewed yet.", firstRound:"Round 1", recheck:"Re-check", blocking:"blocking", refutedYes:"The re-check overturned round 1.", refutedNo:"The re-check upheld round 1.", worktree:"Worktree", branch:"Branch", base:"Base", ahead:"Commits ahead", commitStep:"Commit", finishStep:"worktree finish (merge)", hideList:"Hide list »", showList:"« Work list", moveHint:"Arrow keys or WASD walk; Enter talks to the nearest person; Esc returns.", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", integrator:"Integrator", staff_verify:"Running verification", staff_review:"Reviewing", staff_wait:"Waiting for the other round", staff_finish:"Merging the worktree", staff_rest:"Resting in the lobby", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", lobby:"Lobby", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
-  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", panel_task:"白板", panel_diff:"隔間螢幕", panel_verify:"QA 狀態看板", panel_review:"主管桌", panel_integration:"分信桌", noChanges:"目前沒有變更的檔案。", filesCount:"個檔案", notReviewed:"尚未審查。", firstRound:"第 1 輪", recheck:"對抗複查", blocking:"阻擋", refutedYes:"對抗複查推翻了第 1 輪。", refutedNo:"對抗複查維持第 1 輪的結論。", worktree:"Worktree", branch:"分支", base:"基準", ahead:"領先 commit", commitStep:"commit", finishStep:"worktree finish（合併）", hideList:"收合 »", showList:"« 工作清單", moveHint:"方向鍵或 WASD 走動；Enter 和最近的人對話；Esc 返回。", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", integrator:"整合", staff_verify:"執行驗證中", staff_review:"審查中", staff_wait:"等待另一輪審查", staff_finish:"合併 worktree 中", staff_rest:"在大廳休息", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", lobby:"大廳", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
+  en: {copyFailed:"Copy manually", copyHint:"Clipboard unavailable; select the command and copy it manually.", checks:"Acceptance checks", unfinished:"Not complete", sessionEnded:"Session ended", attention:"Needs attention", verifyFailed:"Verification failed", reviewFailed:"Review failed", blockedUnknown:"Blocked; reason not provided", openQuestion:"View questions and commands", detailsAction:"Details and commands", stale:"Reconnecting; showing last known state", viewer:"You", overview:"Office overview", rooms:"rooms", people:"people", recent:"Recently completed", recentOn:"Hide completed", repos:"Repository", allRepos:"All repositories", noTask:"No task", noTaskHint:"Nothing to verify or review", panel_task:"Whiteboard", panel_diff:"Screen", panel_verify:"QA board", panel_review:"Review desk", panel_integration:"Sorting table", noChanges:"No changed files yet.", filesCount:"files", notReviewed:"Not reviewed yet.", firstRound:"Round 1", recheck:"Re-check", blocking:"blocking", refutedYes:"The re-check overturned round 1.", refutedNo:"The re-check upheld round 1.", worktree:"Worktree", branch:"Branch", base:"Base", ahead:"Commits ahead", commitStep:"Commit", finishStep:"worktree finish (merge)", hideList:"Hide list »", showList:"« Work list", moveHint:"Arrow keys or WASD walk; Enter talks to the nearest person; Esc returns.", critPass:"PASS", critFail:"FAIL", critUnknown:"Undetermined", critPending:"Not verified yet", noCriteria:"This room has no acceptance criteria.", back:"Back to overview", connected:"● Connected", offline:"○ Reconnecting", quiet:"The office is quiet. No agent is at work.", glance_pass:"Verify {n}/{t} passed", glance_fail:"Verify failed: {id}", glance_failed:"Verify failed", glance_pending:"{n} criteria still to verify", glance_all:"Criteria {n}/{t} passed", glance_review_pass:"Review passed ✓", glance_review_fail:"Review failed ✗", glance_wait_verify:"Still waiting for QA…", glance_wait_review:"Waiting for the review…", glance_wait_finish:"Waiting for the merge…", integrator:"Integrator", staff_verify:"Running verification", staff_review:"Reviewing", staff_wait:"Waiting for the other round", staff_finish:"Merging the worktree", staff_rest:"Resting in the lobby", waiting:"waiting for your answer", enter:"Enter room", close:"Close", previous:"Previous", next:"Next", page:"Page", details:"Details", progress:"Progress", verify:"Verify", review:"Review", pending:"Awaiting answer", task:"Task", status:"Status", phase:"Phase", host:"Host", now:"Now", owner:"Owner", currentWork:"Current work", question:"Pending question", questions:"Questions", workList:"Work list", clickWork:"Click for work", keyboardWork:"Press L for work list", keyboardPhase:"Press 1-5 for phase work", keyboardQuestions:"Press Q for questions", noPeople:"No known work is in this phase", noQuestions:"No pending questions", files:"Changed files", commands:"Commands", copy:"Copy", copied:"Copied", unknown:"unknown", unassigned:"unassigned", phases:{planning:"Planning", implementing:"Implementing", verifying:"Verifying", reviewing:"Reviewing", integrating:"Integrating", lobby:"Lobby", unknown:"Unassigned"}, statuses:{active:"active", idle:"idle", running:"running", reviewing:"reviewing", verifying:"verifying", blocked:"blocked", delivered:"delivered", complete:"complete", unknown:"unknown", unassigned:"unassigned", pending:"pending"}},
+  zh: {copyFailed:"手動複製", copyHint:"無法存取剪貼簿；請選取指令後手動複製。", checks:"驗收條件", unfinished:"尚未完成", sessionEnded:"工作階段已結束", attention:"需要介入", verifyFailed:"驗證未通過", reviewFailed:"審查未通過", blockedUnknown:"受阻；尚無原因資料", openQuestion:"查看問題與指令", detailsAction:"詳情與指令", stale:"重新連線中；顯示最後已知狀態", viewer:"你", overview:"辦公室總覽", rooms:"個房間", people:"位成員", recent:"最近完成", recentOn:"隱藏已完成", repos:"專案", allRepos:"所有專案", noTask:"無任務", noTaskHint:"沒有需要驗證或審查的工作", panel_task:"白板", panel_diff:"隔間螢幕", panel_verify:"QA 狀態看板", panel_review:"主管桌", panel_integration:"分信桌", noChanges:"目前沒有變更的檔案。", filesCount:"個檔案", notReviewed:"尚未審查。", firstRound:"第 1 輪", recheck:"對抗複查", blocking:"阻擋", refutedYes:"對抗複查推翻了第 1 輪。", refutedNo:"對抗複查維持第 1 輪的結論。", worktree:"Worktree", branch:"分支", base:"基準", ahead:"領先 commit", commitStep:"commit", finishStep:"worktree finish（合併）", hideList:"收合 »", showList:"« 工作清單", moveHint:"方向鍵或 WASD 走動；Enter 和最近的人對話；Esc 返回。", critPass:"通過", critFail:"未通過", critUnknown:"無法判定", critPending:"還沒驗證", noCriteria:"這間房沒有驗收條件。", back:"返回總覽", connected:"● 已連線", offline:"○ 重新連線中", quiet:"辦公室很安靜，目前沒有成員工作。", glance_pass:"驗證 {n}/{t} 通過", glance_fail:"驗證未通過：{id}", glance_failed:"驗證未通過", glance_pending:"待驗證 {n} 條", glance_all:"條件 {n}/{t} 通過", glance_review_pass:"審查通過 ✓", glance_review_fail:"審查未通過 ✗", glance_wait_verify:"還在等 QA…", glance_wait_review:"等審查中…", glance_wait_finish:"等整合中…", integrator:"整合", staff_verify:"執行驗證中", staff_review:"審查中", staff_wait:"等待另一輪審查", staff_finish:"合併 worktree 中", staff_rest:"在大廳休息", waiting:"等待你的回覆", enter:"進入房間", close:"關閉", previous:"上一頁", next:"下一頁", page:"頁", details:"詳細資料", progress:"進度", verify:"驗證", review:"審查", pending:"待回覆", task:"任務", status:"狀態", phase:"階段", host:"主機", now:"目前", owner:"負責人", currentWork:"目前工作", question:"待回覆問題", questions:"問題", workList:"工作清單", clickWork:"點擊查看工作", keyboardWork:"按 L 開啟工作清單", keyboardPhase:"按 1-5 查看階段工作", keyboardQuestions:"按 Q 查看問題", noPeople:"此階段目前沒有已知工作", noQuestions:"目前沒有待回覆問題", files:"變更檔案", commands:"指令", copy:"複製", copied:"已複製", unknown:"未知", unassigned:"未分配", phases:{planning:"規劃", implementing:"開發", verifying:"驗證", reviewing:"審查", integrating:"整合", lobby:"大廳", unknown:"未分配"}, statuses:{active:"進行中", idle:"閒置", running:"工作中", reviewing:"審查中", verifying:"驗證中", blocked:"受阻", delivered:"已交付", complete:"已完成", unknown:"未知", unassigned:"未分配", pending:"待回覆"}}
 };
 function getLanguage(){
   try { var cookie = document.cookie.split(";").map(function(part){ return part.trim().split("="); }).find(function(pair){ return pair[0] === "agent-office-language"; }); if (cookie && (cookie[1] === "en" || cookie[1] === "zh")) return cookie[1]; } catch (_) {}
@@ -347,14 +347,82 @@ function placements(floor){
   });
   return {byActor: byActor, counts: counts};
 }
+// ---- the engineer reads the whiteboard or the QA board when something worth reading happens ----
+var GLANCE_STAY = 480, WAITING = {verifying: true, reviewing: true, integrating: true};
+/** The one engineer a room's notices concern: a run's coordinator, or a session's engineer. */
+function engineerOf(floor){ var lead = floor.actors.filter(function(a){ return a.kind === "coordinator"; })[0]; return lead || (floor.kind === "run" ? null : floor.actors[0] || null); }
+function seatOf(floor, actor){ var p = placements(floor).byActor[actor.key], room = layoutRoom(p.room); return {slot: room.slots[Math.min(p.index, room.slots.length - 1)], target: p.room + ":" + p.index, hidden: p.index >= room.slots.length}; }
+function glanceFacts(floor){ return {verify: floor.board.verify, review: floor.board.review, criteria: (floor.criteria || []).map(function(c){ return c.id + "=" + c.status; }).join(",")}; }
+function fillIn(text, values){ return text.replace(/\{(\w+)\}/g, function(_, name){ return String(values[name]); }); }
+/** What the engineer says at a notice: only what the snapshot shows. */
+function glanceText(floor, reason){
+  var criteria = floor.criteria || [], passed = criteria.filter(function(c){ return c.status === "PASS"; }).length, pending = criteria.filter(function(c){ return !c.status; }).length;
+  if (reason === "verify") {
+    if (floor.board.verify === "PASS") return fillIn(t("glance_pass"), {n: floor.board.passed || passed, t: floor.board.total || criteria.length});
+    var failed = criteria.filter(function(c){ return c.status === "FAIL"; })[0];
+    return failed ? fillIn(t("glance_fail"), {id: failed.id}) : t("glance_failed");
+  }
+  if (reason === "review") return t(floor.board.review === "PASS" ? "glance_review_pass" : "glance_review_fail");
+  if (reason === "timer") { var busy = ["verify", "review", "finish"].filter(function(kind){ return activityOf(floor, kind); })[0]; if (busy) return t("glance_wait_" + busy); }
+  return pending ? fillIn(t("glance_pending"), {n: pending}) : fillIn(t("glance_all"), {n: passed, t: criteria.length});
+}
+function glanceTimer(key, visit){ return 2400 + dwellFrames(key, visit) % 3001; }
+/** Turns snapshot changes into a reading trip: the QA board first, then the whiteboard. The first snapshot is only a baseline. */
+function noticeChanges(floor){
+  var facts = glanceFacts(floor), state = glances[floor.key];
+  if (!state) { glances[floor.key] = {facts: facts, stops: [], arrived: null, visit: 0, next: frame + glanceTimer(floor.key, 0), bubble: null}; return; }
+  var before = state.facts, stops = [];
+  state.facts = facts;
+  var settled = function(value){ return value === "PASS" || value === "FAIL"; };
+  if (facts.verify !== before.verify && settled(facts.verify)) stops.push({spot: "status", reason: "verify"});
+  if (facts.review !== before.review && settled(facts.review)) stops.push({spot: "board", reason: "review"});
+  else if (facts.criteria !== before.criteria) stops.push({spot: "board", reason: "criteria"});
+  var engineer = engineerOf(floor);
+  if (!stops.length || !engineer || engineer.questionCount > 0) return;
+  if (reducedMotion) { state.bubble = {key: engineer.key, text: glanceText(floor, stops[0].reason), until: frame + GLANCE_STAY}; return; }
+  stops.forEach(function(stop){ if (!state.stops.some(function(s){ return s.spot === stop.spot; })) state.stops.push(stop); });
+}
+/** Moves the engineer through their stops, waits at each, then back to the seat; between events they now and then look at the whiteboard. */
+function glanceStep(floor){
+  var state = glances[floor.key], engineer = engineerOf(floor);
+  if (!state || !engineer || reducedMotion) return;
+  var person = people[engineer.key];
+  if (!person) return;
+  if (engineer.questionCount > 0) { if (state.stops.length) { state.stops = []; state.arrived = null; var home = seatOf(floor, engineer); moveTo(engineer.key, home.slot, home.target, home.hidden); } return; }
+  if (!state.stops.length) {
+    if (WAITING[floor.phase] && frame >= state.next) { state.visit++; state.next = frame + glanceTimer(floor.key, state.visit); state.stops.push({spot: "board", reason: "timer"}); }
+    else return;
+  }
+  var stop = state.stops[0], spot = LAYOUT.look[stop.spot], target = "look:" + stop.spot;
+  if (person.target !== target) { moveTo(engineer.key, spot, target, false); state.arrived = null; return; }
+  if (person.path.length) return;
+  if (state.arrived === null) { state.arrived = frame; stop.text = glanceText(floor, stop.reason); }
+  if (frame - state.arrived < GLANCE_STAY) return;
+  state.stops.shift(); state.arrived = null;
+  if (state.stops.length) { glanceStep(floor); return; }
+  var seat = seatOf(floor, engineer);
+  moveTo(engineer.key, seat.slot, seat.target, seat.hidden);
+  state.next = Math.max(state.next, frame + glanceTimer(floor.key, state.visit + 1));
+}
+/** The engineer's bubble while reading, or at the seat under reduced motion. */
+function glanceBubble(floor){
+  var state = glances[floor.key], engineer = engineerOf(floor);
+  if (!state || !engineer) return null;
+  if (state.bubble && frame < state.bubble.until && state.bubble.key === engineer.key) return {key: engineer.key, text: state.bubble.text};
+  var stop = state.stops[0];
+  return stop && state.arrived !== null && stop.text ? {key: engineer.key, text: stop.text} : null;
+}
 function syncPeople(){
   if (!model) return;
   var seen = {};
   model.floors.forEach(function(floor){
     var place = placements(floor).byActor;
+    noticeChanges(floor);
+    var reading = glances[floor.key] && glances[floor.key].stops.length ? engineerOf(floor) : null;
     floor.actors.forEach(function(actor){
       var p = place[actor.key], room = layoutRoom(p.room);
       seen[actor.key] = true;
+      if (reading && reading.key === actor.key && people[actor.key]) return; // on a reading trip; glanceStep brings them back
       moveTo(actor.key, room.slots[Math.min(p.index, room.slots.length - 1)], p.room + ":" + p.index, p.index >= room.slots.length);
     });
     staffOf(floor).forEach(function(member){
@@ -369,6 +437,7 @@ function syncPeople(){
   Object.keys(people).forEach(function(key){ if (!seen[key]) delete people[key]; });
   Object.keys(staffMemory).forEach(function(key){ if (!seen[key]) delete staffMemory[key]; });
   Object.keys(staffSpots).forEach(function(key){ if (!seen[key]) delete staffSpots[key]; });
+  Object.keys(glances).forEach(function(key){ if (!roomByKey(key)) delete glances[key]; });
 }
 function stepAlong(state){
   if (!state.path.length) return;
@@ -618,10 +687,12 @@ function renderLabels(floor, figs){
   figs.forEach(function(f){ label("name:" + f.actor.key, "nameplate" + (f.actor.questionCount ? " alert" : ""), shortName(f.actor.id, 14), f.x + 17, f.y + 50); });
   label("name:viewer", "nameplate viewer", t("viewer"), viewer.x, viewer.y + 1);
   var near = nearestActor(figs);
-  if (near) label("speech", "speech", shortName(near.actor.id, 14) + ": " + localizeText(near.actor.narration), near.x + 17, near.y - 6);
+  var said = glanceBubble(floor), reader = said && figs.filter(function(f){ return f.actor.key === said.key; })[0];
+  if (reader) label("glance", "speech glance", said.text, reader.x + 17, reader.y - 6);
+  if (near && near !== reader) label("speech", "speech", shortName(near.actor.id, 14) + ": " + localizeText(near.actor.narration), near.x + 17, near.y - 6);
 }
 function render(){ if (!model) return; if (mode === "room") renderRoomView(); else renderOverview(); }
-function tick(){ frame++; if (!reducedMotion) { if (model) model.floors.forEach(wander); advance(); } render(); }
+function tick(){ frame++; if (!reducedMotion) { if (model) model.floors.forEach(function(floor){ wander(floor); glanceStep(floor); }); advance(); } render(); }
 function attentionFor(actor){
   if(actor.questionCount)return t('waiting')+' ('+actor.questionCount+')';
   if(actor.progress&&actor.progress.verify==='FAIL')return t('verifyFailed');

@@ -59,6 +59,8 @@ export interface OfficeLayout {
   readonly hotspots: readonly LayoutHotspot[];
   /** Resident staff: their work stations, and the lobby spots where idle staff spend time. */
   readonly staff: {readonly stations: Readonly<Record<StaffStation, LayoutSlot>>; readonly spots: readonly LayoutSlot[]};
+  /** Where the engineer stands to read the planning whiteboard and the QA status board. */
+  readonly look: {readonly board: LayoutSlot; readonly status: LayoutSlot};
   /** Floor areas people may stand on: room floors, door gaps and the entrance. */
   readonly open: readonly Rect[];
   /** Furniture footprints, absolute. */
@@ -164,6 +166,7 @@ export function officeLayout(): OfficeLayout {
         seat(88, 241, "right0", 291, {x: 106, y: 290}), seat(148, 241, "left0", 291, {x: 166, y: 290}),
         stand(137, 183, "up0"), stand(113, 181, "up0"), stand(87, 181, "up0"), stand(49, 181, "up0")]
     },
+    look: {board: stand(134, 64, "up0"), status: stand(414, 100, "up0")},
     hotspots: [
       {kind: "task", room: "planning", rects: [area("board", 118, 42)]},
       // The monitor sits at (30, 1) inside a cubicle, one pixel further in once outlined.

@@ -59,6 +59,9 @@ test("avatar clothes follow the role while hair and skin follow the person, neve
   assert.deepEqual(avatarColors("alice", "unknown-role").D, avatarColors("alice", "visitor").D, "unknown roles dress as visitors");
   const hairs = new Set(["alice", "bob", "carol", "dave", "erin", "frank"].map(name => avatarColors(name, "worker").I));
   assert.ok(hairs.size > 1, "identities differ");
+  for (const name of ["viewer", "you", "alice", "bob", "carol", "dave"]) assert.equal(avatarColors(name, "viewer").S, avatarColors("x", "viewer").S, "the viewer always wears one skin");
+  const lightness = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+  assert.ok(["alice", "bob", "carol", "dave", "erin", "frank", "gina"].every(name => lightness(avatarColors(name, "worker").S!) <= lightness(avatarColors("viewer", "viewer").S!)), "the lightest one");
   const light = (hex: string) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
   assert.ok(light(avatarColors("alice", "qa").E!) > 650, "QA wears a light lab coat");
   const [r, g, b] = [1, 3, 5].map(i => parseInt(avatarColors("alice", "integrator").D!.slice(i, i + 2), 16));

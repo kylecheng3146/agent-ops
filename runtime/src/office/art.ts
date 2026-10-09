@@ -188,7 +188,8 @@ export function avatarColors(identity: string, role: string): Record<string, str
   const skins = [["#bf8264", "#e6ae87", "#f5cda4"], ["#9b624b", "#c08762", "#e0ae82"], ["#654039", "#96624e", "#bf8c68"]];
   let hash = 0;
   for (let i = 0; i < identity.length; i++) hash = (Math.imul(hash, 31) + identity.charCodeAt(i)) >>> 0;
-  const hair = hairs[hash % 3]!, skin = skins[Math.floor(hash / 3) % 3]!, shirt = clothes[role] ?? clothes.visitor!;
+  // The viewer always wears the lightest skin; everyone else follows their identity.
+  const hair = hairs[hash % 3]!, skin = skins[role === "viewer" ? 0 : Math.floor(hash / 3) % 3]!, shirt = clothes[role] ?? clothes.visitor!;
   return {O: "#292633", H: hair[0]!, I: hair[1]!, J: hair[2]!, S: skin[0]!, T: skin[1]!, U: skin[2]!,
     C: shirt[0]!, D: shirt[1]!, E: shirt[2]!, P: "#404958", Q: "#626e7f", B: "#2e3443", K: "#292633", R: "#e39a86"};
 }

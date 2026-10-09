@@ -61,12 +61,13 @@ interface Vm {
   viewer: {x: number; y: number; path: unknown[]; dir: string};
   people: Record<string, {x: number; y: number; path: unknown[]; slot: {feet: {x: number; y: number}}}>;
   doorFrames: Record<string, number>; images: Record<string, FakeElement>; lastFigures: Figure[];
-  LAYOUT: {rooms: Room[]; board: {x: number; y: number}; spawn: {x: number; y: number};
+  LAYOUT: {rooms: Room[]; board: {x: number; y: number}; spawn: {x: number; y: number}; look: Record<"board" | "status", {feet: {x: number; y: number}}>;
     staff: {stations: Record<"qa" | "desk" | "armchair" | "integrator", {feet: {x: number; y: number}}>; spots: {feet: {x: number; y: number}}[]}};
   GRID: {cols: number; rows: number; free: number[]};
   model: {floors: {key: string; actors: {key: string; id: string}[]}[]};
   notePosition: (index: number) => {x: number; y: number};
   render: () => void; tick: () => void; poll: () => void; orderedRooms: () => {key: string}[];
+  engineerOf: (floor: unknown) => {key: string} | null;
 }
 
 const settle = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -648,4 +649,77 @@ test("under reduced motion idle staff never wander", async () => {
   for (let i = 0; i < 6000; i++) vm.tick();
   assert.deepEqual(keys.map(key => at(vm, key).join()), start, "everyone stays where they are");
   assert.ok(keys.every(key => idle(vm, key)));
+});
+
+const crit = (id: string, status: string | null) => ({id, description: id, status, finishedAt: null, failureClass: null, exitCode: null, output: null});
+const glanceLabel = (elements: Map<string, FakeElement>) => elements.get("labels")!.children.find(node => node.className === "speech glance" && !node.hidden)?.textContent;
+const target = (vm: Vm, key: string) => (vm.people[key] as unknown as {target: string}).target;
+
+test("the engineer reads the QA board, then the whiteboard, when results arrive, saying only what the snapshot shows", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("reader", {phase: "verifying", ...extra})]});
+  const {vm, elements, poll} = await boot(room({criteria: [crit("totals", null), crit("locale", null)]}));
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  const engineer = vm.model.floors[0]!.actors[0]!.key, seat = [...at(vm, engineer)];
+  for (let i = 0; i < 200; i++) vm.tick();
+  assert.deepEqual(at(vm, engineer), seat, "the first snapshot is only a baseline");
+  await poll(room({criteria: [crit("totals", "PASS"), crit("locale", "FAIL")], progress: {passed: 1, total: 2, verify: "FAIL", review: null}}));
+  vm.tick();
+  assert.equal(target(vm, engineer), "look:status", "a verify result sends them to the QA board first");
+  walk(vm, engineer);
+  assert.deepEqual(at(vm, engineer), feet(vm.LAYOUT.look.status));
+  vm.tick(); vm.render();
+  assert.equal(glanceLabel(elements), "Verify failed: locale", "naming the first failing criterion");
+  for (let i = 0; i < 480 && target(vm, engineer) === "look:status"; i++) vm.tick();
+  assert.equal(target(vm, engineer), "look:board", "then the changed criteria on the whiteboard, in the same trip");
+  walk(vm, engineer); vm.tick(); vm.render();
+  assert.equal(glanceLabel(elements), "Criteria 1/2 passed");
+  for (let i = 0; i < 480 && target(vm, engineer) === "look:board"; i++) vm.tick();
+  walk(vm, engineer);
+  assert.deepEqual(at(vm, engineer), seat, "and back to the seat");
+  vm.render();
+  assert.equal(glanceLabel(elements), undefined, "the bubble goes with them");
+});
+
+test("an engineer waiting on a question stays seated, and in a run only the coordinator reads the notices", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("asker", {phase: "verifying", questions: [{questionId: "q1", prompt: "Which port?"}], ...extra})]});
+  const {vm, poll} = await boot(room({}));
+  const engineer = vm.model.floors[0]!.actors[0]!.key, seat = [...at(vm, engineer)];
+  await poll(room({progress: {passed: 1, total: 1, verify: "PASS", review: null}}));
+  for (let i = 0; i < 600; i++) vm.tick();
+  assert.deepEqual(at(vm, engineer), seat, "the raised hand keeps them at the seat");
+  assert.equal(vm.engineerOf({kind: "run", actors: [{key: "w", kind: "worker"}, {key: "c", kind: "coordinator"}]})!.key, "c");
+  assert.equal(vm.engineerOf({kind: "run", actors: [{key: "w", kind: "worker"}]}), null, "workers never go");
+});
+
+test("while the room waits on QA, review or the merge, the engineer glances at the whiteboard every 40 to 90 seconds", async () => {
+  const {vm, elements} = await boot({generatedAt: "x", runs: [], reviews: [], lobby: [desk("waiter", {phase: "reviewing", criteria: [crit("totals", null)],
+    activities: [activity("review", {targets: ["agy", "codex"], round: 1, target: "agy"})]})]});
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  const engineer = vm.model.floors[0]!.actors[0]!.key, starts: number[] = [];
+  let reading = false, said = "";
+  for (let i = 0; i < 16000; i++) {
+    vm.tick();
+    const now = target(vm, engineer) === "look:board";
+    if (now && !reading) starts.push(vm.frame);
+    if (now && vm.people[engineer]!.path.length === 0 && !said) { vm.render(); said = glanceLabel(elements) ?? ""; }
+    reading = now;
+  }
+  assert.ok(starts.length >= 2, "they glance more than once");
+  assert.ok(starts[0]! >= 2400, "not in the first forty seconds");
+  for (let i = 1; i < starts.length; i++) assert.ok(starts[i]! - starts[i - 1]! >= 2400, "at least forty seconds apart");
+  assert.equal(said, "Waiting for the review…", "saying who they wait on");
+});
+
+test("under reduced motion the engineer stays seated and the reading shows in a bubble there", async () => {
+  const room = (extra: Record<string, unknown>) => ({generatedAt: "x", runs: [], reviews: [], lobby: [desk("seated", {phase: "verifying", ...extra})]});
+  const {vm, elements, poll} = await boot(room({criteria: [crit("totals", null)]}), {reduced: true, language: "zh-TW"});
+  find(elements.get("overview")!, node => node.tagName === "BUTTON")[0]!.click();
+  const engineer = vm.model.floors[0]!.actors[0]!.key, seat = [...at(vm, engineer)];
+  await poll(room({criteria: [crit("totals", "PASS")], progress: {passed: 1, total: 1, verify: "PASS", review: null}}));
+  vm.tick(); vm.render();
+  assert.deepEqual(at(vm, engineer), seat, "no trip");
+  assert.equal(glanceLabel(elements), "驗證 1/1 通過", "the bubble shows at the seat, in the page language");
+  for (let i = 0; i < 500; i++) vm.tick();
+  vm.render();
+  assert.equal(glanceLabel(elements), undefined, "and goes after about eight seconds");
 });
