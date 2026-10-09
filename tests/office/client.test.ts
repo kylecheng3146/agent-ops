@@ -112,7 +112,7 @@ test("the overview groups rooms by repository, puts rooms that need an answer fi
   assert.deepEqual(cards(sections[1]!).map(card => card.getAttribute("data-key")!.split(":").at(-1)), ["asking-shop", "busy-shop", "quiet-shop"], "questions first, then active, then idle");
   const canvases = find(overview, node => node.tagName === "CANVAS");
   assert.equal(canvases.length, 4);
-  assert.deepEqual([...new Set(canvases.map(c => `${c.width}x${c.height}@${c.style.width}`))], ["576x320@576px"], "every card shares one whole-number scale");
+  assert.equal(new Set(canvases.map(c => `${c.width}x${c.height}@${c.style.width}x${c.style.height}`)).size, 1, "every card shares one scale");
   assert.ok(find(overview, node => node.className === "card-title").every(title => /^\d\. /u.test(title.textContent)), "cards are numbered for the keyboard");
 
   cards(sections[1]!)[0]!.click();
@@ -338,4 +338,27 @@ test("the work list folds away so the office takes the whole width, and the choi
   const again = await boot(snapshot, {stored: {"agent-office-list": "collapsed"}});
   assert.equal(again.elements.get("workspace")!.className, "collapsed", "the next visit starts folded");
   assert.equal(again.elements.get("panel-toggle")!.getAttribute("aria-expanded"), "false");
+});
+
+test("overview cards share one scale of at least 1x that fills the width, and grow when the space grows", async () => {
+  const lobby = ["a", "b", "c"].map(name => desk(name));
+  const {elements, vm} = await boot({generatedAt: "x", runs: [], reviews: [], lobby});
+  const cardWidth = () => {
+    const canvases = find(elements.get("overview")!, node => node.tagName === "CANVAS");
+    assert.equal(new Set(canvases.map(c => c.style.width)).size, 1, "one scale for every card");
+    return Number.parseInt(canvases[0]!.style.width!, 10);
+  };
+  const available = 1440 - 32, gap = 14;
+  const width = cardWidth(), columns = Math.floor((available + gap) / (576 + gap));
+  assert.equal(columns, 2);
+  assert.ok(width >= 576, "never below 1x");
+  assert.ok(columns * width + (columns - 1) * gap <= available, "the row fits");
+  assert.ok(columns * width + (columns - 1) * gap >= available - gap, `the row reaches the right edge (${width}px cards)`);
+  const win = (vm as unknown as {window: {innerWidth: number}}).window;
+  win.innerWidth = 1700; vm.render();
+  const wider = cardWidth();
+  assert.ok(wider > width, `more space gives larger cards (${width} -> ${wider})`);
+  win.innerWidth = 2000; vm.render();
+  const third = cardWidth();
+  assert.ok(third >= 576 && 3 * third + 2 * gap <= 2000 - 32 && 3 * third + 2 * gap >= 2000 - 32 - gap, `a 2000px window takes a third column (${third}px cards)`);
 });

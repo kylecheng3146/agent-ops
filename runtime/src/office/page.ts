@@ -26,7 +26,7 @@ button{font:inherit;color:inherit}
 #overview[hidden],#room-view[hidden]{display:none}
 .repo-head{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;padding:4px 10px;font-size:16px;background:#2b241f;color:#fff7e6;border-left:6px solid #6d9275}
 .repo-alert{color:#f2c95c;font-size:14px}
-.cards{display:flex;flex-wrap:wrap;gap:14px}
+.cards{display:flex;flex-wrap:wrap;gap:14px;justify-content:flex-start}
 .card{display:flex;flex-direction:column;align-items:stretch;gap:4px;max-width:100%;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}
 .card canvas{display:block;max-width:100%;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;border:4px solid #6b5d50;box-shadow:4px 4px 0 #8a5033}
 .card:hover canvas,.card:focus-visible canvas{border-color:#355a4b;outline:3px solid #f2c95c;outline-offset:2px}
@@ -301,7 +301,12 @@ function overviewGroups(){
   });
 }
 function orderedRooms(){ return overviewGroups().reduce(function(all, group){ return all.concat(group.rooms); }, []); }
-function overviewScale(){ return 1; }
+var CARD_GAP = 14;
+/** As many columns as fit at 1x or more; the leftover width is shared so the row reaches the right edge. */
+function overviewScale(){
+  var width = ((wrap && wrap.clientWidth) || window.innerWidth) - 32, columns = Math.max(1, Math.floor((width + CARD_GAP) / (ROOM_W + CARD_GAP)));
+  return Math.max(1, (width - (columns - 1) * CARD_GAP) / columns / ROOM_W);
+}
 function summaryFor(floor){
   var criteria = floor.criteria || [], passed = criteria.filter(function(c){ return c.status === "PASS"; }).length;
   return phaseLabel(floor.phase) + " · " + (criteria.length ? t("checks") + " " + passed + "/" + criteria.length : statusText(floor.status)) + (floor.questions.length ? " · ! " + floor.questions.length : "");
@@ -324,7 +329,7 @@ function renderOverview(){
         number++;
         var card = document.createElement("button"), view = makeCanvas();
         card.type = "button"; card.className = "card"; card.setAttribute("data-key", floor.key); card.setAttribute("aria-label", t("enter") + ": " + floor.title);
-        view.style.width = ROOM_W * size + "px"; view.style.height = ROOM_H * size + "px";
+        view.style.width = Math.floor(ROOM_W * size) + "px"; view.style.height = Math.floor(ROOM_H * size) + "px";
         card.appendChild(view);
         card.appendChild(panelText("span", "card-title", (number <= 9 ? number + ". " : "") + floor.title));
         card.appendChild(panelText("span", "card-meta", summaryFor(floor)));
