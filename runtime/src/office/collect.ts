@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {createHash} from "node:crypto";
-import {readdir, readFile, realpath, stat} from "node:fs/promises";
+import {lstat, readdir, readFile, realpath, stat} from "node:fs/promises";
 import {basename, join, resolve} from "node:path";
 import {promisify} from "node:util";
 
@@ -12,9 +12,10 @@ import type {VerificationEvidence} from "../contracts.js";
 import {findReviewAttestation} from "../review/attestation.js";
 import {FileEvidenceStore} from "../verify/evidence.js";
 import {readPrivateFile} from "../security/permissions.js";
+import {redactSecrets} from "../security/redact.js";
 import {OFFICE_SESSION_RETENTION_MS, readOfficeSessions} from "./sessions.js";
 import {buildOfficeSnapshot, mergeOfficeSnapshots} from "./snapshot.js";
-import type {OfficeCriterion, OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
+import type {OfficeCriterion, OfficeReview, OfficeReviewRound, OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
 import {forgetOfficeRepos, readOfficeRepos} from "./repos.js";
 import type {OfficeHome} from "./server.js";
 
@@ -35,7 +36,94 @@ interface OfficeTaskView {
   readonly progress: {readonly verify: "PASS" | "FAIL" | null; readonly review: "PASS" | "FAIL" | null; readonly passed: number; readonly total: number};
   readonly title: string;
   readonly criteria: readonly OfficeCriterion[];
+  readonly review: OfficeReview | null;
   readonly completedAt: string | null;
+}
+
+// The office reads two kinds of proof files, never anything a task record merely points at:
+// acceptance execution artifacts (by an exact path shape) and review report artifacts (by an exact name).
+const ACCEPTANCE_ARTIFACT = /^\.agent-ops\/tasks\/acceptance\/[a-f0-9]{64}\.json$/u;
+const TASK_ID = /^[A-Za-z0-9._-]{1,128}$/u;
+const REVIEW_FILE_BYTES = 512 * 1024, ACCEPTANCE_FILE_BYTES = 4 * 1024 * 1024, REVIEW_FILES = 20, FINDINGS = 10;
+const OUTPUT_BYTES = 2048, SUMMARY_BYTES = 1024, TITLE_BYTES = 300, DETAILS_BYTES = 1024, ADVICE_BYTES = 512;
+
+/** At most `limit` bytes of UTF-8 text from the start, cut on a character boundary; the ellipsis counts. */
+function headBytes(value: string, limit: number): string {
+  if (Buffer.byteLength(value, "utf8") <= limit) return value;
+  let out = "", used = 0;
+  for (const character of value) { const size = Buffer.byteLength(character, "utf8"); if (used + size > limit - 3) break; out += character; used += size; }
+  return out + "…";
+}
+/** At most `limit` bytes of UTF-8 text from the end, cut on a character boundary; the ellipsis counts. */
+function tailBytes(value: string, limit: number): string {
+  if (Buffer.byteLength(value, "utf8") <= limit) return value;
+  const characters = [...value];
+  let used = 0, start = characters.length;
+  while (start > 0) { const size = Buffer.byteLength(characters[start - 1]!, "utf8"); if (used + size > limit - 3) break; used += size; start--; }
+  return "…" + characters.slice(start).join("");
+}
+/** Redact first, then cut, so a cut can never expose part of a secret the full text would hide. */
+const clean = (value: unknown, limit: number): string => typeof value === "string" ? headBytes(redactSecrets(value), limit) : "";
+
+/** A private proof file read without following links, or null when absent, oversized or unreadable. */
+async function proofFile(root: string, relative: string, limit: number): Promise<unknown> {
+  const source = await readPrivateFile(join(root, ...relative.split("/")), root).catch(() => null);
+  if (source === null || Buffer.byteLength(source, "utf8") > limit) return null;
+  try { return JSON.parse(source) as unknown; } catch { return null; }
+}
+
+async function failureOutput(root: string, evidence: VerificationEvidence | null): Promise<string | null> {
+  const artifact = evidence?.acceptance?.executionArtifact;
+  if (artifact === undefined || !ACCEPTANCE_ARTIFACT.test(artifact)) return null;
+  const source = await readPrivateFile(join(root, ...artifact.split("/")), root).catch(() => null);
+  // An execution artifact is named by its own content hash; a swapped or edited file no longer matches.
+  if (source === null || Buffer.byteLength(source, "utf8") > ACCEPTANCE_FILE_BYTES ||
+    artifact !== ".agent-ops/tasks/acceptance/" + createHash("sha256").update(source).digest("hex") + ".json") return null;
+  let value: unknown;
+  try { value = JSON.parse(source) as unknown; } catch { return null; }
+  const output = typeof value === "object" && value !== null ? (value as {output?: unknown}).output : null;
+  if (typeof output !== "object" || output === null) return null;
+  const {stdout, stderr} = output as {stdout?: unknown; stderr?: unknown};
+  const text = [stdout, stderr].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n");
+  return text.length === 0 ? null : tailBytes(redactSecrets(text), OUTPUT_BYTES);
+}
+
+function reviewRound(target: unknown, report: unknown): OfficeReviewRound | null {
+  if (typeof report !== "object" || report === null) return null;
+  const value = report as {summary?: unknown; findings?: unknown};
+  const findings = (Array.isArray(value.findings) ? value.findings : []).slice(0, FINDINGS).map(item => {
+    const finding = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
+    return {severity: clean(finding.severity, 32), blocking: finding.blocking === true, title: clean(finding.title, TITLE_BYTES),
+      details: clean(finding.details, DETAILS_BYTES), recommendation: clean(finding.recommendation, ADVICE_BYTES)};
+  });
+  return {target: clean(target, 32) || "unknown", summary: clean(value.summary, SUMMARY_BYTES), findings};
+}
+
+/** The newest review report artifact for a task, or null. */
+async function latestReview(root: string, taskId: string): Promise<OfficeReview | null> {
+  if (!TASK_ID.test(taskId)) return null;
+  const directory = join(root, ".agent-ops", "reviews"), suffix = "." + taskId + ".reports.json";
+  const names = (await readdir(directory).catch(() => [] as string[]))
+    .filter(name => name.endsWith(suffix) && /^[a-f0-9]{64}$/u.test(name.slice(0, -suffix.length)));
+  const dated = await Promise.all(names.map(async name => {
+    const info = await lstat(join(directory, name)).catch(() => null);
+    return info === null || !info.isFile() ? null : {name, at: info.mtimeMs};
+  }));
+  let best: OfficeReview | null = null;
+  for (const entry of dated.filter((item): item is {name: string; at: number} => item !== null).sort((a, b) => b.at - a.at).slice(0, REVIEW_FILES)) {
+    const value = await proofFile(root, ".agent-ops/reviews/" + entry.name, REVIEW_FILE_BYTES);
+    if (typeof value !== "object" || value === null) continue;
+    const report = value as {status?: unknown; createdAt?: unknown; reason?: unknown; harness?: unknown; report?: unknown; adversarial?: unknown};
+    const status = report.status === "PASS" || report.status === "FAIL" || report.status === "NOT_RUN" ? report.status : null;
+    if (status === null || typeof report.createdAt !== "string" || Number.isNaN(Date.parse(report.createdAt))) continue;
+    if (best !== null && Date.parse(best.createdAt) >= Date.parse(report.createdAt)) continue;
+    const adversarial = typeof report.adversarial === "object" && report.adversarial !== null ? report.adversarial as {target?: unknown; refuted?: unknown; report?: unknown} : null;
+    const rounds = [reviewRound(report.harness, report.report), adversarial === null ? null : reviewRound(adversarial.target, adversarial.report)]
+      .filter((round): round is OfficeReviewRound => round !== null);
+    best = {status, createdAt: report.createdAt, reason: typeof report.reason === "string" ? clean(report.reason, SUMMARY_BYTES) : null, rounds,
+      refuted: adversarial === null ? null : adversarial.refuted === true};
+  }
+  return best;
 }
 
 interface LoadedEvidence {
@@ -93,8 +181,11 @@ async function taskView(root: string, record: StoredTaskRecord): Promise<OfficeT
     const status = result.passed === 1 ? "PASS" as const : seen.includes("FAIL") ? "FAIL" as const : seen.includes("UNKNOWN") ? "UNKNOWN" as const : null;
     const last = rows.reduce<VerificationEvidence | null>((current, item) =>
       current === null || Date.parse(item.finishedAt) >= Date.parse(current.finishedAt) ? item : current, null);
+    const failing = status === "FAIL" || status === "UNKNOWN" ? rows.filter(row => row.acceptance?.executionArtifact !== undefined && row.status !== "PASS")
+      .reduce<VerificationEvidence | null>((current, item) => current === null || Date.parse(item.finishedAt) >= Date.parse(current.finishedAt) ? item : current, null) : null;
     criteria.push({id: criterion.id, description: criterion.description, status, finishedAt: last?.finishedAt ?? null,
-      failureClass: status === "PASS" || last === null ? null : last.failureClass, exitCode: status === "PASS" ? null : last?.exitCode ?? null});
+      failureClass: status === "PASS" || last === null ? null : last.failureClass, exitCode: status === "PASS" ? null : last?.exitCode ?? null,
+      output: await failureOutput(root, failing)});
   }
   const total = record.task.criteria.length;
   const verify = evidence.some(item => item.status === "FAIL" || item.status === "UNKNOWN")
@@ -116,7 +207,8 @@ async function taskView(root: string, record: StoredTaskRecord): Promise<OfficeT
         : evidence.length > 0
           ? "implementing"
           : "planning";
-  return {taskId: record.task.id, status: record.status, phase, progress, title: record.task.title, criteria, completedAt: record.completedAt};
+  return {taskId: record.task.id, status: record.status, phase, progress, title: record.task.title, criteria,
+    review: await latestReview(root, record.task.id), completedAt: record.completedAt};
 }
 
 async function taskState(root: string): Promise<ReturnType<typeof parseTaskStateSource> | null> {
@@ -204,7 +296,7 @@ async function readSessions(mainRoot: string, commonDir: string, now: number,
         : observedPhase ?? task.phase;
     return task === null
       ? session
-      : {...session, taskId: task.taskId, phase, taskStatus: task.status, progress: task.progress, title: task.title, criteria: task.criteria,
+      : {...session, taskId: task.taskId, phase, taskStatus: task.status, progress: task.progress, title: task.title, criteria: task.criteria, review: task.review,
         completedAt: task.completedAt, status: task.status === "complete" ? "idle" as const : session.status};
   }));
   return views.filter(session => session.completedAt === undefined || session.completedAt === null ||
@@ -253,8 +345,10 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
   for (const {path, record} of discovered) {
     const session = sessions.find(item => item.sessionId === record.sessionId);
     const task = await attachedTaskView(path, record.sessionId, session?.taskId);
+    const ahead = /^[0-9a-f]{40,64}$/u.test(record.base) ? Number.parseInt((await git(path, ["rev-list", "--count", record.base + "..HEAD"])).stdout.trim(), 10) : Number.NaN;
     const base = {name: record.name, path, branch: record.branch, sessionId: record.sessionId,
-      ...(record.runId === undefined ? {} : {runId: record.runId}), diff: await worktreeDiff(git, path, record.base)};
+      ...(record.runId === undefined ? {} : {runId: record.runId}), diff: await worktreeDiff(git, path, record.base),
+      ...(/^[0-9a-f]{40,64}$/u.test(record.base) ? {base: record.base.slice(0, 12)} : {}), ...(Number.isInteger(ahead) && ahead >= 0 ? {ahead} : {})};
     const observedPhase = session?.phase === undefined ? undefined : officePhase(session.phase) ?? "unknown";
     const phase = task === null
       ? observedPhase
@@ -264,7 +358,7 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
     worktrees.push(task === null
       ? session === undefined ? base : {...base, ...(officePhase(session.phase) === undefined ? {} : {phase: officePhase(session.phase)}), status: session.status,
           ...(session.taskId === undefined ? {} : {taskId: session.taskId}), host: session.host ?? session.harness}
-      : {...base, phase, status: task.status, taskId: task.taskId, progress: task.progress, title: task.title, criteria: task.criteria,
+      : {...base, phase, status: task.status, taskId: task.taskId, progress: task.progress, title: task.title, criteria: task.criteria, review: task.review,
           ...(task.completedAt === null ? {} : {completedAt: task.completedAt}), host: session?.host ?? session?.harness});
   }
   return {runs: await readRuns(commonDir), worktrees, sessions, reviews: await readReviewSlots(commonDir), now};

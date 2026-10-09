@@ -20,6 +20,25 @@ export interface OfficeCriterion {
   readonly finishedAt: string | null;
   readonly failureClass: string | null;
   readonly exitCode: number | null;
+  /** Redacted tail of the failing run's output, when an acceptance replay recorded it. */
+  readonly output: string | null;
+}
+
+/** One review round as recorded in a review report artifact; text redacted and capped. */
+export interface OfficeReviewRound {
+  readonly target: string;
+  readonly summary: string;
+  readonly findings: readonly {readonly severity: string; readonly blocking: boolean; readonly title: string; readonly details: string; readonly recommendation: string}[];
+}
+
+/** The newest review report for a task. */
+export interface OfficeReview {
+  readonly status: "PASS" | "FAIL" | "NOT_RUN";
+  readonly createdAt: string;
+  readonly reason: string | null;
+  readonly rounds: readonly OfficeReviewRound[];
+  /** Whether the adversarial round overturned the first; null when it did not run. */
+  readonly refuted: boolean | null;
 }
 
 export interface OfficeWorktreeInput {
@@ -35,6 +54,10 @@ export interface OfficeWorktreeInput {
   readonly progress?: RunTaskProgress | null;
   readonly title?: string;
   readonly criteria?: readonly OfficeCriterion[];
+  readonly review?: OfficeReview | null;
+  /** The worktree's base commit (12 hex) and how many commits it is ahead. */
+  readonly base?: string;
+  readonly ahead?: number;
   readonly completedAt?: string | null;
   readonly host?: string;
 }
@@ -62,6 +85,7 @@ export interface OfficeSessionView extends OfficeSessionRecord {
   readonly progress?: RunTaskProgress | null;
   readonly title?: string;
   readonly criteria?: readonly OfficeCriterion[];
+  readonly review?: OfficeReview | null;
 }
 
 export type OfficePhase = RunPhase | "unknown";
@@ -105,6 +129,9 @@ export interface OfficeDesk {
   readonly progress?: RunTaskProgress | null;
   readonly title?: string;
   readonly criteria?: readonly OfficeCriterion[];
+  readonly review?: OfficeReview | null;
+  readonly base?: string;
+  readonly ahead?: number;
   readonly questions?: readonly {readonly questionId: string; readonly prompt: string}[];
   readonly completedAt?: string | null;
   readonly host?: string;
@@ -199,6 +226,9 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(worktree.progress === undefined && session?.progress === undefined ? {} : {progress: worktree.progress ?? session?.progress ?? null}),
       ...(worktree.title === undefined && session?.title === undefined ? {} : {title: worktree.title ?? session?.title}),
       ...(worktree.criteria === undefined && session?.criteria === undefined ? {} : {criteria: worktree.criteria ?? session?.criteria ?? []}),
+      ...(worktree.review === undefined && session?.review === undefined ? {} : {review: worktree.review ?? session?.review ?? null}),
+      ...(worktree.base === undefined ? {} : {base: worktree.base}),
+      ...(worktree.ahead === undefined ? {} : {ahead: worktree.ahead}),
       ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
     });
@@ -222,6 +252,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(session.progress === undefined ? {} : {progress: session.progress}),
       ...(session.title === undefined ? {} : {title: session.title}),
       ...(session.criteria === undefined ? {} : {criteria: session.criteria}),
+      ...(session.review === undefined ? {} : {review: session.review}),
       ...(completedAt === null ? {} : {completedAt}),
       ...(session.host === undefined ? {} : {host: session.host})
     });

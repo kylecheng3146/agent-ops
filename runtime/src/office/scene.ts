@@ -62,6 +62,7 @@ export interface SceneCriterion {
   readonly finishedAt: string | null;
   readonly failureClass: string | null;
   readonly exitCode: number | null;
+  readonly output: string | null;
 }
 
 export interface SceneOverviewBox {
@@ -244,7 +245,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
         status: item.status === "PASS" || item.status === "FAIL" || item.status === "UNKNOWN" ? item.status : null,
         finishedAt: typeof item.finishedAt === "string" ? item.finishedAt : null,
         failureClass: typeof item.failureClass === "string" ? item.failureClass : null,
-        exitCode: typeof item.exitCode === "number" ? item.exitCode : null};
+        exitCode: typeof item.exitCode === "number" ? item.exitCode : null, output: typeof item.output === "string" ? item.output : null};
     });
     const repo = repoOf(desk);
     const key = scoped(repo, "session:" + [desk.sessionId || "unknown", desk.branch || "unknown", desk.name || "session"].join(":"));

@@ -144,9 +144,9 @@ test("equal room names in two repositories stay two rooms, grouped and labelled 
 test("desk floors carry their task's criteria; runs, review slots and bare desks carry none", () => {
   const base = snapshot();
   const rows = [
-    {id: "totals", description: "Receipt lists totals", status: "PASS" as const, finishedAt: "2026-10-07T01:00:00.000Z", failureClass: null, exitCode: null},
-    {id: "locale", description: "Tax follows the locale", status: "FAIL" as const, finishedAt: "2026-10-07T02:00:00.000Z", failureClass: "exit-code", exitCode: 1},
-    {id: "snapshots", description: "Snapshots still pass", status: null, finishedAt: null, failureClass: null, exitCode: null}
+    {id: "totals", description: "Receipt lists totals", status: "PASS" as const, finishedAt: "2026-10-07T01:00:00.000Z", failureClass: null, exitCode: null, output: null},
+    {id: "locale", description: "Tax follows the locale", status: "FAIL" as const, finishedAt: "2026-10-07T02:00:00.000Z", failureClass: "exit-code", exitCode: 1, output: null},
+    {id: "snapshots", description: "Snapshots still pass", status: null, finishedAt: null, failureClass: null, exitCode: null, output: null}
   ];
   const model = sceneModel({...base, lobby: [{...base.lobby[0]!, criteria: rows}, ...base.lobby.slice(1)]});
   const desks = model.floors.filter(floor => floor.kind === "desk");
@@ -155,7 +155,7 @@ test("desk floors carry their task's criteria; runs, review slots and bare desks
   for (const floor of model.floors.filter(item => item.kind !== "desk")) assert.deepEqual(floor.criteria, [], floor.key);
   const odd = sceneModel({...base, lobby: [{...base.lobby[0]!, criteria: [{id: 7, status: "MAYBE"}] as never}]});
   assert.deepEqual(odd.floors.find(floor => floor.kind === "desk")!.criteria,
-    [{id: "unknown", description: "", status: null, finishedAt: null, failureClass: null, exitCode: null}], "malformed rows are normalised, never trusted");
+    [{id: "unknown", description: "", status: null, finishedAt: null, failureClass: null, exitCode: null, output: null}], "malformed rows are normalised, never trusted");
 });
 
 test("an empty building has no fake lobby room", () => {
