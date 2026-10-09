@@ -50,7 +50,7 @@ class FakeElement {
 
 let activeElement: FakeElement | null = null;
 
-function clientScript(): string { return officePage("nonce").match(/<script[^>]*>([\s\S]*)<\/script>/u)![1]!; }
+function clientScript(): string { return officePage("nonce").match(/<script[^>]*>([\s\S]*)<\/script>/iu)![1]!; }
 function treeText(node: FakeElement): string { return node.textContent + node.children.map(treeText).join(""); }
 function find(node: FakeElement, test: (n: FakeElement) => boolean): FakeElement[] { return node.children.flatMap(child => [...(test(child) ? [child] : []), ...find(child, test)]); }
 

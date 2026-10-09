@@ -14,7 +14,7 @@ test("an activity record is written privately with allowlisted fields, follows i
     const names = await readdir(activityDirectory(commonDir));
     assert.equal(names.length, 1);
     assert.match(names[0]!, new RegExp(`^review-${process.pid}-\\d+\\.json$`, "u"));
-    assert.equal((await stat(join(activityDirectory(commonDir), names[0]!))).mode & 0o777, 0o600, "private to the user");
+    if (process.platform !== "win32") assert.equal((await stat(join(activityDirectory(commonDir), names[0]!))).mode & 0o777, 0o600, "private to the user");
     let [record] = await readActivities(commonDir);
     assert.deepEqual(Object.keys(record!).sort(), ["kind", "pid", "root", "sessionId", "startedAt", "targets", "taskId"], "only allowlisted fields, no token or command");
     assert.deepEqual(record!.targets, ["agy", "codex"]);
