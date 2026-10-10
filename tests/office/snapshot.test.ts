@@ -60,7 +60,7 @@ test("snapshot carries the coordinator worktree's criteria and progress onto its
   const criteria = [{id: "reproduce", description: "Reproduce the reported failure", status: null,
     finishedAt: null, failureClass: null, exitCode: null, output: null}];
   const progress = {verify: null, review: null, passed: 0, total: 1} as const;
-  const snapshot = buildOfficeSnapshot({now: NOW, runs: [runFixture()], worktrees: [
+  const snapshot = buildOfficeSnapshot({now: NOW, runs: [{...runFixture(), rootTaskId: "root"}], worktrees: [
     {name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: "run-office-fixture",
       taskId: "root", progress, criteria, diff: diff([])},
     {name: "child", path: "/repo/.worktrees/child", branch: "b2", sessionId: "s2", runId: "run-office-fixture",
@@ -70,6 +70,42 @@ test("snapshot carries the coordinator worktree's criteria and progress onto its
   assert.equal(run.taskId, "root");
   assert.deepEqual(run.progress, progress);
   assert.deepEqual(run.criteria, criteria);
+});
+
+test("persisted rootTaskId wins over a temporary coordinator task attachment", () => {
+  const rootProgress = {verify: "PASS" as const, review: null, passed: 2, total: 6};
+  const childProgress = {verify: "FAIL" as const, review: "FAIL" as const, passed: 0, total: 1};
+  const rootCriteria = [{id: "root-check", description: "Root check", status: "PASS" as const,
+    finishedAt: "2026-10-07T01:00:00.000Z", failureClass: null, exitCode: null, output: null}];
+  for (const temporaryTaskId of ["child", ""] as const) {
+    const source = runFixture();
+    const run = {...source, rootTaskId: "root", workers: source.workers.map(worker => worker.workerId === source.coordinatorId
+      ? {...worker, taskId: temporaryTaskId} : worker)};
+    const snapshot = buildOfficeSnapshot({now: NOW, runs: [run], worktrees: [
+      {name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: run.runId,
+        taskId: temporaryTaskId || null, progress: childProgress, criteria: [{...rootCriteria[0]!, id: "child-check"}], diff: diff([])},
+      {name: "root", path: "/repo/.worktrees/root", branch: "b2", sessionId: "root-session", runId: run.runId,
+        taskId: "root", progress: rootProgress, criteria: rootCriteria, diff: diff([])}
+    ], reviews: []});
+    const officeRun = snapshot.runs[0]!;
+    assert.equal(officeRun.taskId, "root");
+    assert.deepEqual(officeRun.progress, rootProgress);
+    assert.deepEqual(officeRun.criteria, rootCriteria);
+  }
+});
+
+test("a mismatched coordinator worktree cannot supply child criteria to a persisted root", () => {
+  const source = runFixture();
+  const run = {...source, rootTaskId: "root", workers: source.workers.map(worker => worker.workerId === source.coordinatorId
+    ? {...worker, taskId: "child"} : worker)};
+  const snapshot = buildOfficeSnapshot({now: NOW, runs: [run], worktrees: [{
+    name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: run.runId,
+    taskId: "child", criteria: [{id: "child-check", description: "Child only", status: "PASS", finishedAt: null,
+      failureClass: null, exitCode: null, output: null}], diff: diff([])
+  }], reviews: []});
+  const officeRun = snapshot.runs[0]!;
+  assert.equal(officeRun.criteria, undefined);
+  assert.deepEqual(officeRun.progress, run.tasks.find(task => task.taskId === "root")!.progress);
 });
 
 test("snapshot keeps legacy runs without an attached coordinator task unadorned", () => {
