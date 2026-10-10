@@ -4,6 +4,32 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-10
+
+- Task DEBUG: an investigation or bugfix request in a native conversation
+  starts a debug-tagged task that keeps the original issue, records
+  falsifiable hypotheses against real regression evidence, and succeeds only
+  with a red baseline, a passing candidate, two fresh reviews and finish.
+  Defaults are 60 active minutes and 5 repair rounds for the whole issue; a
+  human "continue" adds 20 minutes once. After two stagnant rounds one
+  strategy switch is required, and two more stagnant rounds stop the issue.
+- The debug clock counts foreground turns on Claude, Codex and agy. It stops
+  only when Stop is accepted on an idle turn, so work after a blocked Stop
+  still counts, and waiting for a review slot does not. Task DEBUG installs
+  its own Stop hook, so the clock also stops without the completion gate.
+- On Claude and agy, Stop refuses an active debug issue without a valid stop
+  checkpoint even when the completion gate is off.
+- Repeating an active issue from a new session reattaches it, or resumes the
+  worktree that holds it, instead of starting a fresh budget. A resolved
+  hypothesis cannot come back under a new id with the same statement and
+  method.
+- Office run rooms show the coordinator task's real acceptance criteria and
+  progress.
+- `agent-ops worktree resume` works for debug tasks, and `agent-ops worktree
+  remove` works for a paused or stopped run's worktree.
+- The locked dev-only `fast-uri` moves to 3.1.8 for five advisories; no
+  runtime dependency changes.
+
 ## [0.8.1] - 2026-10-09
 
 - Idle Office staff wander the lobby. Each stays 20 to 45 seconds at one of
