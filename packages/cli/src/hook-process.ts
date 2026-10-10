@@ -38,7 +38,7 @@ import {
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
-import {closeDebugSession,routeDebugPrompt,startDebugSession} from "./debug-intake.js";
+import {closeDebugSession,debugStopGate,routeDebugPrompt,startDebugSession} from "./debug-intake.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
@@ -693,7 +693,15 @@ export async function runHookProcess(
       }
     }
     let hookResult: HookResult | undefined;
-    const output = await runHookCommand({
+    // Without the gate, DEBUG still refuses a Stop that has no valid stop
+    // checkpoint. Its own failure stays advisory, so it never blocks other work.
+    const debugStop = completionGate === undefined && hookEvent === "Stop" && normalized !== null &&
+      (harnessId === "agy" || harnessId === "claude") && config.features.debug?.enabled === true
+      ? await debugStopGate(root, config).handle(normalized).catch(() => null)
+      : null;
+    const output = debugStop?.action === "block"
+      ? harnessDescriptor(harnessId).runtime.formatOutput("Stop", debugStop)
+      : await runHookCommand({
       harness: harness as HarnessId,
       event: hookEvent,
       stdin: rawInput,

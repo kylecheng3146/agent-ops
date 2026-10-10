@@ -20,7 +20,7 @@ expectedStatus；附 reference 才能由真實封存的 assertion 決定 confirm
 再透過既有 worktree finish 完成。基線 assertion red、候選 green、相關檢查與
 當前 proof digest 都必須有效；setup / skip / timeout / UNKNOWN 不算重現。
 
-預算與輪數屬於整個原始 root，revision、child、session 不重設。
+預算與輪數屬於整個原始 root，revision、child、session 不重設。新 session 重送同一個 active issue 文字時，會接回原本的 root（或 resume 持有它的 worktree），不會另開新預算。已確認或已否決的假設不能換 id、用相同陳述與方法重開；請帶新的鑑別證據重開原假設。
 受控調查、驗證與取得 slot 後的 review 計時；review 排隊不計時。
 Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromptSubmit`
 或原生 session 開始前景時鐘，並在 idle `Stop` 結束。因此該輪的 Agent 推理、
@@ -36,7 +36,7 @@ checkpoint 保存 task/session/source/contract/config/cause；resume 只接受�
 時間耗盡後明確「繼續」可透過 `extend --event-id latest` 讀取原生人類事件，
 一次增加 20 分鐘；沒有可信事件来源則回報 unsupported，其他阻礙不被解除。
 
-已安裝的 Claude / agy completion gate 會檢查無 Git 差異的 active DEBUG task。
+Claude / agy 的 Stop 都會檢查無 Git 差異的 active DEBUG task，不論是否安裝 completion gate；未啟用 gate 時只執行這項檢查，而檢查本身失敗時維持 advisory。
 有效停止 checkpoint 只允許非成功停止，task 仍 active；allow-stop 不能繞過。
 Codex Stop 對 completion 是 advisory，但仍會結束前景時鐘；opencode Stop
 unsupported，不會自動啟用不支援的 gate。

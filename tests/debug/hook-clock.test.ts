@@ -26,7 +26,7 @@ function io(input: unknown): { readonly io: HookProcessIo; readonly stdout: stri
   };
 }
 
-async function fixture(): Promise<{
+async function fixture(options: {readonly gate?: boolean; readonly budgetMs?: number} = {}): Promise<{
   readonly root: string;
   readonly config: AgentOpsConfig;
   readonly tasks: TaskService;
@@ -44,9 +44,9 @@ async function fixture(): Promise<{
     profiles: ["core"],
     verification: {commands: [], acceptanceRunners: []},
     features: {
-      completionGate: {enabled: true},
+      completionGate: {enabled: options.gate ?? true},
       stopVerification: {enabled: false},
-      debug: {enabled: true, budgetMs: 3_600_000, maxRounds: 5}
+      debug: {enabled: true, budgetMs: options.budgetMs ?? 3_600_000, maxRounds: 5}
     },
     pathMappings: [],
     securityExceptions: []
@@ -76,6 +76,38 @@ async function fixture(): Promise<{
   });
   return {root, config, tasks, taskId: record.task.id, close: async () => await rm(root, {recursive: true, force: true})};
 }
+
+test("without the completion gate an active DEBUG Stop is blocked until a valid stop checkpoint", async () => {
+  const f = await fixture({gate: false, budgetMs: 50});
+  try {
+    const debug = f.tasks.debugService();
+    const run = async (session: string) => {
+      const streams = io({hook_event_name: "Stop", session_id: session, cwd: f.root, stop_hook_active: false});
+      await runHookProcess(["claude", "Stop"], streams.io, "0.8.1", {
+        root: f.root,
+        loadConfig: async () => f.config,
+        trust: async () => "TRUSTED"
+      });
+      return streams.stdout.join("");
+    };
+    const blocked = (stdout: string) => stdout.length > 0 && JSON.parse(stdout).decision === "block";
+
+    const first = await run(SESSION);
+    assert.ok(blocked(first), first);
+    assert.match(first, /TASK_DEBUG_ACTIVE|checkpoint/u);
+    assert.equal(blocked(await run("unrelated-session")), false);
+
+    await debug.foregroundStart(f.taskId, SESSION);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    await debug.foregroundStop(f.taskId, SESSION);
+    await debug.checkpoint(f.taskId, SESSION);
+    assert.equal((await debug.root(f.taskId)).debug.checkpoint?.cause, "budget");
+    assert.equal(blocked(await run(SESSION)), false);
+    assert.equal((await f.tasks.status({taskId: f.taskId})).status, "active");
+  } finally {
+    await f.close();
+  }
+});
 
 test("a blocked or errored Stop keeps foreground timing active until an accepted idle Stop", async () => {
   const f = await fixture();

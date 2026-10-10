@@ -5,6 +5,11 @@ import {calculateConfigHash} from "../../../runtime/src/config/hash.js";
 import {evaluateGuardrail} from "../../../runtime/src/guardrails/evaluate.js";
 import {isDebugIssue} from "../../../runtime/src/task/debug-intake.js";
 import {ensureSessionWorktree,readWorktreeRecord,sessionWorktreeName} from "../../../runtime/src/parallel/service.js";
+import {listWorktrees,resumeWorktree} from "../../../runtime/src/parallel/manage.js";
+import {collectChangeSurface} from "../../../runtime/src/verify/change-surface.js";
+import {calculateSourceFingerprint} from "../../../runtime/src/verify/source-fingerprint.js";
+import type {HookResult, NormalizedHookEvent} from "../../../runtime/src/hooks/events.js";
+import type {AgentOpsConfig} from "../../../runtime/src/contracts.js";
 import {loadEffectiveConfig} from "./context.js";
 import {gitRunner,worktreeDependencies} from "./parallel-deps.js";
 
@@ -75,6 +80,21 @@ export async function routeDebugPrompt(root:string,input:unknown,host:DebugHost 
     catch (error) {return `DEBUG continue preserved original issue ${attached.task.id}: ${error instanceof Error ? error.message : "Native user approval unavailable"}`;}
   }
   if (attached?.status === "active") return attached.task.debug === undefined ? null : `Continue original DEBUG issue ${attached.task.id}; retain its existing budget, evidence and hypotheses.`;
+  // Another session's worktree may already hold this issue; reusing it keeps
+  // its consumed budget and rounds instead of starting a fresh task.
+  const holders=await listWorktrees(worktreeDependencies(),root).catch(()=>[]);
+  for (const {record:held} of holders) {
+    if (held.sessionId === session) continue;
+    const heldConfig=(await loadEffectiveConfig(held.path,"project").catch(()=>null))?.config;
+    if (heldConfig === undefined) continue;
+    const issue=await new TaskService(new FileTaskStore(join(held.path,".agent-ops/tasks/state.json"),held.path),{completion:{root:held.path,gitRunner:gitRunner(held.path),loadConfig:async()=>heldConfig}}).activeDebugRoot(fields.prompt).catch(()=>null);
+    if (issue === null) continue;
+    try {await resumeWorktree(worktreeDependencies(),{cwd:root,name:held.name,sessionId:session});}
+    catch (error) {
+      return `DEBUG original issue ${issue.task.id} is still active in ${held.path}; a new task would reset its budget. ${error instanceof Error ? error.message : "Resume needs confirmation."} After the user confirms, run agent-ops worktree resume ${held.name} --session ${session}.`;
+    }
+    return `Continue original DEBUG issue ${issue.task.id} in ${held.path}; its budget, rounds and evidence are preserved.`;
+  }
   await original.assertDebugBaseline();
   const record=config.worktree?.mode === "auto" && await readWorktreeRecord(root) === null ?
     await ensureSessionWorktree(worktreeDependencies(),{cwd:root,sessionId:session}) : null;
@@ -83,6 +103,15 @@ export async function routeDebugPrompt(root:string,input:unknown,host:DebugHost 
   const tasks=new TaskService(new FileTaskStore(join(path,".agent-ops/tasks/state.json"),path),{completion:{root:path,gitRunner:gitRunner(path),loadConfig:async()=>effective}});
   const existing=await tasks.status({sessionId:session}).catch(()=>null);
   if (existing?.status === "active") return existing.task.debug === undefined ? null : `Continue original DEBUG issue ${existing.task.id}.`;
+  const held=await tasks.activeDebugRoot(fields.prompt);
+  if (held !== null) {
+    await tasks.attach(session,held.task.id);
+    let message=`Continue original DEBUG issue ${held.task.id}; its budget, rounds and evidence are preserved.`;
+    if (foregroundClockSupported(host)) {
+      try {await tasks.debugService().foregroundStart(held.task.id,session);} catch (error) {message+=` Foreground clock unavailable: ${error instanceof Error ? error.message : "host lifecycle is unsupported"}`;}
+    }
+    return message;
+  }
   const ids=effective.verification.commands.filter(c=>c.required).map(c=>c.id);
   const baseline=(await gitRunner(path).run(["rev-parse","--verify","HEAD"])).stdout.toString().trim();
   const criteria=["issue-regression","related-checks"].map(id=>({id,description:id === "issue-regression" ? "Reproduce and fix the original reported issue with relevant regression evidence." : "Pass necessary related checks and two fresh independent reviews.",verifierIds:ids,
@@ -109,4 +138,28 @@ export async function closeDebugSession(root:string, sessionId:string, host:Debu
   const attached=await tasks.status({sessionId}).catch(()=>null);
   if (attached?.status === "active" && attached.task.debug !== undefined)
     await tasks.debugService().foregroundStop(attached.task.id,sessionId);
+}
+
+/**
+ * Without the completion gate, an active DEBUG issue still cannot end a turn
+ * unless a current runtime stop checkpoint exists. Sessions without one pass.
+ */
+export function debugStopGate(root:string, rootConfig:AgentOpsConfig):{handle:(event:NormalizedHookEvent)=>Promise<HookResult | null>} {
+  return {handle:async event=>{
+    if (event.event !== "stop" || event.sessionId === undefined || event.sessionId.length === 0) return null;
+    const sessionId=event.sessionId;
+    const saved=await readWorktreeRecord(join(root,".worktrees",sessionWorktreeName(sessionId))).catch(()=>null);
+    const contextRoot=saved?.mainRoot === root && saved.sessionId === sessionId ? saved.path : root;
+    const config=contextRoot === root ? rootConfig : (await loadEffectiveConfig(contextRoot,"project").catch(()=>null))?.config;
+    if (config === undefined) return null;
+    const runner=gitRunner(contextRoot);
+    const tasks=new TaskService(new FileTaskStore(join(contextRoot,".agent-ops/tasks/state.json"),contextRoot),{completion:{root:contextRoot,gitRunner:runner,loadConfig:async()=>config}});
+    const attached=await tasks.status({sessionId}).catch(()=>null);
+    if (attached?.status !== "active" || attached.task.debug === undefined) return null;
+    const surface=await collectChangeSurface(runner);
+    const fingerprint=await calculateSourceFingerprint(contextRoot,{mode:"worktree",changedFiles:surface.paths},runner);
+    return await tasks.debugService().validCheckpoint(attached.task.id,sessionId,fingerprint)
+      ? {action:"continue",status:"UNKNOWN",code:"COMPLETION_GATE_TASK_DEBUG_STOPPED",remedy:"Original issue remains active with a runtime-bound non-success checkpoint."}
+      : {action:"block",status:"FAIL",code:"COMPLETION_GATE_TASK_DEBUG_ACTIVE",remedy:"Continue the investigation/evidence loop or record a current task debug checkpoint before stopping, even when Git has no net diff."};
+  }};
 }

@@ -51,6 +51,11 @@ try {
  reference=report.acceptance.find(r=>r.criterionId==='issue' && r.phase==='baseline').reference;
  await d.hypothesis(id,{...hypothesis,reference});
  stored=await reviewed(f,report);
+ // Editing the debug proof after review voids that review, even with unchanged source.
+ await d.hypothesis(id,{...hypothesis,id:'late-cause',statement:'Original value is undefined'});
+ await assert.rejects(f.tasks.complete(id,stored.evidence),e=>e.code==='TASK_COMPLETION_TASK_DEBUG_PROOF_REQUIRED');
+ assert.equal((await f.tasks.status({taskId:id})).status,'active');
+ stored=await reviewed(f,report);
  assert.equal((await f.tasks.complete(id,stored.evidence)).status,'complete');
  console.log('Actual regression, review bindings, retry, UNKNOWN rejection and debug completion passed.');
 } finally {await f.close();}

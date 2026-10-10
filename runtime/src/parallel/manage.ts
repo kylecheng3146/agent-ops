@@ -285,7 +285,10 @@ export async function removeWorktree(
       ? mainGate.redirect(record.sessionId, null)
       : mainGate.removeRoot(record.sessionId, record.path));
   }
-  await deps.trust.revoke(record.path, await deps.loadConfig(record.path)).catch(() => undefined);
+  // A paused or stopped run's worktree has no loadable policy config; its trust
+  // was never this checkout's to revoke, so removal must not depend on it.
+  const config = await deps.loadConfig(record.path).catch(() => null);
+  if (config !== null) await deps.trust.revoke(record.path, config).catch(() => undefined);
   await removeCheckout(deps, record, true);
   return status;
 }

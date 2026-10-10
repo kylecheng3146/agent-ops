@@ -42,6 +42,10 @@ Use `task debug --task <id> --debug-action <action>`:
   authorize a grant. Missing native transcripts fail closed as unsupported.
 
 Limits belong to the original root across revisions, children and sessions.
+Repeating an active issue's text from a new session reattaches that root (or
+resumes the worktree holding it) instead of starting a fresh budget. A
+resolved hypothesis cannot return under a new id with the same statement and
+method; reopen the original with new discriminating evidence.
 Controlled investigation, verification and acquired review execution consume
 active time; observable review-slot waiting is excluded. Claude, Codex, and agy
 use their native session lifecycle to account foreground reasoning, tool use,
@@ -65,7 +69,9 @@ meaningful DEBUG proof. Missing IDs, setup failure, skip, timeout and UNKNOWN
 never prove reproduction. Proof changes invalidate review. Completed tasks and
 worktree finish retain the existing attestation/integration requirements.
 
-An installed Claude/agy completion gate checks DEBUG even without Git net diff.
+On Claude and agy, Stop checks an active DEBUG issue even without Git net diff,
+with or without the completion gate. Without the gate this check alone runs,
+and its own failure stays advisory.
 A valid runtime stop checkpoint permits non-success Stop while retaining the
 active task. `allow-stop` cannot waive DEBUG. Gates are never automatically
 enabled for unsupported hosts: Codex Stop is advisory for completion but still

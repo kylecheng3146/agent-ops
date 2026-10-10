@@ -22,6 +22,7 @@ import type {TaskService} from "./service.js";
 import {readDebugUserEvent} from "./debug-user-event.js";
 import {readWorktreeRecord} from "../parallel/service.js";
 import {evaluateGuardrail} from "../guardrails/evaluate.js";
+import {sameDebugText} from "./debug-intake.js";
 import {nativeProcessIdentity} from "../run/transport.js";
 
 interface DebugOptions {
@@ -159,6 +160,8 @@ export class DebugService {
     if (root.status !== "active" || next.operation !== null) fail("TASK_DEBUG_BUSY","Hypothesis changes need an active idle issue.");
     let h = next.hypotheses.find(h=>h.id === input.id);
     if (h === undefined) {
+      const resolved=next.hypotheses.find(o=>["confirmed","rejected"].includes(o.status) && sameDebugText(o.statement,input.statement) && sameDebugText(o.method,input.method));
+      if (resolved !== undefined) fail("TASK_DEBUG_REJECTED_CAUSE",`Hypothesis ${resolved.id} already resolved this cause; reopen it with new discriminating evidence instead of a new id.`);
       if (next.hypotheses.length >= 32) fail("TASK_DEBUG_HISTORY_LIMIT","Hypothesis history is full; preserve it and report the blocker.");
       h = {id:input.id,statement:input.statement,method:input.method,expected:input.expected,checkId:input.checkId!,expectedStatus:input.expectedStatus!,status:"proposed",supporting:[],opposing:[],actual:"",history:[]};
       next.hypotheses.push(h);

@@ -9,7 +9,7 @@ export const mod=path=>import(pathToFileURL(join(build,path)).href);
 const {TaskService}=await mod('runtime/src/task/service.js');
 const {FileTaskStore}=await mod('runtime/src/task/store.js');
 const {calculateConfigHash}=await mod('runtime/src/config/hash.js');
-export async function fixture(debug=true) {
+export async function fixture(debug=true,maxRounds=5) {
   const root=await mkdtemp(join(tmpdir(),'agent-ops-debug-'));
   const git=(...args)=>execFileSync('git',args,{cwd:root,stdio:['ignore','pipe','pipe']});
   git('init','-q');git('config','user.name','Debug fixture');git('config','user.email','fixture@example.invalid');
@@ -17,7 +17,7 @@ export async function fixture(debug=true) {
   await writeFile(join(root,'product.mjs'),'export const value=0;\n');git('add','.');git('commit','-qm','baseline');
   const baseline=git('rev-parse','HEAD').toString().trim();
   const gitRunner={run:async args=>{try{return {exitCode:0,stdout:git(...args)}}catch{return {exitCode:1,stdout:Buffer.alloc(0)}}}};
-  const config={schemaVersion:3,profiles:['core'],verification:{commands:[],acceptanceRunners:[{id:'regression',command:process.execPath,args:['tests/check.mjs'],cwd:'.',adapter:'generic'}]},features:{completionGate:{enabled:false},stopVerification:{enabled:false},...(debug?{debug:{enabled:true,budgetMs:1200000,maxRounds:5}}:{})},pathMappings:[],securityExceptions:[]};
+  const config={schemaVersion:3,profiles:['core'],verification:{commands:[],acceptanceRunners:[{id:'regression',command:process.execPath,args:['tests/check.mjs'],cwd:'.',adapter:'generic'}]},features:{completionGate:{enabled:false},stopVerification:{enabled:false},...(debug?{debug:{enabled:true,budgetMs:1200000,maxRounds}}:{})},pathMappings:[],securityExceptions:[]};
   const store=new FileTaskStore(join(root,'.agent-ops/tasks/state.json'),root);
   const tasks=new TaskService(store,{completion:{root,gitRunner,base:baseline,loadConfig:async()=>config}});
   const materials=[{path:'tests/check.mjs',role:'test'}];
@@ -53,8 +53,34 @@ const checks={
 'debug-resume':async()=>withFixture(async f=>{const d=f.tasks.debugService();await d.checkpoint(f.record.task.id,'native-session');const before=structuredClone((await d.root(f.record.task.id)).debug);await assert.rejects(d.resume(f.record.task.id,'new-session'),e=>e.code==='TASK_DEBUG_RECOVERY_CONFIRMATION_REQUIRED');assert.deepEqual((await d.root(f.record.task.id)).debug,before);const {writeWorktreeRecord}=await mod('runtime/src/parallel/service.js');await writeWorktreeRecord({schemaVersion:1,name:'debug-owned',branch:'agent-ops/debug-owned',path:f.root,mainRoot:f.root,targetBranch:'main',base:f.baseline,sessionId:'native-session',createdAt:new Date().toISOString()});await d.resume(f.record.task.id,'new-session');assert.equal((await f.tasks.status({sessionId:'new-session'})).task.id,f.record.task.id);assert.deepEqual((await d.root(f.record.task.id)).debug,before);await writeFile(join(f.root,'product.mjs'),'dirty own change');await assert.rejects(d.resume(f.record.task.id,'third-session'),e=>e.code==='TASK_DEBUG_RECOVERY_CONFIRMATION_REQUIRED');assert.equal(await readFile(join(f.root,'product.mjs'),'utf8'),'dirty own change');}),
 'debug-install':async()=>{const {createInstallPlan}=await mod('runtime/src/install/plan.js');const root=await mkdtemp(join(tmpdir(),'agent-ops-debug-install-'));try{const plan=await createInstallPlan({root,scope:'project',harness:['claude'],profiles:['core'],adapters:(await mod('runtime/src/install/harness.js')).commonHarnessAdapters()});assert.deepEqual(plan.config.features.debug,{enabled:true,budgetMs:3600000,maxRounds:5});assert.ok(plan.capabilities.includes('task-debug'));assert.ok(plan.operations.some(o=>o.kind==='write' && o.content?.includes('DEBUG defaults are 60 cumulative active minutes')));assert.ok(plan.operations.some(o=>o.kind==='write' && o.content?.includes('DEBUG')));}finally{await rm(root,{recursive:true,force:true})}},
 'debug-settings':async()=>{const {validateConfig}=await mod('runtime/src/schema/validate.js');await withFixture(async f=>{assert.ok(validateConfig(f.config).ok);f.config.features.debug.maxRounds=0;assert.equal(validateConfig(f.config).ok,false);f.config.features.debug={enabled:false,budgetMs:60000,maxRounds:3};assert.ok(validateConfig(f.config).ok);const {resolveCapabilities}=await mod('runtime/src/install/profiles.js');assert.equal(resolveCapabilities(f.config).capabilities.includes('task-debug'),false);});},
-'debug-native-routing':async()=>{const {parseArgs}=await mod('packages/cli/src/args.js');const parsed=parseArgs(['task','create','--title','Original error','--goal','Investigate original error','--debug']);assert.equal(parsed.goal,'Investigate original error');assert.equal(parsed.debug,true);assert.equal(parseArgs(['task','debug','--task','task-id','--debug-action','status']).debugAction,'status');await withFixture(async f=>{await mkdir(join(f.root,'.agent-ops'),{recursive:true});await writeFile(join(f.root,'.agent-ops/config.json'),JSON.stringify(f.config));const {routeDebugPrompt}=await mod('packages/cli/src/debug-intake.js');const routed=await routeDebugPrompt(f.root,{prompt:'Investigate and fix this error',session_id:'new-native'});assert.match(routed,/DEBUG issue/);assert.match(routed,/Defaults: 60 active minutes/);const all=await f.tasks.list();assert.equal(all.length,2);assert.equal(all[1].task.goal,'Investigate and fix this error');assert.equal(all[1].debug.rootTaskId,all[1].task.id);});},
+'debug-native-routing':async()=>{const {parseArgs}=await mod('packages/cli/src/args.js');const parsed=parseArgs(['task','create','--title','Original error','--goal','Investigate original error','--debug']);assert.equal(parsed.goal,'Investigate original error');assert.equal(parsed.debug,true);assert.equal(parseArgs(['task','debug','--task','task-id','--debug-action','status']).debugAction,'status');await withFixture(async f=>{await mkdir(join(f.root,'.agent-ops'),{recursive:true});await writeFile(join(f.root,'.agent-ops/config.json'),JSON.stringify(f.config));const {routeDebugPrompt}=await mod('packages/cli/src/debug-intake.js');const routed=await routeDebugPrompt(f.root,{prompt:'Investigate and fix this error',session_id:'new-native'});assert.match(routed,/DEBUG issue/);assert.match(routed,/Defaults: 60 active minutes/);const all=await f.tasks.list();assert.equal(all.length,2);assert.equal(all[1].task.goal,'Investigate and fix this error');assert.equal(all[1].debug.rootTaskId,all[1].task.id);const again=await routeDebugPrompt(f.root,{prompt:'  investigate and FIX   this error ',session_id:'third-native'});assert.match(again,/Continue original DEBUG issue/u);assert.equal((await f.tasks.list()).length,2);assert.equal((await f.tasks.status({sessionId:'third-native'})).task.id,all[1].task.id);const recreated=await f.tasks.create({...f.input,sessionId:'fourth-native'});assert.equal(recreated.task.id,f.record.task.id);assert.equal((await f.tasks.list()).length,2);assert.equal((await f.tasks.status({sessionId:'fourth-native'})).task.id,f.record.task.id);});},
 'debug-legacy':async()=>withFixture(async f=>{assert.equal(f.record.task.debug,undefined);assert.equal(f.record.debug,undefined);assert.equal((await f.tasks.status({sessionId:'native-session'})).task.id,f.record.task.id);await f.candidate();assert.equal((await f.verify()).status,'PASS');},false),
+'debug-enforcement':async()=>{
+ const {debugStopCause}=await mod('runtime/src/task/debug-state.js');const stop=e=>e.code==='TASK_DEBUG_STOP_REQUIRED';
+ await withFixture(async f=>{
+  const d=f.tasks.debugService(),id=f.record.task.id,cause=async()=>debugStopCause((await d.root(id)).debug);
+  await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
+  await f.candidate(3);const report=await f.verify();assert.equal(report.status,'FAIL');
+  assert.equal(await cause(),'strategy-required');
+  await assert.rejects(f.verify(),stop);
+  const reference=report.acceptance.find(r=>r.criterionId==='issue' && r.phase==='candidate').reference;
+  await assert.rejects(d.strategy(id,{from:'edit',to:'edit again',reason:'again',reference}),e=>e.code==='TASK_DEBUG_STRATEGY_INVALID');
+  const strategy={from:'Change the exported constant directly',to:'Trace the value through its importer before editing',reason:'Two direct constant edits left the original regression red',reference};
+  await d.strategy(id,strategy);assert.equal(await cause(),null);
+  await assert.rejects(d.strategy(id,strategy),e=>e.code==='TASK_DEBUG_STRATEGY_NOT_ALLOWED');
+  await f.candidate(4);assert.equal((await f.verify()).status,'FAIL');
+  await f.candidate(5);assert.equal((await f.verify()).status,'FAIL');
+  assert.equal(await cause(),'stagnation');
+  await f.candidate(6);await assert.rejects(f.verify(),stop);
+  await assert.rejects(d.strategy(id,strategy),e=>e.code==='TASK_DEBUG_STRATEGY_NOT_ALLOWED');
+ });
+ const f=await fixture(true,1);
+ try{
+  await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
+  assert.equal(debugStopCause((await f.tasks.debugService().root(f.record.task.id)).debug),'iterations');
+  await f.candidate(1);await assert.rejects(f.verify(),stop);
+ }finally{await f.close();}
+},
 'debug-hypothesis-lifecycle':async()=>withFixture(async f=>{
  const d=f.tasks.debugService(), id=f.record.task.id;
  await f.candidate();
@@ -75,9 +101,13 @@ const checks={
  assert.deepEqual((await d.root(id)).debug.hypotheses[0].history.map(h=>h.status),['investigating','inconclusive','investigating','confirmed']);
  await assert.rejects(d.hypothesis(id,{...hypothesis,action:'investigate'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
  const candidate=report.acceptance.find(r=>r.phase==='candidate' && r.criterionId==='issue').reference;
- const rejected=await d.hypothesis(id,{...hypothesis,id:'other-cause',reference:candidate});assert.equal(rejected.status,'rejected');
- await assert.rejects(d.hypothesis(id,{...hypothesis,id:'other-cause',action:'investigate'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
- await assert.rejects(d.hypothesis(id,{...hypothesis,id:'other-cause',reference:candidate,reason:'Same evidence is not new.'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+ await assert.rejects(d.hypothesis(id,{...hypothesis,id:'renamed-cause',statement:'  ORIGINAL value   is zero '}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE'&&/cause/u.test(e.message));
+ const other={...hypothesis,id:'other-cause',statement:'Original value is negative'};
+ const rejected=await d.hypothesis(id,{...other,reference:candidate});assert.equal(rejected.status,'rejected');
+ await assert.rejects(d.hypothesis(id,{...other,action:'investigate'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+ await assert.rejects(d.hypothesis(id,{...other,reference:candidate,reason:'Same evidence is not new.'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+ await assert.rejects(d.hypothesis(id,{...other,id:'renamed-negative',method:'execute ORIGINAL issue assertion'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+ assert.equal((await d.root(id)).debug.hypotheses.length,2);
 })
 };
 export async function run(ids){const executionId=process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-debug',phase=process.env.AGENT_OPS_ACCEPTANCE_PHASE ?? 'candidate';const results=[];for(const checkId of ids){let status='PASS',failureClass='none',detail='Actual behavior assertions completed';try{if(!checkId.startsWith('debug-legacy') && checkId!=='debug-no-run-change')assert.equal(typeof TaskService.prototype.debugService,'function','Task-level debug execution exists');await checks[checkId]();}catch(e){status='FAIL';failureClass=e.code==='ERR_ASSERTION'?'assertion-failed':'infrastructure-error';detail=String(e.stack ?? e).replace(/[\r\n]/gu," ").slice(0,4000);}results.push({executionId,phase,framework:'debug-node-assert',frameworkVersion:'1',checkId,status,failureClass,attempts:1,evidence:[detail]});}console.log(JSON.stringify({protocolVersion:1,executionId,phase,framework:'debug-node-assert',frameworkVersion:'1',results,completed:true,completionEvidence:['All named checks ran once'],diagnostics:[]}));if(results.some(r=>r.status==='FAIL'))process.exitCode=1;return results;}

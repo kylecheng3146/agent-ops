@@ -5,6 +5,7 @@ import test from "node:test";
 
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { worktreeDependencies } from "../../packages/cli/src/parallel-deps.js";
+import { routeDebugPrompt } from "../../packages/cli/src/debug-intake.js";
 import { claudeHookOutput } from "../../runtime/src/adapters/claude/output.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
@@ -146,6 +147,59 @@ test("resume hands the worktree, its task and its gate to a new session", async 
 
     await assert.rejects(resumeWorktree(d, { cwd: root, name: "alpha", sessionId: undefined }), rejectsWith("WORKTREE_SESSION_REQUIRED"));
     await assert.rejects(resumeWorktree(d, { cwd: root, name: "gone", sessionId: "s" }), rejectsWith("WORKTREE_NOT_FOUND"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a repeated DEBUG issue from a new session reuses the worktree that holds it", async () => {
+  const config = { ...CONFIG, features: { ...CONFIG.features, debug: { enabled: true, budgetMs: 3_600_000, maxRounds: 5 } } };
+  const root = await repository(config);
+  try {
+    const d = worktreeDependencies();
+    const { record } = await addWorktree(d, { cwd: root, name: "holder", sessionId: SESSION });
+    const issue = "Investigate and fix the login error";
+    const held = await d.tasks(record.path, record.base).create({
+      title: "Login error",
+      goal: issue,
+      criteria: [
+        { id: "issue", description: "The issue is fixed", verifierIds: ["node-test"] },
+        { id: "related", description: "Related checks pass", verifierIds: ["node-test"] }
+      ],
+      debug: {},
+      sessionId: SESSION
+    });
+    const worktreesBefore = await git(root, "worktree", "list");
+
+    // Without a matching checkpoint the resume fails closed and nothing new is created.
+    const refused = await routeDebugPrompt(root, { prompt: issue, session_id: "session-new" });
+    assert.match(refused ?? "", new RegExp(`${held.task.id} is still active`, "u"));
+    assert.equal(await git(root, "worktree", "list"), worktreesBefore);
+    assert.equal((await d.tasks(record.path).list()).length, 1);
+
+    await d.tasks(record.path, record.base).debugService().checkpoint(held.task.id, SESSION);
+    const resumed = await routeDebugPrompt(root, { prompt: issue, session_id: "session-new" });
+    assert.match(resumed ?? "", new RegExp(`Continue original DEBUG issue ${held.task.id}`, "u"));
+    assert.equal((await d.tasks(record.path).status({ sessionId: "session-new" })).task.id, held.task.id);
+    assert.equal(await git(root, "worktree", "list"), worktreesBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("remove deletes a paused run's worktree whose policy config cannot load", async () => {
+  const root = await repository();
+  try {
+    const base = manageDeps();
+    const { record } = await addWorktree(base, { cwd: root, name: "paused", sessionId: "session-paused" });
+    // What loadEffectiveConfig throws for a worktree owned by a paused or stopped run.
+    const d = { ...base, loadConfig: async (path: string) => path === record.path
+      ? Promise.reject(new AgentOpsError("RUN_POLICY_DISABLED", "Run execution policy is inactive; explicit resume is required."))
+      : base.loadConfig(path) };
+    await removeWorktree(d, { cwd: root, name: "paused", force: false });
+    assert.equal(await exists(record.path), false);
+    assert.equal(await git(root, "branch", "--list", "agent-ops/paused"), "");
+    assert.deepEqual(base.revoked, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

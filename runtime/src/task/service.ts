@@ -35,6 +35,7 @@ import { taskContractHash, treeContractHash } from "./contract.js";
 import { commitIdentity } from "../schema/acceptance.js";
 import {createDebugState, DEBUG_DEFAULTS} from "./debug-state.js";
 import {DebugService} from "./debug.js";
+import {sameDebugText} from "./debug-intake.js";
 
 export interface ReviseTaskInput {
   readonly expectedContractHash: string;
@@ -223,6 +224,11 @@ export class TaskService {
     }
     if (input.sessionId !== undefined) {
       assertSessionId(input.sessionId);
+    }
+    // A new session must not restart an active issue's budget and rounds.
+    if (input.debug !== undefined && input.parentTaskId === undefined && input.goal !== undefined) {
+      const existing = await this.activeDebugRoot(input.goal);
+      if (existing !== null) return input.sessionId === undefined ? existing : await this.attach(input.sessionId, existing.task.id);
     }
     let createdSourceCommit = input.createdSourceCommit;
     if (createdSourceCommit === undefined && this.#completion !== undefined) {
@@ -553,6 +559,12 @@ export class TaskService {
         });
       }
     });
+  }
+
+  /** The active DEBUG root already holding this original issue, if any. */
+  async activeDebugRoot(goal: string): Promise<StoredTaskRecord | null> {
+    return (await this.list()).find((record) => record.status === "active" && record.task.debug?.rootTaskId === record.task.id &&
+      record.task.goal !== undefined && sameDebugText(record.task.goal, goal)) ?? null;
   }
 
   async list(
