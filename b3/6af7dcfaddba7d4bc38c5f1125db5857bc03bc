@@ -1,0 +1,7 @@
+worktree: session-4d39998c (agent-ops/session-4d39998c)
+session: 4d39998c-2968-4560-926c-21416f9dd994
+agent-ops task task-67ad8102-32e3-4205-b515-812339a49448: Resolve fast-uri and CodeQL test alerts
+intent: Bump the locked dev-only fast-uri (via ajv) from 3.1.5 to a patched 3.1.8 within ajv's ^3.0.1 range, lockfile only. Fix the useless regex escape in tests/cli/review-task-context.test.ts so the dot is literal, and make tests/office/client.test.ts script extraction accept closing tags with attributes/whitespace. No package.json dependency changes, no runtime source changes.
+criteria:
+- fast-uri-patched: package-lock.json resolves fast-uri to a version outside the vulnerable 3.0.0-3.1.7 range and npm audit reports no fast-uri vulnerability; package.json dependencies unchanged.
+- codeql-test-regex: The review-task-context assertion matches a literal dot and the Office client test extracts the script with a closing-tag pattern that tolerates attributes or whitespace; both tests still pass.
