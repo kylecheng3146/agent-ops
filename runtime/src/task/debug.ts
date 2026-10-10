@@ -15,7 +15,7 @@ import {resolveReviewScope} from "../review/scope.js";
 import {runVerificationCommand} from "../verify/spawn.js";
 import {checkTaskVerificationEvidence} from "./completion.js";
 import {taskContractHash,criterionContractHash} from "./contract.js";
-import {DEBUG_DEFAULTS, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
+import {DEBUG_EXTENSION_MS, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
 import {FileTaskStore, type TaskStore, type StoredTaskRecord} from "./store.js";
 import type {VerificationReport} from "../verify/service.js";
 import type {TaskService} from "./service.js";
@@ -259,6 +259,6 @@ export class DebugService {
     if (debugRemainingMs(root.debug) !== 0 || otherCause !== null || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()) ||
         event.timestamp < (root.debug.receipts.at(-1)?.finishedAt ?? Infinity))
       fail("TASK_DEBUG_GRANT_INVALID","Only a contemporaneous human continue event extends exhausted time; other blockers remain authoritative.");
-    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_DEFAULTS.budgetMs}],checkpoint:null});
+    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS}],checkpoint:null});
   }
 }

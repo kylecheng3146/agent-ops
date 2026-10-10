@@ -557,10 +557,32 @@ test("replanning preserves user-authored verifier configuration", async () => {
 
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")),
-      {...configured,features:{...configured.features,debug:{enabled:true,budgetMs:1200000,maxRounds:5}}}
+      {...configured,features:{...configured.features,debug:{enabled:true,budgetMs:3600000,maxRounds:5}}}
     );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("replanning preserves explicit debug budgets and disabled settings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-install-"));
+  const options = {root,scope:"project" as const,harness:["codex" as const],profiles:["core" as const],adapters:adapters()};
+  try {
+    await applyInstallPlan(root, await createInstallPlan(options));
+    const configPath = join(root, ".agent-ops", "config.json");
+    for (const debug of [
+      {enabled:false,budgetMs:1200000,maxRounds:5},
+      {enabled:true,budgetMs:1200000,maxRounds:5},
+      {enabled:true,budgetMs:300000,maxRounds:2}
+    ]) {
+      const config = JSON.parse(await readFile(configPath, "utf8"));
+      config.features.debug = debug;
+      await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      await applyInstallPlan(root, await createInstallPlan(options));
+      assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).features.debug, debug);
+    }
+  } finally {
+    await rm(root, {recursive:true,force:true});
   }
 });
 

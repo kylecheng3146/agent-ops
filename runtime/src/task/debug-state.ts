@@ -2,7 +2,8 @@ import {canonicalJson} from "../config/hash.js";
 import {sha256} from "../fs/hash.js";
 import {AgentOpsError} from "../fs/paths.js";
 
-export const DEBUG_DEFAULTS = {enabled: true, budgetMs: 20 * 60_000, maxRounds: 5} as const;
+export const DEBUG_DEFAULTS = {enabled: true, budgetMs: 60 * 60_000, maxRounds: 5} as const;
+export const DEBUG_EXTENSION_MS = 20 * 60_000;
 export type DebugCause = "budget" | "iterations" | "strategy-required" | "stagnation" | "environment" | "permission";
 export interface DebugHypothesis {
   id: string;
@@ -94,7 +95,7 @@ export function validDebugState(v: unknown): v is DebugState {
       ![r.contractHash,r.configHash,r.sourceFingerprint,r.productDigest].every(hash) || !integer(r.durationMs) || !integer(r.finishedAt) || typeof r.round !== "boolean" ||
       !strings(r.progress) || !strings(r.references) || !["PASS","FAIL","UNKNOWN"].includes(String(r.outcome)) || ![null,"environment","permission"].includes(r.cause as null)) return false;
   if (new Set(v.receipts.map(r => r.id)).size !== v.receipts.length || v.receipts.filter(r => r.round).length > (v.maxRounds as number)) return false;
-  for (const g of v.grants) if (!exact(g,["eventId","sessionId","sourceDigest","grantedMs"]) || !text(g.eventId) || !text(g.sessionId) || !hash(g.sourceDigest) || g.grantedMs !== DEBUG_DEFAULTS.budgetMs) return false;
+  for (const g of v.grants) if (!exact(g,["eventId","sessionId","sourceDigest","grantedMs"]) || !text(g.eventId) || !text(g.sessionId) || !hash(g.sourceDigest) || g.grantedMs !== DEBUG_EXTENSION_MS) return false;
   if (new Set(v.grants.map(g => g.eventId)).size !== v.grants.length) return false;
   if (v.strategy !== null && (!exact(v.strategy,["from","to","reason","references","afterRound"]) ||
       ![v.strategy.from,v.strategy.to,v.strategy.reason].every(text) || v.strategy.from === v.strategy.to ||

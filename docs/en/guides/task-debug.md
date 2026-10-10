@@ -1,7 +1,7 @@
 # Task DEBUG investigations
 
 Project `init` and `update` add `features.debug` by default:
-`{"enabled":true,"budgetMs":1200000,"maxRounds":5}`. Explicit disabled and custom
+`{"enabled":true,"budgetMs":3600000,"maxRounds":5}` (sixty minutes). Explicit disabled and custom
 settings survive subsequent installs. Old configurations and ordinary tasks
 remain readable. DEBUG is an optional task intake field, not a new run mode.
 

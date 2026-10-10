@@ -155,7 +155,7 @@ test("migrates a manifest-owned version 0 config during update", async () => {
       features: {
         stopVerification: { enabled: false },
         completionGate: { enabled: false },
-        debug: {enabled:true,budgetMs:1200000,maxRounds:5}
+        debug: {enabled:true,budgetMs:3600000,maxRounds:5}
       },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
@@ -491,7 +491,7 @@ test("explicit target update is offline and preserves verifier config", async ()
       features: {
         stopVerification: { enabled: false },
         completionGate: { enabled: false },
-        debug: {enabled:true,budgetMs:1200000,maxRounds:5}
+        debug: {enabled:true,budgetMs:3600000,maxRounds:5}
       }
     });
     assert.match(

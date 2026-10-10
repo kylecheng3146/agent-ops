@@ -1,6 +1,6 @@
 # Task DEBUG 調查
 
-`init` / `update` 預設加入 `features.debug`：啟用、20 分鐘、5 輪。
+`init` / `update` 預設加入 `features.debug`：啟用、60 分鐘、5 輪。
 之後保留明確關閉與自訂設定；舊設定和一般 task 保持相容。
 
 Claude / Codex prompt hook 會保守辨識調查與修復問題，保留原始 `goal`，
