@@ -174,9 +174,9 @@ export function buildClaudeHookSettings(
     }
     // The loop has its own prompt hook. Outside it, a prompt is both the
     // turn's start for Office and content for command policy.
-    if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) {
+    if (capabilities.includes("command-policy") || capabilities.includes("office-presence") || capabilities.includes("task-debug")) {
       hooks.UserPromptSubmit = [matcherGroup("UserPromptSubmit", runtimePath)];
-      hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
+      if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }
   // The gate supersedes report-only Stop verification: one managed Stop

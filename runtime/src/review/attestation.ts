@@ -43,6 +43,7 @@ export interface TreeReviewScope {
  * different fingerprint, so a stale attestation can never satisfy a gate.
  */
 export interface ReviewContractBinding {
+  readonly debugProofs?: Readonly<Record<string,string>>;
   readonly taskContractHash: string;
   readonly taskContracts: Readonly<Record<string, string>>;
   readonly treeContractHash?: string;
@@ -53,7 +54,9 @@ export interface ReviewContractBinding {
 
 function validContractBinding(value: Record<string, unknown>): boolean {
   const hashes = [value.taskContractHash, value.goalHash, value.coverageDigest];
-  return hashes.every(v => typeof v === "string" && DIGEST_PATTERN.test(v)) &&
+  return (value.debugProofs === undefined || typeof value.debugProofs === "object" && value.debugProofs !== null && !Array.isArray(value.debugProofs) &&
+    Object.entries(value.debugProofs).every(([id,hash])=>TASK_ID_PATTERN.test(id) && typeof hash === "string" && DIGEST_PATTERN.test(hash))) &&
+    hashes.every(v => typeof v === "string" && DIGEST_PATTERN.test(v)) &&
     (value.treeContractHash === undefined || typeof value.treeContractHash === "string" && DIGEST_PATTERN.test(value.treeContractHash)) &&
     typeof value.candidateCommit === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value.candidateCommit) &&
     typeof value.taskContracts === "object" && value.taskContracts !== null && !Array.isArray(value.taskContracts) &&
@@ -63,6 +66,7 @@ function validContractBinding(value: Record<string, unknown>): boolean {
 }
 function contractBinding(value: Record<string, unknown>): ReviewContractBinding | undefined {
   return validContractBinding(value) ? {
+    ...(value.debugProofs === undefined ? {} : {debugProofs:value.debugProofs as Record<string,string>}),
     taskContractHash: value.taskContractHash as string, taskContracts: value.taskContracts as Record<string, string>,
     ...(value.treeContractHash === undefined ? {} : {treeContractHash: value.treeContractHash as string}),
     goalHash: value.goalHash as string, candidateCommit: value.candidateCommit as string, coverageDigest: value.coverageDigest as string

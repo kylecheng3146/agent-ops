@@ -251,7 +251,7 @@ export function mergeConfigLayers(
 
   for (const layer of layers) {
     schemaVersion = effective(layer.config.schemaVersion, layer);
-    features = effective(layer.config.features, layer);
+    features = effective({...layer.config.features, ...(layer.config.features.debug === undefined && features?.value.debug !== undefined ? {debug:features.value.debug} : {})}, layer);
     // Whole-block override: a workflow choice, not a guardrail, so a project
     // may turn a user-level `auto` off.
     if (layer.config.worktree !== undefined) {

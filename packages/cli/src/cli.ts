@@ -48,7 +48,7 @@ Commands:
   doctor     Diagnose an installation
   update     Update managed artifacts
   uninstall  Remove managed artifacts
-  task <create|status|attach|revise|replan|pin-finding|advance|complete|archive|export>
+  task <create|status|attach|revise|replan|pin-finding|debug|advance|complete|archive|export>
              Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review or show recorded reports
@@ -194,13 +194,19 @@ Options:
   --json
   --yes
 `,
-  task: `Usage: agent-ops task <create|status|attach|revise|replan|pin-finding|advance|complete|archive|export> [options]
+  task: `Usage: agent-ops task <create|status|attach|revise|replan|pin-finding|debug|advance|complete|archive|export> [options]
 
 Manage independent task acceptance state. Task commands accept none of
 --harness, --profile or --dry-run. Only advance accepts --yes.
 
 Options:
   --title <text>                        create
+  --goal <text>                         create: immutable original issue/goal
+  --debug                               create: task-level investigation tag
+  --debug-action <status|hypothesis|strategy|investigate|checkpoint|resume|extend>
+  --payload-file <path>                 debug hypothesis/strategy: bounded JSON
+  --command-id <id>                     debug investigate: trusted configured command
+  --event-id <native-event-id|latest>    debug extend: authentic human continue event
   --intent <text>                       create: intended behavior and constraints before editing
   --criterion <json>                    create, repeatable, two to five total
   --criterion-file <path>               create: one criterion object, repeatable; pin-finding: exactly one
@@ -212,7 +218,7 @@ Options:
   --baseline <git-ref>                  create/revise: baseline for new mechanical requirements
   --parent <task-id>                    create: record a subtask; status: list subtasks
   --task <id>                           status, attach, revise, replan, pin-finding, complete, archive, export, advance
-  --session <id>                        create, attach, status, advance
+  --session <id>                        create, attach, status, advance, debug
   --evidence <criterion-id=reference>   complete, repeatable
   --base <git-ref>                      complete: a clean committed range
   --yes                                 advance: authorize the two review sessions

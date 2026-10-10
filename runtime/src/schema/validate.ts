@@ -1,3 +1,4 @@
+import {validDebugSettings, validDebugIntake} from "../task/debug-state.js";
 import type {
   AcceptanceCriterion,
   AgentOpsConfig,
@@ -530,12 +531,14 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   }
   const featuresUnknown = unknownFieldFailure(
     root.features,
-    ["completionGate", "stopVerification", "office"],
+    ["completionGate", "stopVerification", "office", "debug"],
     "$.features"
   );
   if (featuresUnknown !== undefined) {
     return featuresUnknown;
   }
+  if (root.features.debug !== undefined && !validDebugSettings(root.features.debug))
+    return failure("INVALID_FEATURE", "$.features.debug", "Debug requires enabled, bounded budgetMs and maxRounds.");
   if (root.features.office !== undefined) {
     if (!isRecord(root.features.office)) {
       return failure("INVALID_TYPE", "$.features.office", "office must be an object.");
@@ -935,12 +938,14 @@ export function validateCriterion(
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title"],
+    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug"],
     isRecord(value) && value.schemaVersion === 1 ? 1 : TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
     return root;
   }
+  if (root.debug !== undefined && (!validDebugIntake(root.debug) || root.schemaVersion !== TASK_SCHEMA_VERSION || root.goal === undefined))
+    return failure("INVALID_DEBUG_TASK", "$.debug", "Debug tasks require immutable goal and bounded root intake.");
   if (root.contractRevision !== undefined && (!Number.isSafeInteger(root.contractRevision) || (root.contractRevision as number) < 0))
     return failure("INVALID_CONTRACT_REVISION", "$.contractRevision", "Invalid contract revision.");
   if (root.goal !== undefined && (!isNonEmptyString(root.goal) || Buffer.byteLength(root.goal as string, "utf8") > 65536))

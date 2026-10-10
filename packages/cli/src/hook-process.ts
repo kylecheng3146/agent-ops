@@ -38,6 +38,7 @@ import {
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
+import {routeDebugPrompt} from "./debug-intake.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
@@ -382,7 +383,8 @@ function completionGateFor(
     gitRunner,
     ...(harness === undefined ? {} : { harness }),
     taskService: new TaskService(
-      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
+      {completion:{root,gitRunner,loadConfig:async()=>config}}
     ),
     evidenceStore: new FileEvidenceStore(root, root),
     forRoot: async (worktree) => {
@@ -443,11 +445,16 @@ async function promptSubmitted(harness: "claude" | "codex", io: HookProcessIo, d
         ...(typeof fields.session_id === "string" ? {sessionId: fields.session_id} : {})
       }).catch(() => undefined);
     }
-    if (config.profiles.length === 0 || !resolveCapabilities(config).capabilities.includes("command-policy")) return 0;
+    if (config.profiles.length === 0) return 0;
     // ponytail: the loop's 64 KiB prompt bound; a larger prompt goes unchecked.
     const prompt = fields.prompt;
     if (typeof prompt !== "string" || prompt.length === 0 || prompt.length > 64 * 1024 || prompt.includes("\0")) return 0;
-    if (evaluateGuardrail({kind: "content", content: prompt, scope: root}).action !== "block") return 0;
+    if (evaluateGuardrail({kind: "content", content: prompt, scope: root}).action !== "block") {
+      const context=await routeDebugPrompt(root,input).catch(error=>`DEBUG intake unavailable: ${error instanceof Error ? error.message : "preserve current state"}`);
+      if (context !== null) io.writeStdout(harness === "claude" ? JSON.stringify({hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:context}}) : context+"\n");
+      return 0;
+    }
+    if (!config.profiles.includes("guardrails") && !config.profiles.includes("loop") && !config.profiles.includes("run")) return 0;
     const reason = "agent-ops blocked a suspected secret.";
     if (harness === "claude") {
       io.writeStdout(JSON.stringify({decision: "block", reason}));

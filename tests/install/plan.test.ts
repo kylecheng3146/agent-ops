@@ -96,7 +96,8 @@ test("plans a complete project install without writing", async () => {
       "review",
       "lifecycle-summary",
       "local-log",
-      "command-policy"
+      "command-policy",
+      "task-debug"
     ]);
 
     const agents = writeOperation(plan, "AGENTS.md");
@@ -556,7 +557,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
 
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")),
-      configured
+      {...configured,features:{...configured.features,debug:{enabled:true,budgetMs:1200000,maxRounds:5}}}
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -701,7 +702,7 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     assert.equal(disabled.config.features.office?.enabled, false);
     assert.ok(!disabled.capabilities.includes("office-presence"));
     await applyInstallPlan(root, disabled);
-    assert.equal(disabled.manifest.hooks?.length ?? 0, 0);
+    assert.equal(disabled.manifest.hooks?.length ?? 0, 2, "DEBUG prompt hooks stay enabled when Office is off");
   } finally {
     await rm(root, {recursive: true, force: true});
   }

@@ -179,7 +179,7 @@ async function createFreshInstallation(
       adapters: commonHarnessAdapters(),
       toolkitVersion: options.toolkitVersion ?? TEST_TOOLKIT_VERSION,
       ...(options.hookRuntimePath === undefined
-        ? {}
+        ? {hookRuntimePath:"/agent-ops/dist/hook-process.js"}
         : { hookRuntimePath: options.hookRuntimePath })
     })
   );

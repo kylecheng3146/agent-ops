@@ -26,6 +26,7 @@ export interface AcceptanceReplayOptions {
   readonly trusted: boolean;
   readonly scope: "project" | "user";
   readonly signal?: AbortSignal;
+  readonly remainingMs?: () => Promise<number>;
 }
 export interface AcceptanceReplayResult {
   readonly criterionId: string;
@@ -124,10 +125,13 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       const temp = await mkdtemp(join(tmpdir(), "agent-ops-acceptance-"));
       const checkout = join(temp, "repository");
       const env = replayEnvironment(checkout, phase, executionId);
-      const command = async (executable: string, args: readonly string[], cwd: string, timeoutMs = 60_000) =>
-        await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
-          evidence: {kind: "exit-code"}, timeoutMs}, {cwd, runner: options.processRunner, env, replaceEnv: true,
+      const command = async (executable: string, args: readonly string[], cwd: string, timeoutMs = 60_000) => {
+        const remaining = await options.remainingMs?.();
+        if (remaining === 0) throw new AgentOpsError("TASK_DEBUG_BUDGET_EXHAUSTED","The original issue's active budget is exhausted.");
+        return await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
+          evidence: {kind: "exit-code"}, timeoutMs:Math.min(timeoutMs,remaining ?? Infinity)}, {cwd, runner: options.processRunner, env, replaceEnv: true,
           outputLimitBytes: 1024 * 1024, ...(options.signal === undefined ? {} : {signal: options.signal})});
+      };
       let aggregate: AcceptanceAggregate | undefined;
       let failure = "replay-unavailable";
       let output: SpawnResult | undefined;

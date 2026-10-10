@@ -23,6 +23,7 @@ import {
 } from "../output.js";
 
 export interface TaskCommandOptions {
+  readonly trusted?: boolean;
   readonly args: ParsedArgs;
   readonly service: TaskService;
   readonly sessionId?: string;
@@ -118,7 +119,7 @@ function taskAction(args: ParsedArgs): TaskAction {
       "complete",
       "create",
       "export",
-      "status", "revise", "replan", "pin-finding"
+      "status", "revise", "replan", "pin-finding", "debug"
     ].includes(args.action)
   ) {
     throw new AgentOpsError(
@@ -140,7 +141,7 @@ function taskEnvelope(
     message,
     record,
     contractHash: taskContractHash(record.task),
-    text: renderTaskMarkdown(record) + "\nContract: " + taskContractHash(record.task)
+    text: renderTaskMarkdown(record) + "\nContract: " + taskContractHash(record.task) + (record.debug === undefined ? "" : "\nDEBUG: " + JSON.stringify(record.debug))
   });
 }
 
@@ -171,11 +172,14 @@ export async function runTaskCommand(
           "Task creation requires --title."
         );
       }
+      if (options.args.debug) await options.service.assertDebugBaseline();
       const worktree = sessionId === undefined || options.sessionWorktree === undefined
         ? undefined
         : await options.sessionWorktree(sessionId);
       const record = await (worktree?.service ?? options.service).create({
         title: options.args.title,
+        ...(options.args.goal === undefined ? {} : {goal:options.args.goal}),
+        ...(options.args.debug ? {debug:{}} : {}),
         ...(options.args.intent === undefined ? {} : { intent: options.args.intent }),
         criteria: [...(options.args.criteria ?? []).map(parseCriterion),
           ...await Promise.all((options.args.criterionFiles ?? []).map(async path => await jsonFile(path) as AcceptanceCriterion))]
@@ -217,6 +221,20 @@ export async function runTaskCommand(
           ].join("\n")
         }
       };
+    }
+    if (action === "debug") {
+      const id=requireTaskId(options.args), service=options.service.debugService();
+      switch (options.args.debugAction) {
+        case "hypothesis": await service.hypothesis(id,await jsonFile(options.args.payloadFile!) as Parameters<typeof service.hypothesis>[1]); break;
+        case "strategy": await service.strategy(id,await jsonFile(options.args.payloadFile!) as Parameters<typeof service.strategy>[1]); break;
+        case "investigate": await service.investigate(id,options.args.commandId!,options.trusted === true); break;
+        case "checkpoint": if (sessionId === undefined) throw new AgentOpsError("TASK_SESSION_REQUIRED","Debug checkpoint requires a session."); await service.checkpoint(id,sessionId); break;
+        case "resume": if (sessionId === undefined) throw new AgentOpsError("TASK_SESSION_REQUIRED","Debug resume requires a session."); await service.resume(id,sessionId); break;
+        case "extend": if (sessionId === undefined) throw new AgentOpsError("TASK_SESSION_REQUIRED","Debug extension requires a native session."); await service.extend(id,sessionId,options.args.eventId!); break;
+        case "status": break;
+        default: throw new AgentOpsError("TASK_DEBUG_ACTION_INVALID","A supported debug operation is required.");
+      }
+      return taskEnvelope(action,"TASK_DEBUG_UPDATED","Original issue debug state preserved.",await service.root(id));
     }
     if (action === "revise") {
       const payload = await jsonFile(options.args.criteriaFile!);

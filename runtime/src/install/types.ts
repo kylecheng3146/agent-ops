@@ -3,6 +3,7 @@ import type { HarnessId, Profile } from "../contracts.js";
 export type Capability =
   | "rules"
   | "task"
+  | "task-debug"
   | "verify"
   | "review"
   | "office-presence"

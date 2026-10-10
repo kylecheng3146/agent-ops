@@ -96,6 +96,8 @@ export interface SecurityException {
 }
 
 export interface AgentOpsFeatures {
+  /** Task-level investigation; absent remains compatible with older installations. */
+  debug?: { enabled: boolean; budgetMs: number; maxRounds: number };
   /** Office Preview is opt-in; older configs may omit this field. */
   office?: {
     enabled: boolean;
@@ -176,6 +178,7 @@ export interface AcceptanceCriterion {
 }
 
 export interface AgentTask {
+  debug?: { rootTaskId: string; facts: string[]; unknowns: string[] };
   schemaVersion: 1 | typeof TASK_SCHEMA_VERSION;
   id: string;
   title: string;

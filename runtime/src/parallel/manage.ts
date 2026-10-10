@@ -191,6 +191,7 @@ export async function resumeWorktree(
   const previous = await requireRecord(mainRoot, name);
   const tasks = deps.tasks(previous.path);
   const attached = await tasks.status({ sessionId: previous.sessionId }).catch(() => null);
+  if (attached?.task.debug !== undefined) await tasks.debugService().resume(attached.task.id,sessionId);
   if (attached !== null) await tasks.attach(sessionId, attached.task.id);
   const record: WorktreeRecord = { ...previous, sessionId };
   await writeWorktreeRecord(record);

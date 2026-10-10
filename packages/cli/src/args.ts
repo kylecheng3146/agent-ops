@@ -48,7 +48,9 @@ export type TaskAction =
   | "status"
   | "revise"
   | "replan"
-  | "pin-finding";
+  | "pin-finding"
+  | "debug";
+export type DebugAction = "status" | "hypothesis" | "strategy" | "investigate" | "checkpoint" | "resume" | "extend";
 export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
@@ -56,6 +58,11 @@ export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respo
 export type CliAction = RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
+  debug?: boolean;
+  debugAction?: DebugAction;
+  payloadFile?: string;
+  commandId?: string;
+  eventId?: string;
   command: CliCommand;
   runAction?: RunAction;
   runId?: string;
@@ -216,6 +223,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let targetVersion: string | undefined;
   let title: string | undefined;
   let intent: string | undefined;
+  let taskGoal: string | undefined;
+  let debug = false;
+  let debugAction: DebugAction | undefined;
+  let payloadFile: string | undefined;
+  let commandId: string | undefined;
+  let eventId: string | undefined;
   let sessionId: string | undefined;
   let base: string | undefined;
   let parentBase: string | undefined;
@@ -352,6 +365,17 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         index += 1;
         break;
       }
+      case "--goal": if (taskGoal !== undefined) duplicate(token); taskGoal=readOptionValue(argv,index++,token); break;
+      case "--debug": if (debug) duplicate(token); debug=true; break;
+      case "--debug-action": {
+        if (debugAction !== undefined) duplicate(token);
+        const value=readOptionValue(argv,index++,token);
+        if (!["status","hypothesis","strategy","investigate","checkpoint","resume","extend"].includes(value)) invalidValue(token,value);
+        debugAction=value as DebugAction; break;
+      }
+      case "--payload-file": if (payloadFile !== undefined) duplicate(token); payloadFile=readOptionValue(argv,index++,token); break;
+      case "--command-id": if (commandId !== undefined) duplicate(token); commandId=readOptionValue(argv,index++,token); break;
+      case "--event-id": if (eventId !== undefined) duplicate(token); eventId=readOptionValue(argv,index++,token); break;
       case "--tree": {
         if (tree) duplicate(token);
         tree = true;
@@ -577,7 +601,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
             "complete",
             "create",
             "export",
-            "status", "revise", "replan", "pin-finding"
+            "status", "revise", "replan", "pin-finding", "debug"
           ].includes(token)
         ) {
           action = token as TaskAction;
@@ -843,6 +867,15 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     );
   }
   const revisionAction = command === "task" && ["revise", "replan", "pin-finding"].includes(action ?? "");
+  if ((taskGoal !== undefined || debug) && !(command === "task" && action === "create"))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED","--goal and --debug apply only to task create.");
+  if ((debugAction !== undefined || commandId !== undefined || eventId !== undefined || payloadFile !== undefined) && !(command === "task" && action === "debug"))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED","Debug operation options apply only to task debug.");
+  if (command === "task" && action === "debug" && (taskId === undefined || debugAction === undefined || title !== undefined || intent !== undefined ||
+    parentTaskId !== undefined || criteria.length > 0 || evidence.length > 0 ||
+    ((debugAction === "hypothesis" || debugAction === "strategy") !== (payloadFile !== undefined)) ||
+    ((debugAction === "investigate") !== (commandId !== undefined)) || ((debugAction === "extend") !== (eventId !== undefined))))
+    throw new CliArgumentError("CLI_MISSING_VALUE","Task debug requires --task, --debug-action and the operation's exact payload/command/event options.");
   if ((criterionFiles.length > 0 && !(command === "task" && (action === "create" || action === "pin-finding"))) ||
     (criteriaFile !== undefined && !(command === "task" && action === "revise")) ||
     (planFile !== undefined && !(command === "task" && action === "replan")) ||
@@ -1083,6 +1116,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(targetVersion === undefined ? {} : { targetVersion }),
     ...(title === undefined ? {} : { title }),
     ...(intent === undefined ? {} : { intent }),
+    ...(taskGoal === undefined ? {} : {goal:taskGoal}),
+    ...(debug ? {debug:true} : {}),
+    ...(debugAction === undefined ? {} : {debugAction}),
+    ...(payloadFile === undefined ? {} : {payloadFile}),
+    ...(commandId === undefined ? {} : {commandId}),
+    ...(eventId === undefined ? {} : {eventId}),
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
     ...(completionGate === undefined ? {} : { completionGate }),
     ...(office === undefined ? {} : { office }),

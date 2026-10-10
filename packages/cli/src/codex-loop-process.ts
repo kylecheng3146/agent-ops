@@ -7,6 +7,7 @@ import {
   type ProjectLoopOptions
 } from "../../../runtime/src/hooks/codex-loop.js";
 import {officeEnabled, officeLoopPhaseHint, type OfficeSessionObservation} from "./office-entry.js";
+import {routeDebugPrompt} from "./debug-intake.js";
 
 const MAX_LOOP_INPUT_BYTES = 64 * 1024;
 
@@ -106,6 +107,10 @@ export async function runLoopProcess(
         ? {}
         : { telemetryMaxBytes: dependencies.telemetryMaxBytes })
     });
+    if (event === "UserPromptSubmit" && managedRoot !== null && result.exitCode === 0 && result.stdout === "" && result.stderr === "") {
+      const context=await routeDebugPrompt(managedRoot,input).catch(error=>`DEBUG intake unavailable: ${error instanceof Error ? error.message : "preserve current state"}`);
+      if (context !== null) io.writeStdout(harness === "claude" ? JSON.stringify({hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:context}}) : context+"\n");
+    }
     if (result.stdout.length > 0) {
       io.writeStdout(result.stdout);
     }

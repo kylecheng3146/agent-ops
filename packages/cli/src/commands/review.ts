@@ -59,6 +59,7 @@ import {
   isPassingVerificationEvidence
 } from "../../../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../../../runtime/src/schema/validate.js";
+import {loadDebugProof,debugProofDigest} from "../../../../runtime/src/task/debug-state.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 
@@ -859,6 +860,7 @@ export async function runReviewCommand(
     }
     context.coverage = rows;
     context.binding = {
+      ...(context.records.every(r=>r.task.debug === undefined) || options.root === undefined ? {} : {debugProofs:Object.fromEntries(await Promise.all(context.records.filter(r=>r.task.debug !== undefined).map(async r=>[r.task.id,debugProofDigest(await loadDebugProof(options.root!,r.task.debug!.rootTaskId))])))}),
       taskContractHash: taskContractHash(context.records.find(r => r.task.id === context.taskId)!.task),
       taskContracts: Object.fromEntries(context.records.map(r => [r.task.id, taskContractHash(r.task)])),
       ...(context.treeTasks === undefined ? {} : {treeContractHash: treeContractHash(context.records.map(r => r.task))}),
@@ -897,7 +899,8 @@ export async function runReviewCommand(
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
         executionPolicy: options.config,
         artifacts: contractArtifacts.map(({path, digest}) => ({path, digest})),
-        tasks: context.records.map(r => ({task: r.task, revisions: r.revisions ?? []})),
+        tasks: await Promise.all(context.records.map(async r => ({task: r.task, revisions: r.revisions ?? [],
+          ...(r.task.debug === undefined ? {} : {debugProof:await loadDebugProof(options.root!,r.task.debug.rootTaskId)})}))),
         superseded: context.historyRecords ?? []}, null, 2));
       const digest = sha256(content);
       const path = ".agent-ops/tasks/review-contracts/" + digest + ".json";
@@ -933,7 +936,7 @@ export async function runReviewCommand(
   const priorFindings = options.root === undefined || context === undefined
     ? []
     : await findPriorFailingFindings(options.root, context.taskId);
-  const result = await runIndependentReview({
+  const executeReview = async () => await runIndependentReview({
     invocation: {
       harness: target,
       plannedTargets,
@@ -952,6 +955,7 @@ export async function runReviewCommand(
       reason: "missing-cli" as const
     }))
   });
+  const result=await executeReview();
   if (scope !== undefined && result.report !== undefined && options.root !== undefined) {
     try {
       if (
@@ -1003,7 +1007,10 @@ export async function runReviewCommand(
           await options.tasks.treeContract(context.taskId) !== context.binding.treeContractHash) ||
         (context !== undefined && options.tasks !== undefined &&
           (await Promise.all(context.records.map(async r => taskContractHash((await options.tasks!.status({taskId: r.task.id})).task))))
-            .some((hash, i) => hash !== taskContractHash(context.records[i]!.task)))
+            .some((hash, i) => hash !== taskContractHash(context.records[i]!.task))) ||
+        (context?.binding?.debugProofs !== undefined && options.root !== undefined &&
+          (await Promise.all(context.records.filter(r=>r.task.debug !== undefined).map(async r=>
+            debugProofDigest(await loadDebugProof(options.root!,r.task.debug!.rootTaskId)) !== context!.binding!.debugProofs![r.task.id]))).some(Boolean))
       ) {
         const changed = await persistReviewEvidence(
           options,

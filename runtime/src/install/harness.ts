@@ -654,6 +654,14 @@ export function managedRules(
       : [`Toolkit version: ${context.toolkitVersion}`]),
     ""
   ];
+  if (context.capabilities.includes("task-debug")) lines.push(
+    "Task DEBUG routing is enabled for investigation/bugfix issues. Native prompt hooks create the issue task when a session identity is available; otherwise use agent-ops task create --debug --goal <verbatim issue> with two to five issue-specific criteria. Explain/read-only, feature and refactor requests use the existing normal task flow.",
+    "For DEBUG: understand the issue, investigate with task debug --debug-action investigate --command-id <trusted verifier>, record falsifiable hypotheses with --debug-action hypothesis --payload-file <json>, reproduce, fix, verify, then obtain two fresh independent reviews and finish. Replace provisional intake criteria with relevant behavioral acceptance; baseline setup/skip/timeout/UNKNOWN is never reproduction. Never report success from edits or unrelated green checks.",
+    "DEBUG defaults are 20 cumulative active minutes and 5 material repair candidates across the original issue, revisions, sessions and children. After two stagnant candidates document one substantive strategy switch; two further stagnant candidates block. Save task debug --debug-action checkpoint before stopping. Resume preserves budgets and blockers. A human continue event may authorize --debug-action extend --event-id latest; unsupported native event sources fail closed. Never use allow-stop for DEBUG.",
+    "DEBUG is foreground work. Claude and agy installed completion gates enforce Stop; Codex Stop is advisory and opencode Stop is unsupported. Without reliable native session identity, automatic hook intake is unsupported; the existing native Agent can use the task CLI. Only a matching owned debug worktree checkpoint permits dirty recovery; preserve all original user edits.",
+    ""
+  );
+
   if (context.capabilities.includes("rules")) {
     lines.push(
       "For every change:",

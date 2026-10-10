@@ -6,6 +6,7 @@ import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify
 import {taskContractHash} from "./contract.js";
 import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
+import {loadDebugProof,debugProofDigest,debugRemainingMs} from "./debug-state.js";
 
 interface CompletionProblem {
   readonly code: string;
@@ -25,6 +26,14 @@ export async function checkTaskCompletionEvidence(
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
+  if (stored.task.debug !== undefined) {
+    const debug=await loadDebugProof(options.root,stored.task.debug.rootTaskId);
+    const coverage=await acceptanceCoverage(stored,options.config,options.sourceFingerprint,options.evidenceStore);
+    const refs=new Set(coverage.filter(c=>c.mode === "behavioral" && c.status === "proven").flatMap(c=>c.evidenceReferences));
+    if (debug.operation !== null || debugRemainingMs(debug) === 0 || !debug.hypotheses.some(h=>h.status === "confirmed" && h.supporting.some(ref=>refs.has(ref))) ||
+        attestation?.debugProofs?.[stored.task.id] !== debugProofDigest(debug))
+      return {status:"FAIL",code:"TASK_DEBUG_PROOF_REQUIRED",remedy:"Confirm the original cause with current discriminating regression proof, then obtain two fresh independent reviews bound to that debug proof."};
+  }
   if (attestation === null || attestation.taskId !== stored.task.id ||
       ((stored.task.criteria.some(c => c.acceptance !== undefined) || (stored.task.contractRevision ?? 0) > 0 || stored.task.goal !== undefined) &&
        (attestation.schemaVersion !== 3 || attestation.taskContracts?.[stored.task.id] !== taskContractHash(stored.task))) ||

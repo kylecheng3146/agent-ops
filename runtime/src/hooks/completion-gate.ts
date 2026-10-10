@@ -356,6 +356,9 @@ export class CompletionGateService {
   }
 
   async grantPermit(sessionId: string): Promise<void> {
+    const attached=await this.#options.taskService.status({sessionId}).catch(()=>null);
+    if (attached?.task.debug !== undefined && attached.status === "active")
+      throw new AgentOpsError("TASK_DEBUG_CHECKPOINT_REQUIRED","Active debug issues require a runtime stop checkpoint; allow-stop does not grant budget or success.");
     const fingerprint = await this.#fingerprint();
     const granted = await this.#store.mutate(sessionId, (state) => {
       if (state === null) {
@@ -585,6 +588,16 @@ export class CompletionGateService {
         last = result;
       }
       return last;
+    }
+    const debugTask=await this.#options.taskService.status({sessionId}).catch(()=>null);
+    if (debugTask?.task.debug !== undefined) {
+      if (debugTask.status === "active") {
+        const valid=await this.#options.taskService.debugService().validCheckpoint(debugTask.task.id,sessionId,fingerprint);
+        return valid ? gateResult("continue","UNKNOWN","COMPLETION_GATE_TASK_DEBUG_STOPPED","Original issue remains active with a runtime-bound non-success checkpoint.") :
+          gateResult("block","FAIL","COMPLETION_GATE_TASK_DEBUG_ACTIVE","Continue the investigation/evidence loop or record a current runtime stop checkpoint, even when Git has no net diff.");
+      }
+      const failure=await this.#validateTask(sessionId);
+      if (failure !== null) return failure;
     }
     if (changed) {
       const failure = await this.#validateTask(sessionId);
