@@ -1,0 +1,9 @@
+worktree: session-4d39998c (agent-ops/session-4d39998c)
+session: 4d39998c-2968-4560-926c-21416f9dd994
+agent-ops task task-bb79ef10-21d3-4517-a081-382b328d20b6: Finish debug native foreground clock and debug worktree resume
+intent: Land agent-ops/debug-clock-wip on main after fixing its 6 failing tests: task-debug installs a Stop hook even without completion gate/office/stop-verify; the debug foreground clock closes only after the Stop hook accepts an idle model_stop (blocked/non-idle/error stops keep it running); Codex and agy task-debug installs register prompt and Stop hooks driving the clock; opencode stays unsupported. Also fix worktree resume throwing TASK_DEBUG_CONTEXT_REQUIRED for debug tasks. No changes to runtime/src/run, run CLI modules, or dependencies; preserve 60 min / 5 rounds / +20 min user grant.
+criteria:
+- accepted-stop-clock: Debug foreground clock closes only after the Stop hook accepts an idle model_stop; blocked, non-idle, invalid, or errored stops keep it running; task-debug alone installs a Claude Stop hook.
+- native-host-hooks: Codex and agy task-debug installs register prompt and Stop hooks that start/stop the debug foreground clock via native session events; opencode remains explicitly unsupported; existing install/update/doctor capability expectations stay consistent.
+- debug-worktree-resume: agent-ops worktree resume on a real git worktree whose attached task is a debug task resumes it without TASK_DEBUG_CONTEXT_REQUIRED and preserves consumed budget.
+- suite-and-boundaries: Full npm test, typecheck, build and package:check pass; runtime/src/run, run CLI modules and package dependencies are unchanged.
