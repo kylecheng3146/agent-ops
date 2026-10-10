@@ -1,0 +1,7 @@
+worktree: debug-default-60 (agent-ops/debug-default-60)
+session: 01a1236b-2567-76c3-9b66-f9dd941e5954
+agent-ops task task-d2a33430-d837-4b68-9a65-bc58a1668d5c: Set the debug default budget to sixty minutes
+intent: User requested: 把 debug 功能預設上限改為 60 分鐘. Change the default to 3600000ms, retain five rounds, explicit settings and persisted issue budgets, and keep each authorized user extension at 1200000ms. Do not modify run or merge the unfinished feature into main.
+criteria:
+- debug-default-sixty: New debug state and init/update defaults use 3600000ms and five rounds; explicit configuration and existing issue budgets remain unchanged, with updated English and Chinese documentation.
+- debug-extension-compatibility: Authorized user extensions remain 1200000ms and existing twenty-minute grants remain valid; no run implementation or behavior is changed.
