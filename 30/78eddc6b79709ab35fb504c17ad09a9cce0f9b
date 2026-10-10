@@ -1,0 +1,9 @@
+worktree: session-4d39998c (agent-ops/session-4d39998c)
+session: 4d39998c-2968-4560-926c-21416f9dd994
+agent-ops task task-af7f3bb9-f569-48ea-b81f-a52afa879ce3: Prepare 0.8.2
+intent: Release prep only: bump package.json/package-lock to 0.8.2, update the native clientInfo version strings in runtime/src/run/hosts/codex.ts and scripts/probe-native-goals.mjs, and add a dated 0.8.2 CHANGELOG section below Unreleased describing the task debug delivery, its native foreground clock and enforcement fixes, and the dev-only security fixes. Then install the packed tarball globally on this machine. No push, tag or npm publish.
+criteria:
+- version-0-8-2: package.json, package-lock.json and both native clientInfo version strings read 0.8.2, and CHANGELOG has a dated [0.8.2] section below an unchanged [Unreleased] heading.
+- release-scans: npm test, build, package:check and scan-source pass on the release candidate.
+- active-run-worktree-protected: agent-ops worktree remove refuses a worktree whose run is still active, even with --force, and names the run to stop first; paused or stopped run worktrees still remove.
+- managed-debug-stop-rule: Managed rules state that Claude and agy Stop check an active DEBUG issue with or without the completion gate, and installed artifacts and tests agree with the new text.
