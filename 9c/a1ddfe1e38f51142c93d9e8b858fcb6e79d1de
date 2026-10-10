@@ -1,0 +1,10 @@
+worktree: session-4d39998c (agent-ops/session-4d39998c)
+session: 4d39998c-2968-4560-926c-21416f9dd994
+agent-ops task task-dbec7c8d-8753-42fa-998b-e6442bdbc0af: Close remaining task DEBUG enforcement gaps
+intent: Close audit gaps against the original autonomous-debug requirement. (1) Without the completion gate, a Stop from a session attached to an active debug task is blocked unless a valid runtime-derived stop checkpoint exists; non-debug sessions and gate-enabled behavior unchanged. (2) A debug intake whose original issue text matches an active debug root reattaches that task (preserving consumed budget/rounds) instead of creating a fresh one. (3) A rejected or confirmed hypothesis cannot be reopened under a new id with the same statement and method unless new discriminating evidence is supplied. (4) Behavioral tests drive round-cap, stagnation/strategy and proof-edit review invalidation through the public service paths. (5) agent-ops worktree remove works for a clean worktree owned by a paused/stopped run without requiring resume. No runtime/src/run or run CLI changes, no new deps, preserve 60m/5 rounds/+20m.
+criteria:
+- debug-stop-check: Without the completion gate, a Stop from a session attached to an active debug task is blocked unless a valid stop checkpoint exists; a valid checkpoint allows it; sessions without a debug task and gate-enabled behavior are unchanged.
+- same-issue-reattach: Debug intake with the same original issue text as an active debug root reattaches that task with its consumed budget and rounds instead of creating a fresh task.
+- rejected-cause-content: A resolved hypothesis cannot be reintroduced under a new id with the same statement and method without new discriminating evidence.
+- enforcement-tests: Tests drive the round cap, stagnation strategy switch and proof-edit review invalidation through public DebugService/TaskService paths and assert the refusal codes.
+- paused-run-worktree-remove: agent-ops worktree remove deletes a clean worktree owned by a paused or stopped run without requiring resume.
