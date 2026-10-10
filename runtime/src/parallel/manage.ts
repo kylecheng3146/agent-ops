@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { collectChangeSurface } from "../verify/change-surface.js";
+import { FileRunRepository } from "../run/service.js";
 import type { FinishDependencies } from "./finish.js";
 import {
   assertSessionId,
@@ -273,6 +274,15 @@ export async function removeWorktree(
   const name = assertWorktreeName(options.name);
   const mainRoot = await mainCheckout(deps, options.cwd);
   const status = await describe(deps, await requireRecord(mainRoot, name));
+  // A running run still writes here; --force discards work, it does not stop the run.
+  const runId = status.record.runId;
+  if (runId !== undefined) {
+    const commonDir = join(mainRoot, ".git");
+    const run = await new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir).read(runId).catch(() => null);
+    if (run !== null && ["active", "awaiting-input", "stopping"].includes(run.status)) {
+      throw manageError("WORKTREE_RUN_ACTIVE", `${name} belongs to run ${runId}, which is ${run.status}. Stop it first: agent-ops run stop ${runId}.`);
+    }
+  }
   if ((status.dirty || status.ahead > 0) && !options.force) {
     throw manageError("WORKTREE_UNMERGED",
       `${name} has ${status.dirty ? "uncommitted changes" : ""}${status.dirty && status.ahead > 0 ? " and " : ""}${status.ahead > 0 ? `${status.ahead} commit(s) not in ${status.record.targetBranch}` : ""}. Finish it, or remove it with --force to discard that work (the user is asked).`);

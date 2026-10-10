@@ -25,8 +25,11 @@ All notable changes to the project are documented here.
   method.
 - Office run rooms show the coordinator task's real acceptance criteria and
   progress.
-- `agent-ops worktree resume` works for debug tasks, and `agent-ops worktree
-  remove` works for a paused or stopped run's worktree.
+- `agent-ops worktree resume` works for debug tasks. `agent-ops worktree
+  remove` works for a paused or stopped run's worktree, and refuses one whose
+  run is still running, even with `--force`, until `agent-ops run stop`.
+- The managed rules say that Claude and agy Stop check an active debug issue
+  with or without the completion gate.
 - The locked dev-only `fast-uri` moves to 3.1.8 for five advisories; no
   runtime dependency changes.
 

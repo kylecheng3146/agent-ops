@@ -6,6 +6,7 @@ import test from "node:test";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { worktreeDependencies } from "../../packages/cli/src/parallel-deps.js";
 import { routeDebugPrompt } from "../../packages/cli/src/debug-intake.js";
+import { FileRunRepository, createRunState } from "../../runtime/src/run/service.js";
 import { claudeHookOutput } from "../../runtime/src/adapters/claude/output.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
@@ -25,7 +26,7 @@ import {
   worktreeDoctorResult,
   type WorktreeStatus
 } from "../../runtime/src/parallel/manage.js";
-import { addWorktree, readWorktreeRecord } from "../../runtime/src/parallel/service.js";
+import { addWorktree, readWorktreeRecord, writeWorktreeRecord } from "../../runtime/src/parallel/service.js";
 import { CONFIG, deps, gateFor, git, repository, stopEvent, write } from "./fixture.js";
 
 const SESSION = "session-one";
@@ -200,6 +201,29 @@ test("remove deletes a paused run's worktree whose policy config cannot load", a
     assert.equal(await exists(record.path), false);
     assert.equal(await git(root, "branch", "--list", "agent-ops/paused"), "");
     assert.deepEqual(base.revoked, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("remove refuses an active run's worktree even with force until the run stops", async () => {
+  const root = await repository();
+  try {
+    const d = manageDeps();
+    const { record } = await addWorktree(d, { cwd: root, name: "running", sessionId: "session-run" });
+    const commonDir = await git(root, "rev-parse", "--path-format=absolute", "--git-common-dir");
+    const runs = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
+    const run = createRunState({ root, commonDir, targetBranch: "main", goal: "Keep running", host: "codex", ownerSessionId: "session-run" });
+    await runs.create(run);
+    await writeWorktreeRecord({ ...record, runId: run.runId });
+
+    await assert.rejects(removeWorktree(d, { cwd: root, name: "running", force: true }),
+      (error: unknown) => error instanceof AgentOpsError && error.code === "WORKTREE_RUN_ACTIVE" && error.message.includes(`agent-ops run stop ${run.runId}`));
+    assert.equal(await exists(record.path), true);
+
+    await runs.mutate(run.runId, (state) => ({ ...state, status: "paused" }));
+    await removeWorktree(d, { cwd: root, name: "running", force: false });
+    assert.equal(await exists(record.path), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
