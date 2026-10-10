@@ -25,8 +25,11 @@ Use `task debug --task <id> --debug-action <action>`:
   subprocess outcomes/time are recorded; reproduction-only work is not a fix round.
 - `hypothesis --payload-file <json>` records `id`, `statement`, `method`,
   `expected`, `checkId`, `expectedStatus` (`PASS` or `FAIL`). Add `reference` to
-  resolve it from actual sealed acceptance evidence. A rejected hypothesis needs
-  a new reference and `reason`; an agent-supplied `status` is rejected.
+  resolve it from actual sealed acceptance evidence. `--action investigate` may
+  only run a declared unresolved behavioral red check; `--action observe` may
+  only classify the current matching runtime `UNKNOWN` receipt as inconclusive.
+  Neither action lets an agent assign a status. A rejected hypothesis needs a
+  new reference and `reason`.
 - `strategy --payload-file <json>` records a different `from`/`to` method,
   substantive `reason` and discriminating `reference`. Only one switch is allowed.
 - `checkpoint --session <id>` saves the current bound source/policy/stop cause.
@@ -39,10 +42,15 @@ Use `task debug --task <id> --debug-action <action>`:
 
 Limits belong to the original root across revisions, children and sessions.
 Controlled investigation, verification and acquired review execution consume
-active time; observable review-slot waiting is excluded. Commands/replay/review
-subprocesses use the remaining deadline. Foreground reasoning outside controlled
-CLI operations has no authoritative timer and is not measured. An interrupted
-unsealed operation remains blocked rather than silently refunding unknown time.
+active time; observable review-slot waiting is excluded. Claude's supported
+native host opens the foreground clock on `UserPromptSubmit` and closes it on
+its native `Stop` (with `SessionEnd` as a fallback), so agent reasoning, tool
+use and edits in that turn are included. Time between stopped turns is paused.
+Hosts without a trustworthy end-of-turn signal (Codex Stop and opencode) keep
+DEBUG intake advisory/unsupported and must not claim a complete active-time
+budget. An interrupted unsealed operation remains blocked until its persisted process
+identity proves death; only then is an UNKNOWN environment receipt sealed and
+the elapsed interval retained.
 
 Only changed product candidates followed by verification count toward repair
 rounds. Test/fixture edits do not. New paired original-regression outcomes or
