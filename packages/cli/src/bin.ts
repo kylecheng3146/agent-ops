@@ -719,6 +719,26 @@ process.exitCode = await runCli(
                     dir: slotDir,
                     signal,
                     holder: {root, ...(reviewArgs.taskId === undefined ? {} : {taskId: reviewArgs.taskId})},
+                    ...(debugRecord?.task.debug === undefined || reviewSessionId === undefined
+                      ? {}
+                      : (() => {
+                          let paused = false;
+                          const debug = taskService.debugService();
+                          return {
+                            onWaitStart: async () => {
+                              if (paused) return;
+                              const current = await debug.root(debugRecord.task.id).catch(() => null);
+                              if (current?.debug.foreground?.sessionId !== reviewSessionId) return;
+                              await debug.foregroundStop(debugRecord.task.id, reviewSessionId);
+                              paused = true;
+                            },
+                            onWaitEnd: async () => {
+                              if (!paused) return;
+                              await debug.foregroundStart(debugRecord.task.id, reviewSessionId);
+                              paused = false;
+                            }
+                          };
+                        })()),
                     onWait: (line) => {
                       process.stderr.write(`${progressPrefix}${line}\n`);
                     }

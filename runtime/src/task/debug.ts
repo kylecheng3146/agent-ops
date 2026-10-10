@@ -230,18 +230,25 @@ export class DebugService {
     return operation;
   }
   async #end(operation: NonNullable<DebugState["operation"]>, outcome: DebugReceipt["outcome"], references: string[], progress: string[], cause: DebugReceipt["cause"]) {
-    const root = await this.root(operation.taskId);
-    if (root.debug.operation?.id !== operation.id) fail("TASK_DEBUG_OPERATION_CHANGED","The timed operation changed; its result cannot be adopted.");
     const finishedAt = Date.now();
     const durationMs = Math.max(0,finishedAt-operation.startedAt);
-    const previous = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
-    const round = operation.kind === "verify" && (outcome === "PASS" || outcome === "FAIL") && operation.productDigest !== previous;
-    const receipt: DebugReceipt = {id:operation.id,taskId:operation.taskId,kind:operation.kind,contractHash:operation.contractHash,configHash:operation.configHash,
-      sourceFingerprint:operation.sourceFingerprint,productDigest:operation.productDigest,durationMs,finishedAt,round,progress,references,outcome,cause};
-    const foreground = root.debug.foreground;
-    const operationBeforeForeground = foreground === undefined || foreground === null ? durationMs : Math.max(0,Math.min(finishedAt,foreground.startedAt)-operation.startedAt);
-    const next = {...root.debug,operation:null,consumedMs:root.debug.consumedMs+operationBeforeForeground,receipts:[...root.debug.receipts,receipt],checkpoint:null};
-    await this.#mutate(root,next);
+    for (let attempt=0; attempt<3; attempt+=1) {
+      try {
+        const root = await this.root(operation.taskId);
+        if (root.debug.operation?.id !== operation.id) fail("TASK_DEBUG_OPERATION_CHANGED","The timed operation changed; its result cannot be adopted.");
+        const previous = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
+        const round = operation.kind === "verify" && (outcome === "PASS" || outcome === "FAIL") && operation.productDigest !== previous;
+        const receipt: DebugReceipt = {id:operation.id,taskId:operation.taskId,kind:operation.kind,contractHash:operation.contractHash,configHash:operation.configHash,
+          sourceFingerprint:operation.sourceFingerprint,productDigest:operation.productDigest,durationMs,finishedAt,round,progress,references,outcome,cause};
+        const foreground = root.debug.foreground;
+        const operationBeforeForeground = foreground === undefined || foreground === null ? durationMs : Math.max(0,Math.min(finishedAt,foreground.startedAt)-operation.startedAt);
+        const next = {...root.debug,operation:null,consumedMs:root.debug.consumedMs+operationBeforeForeground,receipts:[...root.debug.receipts,receipt],checkpoint:null};
+        await this.#mutate(root,next);
+        return;
+      } catch (error) {
+        if (!(error instanceof AgentOpsError) || error.code !== "TASK_DEBUG_STATE_CHANGED" || attempt === 2) throw error;
+      }
+    }
   }
   /** Called only around the existing verifier; outcomes are reloaded from sealed evidence. */
   async verification<T extends VerificationReport>(taskId: string, execute: () => Promise<T>): Promise<T> {
@@ -312,15 +319,40 @@ export class DebugService {
   /** Close a native foreground turn and account only time outside a running operation. */
   async foregroundStop(taskId: string, sessionId: string): Promise<void> {
     if (!session(sessionId)) return;
-    let root = await this.root(taskId);
-    root = await this.#recoverInterrupted(root);
-    const foreground = root.debug.foreground;
-    if (foreground === undefined || foreground === null) return;
-    if (foreground.sessionId !== sessionId) fail("TASK_DEBUG_CLOCK_OWNER_MISMATCH","Only the native session that opened the debug clock may close it.");
-    const now = Date.now();
-    const end = root.debug.operation?.startedAt ?? now;
-    const durationMs = Math.max(0,Math.min(now,end)-foreground.startedAt);
-    await this.#mutate(root,{...root.debug,foreground:null,consumedMs:root.debug.consumedMs+durationMs,checkpoint:null});
+    // A native stop is a trusted foreground boundary even when a controlled
+    // operation is still running.  Recovering first would reject the stop on
+    // a live operation and leave the foreground clock running forever.  Keep
+    // that operation intact; #end will account its complete controlled
+    // interval after the foreground has been closed.  Dead or unverifiable
+    // operations still use the fail-closed recovery path.  The short retry
+    // handles the expected race where the operation finishes while its host
+    // identity is being checked.
+    for (let attempt=0; attempt<3; attempt+=1) {
+      try {
+        let root = await this.root(taskId);
+        const operation = root.debug.operation;
+        if (operation === null) {
+          root = await this.#recoverInterrupted(root);
+        } else {
+          const state = await processState(operation);
+          // Reload after the host identity check: an operation can finish
+          // while that check is running. Recover only when the same operation
+          // is still persisted; otherwise retain the writer's newer state.
+          root = await this.root(taskId);
+          if (root.debug.operation?.id === operation.id && state !== "alive") root = await this.#recoverInterrupted(root);
+        }
+        const foreground = root.debug.foreground;
+        if (foreground === undefined || foreground === null) return;
+        if (foreground.sessionId !== sessionId) fail("TASK_DEBUG_CLOCK_OWNER_MISMATCH","Only the native session that opened the debug clock may close it.");
+        const now = Date.now();
+        const end = root.debug.operation?.startedAt ?? now;
+        const durationMs = Math.max(0,Math.min(now,end)-foreground.startedAt);
+        await this.#mutate(root,{...root.debug,foreground:null,consumedMs:root.debug.consumedMs+durationMs,checkpoint:null});
+        return;
+      } catch (error) {
+        if (!(error instanceof AgentOpsError) || error.code !== "TASK_DEBUG_STATE_CHANGED" || attempt === 2) throw error;
+      }
+    }
   }
   async checkpoint(taskId: string, sessionId: string): Promise<DebugState> {
     const recovered = await this.#recoverInterrupted(await this.root(taskId));
@@ -360,15 +392,20 @@ export class DebugService {
   }
   async extend(taskId:string,sessionId:string,eventId:string):Promise<void> {
     const root=await this.root(taskId),attached=await this.options.tasks.status({sessionId});
-    if (attached.task.debug?.rootTaskId !== root.task.id || root.debug.operation !== null || root.debug.foreground !== undefined && root.debug.foreground !== null) fail("TASK_DEBUG_GRANT_INVALID","Extension belongs to the idle original issue and its native session.");
+    if (attached.task.debug?.rootTaskId !== root.task.id || root.debug.operation !== null) fail("TASK_DEBUG_GRANT_INVALID","Extension belongs to the original issue and its native session; a running operation cannot be extended.");
     const record=await readWorktreeRecord(this.options.root);
     const event=await readDebugUserEvent(record?.mainRoot ?? this.options.root,sessionId);
     if (eventId !== "latest" && eventId !== event.id) fail("TASK_DEBUG_GRANT_INVALID","The requested event is not the current native human event.");
     if (root.debug.grants.some(g=>g.eventId === event.id)) return;
     const otherCause=debugStopCause({...root.debug,consumedMs:0,budgetMs:86_400_000});
-    const latestFinishedAt=root.debug.receipts.at(-1)?.finishedAt;
-    if (debugRemainingMs(root.debug) !== 0 || otherCause !== null || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()) ||
-        latestFinishedAt !== undefined && event.timestamp < latestFinishedAt)
+    const foregroundActive=root.debug.foreground !== undefined && root.debug.foreground !== null;
+    const remainingAtEvent=debugRemainingMs(root.debug,event.timestamp);
+    const sealedAtCandidates=[Date.parse(root.updatedAt),root.debug.receipts.at(-1)?.finishedAt ?? Number.NaN].filter(Number.isFinite);
+    const lastSealedAt=sealedAtCandidates.length === 0 ? Number.POSITIVE_INFINITY : Math.max(...sealedAtCandidates);
+    const exhaustedAtEvent=foregroundActive
+      ? remainingAtEvent === 0
+      : debugRemainingMs(root.debug) === 0 && event.timestamp > lastSealedAt;
+    if (!exhaustedAtEvent || otherCause !== null || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()))
       fail("TASK_DEBUG_GRANT_INVALID","Only a contemporaneous human continue event extends exhausted time; other blockers remain authoritative.");
     await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS}],checkpoint:null});
   }

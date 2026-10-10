@@ -142,7 +142,7 @@ export function buildCodexHookConfig(
       if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }
-  if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
+  if (capabilities.includes("task-debug") || capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
   return {

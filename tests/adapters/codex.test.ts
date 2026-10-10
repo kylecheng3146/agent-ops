@@ -67,6 +67,13 @@ test("outside the loop, Office or command policy adds one managed Codex prompt h
   assert.match(JSON.stringify(buildCodexHookConfig(["project-loop", "office-presence"], RUNTIME_PATH).hooks.UserPromptSubmit), /agent-ops-loop\.sh/u);
 });
 
+test("task-debug installs Codex prompt and advisory Stop lifecycle hooks", () => {
+  const managed = buildCodexHookConfig(["task-debug"], RUNTIME_PATH);
+  assert.equal(managed.hooks.UserPromptSubmit?.length, 1);
+  assert.equal(managed.hooks.Stop?.length, 1);
+  assert.match(JSON.stringify(managed.hooks.Stop), /codex Stop --managed-by=agent-ops/u);
+});
+
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
   const existing = await fixture();
   const managed = buildCodexHookConfig(
@@ -194,7 +201,8 @@ test("normalizes only documented Codex common fields", () => {
     }),
     {
       event: "session-start",
-      projectRoot: "/repo"
+      projectRoot: "/repo",
+      sessionId: "session-secret"
     }
   );
   assert.deepEqual(
@@ -245,7 +253,9 @@ test("normalizes only documented Codex common fields", () => {
     }),
     {
       event: "stop",
-      projectRoot: "/repo"
+      projectRoot: "/repo",
+      terminationReason: "model_stop",
+      fullyIdle: false
     }
   );
 });

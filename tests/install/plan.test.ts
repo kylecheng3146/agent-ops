@@ -724,7 +724,11 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     assert.equal(disabled.config.features.office?.enabled, false);
     assert.ok(!disabled.capabilities.includes("office-presence"));
     await applyInstallPlan(root, disabled);
-    assert.equal(disabled.manifest.hooks?.length ?? 0, 2, "DEBUG prompt hooks stay enabled when Office is off");
+    assert.deepEqual(
+      Object.fromEntries((disabled.manifest.hooks ?? []).map(hook => [hook.harness, hook.events])),
+      {claude: ["UserPromptSubmit", "Stop"], codex: ["UserPromptSubmit", "Stop"], agy: ["SessionStart", "Stop"]},
+      "DEBUG prompt and foreground clock hooks stay enabled when Office is off"
+    );
   } finally {
     await rm(root, {recursive: true, force: true});
   }

@@ -21,17 +21,34 @@ export function normalizeCodexHookInput(
     return normalizeHookEvent(input);
   }
   const projectRoot = input.cwd;
+  const sessionId = typeof input.session_id === "string" && input.session_id.length > 0
+    ? input.session_id
+    : undefined;
   if (input.hook_event_name === "SessionStart") {
-    return normalizeHookEvent({
+    const start = normalizeHookEvent({
       event: "session-start",
       projectRoot
     });
+    return {
+      event: "session-start",
+      projectRoot: start.projectRoot,
+      ...(sessionId === undefined ? {} : {sessionId})
+    };
   }
   if (input.hook_event_name === "Stop") {
-    return normalizeHookEvent({
+    const stop = normalizeHookEvent({
       event: "stop",
       projectRoot
     });
+    return {
+      event: "stop",
+      projectRoot: stop.projectRoot,
+      ...(sessionId === undefined ? {} : {sessionId}),
+      terminationReason: typeof input.termination_reason === "string"
+        ? input.termination_reason
+        : "model_stop",
+      fullyIdle: input.stop_hook_active !== true
+    };
   }
   if (
     input.hook_event_name === "PreToolUse" &&

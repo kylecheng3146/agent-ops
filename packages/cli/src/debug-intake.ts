@@ -8,23 +8,43 @@ import {ensureSessionWorktree,readWorktreeRecord,sessionWorktreeName} from "../.
 import {loadEffectiveConfig} from "./context.js";
 import {gitRunner,worktreeDependencies} from "./parallel-deps.js";
 
-type DebugHost = "claude" | "codex";
-const foregroundClockSupported = (host: DebugHost): boolean => host === "claude";
+type DebugHost = "agy" | "claude" | "codex" | "opencode";
+const foregroundClockSupported = (host: DebugHost): boolean => host !== "opencode";
+
+function nativeSessionId(input: Record<string, unknown>): string | undefined {
+  const fromInput = [input.session_id, input.sessionId, input.conversationId, input.thread_id, input.threadId]
+    .find((value): value is string => typeof value === "string" && value.length > 0);
+  return fromInput ?? [process.env.AGENT_OPS_SESSION_ID, process.env.CODEX_THREAD_ID]
+    .find((value): value is string => value !== undefined && value.length > 0);
+}
+
+/** Start only an already attached DEBUG issue; native hooks never create work. */
+export async function startDebugSession(root:string, sessionId:string, host:DebugHost):Promise<void> {
+  if (!foregroundClockSupported(host) || sessionId.length === 0) return;
+  const config=(await loadEffectiveConfig(root,"project")).config;
+  const saved=await readWorktreeRecord(join(root,".worktrees",sessionWorktreeName(sessionId)));
+  const contextRoot=saved?.mainRoot === root && saved.sessionId === sessionId ? saved.path : root;
+  const contextConfig=contextRoot === root ? config : (await loadEffectiveConfig(contextRoot,"project")).config;
+  const tasks=new TaskService(new FileTaskStore(join(contextRoot,".agent-ops/tasks/state.json"),contextRoot),{completion:{root:contextRoot,gitRunner:gitRunner(contextRoot),loadConfig:async()=>contextConfig}});
+  const attached=await tasks.status({sessionId}).catch(()=>null);
+  if (attached?.status === "active" && attached.task.debug !== undefined)
+    await tasks.debugService().foregroundStart(attached.task.id,sessionId);
+}
 
 export async function routeDebugPrompt(root:string,input:unknown,host:DebugHost = "claude"):Promise<string | null> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return null;
-  const fields=input as {prompt?:unknown;session_id?:unknown};
+  const fields=input as {prompt?:unknown;session_id?:unknown;sessionId?:unknown;conversationId?:unknown;thread_id?:unknown;threadId?:unknown};
   if (typeof fields.prompt !== "string") return null;
   const continuation=/^(?:繼續|继续|continue)[。.!！]?$/iu.test(fields.prompt.trim());
   const debugIssue=isDebugIssue(fields.prompt);
   const config=(await loadEffectiveConfig(root,"project")).config;
   if (config.features.debug?.enabled !== true) return null;
   if (evaluateGuardrail({kind:"content",content:fields.prompt,scope:root}).action === "block") return null;
-  if (typeof fields.session_id !== "string" || fields.session_id.length === 0) {
+  const session=nativeSessionId(fields);
+  if (session === undefined) {
     if (!debugIssue && !continuation) return null;
     return "DEBUG intake unsupported: this hook has no reliable native session identity. Use task create --debug --goal with the original issue in the native conversation.";
   }
-  const session=fields.session_id;
   const saved=await readWorktreeRecord(join(root,".worktrees",sessionWorktreeName(session)));
   const contextRoot=saved?.mainRoot === root && saved.sessionId === session ? saved.path : root;
   const contextConfig=contextRoot === root ? config : (await loadEffectiveConfig(contextRoot,"project")).config;

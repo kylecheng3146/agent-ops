@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {execFileSync} from "node:child_process";
-import {mkdtemp, rm} from "node:fs/promises";
+import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
@@ -73,6 +73,78 @@ test("foreground lifecycle is session-bound and dead operations are sealed befor
     assert.equal(recovered.operation,null);
     await debug.foregroundStop(f.taskId,"native-session");
   } finally { await f.close(); }
+});
+
+test("native stop closes foreground while a live operation remains accountable",async()=>{
+  const f=await fixture();
+  try {
+    const debug=f.tasks.debugService();
+    await debug.foregroundStart(f.taskId,"native-session");
+    let signalStarted!:()=>void, release!:()=>void;
+    const started=new Promise<void>(resolve=>{signalStarted=resolve;});
+    const released=new Promise<void>(resolve=>{release=resolve;});
+    const execution=debug.review(f.taskId,async()=>{
+      signalStarted();
+      await released;
+      return {status:"PASS"};
+    });
+    await started;
+    assert.notEqual((await debug.root(f.taskId)).debug.operation,null);
+
+    await debug.foregroundStop(f.taskId,"native-session");
+    const stopped=await debug.root(f.taskId);
+    assert.equal(stopped.debug.foreground,null);
+    assert.notEqual(stopped.debug.operation,null);
+
+    await new Promise(resolve=>setTimeout(resolve,60));
+    release();
+    await execution;
+    const finished=await debug.root(f.taskId);
+    assert.equal(finished.debug.operation,null);
+    assert.ok(finished.debug.consumedMs >= 50);
+    const consumed=finished.debug.consumedMs;
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.equal((await debug.root(f.taskId)).debug.consumedMs,consumed);
+  } finally { await f.close(); }
+});
+
+test("a native continue can extend an exhausted clock before any receipt, but not a stale event",async()=>{
+  const f=await fixture();
+  const previousHome=process.env.HOME;
+  const session="12345678-1234-1234-1234-123456789abc";
+  const transcript=join(f.root,".claude/projects",f.root.replace(/[^a-zA-Z0-9]/gu,"-"),session+".jsonl");
+  const writeEvent=async(timestamp:number,text="繼續")=>await writeFile(transcript,JSON.stringify({type:"user",sessionId:session,cwd:f.root,timestamp:new Date(timestamp).toISOString(),message:{role:"user",content:text}})+"\n");
+  try {
+    process.env.HOME=f.root;
+    await mkdir(join(f.root,".claude/projects",f.root.replace(/[^a-zA-Z0-9]/gu,"-")),{recursive:true});
+    await f.tasks.attach(session,f.taskId);
+    const now=Date.now();
+    await f.store.mutate(state=>{
+      const record=state.tasks.find(item=>item.task.id===f.taskId)!;
+      record.debug!.foreground={sessionId:session,startedAt:now-3_600_001};
+      Object.assign(record,{updatedAt:new Date(now-1_000).toISOString()});
+    });
+    await writeEvent(now);
+    await f.tasks.debugService().extend(f.taskId,session,"latest");
+    assert.equal((await f.tasks.debugService().root(f.taskId)).debug.grants.length,1);
+
+    await f.store.mutate(state=>{
+      const record=state.tasks.find(item=>item.task.id===f.taskId)!;
+      record.debug!.foreground=null;
+      record.debug!.consumedMs=record.debug!.budgetMs;
+      record.debug!.grants=[];
+      Object.assign(record,{updatedAt:new Date(Date.now()).toISOString()});
+    });
+    await writeEvent(Date.now()-1_000);
+    await assert.rejects(f.tasks.debugService().extend(f.taskId,session,"latest"),e=>e instanceof Error && "code" in e && e.code === "TASK_DEBUG_GRANT_INVALID");
+    await writeEvent(Date.now());
+    await f.tasks.debugService().extend(f.taskId,session,"latest");
+    assert.equal((await f.tasks.debugService().root(f.taskId)).debug.grants.length,1);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME=previousHome;
+    await f.close();
+  }
 });
 
 test("a budget stop before the first receipt can create a valid checkpoint",async()=>{

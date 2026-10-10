@@ -5,8 +5,9 @@
 
 Claude / Codex prompt hook 會保守辨識調查與修復問題，保留原始 `goal`，
 建立既有隔離 task。說明、功能與重構請求照原流程。
-缺少可靠 session ID，或 agy / opencode 沒有 prompt 事件時，使用原生 Agent
-執行 `task create --debug --goal '<原始問題>'`。原始 dirty checkout 不會被自動複製。
+缺少可靠 session ID，或 agy 沒有 prompt 事件時，使用原生 Agent 執行
+`task create --debug --goal '<原始問題>'`；只要有 native session，CLI intake
+會啟動同一個前景時鐘。原始 dirty checkout 不會被自動複製。
 
 調查用可信任的既有 command；假設用 `task debug --debug-action hypothesis
 --payload-file <json>`。JSON 必須含 id、statement、method、expected、checkId、
@@ -21,11 +22,11 @@ expectedStatus；附 reference 才能由真實封存的 assertion 決定 confirm
 
 預算與輪數屬於整個原始 root，revision、child、session 不重設。
 受控調查、驗證與取得 slot 後的 review 計時；review 排隊不計時。
-Claude 的支援原生 host 會在 `UserPromptSubmit` 開始前景時鐘，在原生 `Stop`
-結束，並以 `SessionEnd` 作為收尾。因此該輪的 Agent 推理、工具與修改都計入，
-停止回合之間的使用者等待不計入。沒有可信 end-of-turn 訊號的 host（Codex Stop、
-opencode）只提供 advisory / unsupported 的 DEBUG intake，不可宣稱完整的
-active-time 預算。
+Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromptSubmit`
+或原生 session 開始前景時鐘，並在 idle `Stop` 結束。因此該輪的 Agent 推理、
+工具與修改都計入，停止回合之間的使用者等待不計入。Codex Stop 對 completion
+gate 仍是 advisory，但已接受的 idle Stop 會作為可信時鐘邊界。opencode 沒有支援
+的前景 lifecycle，不可宣稱完整的 active-time 預算。
 中斷且沒有封存結果的操作，必須等持久化 process identity 證實程序已死亡後，
 才封存 UNKNOWN environment receipt；這段經過時間仍會保留，不會退還不明時間。
 測試材料修改不算修復輪；兩輪停滯需要一次實質策略切換，再兩輪停滯停止。
@@ -37,7 +38,8 @@ checkpoint 保存 task/session/source/contract/config/cause；resume 只接受�
 
 已安裝的 Claude / agy completion gate 會檢查無 Git 差異的 active DEBUG task。
 有效停止 checkpoint 只允許非成功停止，task 仍 active；allow-stop 不能繞過。
-Codex Stop 是 advisory；opencode Stop unsupported，不會自動啟用不支援的 gate。
+Codex Stop 對 completion 是 advisory，但仍會結束前景時鐘；opencode Stop
+unsupported，不會自動啟用不支援的 gate。
 只承諾前景對話與持久化進度，不承諾對話關閉後繼續，也不宣稱抵擋同檔案權限攻擊。
 
 完整命令及細節見英文 [Task DEBUG](../../en/guides/task-debug.md)。

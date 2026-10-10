@@ -3,6 +3,7 @@ import { runLifecycleAdvisory } from "../../../../runtime/src/hooks/advisory.js"
 import { dispatchHookEvent } from "../../../../runtime/src/hooks/dispatch.js";
 import type {
   HookDispatchOptions,
+  HookResult,
   NormalizedHookEvent,
   StopVerificationOptions
 } from "../../../../runtime/src/hooks/events.js";
@@ -31,6 +32,10 @@ export interface HookCommandOptions {
   readonly completionGate?: HookDispatchOptions["completionGate"];
   readonly worktreeGuard?: HookDispatchOptions["worktreeGuard"];
   readonly worktreeEnter?: HookDispatchOptions["worktreeEnter"];
+  /** Pre-normalized input supplied by the process boundary after trusted session injection. */
+  readonly input?: unknown;
+  /** Observe the decision before it is formatted for the native host. */
+  readonly onResult?: (result: HookResult) => void;
 }
 
 export interface HookCommandOutput {
@@ -66,7 +71,9 @@ export async function runHookCommand(
       options.config.profiles.length === 0
         ? { capabilities: [] as const }
         : resolveCapabilities(options.config);
-    const input: unknown = JSON.parse(options.stdin);
+    const input: unknown = options.input === undefined
+      ? JSON.parse(options.stdin)
+      : options.input;
     const descriptor = harnessDescriptor(options.harness);
     const normalized = normalizeHookInput(options.harness, input);
     if (normalized === null ||
@@ -96,6 +103,7 @@ export async function runHookCommand(
         ? {}
         : { worktreeEnter: options.worktreeEnter })
     });
+    options.onResult?.(result);
     return descriptor.runtime.formatOutput(options.event, result);
   } catch {
     // Fail closed on every host that enforces the gate: an exception here is

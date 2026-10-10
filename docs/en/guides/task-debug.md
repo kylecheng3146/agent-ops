@@ -9,8 +9,9 @@ Claude and Codex native prompt hooks conservatively recognize investigation and
 bug-fix requests. They retain the issue verbatim as `goal`, record uncertain
 facts/unknowns, and create an existing isolated task. Explain, feature and
 refactor requests retain their ordinary behavior. A reliable native session ID
-is required; agy/opencode do not provide this prompt intake. Their native agent
-can use `task create --debug --goal '<original issue>'` with two to five criteria.
+is required; agy does not provide this prompt intake. Its native agent can use
+`task create --debug --goal '<original issue>'` with two to five criteria, which
+starts the same foreground clock when the native session is available.
 An original dirty checkout is refused before any worktree snapshot is created.
 
 The intake criteria are provisional. The native agent investigates via trusted
@@ -42,13 +43,12 @@ Use `task debug --task <id> --debug-action <action>`:
 
 Limits belong to the original root across revisions, children and sessions.
 Controlled investigation, verification and acquired review execution consume
-active time; observable review-slot waiting is excluded. Claude's supported
-native host opens the foreground clock on `UserPromptSubmit` and closes it on
-its native `Stop` (with `SessionEnd` as a fallback), so agent reasoning, tool
-use and edits in that turn are included. Time between stopped turns is paused.
-Hosts without a trustworthy end-of-turn signal (Codex Stop and opencode) keep
-DEBUG intake advisory/unsupported and must not claim a complete active-time
-budget. An interrupted unsealed operation remains blocked until its persisted process
+active time; observable review-slot waiting is excluded. Claude, Codex, and agy
+use their native session lifecycle to account foreground reasoning, tool use,
+and edits. Codex Stop remains advisory for completion-gate purposes, but an
+accepted idle Stop is still a trusted clock boundary. OpenCode has no supported
+foreground lifecycle and remains unsupported. Time between stopped turns is
+paused. An interrupted unsealed operation remains blocked until its persisted process
 identity proves death; only then is an UNKNOWN environment receipt sealed and
 the elapsed interval retained.
 
@@ -68,8 +68,9 @@ worktree finish retain the existing attestation/integration requirements.
 An installed Claude/agy completion gate checks DEBUG even without Git net diff.
 A valid runtime stop checkpoint permits non-success Stop while retaining the
 active task. `allow-stop` cannot waive DEBUG. Gates are never automatically
-enabled for unsupported hosts: Codex Stop is advisory; opencode Stop is
-unsupported. This feature persists foreground progress, and does not promise
+enabled for unsupported hosts: Codex Stop is advisory for completion but still
+closes its foreground clock; opencode Stop is unsupported. This feature
+persists foreground progress, and does not promise
 execution after the native conversation closes. Native transcripts are trusted
 host evidence, not protection against an attacker with the same filesystem
 authority.

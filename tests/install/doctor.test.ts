@@ -32,6 +32,7 @@ import {
   type DoctorReport
 } from "../../runtime/src/install/doctor.js";
 import { createInstallPlan } from "../../runtime/src/install/plan.js";
+import { applyUpdatePlan, createUpdatePlan } from "../../runtime/src/install/update.js";
 
 const START_MARKER = "<!-- agent-ops:start codex-routing v1 -->";
 const END_MARKER = "<!-- agent-ops:end codex-routing -->";
@@ -361,6 +362,16 @@ test("reports desired capability drift as UPDATE_REQUIRED", async () => {
         hookRuntimePath: "/opt/agent-ops/hook-entry.js"
       })
     );
+    // DEBUG installs its own Stop handler; turn it off so Stop drift stays observable.
+    const installedConfig = JSON.parse(await readFile(join(root, ".agent-ops", "config.json"), "utf8"));
+    installedConfig.features.debug = { ...installedConfig.features.debug, enabled: false };
+    await writeFile(join(root, ".agent-ops", "config.json"), `${JSON.stringify(installedConfig, null, 2)}\n`);
+    await applyUpdatePlan(root, await createUpdatePlan({
+      root,
+      adapters: commonHarnessAdapters(),
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
+    }));
     const configSource = `${JSON.stringify({
       schemaVersion: 3,
       profiles: ["guardrails"],

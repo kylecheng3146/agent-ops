@@ -193,6 +193,12 @@ export async function runTaskCommand(
           : { parentTaskId: options.args.parentTaskId }),
         ...(sessionId === undefined ? {} : { sessionId })
       });
+      // An explicit CLI DEBUG intake may be the only start signal on hosts
+      // without a prompt hook (notably agy). The native session owns the clock;
+      // foregroundStart is idempotent for a repeated hook or command.
+      if (options.args.debug && sessionId !== undefined) {
+        await (worktree?.service ?? options.service).debugService().foregroundStart(record.task.id,sessionId);
+      }
       const created = taskEnvelope(
         action,
         "TASK_CREATED",

@@ -189,7 +189,8 @@ export async function resumeWorktree(
   const sessionId = assertSessionId(options.sessionId);
   const mainRoot = await mainCheckout(deps, options.cwd);
   const previous = await requireRecord(mainRoot, name);
-  const tasks = deps.tasks(previous.path);
+  // A base gives the service repository context, which debug resume needs.
+  const tasks = deps.tasks(previous.path, previous.base);
   const attached = await tasks.status({ sessionId: previous.sessionId }).catch(() => null);
   if (attached?.task.debug !== undefined) await tasks.debugService().resume(attached.task.id,sessionId);
   if (attached !== null) await tasks.attach(sessionId, attached.task.id);

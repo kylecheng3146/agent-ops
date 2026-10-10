@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { parseArgs } from "../../packages/cli/src/args.js";
+import { worktreeDependencies } from "../../packages/cli/src/parallel-deps.js";
 import { claudeHookOutput } from "../../runtime/src/adapters/claude/output.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { FileCompletionGateStore } from "../../runtime/src/hooks/completion-gate.js";
@@ -83,6 +84,41 @@ test("list reports each worktree's session, state, task and activity", async () 
       { name: "beta", session: "session-two", dirty: false, ahead: 1, taskStatus: `${taskId} active` }
     ]);
     for (const { lastActivity } of listed) assert.ok(Number.isFinite(Date.parse(lastActivity)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resume hands a debug task to a new session with repository context and its consumed budget", async () => {
+  const root = await repository();
+  try {
+    // The CLI factory, not the test stub: it builds a service per call from the worktree record.
+    const d = { ...manageDeps(), tasks: worktreeDependencies().tasks };
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    const service = d.tasks(record.path, record.base);
+    const created = await service.create({
+      title: "Debug",
+      goal: "Investigate the failing source check",
+      criteria: [
+        { id: "issue", description: "The issue is fixed", verifierIds: ["node-test"] },
+        { id: "related", description: "Related checks pass", verifierIds: ["node-test"] }
+      ],
+      debug: {},
+      sessionId: SESSION
+    });
+    const debug = service.debugService();
+    await debug.foregroundStart(created.task.id, SESSION);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await debug.foregroundStop(created.task.id, SESSION);
+    await debug.checkpoint(created.task.id, SESSION);
+    const consumed = (await debug.root(created.task.id)).debug.consumedMs;
+    assert.ok(consumed > 0);
+
+    await resumeWorktree(d, { cwd: root, name: "alpha", sessionId: "session-new" });
+
+    const resumed = d.tasks(record.path, record.base);
+    assert.equal((await resumed.status({ sessionId: "session-new" })).task.id, created.task.id);
+    assert.equal((await resumed.debugService().root(created.task.id)).debug.consumedMs, consumed);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -183,7 +183,7 @@ export function buildClaudeHookSettings(
   // handler, and the gated one already reports everything the other would.
   if (capabilities.includes("completion-gate")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath, true)];
-  } else if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
+  } else if (capabilities.includes("task-debug") || capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
   // Stop only ends a turn. SessionEnd is the one signal that the conversation

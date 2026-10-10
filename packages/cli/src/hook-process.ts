@@ -38,7 +38,7 @@ import {
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
-import {closeDebugSession,routeDebugPrompt} from "./debug-intake.js";
+import {closeDebugSession,routeDebugPrompt,startDebugSession} from "./debug-intake.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
@@ -134,13 +134,18 @@ function withInjectedSession(
   input: unknown
 ): unknown {
   const sessionId = process.env.AGENT_OPS_SESSION_ID;
-  return harness === "agy" &&
-      sessionId !== undefined &&
-      typeof input === "object" &&
-      input !== null &&
-      !Array.isArray(input)
-    ? { ...(input as Record<string, unknown>), conversationId: sessionId }
-    : input;
+  const codexSession = sessionId ?? process.env.CODEX_THREAD_ID;
+  if ((harness !== "agy" && harness !== "codex") ||
+      typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const fields = input as Record<string, unknown>;
+  if (harness === "agy") {
+    return (typeof fields.conversationId === "string" && fields.conversationId.length > 0) || sessionId === undefined
+      ? input
+      : {...fields, conversationId: sessionId};
+  }
+  return (typeof fields.session_id === "string" && fields.session_id.length > 0) || codexSession === undefined
+    ? input
+    : {...fields, session_id: codexSession};
 }
 
 function writeHookOutput(io: HookProcessIo, output: HookProcessOutput): void {
@@ -577,8 +582,8 @@ export async function runHookProcess(
         : await dependencies.trust(root, config, cliVersion);
     const trusted = trustStatus === "TRUSTED";
     const normalized = normalizeHookInput(harnessId, parsedInput);
-    if (normalized?.event === "stop" && normalized.sessionId !== undefined)
-      await closeDebugSession(root,normalized.sessionId,harnessId === "claude" ? "claude" : "codex").catch(() => undefined);
+    if (normalized?.event === "session-start" && normalized.sessionId !== undefined)
+      await startDebugSession(root,normalized.sessionId,harnessId).catch(() => undefined);
     if (dependencies.office !== undefined && config.features.office?.enabled === true) {
       if (normalized !== null) {
         const phase = officePhaseHint(normalized);
@@ -687,12 +692,15 @@ export async function runHookProcess(
         await recordSessionOrigin(dependencies.worktree, { cwd: root, sessionId }).catch(() => undefined);
       }
     }
+    let hookResult: HookResult | undefined;
     const output = await runHookCommand({
       harness: harness as HarnessId,
       event: hookEvent,
       stdin: rawInput,
+      input: parsedInput,
       config,
       trusted,
+      onResult: result => { hookResult = result; },
       ...(worktreeGuard === undefined ? {} : { worktreeGuard }),
       ...(worktreeEnter === undefined ? {} : { worktreeEnter }),
       ...(dependencies.advisory === undefined
@@ -702,6 +710,15 @@ export async function runHookProcess(
       ...(completionGate === undefined ? {} : { completionGate })
     });
     writeHookOutput(io, output);
+    // A Stop can be advisory or gated, but the foreground clock only ends on
+    // the same trusted idle model_stop that the native decision accepted.
+    if (normalized?.event === "stop" &&
+      normalized.sessionId !== undefined &&
+      normalized.terminationReason === "model_stop" &&
+      normalized.fullyIdle === true &&
+      hookResult?.action === "continue") {
+      await closeDebugSession(root,normalized.sessionId,harnessId).catch(() => undefined);
+    }
   } catch {
     if (completionGateInstalled) {
       writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {

@@ -21,6 +21,10 @@ export interface ReviewSlotOptions {
   readonly staleMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly onWait?: (line: string) => void;
+  /** Called once before the first poll when the caller needs to suspend active work. */
+  readonly onWaitStart?: () => Promise<void> | void;
+  /** Called once after acquisition or an aborted wait so the caller can restore active work. */
+  readonly onWaitEnd?: (acquired: boolean) => Promise<void> | void;
   /** Shown by the office view; identifies who holds the slot, never what it reviews. */
   readonly holder?: { readonly taskId?: string; readonly root?: string };
 }
@@ -65,50 +69,62 @@ export async function withReviewSlot<T>(
   }
   const sleep = options.sleep ?? (async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms)));
   let waiting = false;
+  let waitEnded = false;
   let held: string | undefined;
   const token = randomUUID();
-  while (held === undefined) {
-    if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
-    for (let index = 0; index < width && held === undefined; index += 1) {
-      const path = join(options.dir, `agent-ops-review-slot-${index}.lock`);
-      try {
-        const claimed = await withPrivateFileLock(path + ".state", options.dir, async () => {
-          if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
-          for (;;) {
-            try {
-              await mkdir(path);
-              await writeFile(join(path, "owner.json"), JSON.stringify({...options.holder, pid: process.pid, at: Date.now(), token}));
-              return true;
-            } catch (error) {
-              if ((error as {code?: string}).code !== "EEXIST") throw error;
-              if (!await stale(path, options.staleMs ?? STALE_MS)) return false;
-              await rm(path, {recursive: true, force: true});
-            }
-          }
-        });
-        if (claimed) held = path;
-      } catch (error) {
-        if (!(error instanceof AgentOpsError) || error.code !== "PRIVATE_STATE_LOCK_TIMEOUT") throw error;
-      }
-    }
-    if (held === undefined) {
-      if (!waiting) {
-        waiting = true;
-        options.onWait?.(`review: waiting for one of ${String(width)} shared review slots`);
-      }
-      await sleep(options.pollMs ?? POLL_MS);
-    }
-  }
   try {
+    while (held === undefined) {
+      if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
+      for (let index = 0; index < width && held === undefined; index += 1) {
+        const path = join(options.dir, `agent-ops-review-slot-${index}.lock`);
+        try {
+          const claimed = await withPrivateFileLock(path + ".state", options.dir, async () => {
+            if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
+            for (;;) {
+              try {
+                await mkdir(path);
+                await writeFile(join(path, "owner.json"), JSON.stringify({...options.holder, pid: process.pid, at: Date.now(), token}));
+                return true;
+              } catch (error) {
+                if ((error as {code?: string}).code !== "EEXIST") throw error;
+                if (!await stale(path, options.staleMs ?? STALE_MS)) return false;
+                await rm(path, {recursive: true, force: true});
+              }
+            }
+          });
+          if (claimed) held = path;
+        } catch (error) {
+          if (!(error instanceof AgentOpsError) || error.code !== "PRIVATE_STATE_LOCK_TIMEOUT") throw error;
+        }
+      }
+      if (held === undefined) {
+        if (!waiting) {
+          waiting = true;
+          await options.onWaitStart?.();
+          options.onWait?.(`review: waiting for one of ${String(width)} shared review slots`);
+        }
+        await sleep(options.pollMs ?? POLL_MS);
+      }
+    }
+    if (waiting) {
+      waitEnded = true;
+      await options.onWaitEnd?.(true);
+    }
     if (options.signal?.aborted === true) throw new ReviewInterruptedError(String(options.signal.reason ?? ""));
     return await action();
   } finally {
-    await withPrivateFileLock(held + ".state", options.dir, async () => {
-      const owner = await readFile(join(held!, "owner.json"), "utf8").catch(error => {
-        if ((error as {code?: string}).code === "ENOENT") return null;
-        throw error;
+    if (waiting && !waitEnded) {
+      waitEnded = true;
+      try { await options.onWaitEnd?.(false); } catch { /* preserve the original wait/abort failure */ }
+    }
+    if (held !== undefined) {
+      await withPrivateFileLock(held + ".state", options.dir, async () => {
+        const owner = await readFile(join(held!, "owner.json"), "utf8").catch(error => {
+          if ((error as {code?: string}).code === "ENOENT") return null;
+          throw error;
+        });
+        if (owner !== null && JSON.parse(owner)?.token === token) await rm(held!, {recursive: true, force: true});
       });
-      if (owner !== null && JSON.parse(owner)?.token === token) await rm(held!, {recursive: true, force: true});
-    });
+    }
   }
 }
