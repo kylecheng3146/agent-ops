@@ -16,7 +16,7 @@ import {runVerificationCommand} from "../verify/spawn.js";
 import {checkTaskVerificationEvidence} from "./completion.js";
 import {taskContractHash,criterionContractHash} from "./contract.js";
 import {DEBUG_DEFAULTS, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
-import type {TaskStore, StoredTaskRecord} from "./store.js";
+import {FileTaskStore, type TaskStore, type StoredTaskRecord} from "./store.js";
 import type {VerificationReport} from "../verify/service.js";
 import type {TaskService} from "./service.js";
 import {readDebugUserEvent} from "./debug-user-event.js";
@@ -38,13 +38,20 @@ export class DebugService {
   async root(taskId: string): Promise<StoredTaskRecord & {debug: DebugState}> {
     const state = await this.options.store.read();
     const task = state.tasks.find(r=>r.task.id === taskId);
-    const root = state.tasks.find(r=>r.task.id === task?.task.debug?.rootTaskId);
+    let root = state.tasks.find(r=>r.task.id === task?.task.debug?.rootTaskId);
+    if(root?.debug !== undefined && root.debug.ownerRoot !== this.options.root) {
+      const owner=root.debug.ownerRoot;
+      root=(await new FileTaskStore(join(owner,".agent-ops/tasks/state.json"),owner).read()).tasks.find(r=>r.task.id === task?.task.debug?.rootTaskId);
+      if(root?.debug?.ownerRoot !== owner) fail("TASK_DEBUG_ROOT_MISMATCH","Original issue owner is unavailable; never recreate its counters.");
+    }
     if (task === undefined || root?.debug === undefined) return fail("TASK_DEBUG_REQUIRED","This task is not attached to an original debug issue.");
     if (root.debug.rootTaskId !== root.task.id || root.task.goal !== task.task.goal) return fail("TASK_DEBUG_ROOT_MISMATCH","Debug root identity and original goal must match.");
     return root as StoredTaskRecord & {debug:DebugState};
   }
   async #mutate(previous: StoredTaskRecord & {debug:DebugState}, next: DebugState): Promise<void> {
-    await this.options.store.mutate(state=>{
+    const owner=previous.debug.ownerRoot;
+    const store=owner === this.options.root ? this.options.store : new FileTaskStore(join(owner,".agent-ops/tasks/state.json"),owner);
+    await store.mutate(state=>{
       const index = state.tasks.findIndex(r=>r.task.id === previous.task.id);
       if (index < 0 || canonicalJson(state.tasks[index]) !== canonicalJson(previous)) fail("TASK_DEBUG_STATE_CHANGED","Concurrent state preserved; reload the debug issue.");
       state.tasks[index] = {...previous,debug:next,updatedAt:new Date().toISOString()};
@@ -183,10 +190,10 @@ export class DebugService {
       const progress = [...proven,...resolved].filter(id=>!previousProgress.has(id));
       const refs = [...new Set(Object.values(task.evidence).flat().filter(r=>!r.startsWith("review:")))];
       let environment = false;
-      for (const reference of refs) {const checked=validateEvidence(await store.load(reference)); if (checked.ok && checked.value.sourceFingerprint === operation.sourceFingerprint && checked.value.taskContractHash === operation.contractHash && checked.value.status === "UNKNOWN") environment=true;}
+      for (const reference of refs) {const checked=validateEvidence(await store.load(reference)); if (checked.ok && checked.value.sourceFingerprint === operation.sourceFingerprint && checked.value.taskContractHash === operation.contractHash && checked.value.status === "UNKNOWN" && checked.value.failureClass !== "debug-budget-exhausted" && !(checked.value.failureClass.includes("timeout") && await this.remaining(taskId) === 0)) environment=true;}
       await this.#end(operation,problem === null ? "PASS" : environment ? "UNKNOWN" : "FAIL",refs,progress,environment ? "environment" : null);
       return result;
-    } catch (error) {if ((await this.root(taskId)).debug.operation?.id === operation.id) await this.#end(operation,"UNKNOWN",[],[],error instanceof AgentOpsError && /TRUST|DENIED|PERMISSION/u.test(error.code) ? "permission" : "environment"); throw error;}
+    } catch (error) {if ((await this.root(taskId)).debug.operation?.id === operation.id) await this.#end(operation,"UNKNOWN",[],[],error instanceof AgentOpsError && error.code === "TASK_DEBUG_BUDGET_EXHAUSTED" ? null : error instanceof AgentOpsError && /TRUST|DENIED|PERMISSION/u.test(error.code) ? "permission" : "environment"); throw error;}
   }
   async review<T extends {status:string}>(taskId: string, execute: () => Promise<T>): Promise<T> {
     const operation = await this.#begin(taskId,"review");
@@ -203,7 +210,7 @@ export class DebugService {
       const command = config.verification.commands.find(c=>c.id === commandId);
       if (!trusted || command === undefined) fail("TASK_DEBUG_COMMAND_DENIED","Investigation executes only a currently trusted configured command.");
       const result = await runVerificationCommand({...command,timeoutMs:Math.min(command.timeoutMs ?? 300_000,await this.remaining(taskId))},{cwd:command.cwd === "." ? this.options.root : join(this.options.root,command.cwd)});
-      await this.#end(operation,result.status,["command:"+commandId],[],result.status === "UNKNOWN" ? "environment" : null);
+      await this.#end(operation,result.status,["command:"+commandId],[],result.status === "UNKNOWN" && !(result.timedOut && await this.remaining(taskId) === 0) ? "environment" : null);
       return result;
     } catch (error) {if ((await this.root(taskId)).debug.operation?.id === operation.id) await this.#end(operation,"UNKNOWN",[],[],error instanceof AgentOpsError && /DENIED/u.test(error.code) ? "permission" : "environment"); throw error;}
   }

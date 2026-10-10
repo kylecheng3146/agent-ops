@@ -193,7 +193,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           aggregate = undefined;
         failure = aggregate?.failureClass ?? output.failureClass;
       } catch (error) {
-        failure = error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
+        failure = error instanceof AgentOpsError && error.code === "TASK_DEBUG_BUDGET_EXHAUSTED" ? "debug-budget-exhausted" : error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
       } finally { await rm(temp, {recursive: true, force: true}); }
       const finishedAt = new Date().toISOString();
       const artifactContent = redactSecrets(JSON.stringify({schemaVersion: 1, executionId, phase, commit,

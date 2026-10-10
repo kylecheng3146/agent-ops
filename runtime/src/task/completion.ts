@@ -4,7 +4,7 @@ import { findReviewAttestation } from "../review/attestation.js";
 import { validateEvidence, validateTaskAgainstConfig } from "../schema/validate.js";
 import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify/evidence.js";
 import {taskContractHash} from "./contract.js";
-import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
+import {acceptanceCoverage,coverageDigest,type CriterionCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
 import {loadDebugProof,debugProofDigest,debugRemainingMs} from "./debug-state.js";
 
@@ -29,8 +29,13 @@ export async function checkTaskCompletionEvidence(
   if (stored.task.debug !== undefined) {
     const debug=await loadDebugProof(options.root,stored.task.debug.rootTaskId);
     const coverage=await acceptanceCoverage(stored,options.config,options.sourceFingerprint,options.evidenceStore);
+    const {FileTaskStore}=await import("./store.js");
+    const {join}=await import("node:path");
+    const reviewedRecords=(await new FileTaskStore(join(options.root,".agent-ops/tasks/state.json"),options.root).read()).tasks.filter(r=>attestation?.taskContracts?.[r.task.id] !== undefined);
+    const currentCoverage:CriterionCoverage[]=[];
+    for(const record of reviewedRecords){const rows=await acceptanceCoverage(record,options.config,options.sourceFingerprint,options.evidenceStore);currentCoverage.push(...rows.map(row=>({...row,criterionId:attestation?.tree === undefined ? row.criterionId : record.task.id+":"+row.criterionId})));}
     const refs=new Set(coverage.filter(c=>c.mode === "behavioral" && c.status === "proven").flatMap(c=>c.evidenceReferences));
-    if (debug.operation !== null || debugRemainingMs(debug) === 0 || !debug.hypotheses.some(h=>h.status === "confirmed" && h.supporting.some(ref=>refs.has(ref))) ||
+    if (attestation?.coverageDigest !== coverageDigest(currentCoverage) || debug.operation !== null || debugRemainingMs(debug) === 0 || !debug.hypotheses.some(h=>h.status === "confirmed" && h.supporting.some(ref=>refs.has(ref))) ||
         attestation?.debugProofs?.[stored.task.id] !== debugProofDigest(debug))
       return {status:"FAIL",code:"TASK_DEBUG_PROOF_REQUIRED",remedy:"Confirm the original cause with current discriminating regression proof, then obtain two fresh independent reviews bound to that debug proof."};
   }

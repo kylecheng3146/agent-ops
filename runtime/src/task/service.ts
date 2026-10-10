@@ -314,7 +314,7 @@ export class TaskService {
       }
       const record: StoredTaskRecord = {
         task: validation.value,
-        ...(input.debug === undefined ? {} : {debug:createDebugState(task.id,createdSourceCommit!,debugSettings!)}),
+        ...(input.debug === undefined ? {} : {debug:createDebugState(task.id,createdSourceCommit!,debugSettings!,this.#completion!.root)}),
         ...(createdSourceCommit === undefined ? {} : {createdSourceCommit}),
         status: "active",
         evidence: {},
@@ -527,6 +527,8 @@ export class TaskService {
         if (record.policyConfigHash !== parent.policyConfigHash || !validateTask(task).ok) {
           throw taskError("TASK_DELIVERY_INVALID", `Task ${task.id} has an incompatible policy or definition.`);
         }
+        if (parent.task.debug !== undefined && (task.goal !== parent.task.goal || JSON.stringify(task.debug) !== JSON.stringify(parent.task.debug) || record.debug !== undefined))
+          throw taskError("TASK_DEBUG_ROOT_MISMATCH","A delivery must retain the original issue identity and cannot import an independent debug budget.");
         const existing = state.tasks.find((item) => item.task.id === task.id);
         if (existing !== undefined) {
           if (JSON.stringify(existing.task) !== JSON.stringify(task)) {

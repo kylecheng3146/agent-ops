@@ -46,6 +46,7 @@ export interface DebugCheckpoint {
 export interface DebugState {
   schemaVersion: 1;
   rootTaskId: string;
+  ownerRoot: string;
   baselineCommit: string;
   budgetMs: number;
   maxRounds: number;
@@ -75,8 +76,8 @@ export function validDebugIntake(v: unknown): boolean {
   return exact(v,["rootTaskId","facts","unknowns"]) && text(v.rootTaskId) && strings(v.facts) && strings(v.unknowns);
 }
 export function validDebugState(v: unknown): v is DebugState {
-  if (!exact(v,["schemaVersion","rootTaskId","baselineCommit","budgetMs","maxRounds","consumedMs","regressionChecks","hypotheses","receipts","strategy","grants","operation","checkpoint"]) ||
-      v.schemaVersion !== 1 || !text(v.rootTaskId) || typeof v.baselineCommit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v.baselineCommit) ||
+  if (!exact(v,["schemaVersion","rootTaskId","ownerRoot","baselineCommit","budgetMs","maxRounds","consumedMs","regressionChecks","hypotheses","receipts","strategy","grants","operation","checkpoint"]) ||
+      v.schemaVersion !== 1 || !text(v.rootTaskId) || !text(v.ownerRoot) || typeof v.baselineCommit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v.baselineCommit) ||
       !validDebugSettings({enabled:true,budgetMs:v.budgetMs,maxRounds:v.maxRounds}) || !integer(v.consumedMs) || !strings(v.regressionChecks) ||
       !Array.isArray(v.hypotheses) || v.hypotheses.length > 32 || !Array.isArray(v.receipts) || v.receipts.length > 256 ||
       !Array.isArray(v.grants) || v.grants.length > 128) return false;
@@ -107,8 +108,8 @@ export function validDebugState(v: unknown): v is DebugState {
       ![v.checkpoint.sourceFingerprint,v.checkpoint.contractHash,v.checkpoint.configHash].every(hash) || (v.checkpoint.cause !== null && !debugCauses.includes(v.checkpoint.cause as DebugCause)))) return false;
   return true;
 }
-export function createDebugState(rootTaskId: string, baselineCommit: string, settings: {budgetMs:number; maxRounds:number} = DEBUG_DEFAULTS): DebugState {
-  return {schemaVersion:1,rootTaskId,baselineCommit,budgetMs:settings.budgetMs,maxRounds:settings.maxRounds,consumedMs:0,regressionChecks:[],
+export function createDebugState(rootTaskId: string, baselineCommit: string, settings: {budgetMs:number; maxRounds:number} = DEBUG_DEFAULTS, ownerRoot = "."): DebugState {
+  return {schemaVersion:1,rootTaskId,ownerRoot,baselineCommit,budgetMs:settings.budgetMs,maxRounds:settings.maxRounds,consumedMs:0,regressionChecks:[],
     hypotheses:[],receipts:[],strategy:null,grants:[],operation:null,checkpoint:null};
 }
 export function debugRounds(state: DebugState): number { return state.receipts.filter(r => r.round).length; }
@@ -142,5 +143,11 @@ export async function loadDebugProof(root: string, rootTaskId: string): Promise<
   const record=(await new FileTaskStore(join(root,".agent-ops/tasks/state.json"),root).read()).tasks.find(r=>r.task.id === rootTaskId);
   if (record?.debug === undefined || record.task.debug?.rootTaskId !== rootTaskId)
     throw new AgentOpsError("TASK_DEBUG_ROOT_MISMATCH","Original issue proof is unavailable; do not reset its limits.");
+  if(record.debug.ownerRoot !== root) {
+    const owned=(await new FileTaskStore(join(record.debug.ownerRoot,".agent-ops/tasks/state.json"),record.debug.ownerRoot).read()).tasks.find(r=>r.task.id === rootTaskId);
+    if(owned?.debug === undefined || owned.debug.ownerRoot !== record.debug.ownerRoot || owned.task.goal !== record.task.goal)
+      throw new AgentOpsError("TASK_DEBUG_ROOT_MISMATCH","Original owned issue state is unavailable; do not recreate its budget.");
+    return owned.debug;
+  }
   return record.debug;
 }

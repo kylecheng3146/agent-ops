@@ -4,7 +4,7 @@ import {FileTaskStore} from "../../../runtime/src/task/store.js";
 import {calculateConfigHash} from "../../../runtime/src/config/hash.js";
 import {evaluateGuardrail} from "../../../runtime/src/guardrails/evaluate.js";
 import {isDebugIssue} from "../../../runtime/src/task/debug-intake.js";
-import {ensureSessionWorktree,readWorktreeRecord} from "../../../runtime/src/parallel/service.js";
+import {ensureSessionWorktree,readWorktreeRecord,sessionWorktreeName} from "../../../runtime/src/parallel/service.js";
 import {loadEffectiveConfig} from "./context.js";
 import {gitRunner,worktreeDependencies} from "./parallel-deps.js";
 
@@ -20,7 +20,10 @@ export async function routeDebugPrompt(root:string,input:unknown):Promise<string
   if (typeof fields.session_id !== "string" || fields.session_id.length === 0)
     return "DEBUG intake unsupported: this hook has no reliable native session identity. Use task create --debug --goal with the original issue in the native conversation.";
   const session=fields.session_id;
-  const original=new TaskService(new FileTaskStore(join(root,".agent-ops/tasks/state.json"),root),{completion:{root,gitRunner:gitRunner(root),loadConfig:async()=>config}});
+  const saved=await readWorktreeRecord(join(root,".worktrees",sessionWorktreeName(session)));
+  const contextRoot=saved?.mainRoot === root && saved.sessionId === session ? saved.path : root;
+  const contextConfig=contextRoot === root ? config : (await loadEffectiveConfig(contextRoot,"project")).config;
+  const original=new TaskService(new FileTaskStore(join(contextRoot,".agent-ops/tasks/state.json"),contextRoot),{completion:{root:contextRoot,gitRunner:gitRunner(contextRoot),loadConfig:async()=>contextConfig}});
   const attached=await original.status({sessionId:session}).catch(()=>null);
   if (continuation) {
     if (attached?.status !== "active" || attached.task.debug === undefined) return null;
