@@ -38,7 +38,7 @@ import {
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
-import {routeDebugPrompt} from "./debug-intake.js";
+import {closeDebugSession,routeDebugPrompt} from "./debug-intake.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
@@ -407,17 +407,18 @@ function completionGateFor(
  */
 async function closeOfficeSession(io: HookProcessIo, dependencies: HookProcessDependencies): Promise<number> {
   try {
-    if (process.env.AGENT_OPS_DISABLE === "1" || dependencies.office === undefined) return 0;
+    if (process.env.AGENT_OPS_DISABLE === "1") return 0;
     const input = parseInput(await readStdin(io.stdin));
     if (typeof input !== "object" || input === null || Array.isArray(input)) return 0;
     const fields = input as {cwd?: unknown; session_id?: unknown};
     const root = dependencies.root ?? (typeof fields.cwd === "string" ? fields.cwd : process.cwd());
     const outcome = await hookConfigOutcome(root, dependencies.loadConfig);
-    if (outcome.kind === "invalid" || outcome.config.features.office?.enabled !== true) return 0;
-    await dependencies.office({
+    if (outcome.kind === "invalid") return 0;
+    if (dependencies.office !== undefined && outcome.config.features.office?.enabled === true) await dependencies.office({
       root, harness: "claude", event: "SessionEnd", input, validated: true,
       ...(typeof fields.session_id === "string" ? {sessionId: fields.session_id} : {})
     });
+    if (typeof fields.session_id === "string") await closeDebugSession(root,fields.session_id,"claude").catch(() => undefined);
   } catch {
     // Office never blocks a session, least of all one that is ending.
   }
@@ -450,7 +451,7 @@ async function promptSubmitted(harness: "claude" | "codex", io: HookProcessIo, d
     const prompt = fields.prompt;
     if (typeof prompt !== "string" || prompt.length === 0 || prompt.length > 64 * 1024 || prompt.includes("\0")) return 0;
     if (evaluateGuardrail({kind: "content", content: prompt, scope: root}).action !== "block") {
-      const context=await routeDebugPrompt(root,input).catch(error=>`DEBUG intake unavailable: ${error instanceof Error ? error.message : "preserve current state"}`);
+      const context=await routeDebugPrompt(root,input,harness).catch(error=>`DEBUG intake unavailable: ${error instanceof Error ? error.message : "preserve current state"}`);
       if (context !== null) io.writeStdout(harness === "claude" ? JSON.stringify({hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:context}}) : context+"\n");
       return 0;
     }
@@ -575,8 +576,10 @@ export async function runHookProcess(
         ? await repositoryTrust(root, config, cliVersion)
         : await dependencies.trust(root, config, cliVersion);
     const trusted = trustStatus === "TRUSTED";
+    const normalized = normalizeHookInput(harnessId, parsedInput);
+    if (normalized?.event === "stop" && normalized.sessionId !== undefined)
+      await closeDebugSession(root,normalized.sessionId,harnessId === "claude" ? "claude" : "codex").catch(() => undefined);
     if (dependencies.office !== undefined && config.features.office?.enabled === true) {
-      const normalized = normalizeHookInput(harnessId, parsedInput);
       if (normalized !== null) {
         const phase = officePhaseHint(normalized);
         void dependencies.office({

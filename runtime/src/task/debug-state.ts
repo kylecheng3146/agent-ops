@@ -34,6 +34,10 @@ export interface DebugReceipt {
   outcome: "PASS" | "FAIL" | "UNKNOWN";
   cause: "environment" | "permission" | null;
 }
+export interface DebugForeground {
+  sessionId: string;
+  startedAt: number;
+}
 export interface DebugCheckpoint {
   taskId: string;
   sessionId: string;
@@ -57,7 +61,9 @@ export interface DebugState {
   receipts: DebugReceipt[];
   strategy: {from: string; to: string; reason: string; references: string[]; afterRound: number} | null;
   grants: {eventId: string; sessionId: string; sourceDigest: string; grantedMs: number}[];
-  operation: {id: string; startedAt: number; taskId: string; contractHash: string; configHash: string; sourceFingerprint: string; productDigest: string; kind: DebugReceipt["kind"]} | null;
+  /** A native host turn currently being measured. Omitted by legacy state. */
+  foreground?: DebugForeground | null;
+  operation: {id: string; startedAt: number; taskId: string; contractHash: string; configHash: string; sourceFingerprint: string; productDigest: string; kind: DebugReceipt["kind"]; processId?: number; processIdentity?: string} | null;
   checkpoint: DebugCheckpoint | null;
 }
 const object = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -77,7 +83,8 @@ export function validDebugIntake(v: unknown): boolean {
   return exact(v,["rootTaskId","facts","unknowns"]) && text(v.rootTaskId) && strings(v.facts) && strings(v.unknowns);
 }
 export function validDebugState(v: unknown): v is DebugState {
-  if (!exact(v,["schemaVersion","rootTaskId","ownerRoot","baselineCommit","budgetMs","maxRounds","consumedMs","regressionChecks","hypotheses","receipts","strategy","grants","operation","checkpoint"]) ||
+  const baseKeys = ["schemaVersion","rootTaskId","ownerRoot","baselineCommit","budgetMs","maxRounds","consumedMs","regressionChecks","hypotheses","receipts","strategy","grants","operation","checkpoint"];
+  if ((!exact(v,baseKeys) && !exact(v,[...baseKeys,"foreground"])) ||
       v.schemaVersion !== 1 || !text(v.rootTaskId) || !text(v.ownerRoot) || typeof v.baselineCommit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v.baselineCommit) ||
       !validDebugSettings({enabled:true,budgetMs:v.budgetMs,maxRounds:v.maxRounds}) || !integer(v.consumedMs) || !strings(v.regressionChecks) ||
       !Array.isArray(v.hypotheses) || v.hypotheses.length > 32 || !Array.isArray(v.receipts) || v.receipts.length > 256 ||
@@ -100,10 +107,14 @@ export function validDebugState(v: unknown): v is DebugState {
   if (v.strategy !== null && (!exact(v.strategy,["from","to","reason","references","afterRound"]) ||
       ![v.strategy.from,v.strategy.to,v.strategy.reason].every(text) || v.strategy.from === v.strategy.to ||
       !strings(v.strategy.references) || !integer(v.strategy.afterRound) || (v.strategy.afterRound as number) < 2)) return false;
-  if (v.operation !== null && (!exact(v.operation,["id","startedAt","taskId","contractHash","configHash","sourceFingerprint","productDigest","kind"]) ||
+  if (v.foreground !== undefined && v.foreground !== null && (!exact(v.foreground,["sessionId","startedAt"]) || !text(v.foreground.sessionId) || (v.foreground.sessionId as string).length > 256 || !integer(v.foreground.startedAt))) return false;
+  if (v.operation !== null && (!((exact(v.operation,["id","startedAt","taskId","contractHash","configHash","sourceFingerprint","productDigest","kind"])) ||
+      exact(v.operation,["id","startedAt","taskId","contractHash","configHash","sourceFingerprint","productDigest","kind","processId","processIdentity"])) ||
       !text(v.operation.id) || !integer(v.operation.startedAt) || !text(v.operation.taskId) ||
       ![v.operation.contractHash,v.operation.configHash,v.operation.sourceFingerprint,v.operation.productDigest].every(hash) ||
-      !["investigate","verify","review"].includes(String(v.operation.kind)))) return false;
+      !["investigate","verify","review"].includes(String(v.operation.kind)) ||
+      (Object.hasOwn(v.operation,"processId") && (!integer(v.operation.processId) || (v.operation.processId as number) < 1)) ||
+      (Object.hasOwn(v.operation,"processIdentity") && (!text(v.operation.processIdentity) || (v.operation.processIdentity as string).length > 256)))) return false;
   if (v.checkpoint !== null && (!exact(v.checkpoint,["taskId","sessionId","root","sourceFingerprint","contractHash","configHash","cause","receiptId"]) ||
       ![v.checkpoint.taskId,v.checkpoint.sessionId,v.checkpoint.root,v.checkpoint.receiptId].every(text) ||
       ![v.checkpoint.sourceFingerprint,v.checkpoint.contractHash,v.checkpoint.configHash].every(hash) || (v.checkpoint.cause !== null && !debugCauses.includes(v.checkpoint.cause as DebugCause)))) return false;
@@ -111,12 +122,13 @@ export function validDebugState(v: unknown): v is DebugState {
 }
 export function createDebugState(rootTaskId: string, baselineCommit: string, settings: {budgetMs:number; maxRounds:number} = DEBUG_DEFAULTS, ownerRoot = "."): DebugState {
   return {schemaVersion:1,rootTaskId,ownerRoot,baselineCommit,budgetMs:settings.budgetMs,maxRounds:settings.maxRounds,consumedMs:0,regressionChecks:[],
-    hypotheses:[],receipts:[],strategy:null,grants:[],operation:null,checkpoint:null};
+    hypotheses:[],receipts:[],strategy:null,grants:[],foreground:null,operation:null,checkpoint:null};
 }
 export function debugRounds(state: DebugState): number { return state.receipts.filter(r => r.round).length; }
 export function debugRemainingMs(state: DebugState, now = Date.now()): number {
-  return Math.max(0,state.budgetMs + state.grants.reduce((n,g)=>n+g.grantedMs,0) - state.consumedMs -
-    (state.operation === null ? 0 : Math.max(0,now-state.operation.startedAt)));
+  const starts = [state.foreground?.startedAt, state.operation?.startedAt].filter((startedAt): startedAt is number => startedAt !== undefined);
+  const active = starts.length === 0 ? 0 : Math.max(0,now - Math.min(...starts));
+  return Math.max(0,state.budgetMs + state.grants.reduce((n,g)=>n+g.grantedMs,0) - state.consumedMs - active);
 }
 export function debugStopCause(state: DebugState, now = Date.now()): DebugCause | null {
   const latest = state.receipts.at(-1);

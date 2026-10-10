@@ -11,7 +11,9 @@ Claude / Codex prompt hook 會保守辨識調查與修復問題，保留原始 `
 調查用可信任的既有 command；假設用 `task debug --debug-action hypothesis
 --payload-file <json>`。JSON 必須含 id、statement、method、expected、checkId、
 expectedStatus；附 reference 才能由真實封存的 assertion 決定 confirmed/rejected。
-不能自填 status。重開 rejected 假設需要新證據與 reason。
+`--action investigate` 只能執行已宣告且尚未解決的 behavioral red check；
+`--action observe` 只能把目前相符的 runtime `UNKNOWN` receipt 記為 inconclusive。
+兩者都不能由 Agent 自填 status。重開 rejected 假設需要新證據與 reason。
 
 將暫定 criteria 改為原始問題的 behavioral 回歸，執行 verify、兩輪獨立 review，
 再透過既有 worktree finish 完成。基線 assertion red、候選 green、相關檢查與
@@ -19,8 +21,13 @@ expectedStatus；附 reference 才能由真實封存的 assertion 決定 confirm
 
 預算與輪數屬於整個原始 root，revision、child、session 不重設。
 受控調查、驗證與取得 slot 後的 review 計時；review 排隊不計時。
-原生對話中受控 CLI 之外的思考沒有可靠計時來源，不納入計量。
-中斷且沒有封存結果的操作保持阻擋，避免退還不明時間。
+Claude 的支援原生 host 會在 `UserPromptSubmit` 開始前景時鐘，在原生 `Stop`
+結束，並以 `SessionEnd` 作為收尾。因此該輪的 Agent 推理、工具與修改都計入，
+停止回合之間的使用者等待不計入。沒有可信 end-of-turn 訊號的 host（Codex Stop、
+opencode）只提供 advisory / unsupported 的 DEBUG intake，不可宣稱完整的
+active-time 預算。
+中斷且沒有封存結果的操作，必須等持久化 process identity 證實程序已死亡後，
+才封存 UNKNOWN environment receipt；這段經過時間仍會保留，不會退還不明時間。
 測試材料修改不算修復輪；兩輪停滯需要一次實質策略切換，再兩輪停滯停止。
 
 checkpoint 保存 task/session/source/contract/config/cause；resume 只接受同一
