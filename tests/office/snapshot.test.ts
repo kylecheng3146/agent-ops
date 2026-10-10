@@ -56,6 +56,32 @@ test("snapshot aggregates runs, run worktrees and lobby desks; review slots make
   assert.ok(snapshot.lobby[0]!.commands.includes("agent-ops worktree finish 'session-1'"));
 });
 
+test("snapshot carries the coordinator worktree's criteria and progress onto its run", () => {
+  const criteria = [{id: "reproduce", description: "Reproduce the reported failure", status: null,
+    finishedAt: null, failureClass: null, exitCode: null, output: null}];
+  const progress = {verify: null, review: null, passed: 0, total: 1} as const;
+  const snapshot = buildOfficeSnapshot({now: NOW, runs: [runFixture()], worktrees: [
+    {name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: "run-office-fixture",
+      taskId: "root", progress, criteria, diff: diff([])},
+    {name: "child", path: "/repo/.worktrees/child", branch: "b2", sessionId: "s2", runId: "run-office-fixture",
+      taskId: "child", progress: {verify: "PASS", review: "PASS", passed: 9, total: 9}, criteria: [], diff: diff([])}
+  ], reviews: []});
+  const run = snapshot.runs[0]!;
+  assert.equal(run.taskId, "root");
+  assert.deepEqual(run.progress, progress);
+  assert.deepEqual(run.criteria, criteria);
+});
+
+test("snapshot keeps legacy runs without an attached coordinator task unadorned", () => {
+  const snapshot = buildOfficeSnapshot({now: NOW, runs: [runFixture()], worktrees: [{
+    name: "coord", path: "/repo/.worktrees/coord", branch: "b1", sessionId: "owner", runId: "run-office-fixture", diff: diff([])
+  }], reviews: []});
+  const run = snapshot.runs[0]!;
+  assert.equal(run.criteria, undefined);
+  assert.deepEqual(run.progress, {verify: "PASS", review: null, passed: 2, total: 6});
+  assert.equal(run.progress?.review, null);
+});
+
 test("snapshot adds standalone sessions without duplicating run rooms", () => {
   const snapshot = buildOfficeSnapshot({
     now: NOW,
