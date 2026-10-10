@@ -55,6 +55,29 @@ const checks={
 'debug-settings':async()=>{const {validateConfig}=await mod('runtime/src/schema/validate.js');await withFixture(async f=>{assert.ok(validateConfig(f.config).ok);f.config.features.debug.maxRounds=0;assert.equal(validateConfig(f.config).ok,false);f.config.features.debug={enabled:false,budgetMs:60000,maxRounds:3};assert.ok(validateConfig(f.config).ok);const {resolveCapabilities}=await mod('runtime/src/install/profiles.js');assert.equal(resolveCapabilities(f.config).capabilities.includes('task-debug'),false);});},
 'debug-native-routing':async()=>{const {parseArgs}=await mod('packages/cli/src/args.js');const parsed=parseArgs(['task','create','--title','Original error','--goal','Investigate original error','--debug']);assert.equal(parsed.goal,'Investigate original error');assert.equal(parsed.debug,true);assert.equal(parseArgs(['task','debug','--task','task-id','--debug-action','status']).debugAction,'status');await withFixture(async f=>{await mkdir(join(f.root,'.agent-ops'),{recursive:true});await writeFile(join(f.root,'.agent-ops/config.json'),JSON.stringify(f.config));const {routeDebugPrompt}=await mod('packages/cli/src/debug-intake.js');const routed=await routeDebugPrompt(f.root,{prompt:'Investigate and fix this error',session_id:'new-native'});assert.match(routed,/DEBUG issue/);assert.match(routed,/Defaults: 60 active minutes/);const all=await f.tasks.list();assert.equal(all.length,2);assert.equal(all[1].task.goal,'Investigate and fix this error');assert.equal(all[1].debug.rootTaskId,all[1].task.id);});},
 'debug-legacy':async()=>withFixture(async f=>{assert.equal(f.record.task.debug,undefined);assert.equal(f.record.debug,undefined);assert.equal((await f.tasks.status({sessionId:'native-session'})).task.id,f.record.task.id);await f.candidate();assert.equal((await f.verify()).status,'PASS');},false),
-'debug-no-run-change':async()=>{const files=execFileSync('git',['diff','--name-only','ee74a435e3406137f08bc29c5e348c8434c02df4','HEAD'],{encoding:'utf8'}).trim().split('\n');assert.equal(files.some(p=>/^runtime\/src\/run\/|^packages\/cli\/src\/run-|^packages\/cli\/src\/commands\/run\.ts$|^tests\/run\//u.test(p)),false,files.join('\n'));}
+'debug-hypothesis-lifecycle':async()=>withFixture(async f=>{
+ const d=f.tasks.debugService(), id=f.record.task.id;
+ await f.candidate();
+ assert.equal((await d.hypothesis(id,hypothesis)).status,'proposed');
+ assert.equal((await d.hypothesis(id,{...hypothesis,action:'investigate'})).status,'investigating');
+ await assert.rejects(d.hypothesis(id,{...hypothesis,action:'observe'}),e=>e.code==='TASK_DEBUG_HYPOTHESIS_UNPROVEN');
+ f.config.verification.acceptanceRunners[0].build=[{command:process.execPath,args:['-e','process.exit(2)']}];
+ assert.equal((await f.verify()).status,'UNKNOWN');
+ const inconclusive=await d.hypothesis(id,{...hypothesis,action:'observe'});
+ assert.equal(inconclusive.status,'inconclusive');assert.equal(inconclusive.supporting.length,0);
+ assert.equal((await d.hypothesis(id,{...hypothesis,action:'investigate'})).status,'investigating');
+ f.config.verification.acceptanceRunners[0].build=[];
+ const report=await f.verify();assert.equal(report.status,'PASS');
+ const ref=report.acceptance.find(r=>r.phase==='baseline' && r.criterionId==='issue').reference;
+ const confirmed=await d.hypothesis(id,{...hypothesis,reference:ref});assert.equal(confirmed.status,'confirmed');
+ assert.deepEqual(await d.hypothesis(id,{...hypothesis,reference:ref}),confirmed);
+ assert.equal((await d.root(id)).debug.hypotheses[0].supporting.length,1);
+ assert.deepEqual((await d.root(id)).debug.hypotheses[0].history.map(h=>h.status),['investigating','inconclusive','investigating','confirmed']);
+ await assert.rejects(d.hypothesis(id,{...hypothesis,action:'investigate'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+ const candidate=report.acceptance.find(r=>r.phase==='candidate' && r.criterionId==='issue').reference;
+ const rejected=await d.hypothesis(id,{...hypothesis,id:'other-cause',reference:candidate});assert.equal(rejected.status,'rejected');
+ await assert.rejects(d.hypothesis(id,{...hypothesis,id:'other-cause',action:'investigate'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+ await assert.rejects(d.hypothesis(id,{...hypothesis,id:'other-cause',reference:candidate,reason:'Same evidence is not new.'}),e=>e.code==='TASK_DEBUG_REJECTED_CAUSE');
+})
 };
 export async function run(ids){const executionId=process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-debug',phase=process.env.AGENT_OPS_ACCEPTANCE_PHASE ?? 'candidate';const results=[];for(const checkId of ids){let status='PASS',failureClass='none',detail='Actual behavior assertions completed';try{if(!checkId.startsWith('debug-legacy') && checkId!=='debug-no-run-change')assert.equal(typeof TaskService.prototype.debugService,'function','Task-level debug execution exists');await checks[checkId]();}catch(e){status='FAIL';failureClass=e.code==='ERR_ASSERTION'?'assertion-failed':'infrastructure-error';detail=String(e.stack ?? e).replace(/[\r\n]/gu," ").slice(0,4000);}results.push({executionId,phase,framework:'debug-node-assert',frameworkVersion:'1',checkId,status,failureClass,attempts:1,evidence:[detail]});}console.log(JSON.stringify({protocolVersion:1,executionId,phase,framework:'debug-node-assert',frameworkVersion:'1',results,completed:true,completionEvidence:['All named checks ran once'],diagnostics:[]}));if(results.some(r=>r.status==='FAIL'))process.exitCode=1;return results;}

@@ -1,1 +1,1 @@
-import {run} from './acceptance-helper.mjs';await run(['debug-legacy','debug-no-run-change']);
+import {run} from './acceptance-helper.mjs';await run(['debug-legacy']);

@@ -102,9 +102,10 @@ export class DebugService {
       return fail("TASK_DEBUG_EVIDENCE_INVALID","Only completed, single-attempt assertion execution can resolve a hypothesis.");
     return e;
   }
-  async hypothesis(taskId: string, input: {id:string;statement:string;method:string;expected:string;reason?:string;reference?:string;checkId?:string;expectedStatus?:"PASS"|"FAIL"}): Promise<DebugHypothesis> {
-    if (Object.keys(input).some(k=>!["id","statement","method","expected","reason","reference","checkId","expectedStatus"].includes(k)) ||
-        ![input.id,input.statement,input.method,input.expected,input.checkId].every(bounded) || !["PASS","FAIL"].includes(input.expectedStatus ?? "")) fail("TASK_DEBUG_HYPOTHESIS_INVALID","A hypothesis needs a bounded statement, verification method and expected result; status is runtime-derived.");
+  async hypothesis(taskId: string, input: {id:string;statement:string;method:string;expected:string;reason?:string;reference?:string;checkId?:string;expectedStatus?:"PASS"|"FAIL";action?:"investigate"|"observe"}): Promise<DebugHypothesis> {
+    if (Object.keys(input).some(k=>!["id","statement","method","expected","reason","reference","checkId","expectedStatus","action"].includes(k)) ||
+        ![input.id,input.statement,input.method,input.expected,input.checkId].every(bounded) || !["PASS","FAIL"].includes(input.expectedStatus ?? "") ||
+        (input.action !== undefined && (!["investigate","observe"].includes(input.action) || input.reference !== undefined))) fail("TASK_DEBUG_HYPOTHESIS_INVALID","A hypothesis needs a bounded statement, verification method and expected result; status is runtime-derived.");
     if (evaluateGuardrail({kind:"content",content:JSON.stringify(input),scope:this.options.root}).action === "block") fail("TASK_DEBUG_SENSITIVE_INPUT","Do not save literal credentials in hypothesis proof.");
     const root = await this.root(taskId), next = structuredClone(root.debug);
     if (root.status !== "active" || next.operation !== null) fail("TASK_DEBUG_BUSY","Hypothesis changes need an active idle issue.");
@@ -114,7 +115,26 @@ export class DebugService {
       h = {id:input.id,statement:input.statement,method:input.method,expected:input.expected,checkId:input.checkId!,expectedStatus:input.expectedStatus!,status:"proposed",supporting:[],opposing:[],actual:"",history:[]};
       next.hypotheses.push(h);
     } else if (h.statement !== input.statement || h.method !== input.method || h.expected !== input.expected || h.checkId !== input.checkId || h.expectedStatus !== input.expectedStatus) fail("TASK_DEBUG_HYPOTHESIS_IMMUTABLE","Retain the hypothesis and create a distinct falsifiable alternative.");
-    if (input.reference !== undefined) {
+    if (input.action !== undefined) {
+      if (["confirmed","rejected"].includes(h.status)) fail("TASK_DEBUG_REJECTED_CAUSE","Resolved hypotheses need new discriminating evidence, not another identical investigation.");
+      const {task,config,sourceFingerprint}=await this.#scope(taskId);
+      if (!task.task.criteria.some(c=>c.acceptance?.mode === "behavioral" && c.acceptance.bindings.some(b=>(b.redCheckIds ?? []).includes(input.checkId!))))
+        fail("TASK_DEBUG_HYPOTHESIS_UNPROVEN","Investigation must name a declared original-issue regression check.");
+      if (input.action === "investigate") {
+        h.status="investigating";
+        h.actual="Selected original-issue check for investigation; no cause is confirmed.";
+      } else {
+        const receipt=next.receipts.at(-1);
+        if (h.status !== "investigating" || receipt?.kind !== "verify" || receipt.outcome !== "UNKNOWN" || receipt.taskId !== taskId ||
+            receipt.contractHash !== taskContractHash(task.task) || receipt.configHash !== calculateConfigHash(config) || receipt.sourceFingerprint !== sourceFingerprint)
+          fail("TASK_DEBUG_HYPOTHESIS_UNPROVEN","Inconclusive needs the current runtime-recorded UNKNOWN verification for this investigating hypothesis.");
+        h.status="inconclusive";
+        h.actual="Verification could not establish the hypothesis: UNKNOWN";
+      }
+      const references=input.action === "observe" ? next.receipts.at(-1)!.references : [];
+      if (h.history.at(-1)?.status !== h.status || h.history.at(-1)?.actual !== h.actual)
+        h.history.push({status:h.status,actual:h.actual,references:[...references],reason:input.reason ?? "Runtime-derived investigation state; unresolved evidence cannot confirm a cause."});
+    } else if (input.reference !== undefined) {
       const e = await this.#evidence(taskId,input.reference);
       const check = e.acceptance!.checks.find(c=>c.checkId === input.checkId);
       if (!root.debug.regressionChecks.includes(e.commandId+":"+input.checkId) || check === undefined || !["PASS","FAIL"].includes(check.status) || !["PASS","FAIL"].includes(input.expectedStatus ?? "") ||
@@ -122,6 +142,7 @@ export class DebugService {
       if (h.status === "rejected" && (!bounded(input.reason) || [...h.supporting,...h.opposing].includes(input.reference)))
         fail("TASK_DEBUG_REJECTED_CAUSE","A rejected cause needs new discriminating evidence and a preserved reopening reason.");
       const matches = check.status === input.expectedStatus;
+      if ((matches ? h.supporting : h.opposing).includes(input.reference)) return structuredClone(h);
       h.actual = `${e.acceptance!.phase}:${check.checkId}:${check.status}`;
       h.status = matches ? "confirmed" : "rejected";
       (matches ? h.supporting : h.opposing).push(input.reference);
