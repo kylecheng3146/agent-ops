@@ -1,0 +1,10 @@
+worktree: debug-complete (agent-ops/debug-complete)
+session: 01a1236b-2567-76c3-9b66-f9dd941e5954
+agent-ops task task-d307dd63-96fc-40ae-888c-10fd8e94a8bd: 完整交付自主除錯功能、60 分鐘計時與 Office 驗收條件
+intent: 使用者授權全部執行到完整交付；接手 run-2b892e9d37a54272 的既有 feature commits 與 bf5fe12 預設值修改，不重啟或改寫 run 預算。沿用原始 Issue、hypothesis、證據、verification、review、worktree/finish 能力，補足完整前景計時、可恢復停止與 Office 原始任務驗收條件。完整功能須重新測試、兩輪獨立審查並寫入 durable finish receipt 後整合 main；禁止修改 run 模組、覆蓋使用者修改、push 或 release。
+criteria:
+- debug-workflow: 自然語言 Issue 啟動任務除錯，假設與原始問題證據可追蹤且完整循環可修復驗證成功。
+- debug-retry-stop: 重現或修復失敗及 review 問題能繼續調查；排除原因、輪數、停滯與環境阻礙具有可靠停止與恢復。
+- debug-clock: 預設 60 分鐘與 5 輪；包含前景調查推理時間並避免重複計時；只有實際使用者事件能新增 20 分鐘。
+- debug-office: Office 顯示 run 原始任務的實際驗收條件及正確進度，舊格式相容。
+- debug-compatibility: init/update 設定相容且未更動 run 模組；既有 tests、typecheck、build、package check 通過，完整範圍審查及 finish 保留證据。
