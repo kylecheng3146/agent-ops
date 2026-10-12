@@ -212,12 +212,12 @@ test("agy lifecycle runs through init, doctor, update, and selective uninstall",
     ? [
         "@echo off",
         'if "%1"=="--version" (echo agy 1.1.12&exit /b 0)',
-        "echo {\"command\":{\"data\":{\"hooks\":[{\"name\":\"agent-ops\",\"enabled\":true,\"actions\":[{\"event\":\"PreInvocation\",\"command\":\"node hook-entry.js agy SessionStart --managed-by=agent-ops\"}]}]}}}"
+        "echo {\"command\":{\"data\":{\"hooks\":[{\"name\":\"agent-ops\",\"enabled\":true,\"actions\":[{\"event\":\"PreInvocation\",\"command\":\"node hook-entry.js agy SessionStart --managed-by=agent-ops\"},{\"event\":\"Stop\",\"command\":\"node hook-entry.js agy Stop --managed-by=agent-ops\"}]}]}}}"
       ].join("\r\n") + "\r\n"
     : [
         "#!/bin/sh",
         'if [ "$1" = "--version" ]; then echo "agy 1.1.12"; exit 0; fi',
-        "printf '%s\\n' '{\"command\":{\"data\":{\"hooks\":[{\"name\":\"agent-ops\",\"enabled\":true,\"actions\":[{\"event\":\"PreInvocation\",\"command\":\"node hook-entry.js agy SessionStart --managed-by=agent-ops\"}]}]}}}'"
+        "printf '%s\\n' '{\"command\":{\"data\":{\"hooks\":[{\"name\":\"agent-ops\",\"enabled\":true,\"actions\":[{\"event\":\"PreInvocation\",\"command\":\"node hook-entry.js agy SessionStart --managed-by=agent-ops\"},{\"event\":\"Stop\",\"command\":\"node hook-entry.js agy Stop --managed-by=agent-ops\"}]}]}}}'"
       ].join("\n") + "\n";
   await writeFile(
     fakeAgyPath,
@@ -236,7 +236,7 @@ test("agy lifecycle runs through init, doctor, update, and selective uninstall",
     assert.match(initialized.stdout, /INIT_APPLIED/u);
 
     const doctor = runBuiltCli(["doctor", "--json"], root, root, environment).result;
-    assert.equal(doctor.status, 0);
+    assert.equal(doctor.status, 0, doctor.stdout);
     const doctorPayload = JSON.parse(doctor.stdout) as {
       data?: { report?: { checks?: readonly { id?: string; status?: string }[] } };
     };

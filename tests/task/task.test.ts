@@ -14,6 +14,7 @@ import test from "node:test";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { runTaskCommand } from "../../packages/cli/src/commands/task.js";
 import { writeEnvelope } from "../../packages/cli/src/output.js";
+import type { AgentOpsConfig } from "../../runtime/src/contracts.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import {
   TaskService,
@@ -461,6 +462,44 @@ test("task command returns stable human and JSON views", async () => {
     assert.match(stdout.join(""), /^# CLI task$/m);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit DEBUG task intake starts the native foreground clock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-task-debug-clock-"));
+  try {
+    const debugConfig: AgentOpsConfig = {
+      ...COMPLETION_CONFIG,
+      features: {
+        ...COMPLETION_CONFIG.features,
+        debug: {enabled: true, budgetMs: 3_600_000, maxRounds: 5}
+      }
+    };
+    const debugGit = {
+      run: async (args: readonly string[]) => ({
+        exitCode: 0,
+        stdout: Buffer.from(args[0] === "rev-parse" ? `${"a".repeat(40)}\n` : "")
+      })
+    };
+    const tasks = new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root), {
+      generateId: () => "debug-task",
+      now: () => "2026-07-23T12:00:00.000Z",
+      completion: completionContext(root, debugConfig, debugGit)
+    });
+    const result = await runTaskCommand({
+      args: parseArgs([
+        "task", "create", "--title", "Debug CLI intake", "--goal", "Investigate this error", "--debug",
+        "--criterion", JSON.stringify({id: "issue", description: "Issue", verifierIds: ["unit"]}),
+        "--criterion", JSON.stringify({id: "related", description: "Related", verifierIds: ["unit"]})
+      ]),
+      service: tasks,
+      sessionId: "agy-native"
+    });
+    assert.equal(result.code, "TASK_CREATED");
+    const state = await tasks.debugService().root("debug-task");
+    assert.equal(state.debug.foreground?.sessionId, "agy-native");
+  } finally {
+    await rm(root, {recursive: true, force: true});
   }
 });
 

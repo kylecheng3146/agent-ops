@@ -13,6 +13,9 @@ export function codexHookOutput(
   event: HookEventName,
   result: HookResult
 ): CodexHookProcessOutput {
+  if (event === "Stop" && result.action === "block") {
+    return {exitCode:0,stdout:JSON.stringify({decision:"block",reason:`agent-ops: ${result.code}. ${result.remedy ?? "Continue the unfinished task."}`})};
+  }
   if (event === "Stop" && result.evidence !== undefined) {
     return {
       exitCode: 0,
@@ -40,7 +43,7 @@ export function codexHookOutput(
       continue: result.action !== "block",
       ...(result.action === "block"
         ? { stopReason: result.code }
-        : { systemMessage: `agent-ops: ${result.code}` })
+        : { systemMessage: `agent-ops: ${result.code}${result.remedy === undefined ? "" : ". "+result.remedy}` })
     })
   };
 }

@@ -1,4 +1,5 @@
 import { lstat, readFile } from "node:fs/promises";
+import {DEBUG_DEFAULTS} from "../task/debug-state.js";
 
 import {
   CONFIG_SCHEMA_VERSION,
@@ -265,6 +266,7 @@ function buildConfig(
     profiles: [...profiles],
     verification,
     features: {
+      debug: existing?.features.debug ?? {...DEBUG_DEFAULTS},
       ...(existing?.features ?? {
         stopVerification: { enabled: false },
         completionGate: { enabled: completionGateEnabled }
@@ -845,8 +847,7 @@ export async function createInstallPlan(
     options.worktree,
     options.officeEnabled
   );
-  resolved.capabilities = resolved.capabilities.filter(capability => capability !== "office-presence");
-  if (config.config.features.office?.enabled === true) resolved.capabilities.push("office-presence");
+  resolved.capabilities = resolveCapabilities(config.config).capabilities;
   const existingOpencodePluginPath = existing?.manifest.artifacts.find(
     ({ id }) => id === "opencode-plugin"
   )?.path;

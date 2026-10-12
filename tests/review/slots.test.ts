@@ -84,6 +84,53 @@ test("reviews across callers never exceed the width, and every waiter eventually
   }
 });
 
+test("review slot wait callbacks have one pause/resume pair and restore on abort", async () => {
+  const dir = await directory();
+  let releaseFirst!: () => void;
+  const firstReady = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const first = withReviewSlot({dir, width: 1, pollMs: 5}, async () => await firstReady);
+  const events: string[] = [];
+  let waitStarted!: () => void;
+  const waitSeen = new Promise<void>(resolve => { waitStarted = resolve; });
+  try {
+    const second = withReviewSlot({
+      dir,
+      width: 1,
+      pollMs: 5,
+      onWaitStart: () => { events.push("pause"); waitStarted(); },
+      onWaitEnd: acquired => { events.push(acquired ? "resume:acquired" : "resume:aborted"); }
+    }, async () => "acquired");
+    await waitSeen;
+    releaseFirst();
+    assert.equal(await second, "acquired");
+    await first;
+    assert.deepEqual(events, ["pause", "resume:acquired"]);
+
+    const slot = join(dir, "agent-ops-review-slot-0.lock");
+    await mkdir(slot);
+    await writeFile(join(slot, "owner.json"), JSON.stringify({pid: process.pid, at: Date.now()}));
+    const abort = new AbortController();
+    let abortedWaitStarted!: () => void;
+    const abortedWaitSeen = new Promise<void>(resolve => { abortedWaitStarted = resolve; });
+    const aborted = withReviewSlot({
+      dir,
+      width: 1,
+      pollMs: 5,
+      signal: abort.signal,
+      onWaitStart: () => { events.push("pause:abort"); abortedWaitStarted(); },
+      onWaitEnd: acquired => { events.push(acquired ? "resume:acquired:abort" : "resume:aborted"); }
+    }, async () => "never");
+    await abortedWaitSeen;
+    abort.abort("SIGINT");
+    await assert.rejects(aborted, ReviewInterruptedError);
+    assert.deepEqual(events, ["pause", "resume:acquired", "pause:abort", "resume:aborted"]);
+  } finally {
+    releaseFirst();
+    await Promise.allSettled([first]);
+    await rm(dir, {recursive: true, force: true});
+  }
+});
+
 test("a slot held by a dead process or an expired holder is reclaimed", async () => {
   const dir = await directory();
   try {

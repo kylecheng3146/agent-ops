@@ -38,6 +38,7 @@ import {
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
+import {closeDebugSession,debugStopGate,interruptDebugSession,routeDebugPrompt,startDebugSession} from "./debug-intake.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
@@ -133,13 +134,18 @@ function withInjectedSession(
   input: unknown
 ): unknown {
   const sessionId = process.env.AGENT_OPS_SESSION_ID;
-  return harness === "agy" &&
-      sessionId !== undefined &&
-      typeof input === "object" &&
-      input !== null &&
-      !Array.isArray(input)
-    ? { ...(input as Record<string, unknown>), conversationId: sessionId }
-    : input;
+  const codexSession = sessionId ?? process.env.CODEX_THREAD_ID;
+  if ((harness !== "agy" && harness !== "codex") ||
+      typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const fields = input as Record<string, unknown>;
+  if (harness === "agy") {
+    return (typeof fields.conversationId === "string" && fields.conversationId.length > 0) || sessionId === undefined
+      ? input
+      : {...fields, conversationId: sessionId};
+  }
+  return (typeof fields.session_id === "string" && fields.session_id.length > 0) || codexSession === undefined
+    ? input
+    : {...fields, session_id: codexSession};
 }
 
 function writeHookOutput(io: HookProcessIo, output: HookProcessOutput): void {
@@ -382,7 +388,8 @@ function completionGateFor(
     gitRunner,
     ...(harness === undefined ? {} : { harness }),
     taskService: new TaskService(
-      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)
+      new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
+      {completion:{root,gitRunner,loadConfig:async()=>config}}
     ),
     evidenceStore: new FileEvidenceStore(root, root),
     forRoot: async (worktree) => {
@@ -405,17 +412,18 @@ function completionGateFor(
  */
 async function closeOfficeSession(io: HookProcessIo, dependencies: HookProcessDependencies): Promise<number> {
   try {
-    if (process.env.AGENT_OPS_DISABLE === "1" || dependencies.office === undefined) return 0;
+    if (process.env.AGENT_OPS_DISABLE === "1") return 0;
     const input = parseInput(await readStdin(io.stdin));
     if (typeof input !== "object" || input === null || Array.isArray(input)) return 0;
     const fields = input as {cwd?: unknown; session_id?: unknown};
     const root = dependencies.root ?? (typeof fields.cwd === "string" ? fields.cwd : process.cwd());
     const outcome = await hookConfigOutcome(root, dependencies.loadConfig);
-    if (outcome.kind === "invalid" || outcome.config.features.office?.enabled !== true) return 0;
-    await dependencies.office({
+    if (outcome.kind === "invalid") return 0;
+    if (dependencies.office !== undefined && outcome.config.features.office?.enabled === true) await dependencies.office({
       root, harness: "claude", event: "SessionEnd", input, validated: true,
       ...(typeof fields.session_id === "string" ? {sessionId: fields.session_id} : {})
     });
+    if (typeof fields.session_id === "string") await closeDebugSession(root,fields.session_id,"claude").catch(() => undefined);
   } catch {
     // Office never blocks a session, least of all one that is ending.
   }
@@ -443,11 +451,16 @@ async function promptSubmitted(harness: "claude" | "codex", io: HookProcessIo, d
         ...(typeof fields.session_id === "string" ? {sessionId: fields.session_id} : {})
       }).catch(() => undefined);
     }
-    if (config.profiles.length === 0 || !resolveCapabilities(config).capabilities.includes("command-policy")) return 0;
+    if (config.profiles.length === 0) return 0;
     // ponytail: the loop's 64 KiB prompt bound; a larger prompt goes unchecked.
     const prompt = fields.prompt;
     if (typeof prompt !== "string" || prompt.length === 0 || prompt.length > 64 * 1024 || prompt.includes("\0")) return 0;
-    if (evaluateGuardrail({kind: "content", content: prompt, scope: root}).action !== "block") return 0;
+    if (evaluateGuardrail({kind: "content", content: prompt, scope: root}).action !== "block") {
+      const context=await routeDebugPrompt(root,input,harness).catch(error=>`DEBUG intake unavailable: ${error instanceof Error ? error.message : "preserve current state"}`);
+      if (context !== null) io.writeStdout(harness === "claude" ? JSON.stringify({hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:context}}) : context+"\n");
+      return 0;
+    }
+    if (!config.profiles.includes("guardrails") && !config.profiles.includes("loop") && !config.profiles.includes("run")) return 0;
     const reason = "agent-ops blocked a suspected secret.";
     if (harness === "claude") {
       io.writeStdout(JSON.stringify({decision: "block", reason}));
@@ -467,12 +480,23 @@ export async function runHookProcess(
   dependencies: HookProcessDependencies = {}
 ): Promise<number> {
   const [harness, event] = argv;
+  if (harness === "codex" && event === "Interrupt") {
+    try {
+      const raw=await readStdin(io.stdin), input=parseInput(raw);
+      if (typeof input !== "object" || input === null || Array.isArray(input)) return 0;
+      const fields=input as {cwd?:unknown;session_id?:unknown};
+      if (typeof fields.session_id !== "string" || fields.session_id.length === 0) return 0;
+      const root=dependencies.root ?? (typeof fields.cwd === "string" ? fields.cwd : process.cwd());
+      await interruptDebugSession(root,fields.session_id,raw);
+    } catch {
+      io.writeStdout(JSON.stringify({systemMessage:"agent-ops: DEBUG interrupt progress could not be sealed; preserve the task and run agent-ops doctor before resuming."}));
+    }
+    return 0;
+  }
   if (harness === "claude" && event === "SessionEnd") return await closeOfficeSession(io, dependencies);
   if ((harness === "claude" || harness === "codex") && event === "UserPromptSubmit") return await promptSubmitted(harness, io, dependencies);
-  // Both hosts whose Stop hook can actually refuse a stop. codex never fires
-  // Stop under `codex exec` and rejects `permissionDecision:ask`, so its
-  // escape hatch could not be user-approved; opencode can only deny a tool
-  // call, never a stop.
+  // The generic completion gate requires an approval escape hatch. Codex
+  // only enforces DEBUG through runtime checkpoints and native human control.
   const completionGateInstalled =
     (harness === "agy" || harness === "claude") &&
     event === "Stop" &&
@@ -530,8 +554,19 @@ export async function runHookProcess(
         root = inputRoot;
       }
     }
-    const configOutcome = await hookConfigOutcome(root, dependencies.loadConfig);
+    let configOutcome = await hookConfigOutcome(root, dependencies.loadConfig);
+    const nativeStop=normalizeHookInput(harnessId,parsedInput);
+    if (harnessId === "codex" && hookEvent === "Stop" && configOutcome.kind === "invalid")
+      configOutcome=await hookConfigOutcome(root,dependencies.loadConfig);
     if (configOutcome.kind === "invalid") {
+      if (harnessId === "codex" && nativeStop?.event === "stop" && nativeStop.sessionId !== undefined) {
+        writeHookOutput(io,harnessDescriptor(harnessId).runtime.formatOutput("Stop",{
+          action:"continue",status:"UNKNOWN",code:"TASK_DEBUG_GATE_UNAVAILABLE",
+          remedy:"DEBUG remains incomplete: configuration failed after one targeted reload. Preserve the task, evidence and budgets; fix .agent-ops/config.json and run agent-ops doctor. No completion is attested."
+        }));
+        await closeDebugSession(root,nativeStop.sessionId,harnessId).catch(()=>undefined);
+        return 0;
+      }
       if (completionGateInstalled) {
         writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {
           action: "block",
@@ -554,6 +589,15 @@ export async function runHookProcess(
       return 0;
     }
     const config = configOutcome.config;
+    if (harnessId === "codex" && hookEvent === "Stop" && nativeStop !== null && config.features.debug?.enabled === true) {
+      const result=await debugStopGate(root,config).handle(nativeStop);
+      if (result !== null) {
+        writeHookOutput(io,harnessDescriptor(harnessId).runtime.formatOutput("Stop",result));
+        if (result.action === "continue" && nativeStop.sessionId !== undefined)
+          await closeDebugSession(root,nativeStop.sessionId,harnessId).catch(()=>undefined);
+        return 0;
+      }
+    }
     if (completionGateInstalled && !config.features.completionGate.enabled) {
       writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {
         action: "block",
@@ -568,8 +612,10 @@ export async function runHookProcess(
         ? await repositoryTrust(root, config, cliVersion)
         : await dependencies.trust(root, config, cliVersion);
     const trusted = trustStatus === "TRUSTED";
+    const normalized = normalizeHookInput(harnessId, parsedInput);
+    if (normalized?.event === "session-start" && normalized.sessionId !== undefined)
+      await startDebugSession(root,normalized.sessionId,harnessId).catch(() => undefined);
     if (dependencies.office !== undefined && config.features.office?.enabled === true) {
-      const normalized = normalizeHookInput(harnessId, parsedInput);
       if (normalized !== null) {
         const phase = officePhaseHint(normalized);
         void dependencies.office({
@@ -677,12 +723,24 @@ export async function runHookProcess(
         await recordSessionOrigin(dependencies.worktree, { cwd: root, sessionId }).catch(() => undefined);
       }
     }
-    const output = await runHookCommand({
+    let hookResult: HookResult | undefined;
+    // Without the gate, DEBUG still refuses a Stop that has no valid stop
+    // checkpoint. Its own failure stays advisory, so it never blocks other work.
+    const debugStop = completionGate === undefined && hookEvent === "Stop" && normalized !== null &&
+      (harnessId === "agy" || harnessId === "claude" || harnessId === "codex") && config.features.debug?.enabled === true
+      ? await debugStopGate(root, config).handle(normalized)
+      : null;
+    if (debugStop !== null) hookResult=debugStop;
+    const output = debugStop !== null
+      ? harnessDescriptor(harnessId).runtime.formatOutput("Stop", debugStop)
+      : await runHookCommand({
       harness: harness as HarnessId,
       event: hookEvent,
       stdin: rawInput,
+      input: parsedInput,
       config,
       trusted,
+      onResult: result => { hookResult = result; },
       ...(worktreeGuard === undefined ? {} : { worktreeGuard }),
       ...(worktreeEnter === undefined ? {} : { worktreeEnter }),
       ...(dependencies.advisory === undefined
@@ -692,6 +750,15 @@ export async function runHookProcess(
       ...(completionGate === undefined ? {} : { completionGate })
     });
     writeHookOutput(io, output);
+    // A Stop can be advisory or gated, but the foreground clock only ends on
+    // the same trusted idle model_stop that the native decision accepted.
+    if (normalized?.event === "stop" &&
+      normalized.sessionId !== undefined &&
+      normalized.terminationReason === "model_stop" &&
+      normalized.fullyIdle === true &&
+      hookResult?.action === "continue") {
+      await closeDebugSession(root,normalized.sessionId,harnessId).catch(() => undefined);
+    }
   } catch {
     if (completionGateInstalled) {
       writeHookOutput(io, harnessDescriptor(harness as HarnessId).runtime.formatOutput("Stop", {

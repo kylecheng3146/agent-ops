@@ -10,7 +10,8 @@ export const CODEX_SUPPORTED_EVENTS = [
   "PostCompact",
   "SubagentStart",
   "SubagentStop",
-  "Stop"
+  "Stop",
+  "Interrupt"
 ] as const;
 
 export type CodexSupportedEvent =

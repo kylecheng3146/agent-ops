@@ -91,7 +91,7 @@ export interface SceneFloor {
   readonly phaseAreas: readonly ScenePhaseArea[];
   readonly board: SceneBoard;
   readonly questions: readonly {readonly questionId: string; readonly prompt: string}[];
-  /** The attached task's acceptance criteria; empty for runs, review slots and desks without a task. */
+  /** The attached task's acceptance criteria; empty when this room has no task. */
   readonly criteria: readonly SceneCriterion[];
   /** Verify, review and finish processes running for this room. */
   readonly activities: readonly SceneActivity[];
@@ -220,12 +220,21 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     });
     if (verify === null && run.agents.length && run.agents.every(agent => agent.progress?.verify === "PASS")) verify = "PASS";
     if (review === null && run.agents.length && run.agents.every(agent => agent.progress?.review === "PASS")) review = "PASS";
-    const rootProgress = {passed, total, verify, review};
-    const taskId = run.agents.find(agent => agent.role === "coordinator")?.taskId ?? "unassigned";
+    const rootProgress = Object.prototype.hasOwnProperty.call(extra, "progress") ? progressOf(extra.progress) : {passed, total, verify, review};
+    const criteria: SceneCriterion[] = (Array.isArray(extra.criteria) ? extra.criteria : []).map(value => {
+      const item = optional(value);
+      return {id: typeof item.id === "string" ? item.id : "unknown", description: typeof item.description === "string" ? item.description : "",
+        status: item.status === "PASS" || item.status === "FAIL" || item.status === "UNKNOWN" ? item.status : null,
+        finishedAt: typeof item.finishedAt === "string" ? item.finishedAt : null,
+        failureClass: typeof item.failureClass === "string" ? item.failureClass : null,
+        exitCode: typeof item.exitCode === "number" ? item.exitCode : null, output: typeof item.output === "string" ? item.output : null};
+    });
+    const taskId = typeof extra.taskId === "string" && extra.taskId.length > 0
+      ? extra.taskId : run.agents.find(agent => agent.role === "coordinator")?.taskId ?? "unassigned";
     if (questions.length > 0) dialogue.push(`${run.title}: waiting for your answer — ${questions[0]!.prompt}`);
-    return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions, criteria: [],
+    return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions, criteria,
       activities: activitiesOf(optional(run).activities),
-      board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: passed, total},
+      board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: rootProgress?.passed ?? 0, total: rootProgress?.total ?? 0},
       clock: run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 0, phase: run.phase, status: run.status,
       completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };

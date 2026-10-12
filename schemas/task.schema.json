@@ -180,9 +180,13 @@
                   "type": "object"
                 },
                 "then": {
-                  "required": ["reviewOnlyReason"],
+                  "required": [
+                    "reviewOnlyReason"
+                  ],
                   "properties": {
-                    "reviewOnlyReason": {"type": "string"},
+                    "reviewOnlyReason": {
+                      "type": "string"
+                    },
                     "bindings": {
                       "maxItems": 0,
                       "type": "array"
@@ -276,6 +280,42 @@
     "contractRevision": {
       "type": "integer",
       "minimum": 0
+    },
+    "debug": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootTaskId",
+        "facts",
+        "unknowns"
+      ],
+      "properties": {
+        "rootTaskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "unknowns": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -315,6 +355,26 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "debug": false
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "debug"
+        ],
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "goal"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": 2
           }
         },
         "type": "object"

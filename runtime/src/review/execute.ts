@@ -128,6 +128,7 @@ export interface ReviewExecutorOptions {
    * stops it. Defaults to two rounds' worth, so no existing run gets shorter.
    */
   readonly chainTimeoutMs?: number;
+  readonly remainingBudgetMs?: () => Promise<number>;
   /** Clock, so a test can exhaust the budget without waiting for it. */
   readonly now?: () => number;
   /**
@@ -997,7 +998,7 @@ export function createReviewExecutor(
 
   return async (request) => {
     const deadlineAt = clock() +
-      (options.chainTimeoutMs ?? DEFAULT_REVIEW_CHAIN_TIMEOUT_MS);
+      Math.min(options.chainTimeoutMs ?? DEFAULT_REVIEW_CHAIN_TIMEOUT_MS, await options.remainingBudgetMs?.() ?? Infinity);
     const remainingMs = (): number => deadlineAt - clock();
     /**
      * The options one stage runs under: its own timeout, or what is left of

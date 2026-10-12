@@ -154,7 +154,8 @@ test("migrates a manifest-owned version 0 config during update", async () => {
       verification: { commands },
       features: {
         stopVerification: { enabled: false },
-        completionGate: { enabled: false }
+        completionGate: { enabled: false },
+        debug: {enabled:true,budgetMs:3600000,maxRounds:5}
       },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
@@ -183,7 +184,7 @@ test("disables owned Stop handlers while preserving foreign handlers", async () 
     const config = JSON.parse(await readFile(configPath, "utf8")) as {
       profiles: string[];
       verification: { commands: unknown[] };
-      features: { stopVerification: { enabled: boolean } };
+      features: { stopVerification: { enabled: boolean }; debug?: { enabled: boolean } };
       pathMappings: unknown[];
       securityExceptions: unknown[];
       schemaVersion: number;
@@ -221,7 +222,8 @@ test("disables owned Stop handlers while preserving foreign handlers", async () 
       await createUpdatePlan({
         root,
         adapters: commonHarnessAdapters(),
-        targetVersion: "0.2.0"
+        targetVersion: "0.2.0",
+        hookRuntimePath: "/opt/agent-ops/hook-entry.js"
       })
     );
     const enabledSettings = JSON.parse(
@@ -234,11 +236,14 @@ test("disables owned Stop handlers while preserving foreign handlers", async () 
     );
 
     config.features.stopVerification.enabled = false;
+    // DEBUG also owns a Stop handler for its foreground clock.
+    config.features.debug = { ...config.features.debug, enabled: false };
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
     const plan = await createUpdatePlan({
       root,
       adapters: commonHarnessAdapters(),
-      targetVersion: "0.2.0"
+      targetVersion: "0.2.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
     });
     await applyUpdatePlan(root, plan);
 
@@ -489,7 +494,8 @@ test("explicit target update is offline and preserves verifier config", async ()
       schemaVersion: 3,
       features: {
         stopVerification: { enabled: false },
-        completionGate: { enabled: false }
+        completionGate: { enabled: false },
+        debug: {enabled:true,budgetMs:3600000,maxRounds:5}
       }
     });
     assert.match(

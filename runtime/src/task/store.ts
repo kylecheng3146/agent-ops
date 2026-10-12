@@ -12,6 +12,7 @@ import {
   writePrivateFile
 } from "../security/permissions.js";
 import { taskContractHash } from "./contract.js";
+import {assertDebugState, type DebugState} from "./debug-state.js";
 import { materialPath, commitIdentity, acceptanceSourcePath } from "../schema/acceptance.js";
 import type {
   FailureFingerprintState
@@ -34,6 +35,7 @@ export interface TaskRevision {
 }
 
 export interface StoredTaskRecord {
+  readonly debug?: DebugState;
   readonly task: AgentTask;
   readonly createdSourceCommit?: string;
   readonly revisions?: readonly TaskRevision[];
@@ -186,7 +188,7 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   ];
   // Every record written before an optional field existed must still parse, so
   // the accepted shapes are every combination of them.
-  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash", "reviewBase", "createdSourceCommit", "revisions", "supersededBy", "noChangePaths"];
+  const optionalKeys = ["completionBase", "failureFingerprint", "policyConfigHash", "reviewBase", "createdSourceCommit", "revisions", "supersededBy", "noChangePaths", "debug"];
   if (!isRecord(value) || !baseKeys.every(k => Object.hasOwn(value, k)) ||
     Object.keys(value).some(k => !baseKeys.includes(k) && !optionalKeys.includes(k))) {
     return invalidState("Task state contains an invalid task record.");
@@ -194,6 +196,11 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   const task = validateTask(value.task);
   if (!task.ok) {
     return invalidState("Task state contains an invalid task.");
+  }
+  if (value.debug !== undefined) {
+    assertDebugState(value.debug);
+    if (value.debug.rootTaskId !== task.value.id || task.value.debug?.rootTaskId !== task.value.id)
+      return invalidState("Debug counters belong only to the original issue root.");
   }
   if (
     !["active", "archived", "complete"].includes(String(value.status)) ||
@@ -315,6 +322,7 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   }
   return {
     task: task.value,
+    ...(value.debug === undefined ? {} : {debug: value.debug as DebugState}),
     ...(value.noChangePaths === undefined ? {} : {noChangePaths: value.noChangePaths as string[]}),
     ...(value.createdSourceCommit === undefined ? {} : {createdSourceCommit: value.createdSourceCommit as string}),
     ...(value.revisions === undefined ? {} : {revisions: value.revisions as unknown as TaskRevision[]}),

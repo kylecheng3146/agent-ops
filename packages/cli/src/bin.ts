@@ -635,6 +635,7 @@ process.exitCode = await runCli(
             return await runTaskCommand({
               args,
               service: taskService,
+              ...(args.action !== "debug" ? {} : {trusted:await (async()=>{const binding=await plannedTrustBinding(root,(await loadEffectiveConfig(root,"project")).config);return binding !== null && (await trustStore().status(binding)).status === "TRUSTED";})()}),
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId }),
               ...(fromMain
@@ -706,19 +707,42 @@ process.exitCode = await runCli(
                 reviewActivity = handle;
                 try { return await executor(request); } finally { reviewActivity = undefined; }
               });
+            const debugRecord = reviewArgs.taskId === undefined ? undefined : await taskService.status({taskId:reviewArgs.taskId});
+            const inDebug = (executor: ReturnType<typeof createReviewExecutor>): ReturnType<typeof createReviewExecutor> =>
+              debugRecord?.task.debug === undefined ? executor : async request => await taskService.debugService().review(debugRecord.task.id,()=>executor(request));
             const inSlot = (
               executor: ReturnType<typeof createReviewExecutor>
             ): ReturnType<typeof createReviewExecutor> =>
               slotDir === undefined
-                ? executor
+                ? inDebug(executor)
                 : async (request) => await withReviewSlot({
                     dir: slotDir,
                     signal,
                     holder: {root, ...(reviewArgs.taskId === undefined ? {} : {taskId: reviewArgs.taskId})},
+                    ...(debugRecord?.task.debug === undefined || reviewSessionId === undefined
+                      ? {}
+                      : (() => {
+                          let paused = false;
+                          const debug = taskService.debugService();
+                          return {
+                            onWaitStart: async () => {
+                              if (paused) return;
+                              const current = await debug.root(debugRecord.task.id).catch(() => null);
+                              if (current?.debug.foreground?.sessionId !== reviewSessionId) return;
+                              await debug.foregroundStop(debugRecord.task.id, reviewSessionId);
+                              paused = true;
+                            },
+                            onWaitEnd: async () => {
+                              if (!paused) return;
+                              await debug.foregroundStart(debugRecord.task.id, reviewSessionId);
+                              paused = false;
+                            }
+                          };
+                        })()),
                     onWait: (line) => {
                       process.stderr.write(`${progressPrefix}${line}\n`);
                     }
-                  }, async () => await executor(request));
+                  }, async () => await inDebug(executor)(request));
             return {
               args: reviewArgs,
               authorized: reviewArgs.yes,
@@ -743,6 +767,7 @@ process.exitCode = await runCli(
               config: reviewConfig,
               evidenceStore: new FileEvidenceStore(root, root),
               execute: inActivity(inSlot(createReviewExecutor({
+                ...(debugRecord?.task.debug === undefined ? {} : {remainingBudgetMs:()=>taskService.debugService().remaining(debugRecord.task.id)}),
                 runner: registeredRunProofRunner(),
                 targets: configuredReviewTargets,
                 cwd: root,

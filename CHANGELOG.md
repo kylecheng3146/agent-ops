@@ -4,6 +4,53 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-10
+
+- Task DEBUG: an investigation or bugfix request in a native conversation
+  starts a debug-tagged task that keeps the original issue, records
+  falsifiable hypotheses against real regression evidence, and succeeds only
+  with a red baseline, a passing candidate, two fresh reviews and finish.
+  Defaults are 60 active minutes and 5 repair rounds for the whole issue; a
+  human "continue" adds 20 minutes once. After two stagnant rounds one
+  strategy switch is required, and two more stagnant rounds stop the issue.
+- The debug clock counts foreground turns on Claude, Codex and agy. It stops
+  only when Stop is accepted on an idle turn, so work after a blocked Stop
+  still counts, and waiting for a review slot does not. Task DEBUG installs
+  its own Stop hook, so the clock also stops without the completion gate.
+- On Claude and agy, Stop refuses an active debug issue without a valid stop
+  checkpoint even when the completion gate is off.
+- Repeating an active issue from a new session reattaches it, or resumes the
+  worktree that holds it, instead of starting a fresh budget. A resolved
+  hypothesis cannot come back under a new id with the same statement and
+  method.
+- Office run rooms show the coordinator task's real acceptance criteria and
+  progress.
+- `agent-ops worktree resume` works for debug tasks. `agent-ops worktree
+  remove` works for a paused or stopped run's worktree, and refuses one whose
+  run is still running, even with `--force`, until `agent-ops run stop`.
+- The managed rules say that Claude and agy Stop check an active debug issue
+  with or without the completion gate.
+- The locked dev-only `fast-uri` moves to 3.1.8 for five advisories; no
+  runtime dependency changes.
+
+## [0.8.1] - 2026-10-09
+
+- Idle Office staff wander the lobby. Each stays 20 to 45 seconds at one of
+  eight spots (the sofa, the cafe table, the water cooler, vending machine,
+  fridge and counter) and then walks to a free one; one person a room walks at
+  a time, and spots by an idle engineer are left alone. Work pulls a wanderer
+  straight to their station, and the way back takes the nearest free spot.
+  Reduced motion turns wandering off.
+- The engineer gets up to read the notices instead of only sitting. A new
+  verify result sends them to the QA status board, and a changed criterion or
+  review result to the whiteboard; while the room waits on QA, review or the
+  merge they glance at the whiteboard every 40 to 90 seconds. An HTML bubble in
+  the room view says only what the snapshot shows (for example
+  "Verify failed: locale"). In a run only the coordinator goes, nobody leaves
+  with a question pending, and under reduced motion the bubble shows at the
+  seat.
+- The viewer's avatar always wears the lightest skin.
+
 ## [0.8.0] - 2026-10-09
 
 - Office is redrawn as a walled six-room office per session or run: planning,

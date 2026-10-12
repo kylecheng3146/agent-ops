@@ -117,6 +117,10 @@ export interface OfficeAgent {
 export interface OfficeRun {
   readonly runId: string;
   readonly title: string;
+  /** The coordinator task's proof, when the run has one. */
+  readonly taskId?: string | null;
+  readonly progress?: RunTaskProgress | null;
+  readonly criteria?: readonly OfficeCriterion[];
   readonly status: string;
   readonly phase: OfficePhase;
   readonly budget: {readonly limitMs: number; readonly usedMs: number; readonly remainingMs: number};
@@ -192,6 +196,13 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
     const reviewers = input.reviews.filter(r => r.root !== null && roots.has(r.root)).slice(0, 2);
     reviewers.forEach(r => claimed.add(r));
     const usedMs = activeWallTimeMs(run.budget.activeIntervals, input.now);
+    const coordinator = run.workers.find(worker => worker.workerId === run.coordinatorId);
+    // rootTaskId is the persisted run authority. Only legacy runs without it
+    // fall back to the coordinator's task id.
+    const rootTaskId = run.rootTaskId ?? (coordinator?.taskId || null);
+    const rootTask = rootTaskId === null ? undefined : run.tasks.find(task => task.taskId === rootTaskId);
+    const rootTree = rootTaskId === null ? undefined : input.worktrees.find(tree => tree.taskId === rootTaskId &&
+      (tree.runId === run.runId || tree.path === coordinator?.worktree));
     const agents = run.workers.filter(w => w.workerId === run.coordinatorId || LIVE.has(w.status)).map((w): OfficeAgent => {
       const tree = w.worktree === null ? undefined : byPath.get(w.worktree);
       const phase = w.phase ?? "unknown";
@@ -202,6 +213,11 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
     });
     const questions = run.questions.filter(q => q.answeredAt === null).map(q => ({questionId: q.questionId, prompt: q.prompt}));
     return {runId: run.runId, title: run.rootTaskId ?? run.runId,
+      ...(rootTaskId === null ? {} : {taskId: rootTaskId}),
+      // The root task is the only source of run-level proof. A
+      // missing proof stays null; worker progress must never become root proof.
+      ...(rootTaskId === null ? {} : {progress: rootTree?.progress ?? rootTask?.progress ?? null,
+        ...(rootTree?.criteria === undefined ? {} : {criteria: rootTree.criteria})}),
       status: run.status, phase: run.phase ?? "unknown",
       budget: {limitMs: run.budget.limitMs, usedMs, remainingMs: Math.max(0, run.budget.limitMs - usedMs)},
       questions, agents, reviewers,

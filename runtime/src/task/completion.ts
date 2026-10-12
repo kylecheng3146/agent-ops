@@ -4,8 +4,9 @@ import { findReviewAttestation } from "../review/attestation.js";
 import { validateEvidence, validateTaskAgainstConfig } from "../schema/validate.js";
 import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify/evidence.js";
 import {taskContractHash} from "./contract.js";
-import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
+import {acceptanceCoverage,coverageDigest,type CriterionCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
+import {loadDebugProof,debugProofDigest,debugRemainingMs} from "./debug-state.js";
 
 interface CompletionProblem {
   readonly code: string;
@@ -22,9 +23,24 @@ export async function checkTaskCompletionEvidence(
     readonly evidenceStore: FileEvidenceStore;
   }
 ): Promise<CompletionProblem | null> {
+  const debug=stored.task.debug === undefined ? undefined : await loadDebugProof(options.root,stored.task.debug.rootTaskId);
+  if (debug?.control?.paused === true || debug?.control?.mode === "diagnose")
+    return {status:"FAIL",code:"TASK_DEBUG_SCOPE_RESTRICTED",remedy:"The human restricted this issue to pause or diagnosis. Preserve the active task; only a native human resume repair event authorizes repair completion."};
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
+  if (debug !== undefined) {
+    const coverage=await acceptanceCoverage(stored,options.config,options.sourceFingerprint,options.evidenceStore);
+    const {FileTaskStore}=await import("./store.js");
+    const {join}=await import("node:path");
+    const reviewedRecords=(await new FileTaskStore(join(options.root,".agent-ops/tasks/state.json"),options.root).read()).tasks.filter(r=>attestation?.taskContracts?.[r.task.id] !== undefined);
+    const currentCoverage:CriterionCoverage[]=[];
+    for(const record of reviewedRecords){const rows=await acceptanceCoverage(record,options.config,options.sourceFingerprint,options.evidenceStore);currentCoverage.push(...rows.map(row=>({...row,criterionId:attestation?.tree === undefined ? row.criterionId : record.task.id+":"+row.criterionId})));}
+    const refs=new Set(coverage.filter(c=>c.mode === "behavioral" && c.status === "proven").flatMap(c=>c.evidenceReferences));
+    if (attestation?.coverageDigest !== coverageDigest(currentCoverage) || debug.operation !== null || debugRemainingMs(debug) === 0 || !debug.hypotheses.some(h=>h.status === "confirmed" && h.supporting.some(ref=>refs.has(ref))) ||
+        attestation?.debugProofs?.[stored.task.id] !== debugProofDigest(debug))
+      return {status:"FAIL",code:"TASK_DEBUG_PROOF_REQUIRED",remedy:"Confirm the original cause with current discriminating regression proof, then obtain two fresh independent reviews bound to that debug proof."};
+  }
   if (attestation === null || attestation.taskId !== stored.task.id ||
       ((stored.task.criteria.some(c => c.acceptance !== undefined) || (stored.task.contractRevision ?? 0) > 0 || stored.task.goal !== undefined) &&
        (attestation.schemaVersion !== 3 || attestation.taskContracts?.[stored.task.id] !== taskContractHash(stored.task))) ||

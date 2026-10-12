@@ -158,6 +158,34 @@ test("desk floors carry their task's criteria; runs, review slots and bare desks
     [{id: "unknown", description: "", status: null, finishedAt: null, failureClass: null, exitCode: null, output: null}], "malformed rows are normalised, never trusted");
 });
 
+test("run floors show coordinator criteria and never add child progress", () => {
+  const base = snapshot();
+  const criteria = [{id: "root-check", description: "The reported issue is fixed", status: "PASS" as const,
+    finishedAt: "2026-10-07T01:00:00.000Z", failureClass: null, exitCode: null, output: null}];
+  const run = {...base.runs[0]!, taskId: "root", criteria,
+    progress: {verify: "PASS" as const, review: null, passed: 1, total: 1},
+    agents: base.runs[0]!.agents.map(agent => agent.role === "worker"
+      ? {...agent, progress: {verify: "PASS" as const, review: "PASS" as const, passed: 99, total: 99}}
+      : agent)};
+  const floor = sceneModel({...base, runs: [run], lobby: []}).floors[0]!;
+  assert.deepEqual(floor.criteria, criteria);
+  assert.deepEqual(floor.board, {passed: 1, total: 1, verify: "PASS", review: "pending", pending: 1, status: run.status, taskId: "root"});
+  assert.deepEqual(floor.books, {lit: 1, total: 1});
+});
+
+test("legacy run floors retain fallback board data without inventing criteria", () => {
+  const base = snapshot();
+  const run = {...base.runs[0]!};
+  delete (run as {taskId?: unknown}).taskId;
+  delete (run as {progress?: unknown}).progress;
+  delete (run as {criteria?: unknown}).criteria;
+  const floor = sceneModel({...base, runs: [run], lobby: []}).floors[0]!;
+  assert.deepEqual(floor.criteria, []);
+  assert.equal(floor.board.passed, 2);
+  assert.equal(floor.board.total, 6);
+  assert.equal(floor.board.review, "pending");
+});
+
 test("an empty building has no fake lobby room", () => {
   const model = sceneModel({generatedAt: "x", runs: [], lobby: [], reviews: []});
   assert.equal(model.floors.length, 0);
@@ -173,7 +201,11 @@ test("room identities and run sources survive truncation and repository scoping"
 });
 
 test("a team cannot claim PASS while another member's proof is missing", () => {
-  const base = snapshot(), run = base.runs[0]!;
+  const original = snapshot(), legacyRun = {...original.runs[0]!};
+  delete (legacyRun as {taskId?: unknown}).taskId;
+  delete (legacyRun as {progress?: unknown}).progress;
+  delete (legacyRun as {criteria?: unknown}).criteria;
+  const base = {...original, runs: [legacyRun]}, run = base.runs[0]!;
   const progress = {passed: 2, total: 2, verify: "PASS" as const, review: "PASS" as const};
   const agents = run.agents.map((actor, index) => ({...actor, progress: index === 0 ? progress : null}));
   const board = (actors: typeof agents) => sceneModel({...base, runs: [{...run, agents: actors}], lobby: []}).floors[0]!.board;

@@ -12,6 +12,8 @@ const consumer = join(root, "consumer");
 const isolatedHome = join(root, "home");
 await mkdir(isolatedHome, { recursive: true });
 const childEnv = { ...process.env };
+// The consumer is a separate repository, outside the parent run worker lease.
+for (const key of Object.keys(childEnv)) if (key.startsWith("AGENT_OPS_RUN_") || ["AGENT_OPS_SESSION_ID","AGENT_OPS_AGENT_ID","CODEX_THREAD_ID","CODEX_SESSION_ID"].includes(key)) delete childEnv[key];
 // npm run forwards allow-scripts as a CLI flag, which project installs reject.
 delete childEnv.npm_config_allow_scripts;
 delete childEnv.NPM_CONFIG_ALLOW_SCRIPTS;

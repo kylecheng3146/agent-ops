@@ -60,7 +60,8 @@ async function install(root: string): Promise<void> {
       harness: ["codex"],
       profiles: ["core"],
       adapters: commonHarnessAdapters(),
-      toolkitVersion: "0.1.0"
+      toolkitVersion: "0.1.0",
+      hookRuntimePath: "/opt/agent-ops/hook-entry.js"
     })
   );
 }

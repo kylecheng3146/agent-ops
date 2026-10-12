@@ -13,6 +13,7 @@ import { renderTaskMarkdown } from "./render.js";
 import { checkTaskCompletionEvidence, findIncompleteSubtask } from "./completion.js";
 import { calculateConfigHash, FileEvidenceStore, isPassingVerificationEvidence } from "../verify/evidence.js";
 import type { GitRunner } from "../verify/change-surface.js";
+import {collectChangeSurface} from "../verify/change-surface.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {acceptanceCoverage, type CriterionCoverage} from "../verify/acceptance-coverage.js";
@@ -32,6 +33,9 @@ import type {
 
 import { taskContractHash, treeContractHash } from "./contract.js";
 import { commitIdentity } from "../schema/acceptance.js";
+import {createDebugState, DEBUG_DEFAULTS} from "./debug-state.js";
+import {DebugService} from "./debug.js";
+import {sameDebugText} from "./debug-intake.js";
 
 export interface ReviseTaskInput {
   readonly expectedContractHash: string;
@@ -47,6 +51,7 @@ export interface ReplanTaskInput {
 }
 
 export interface CreateTaskInput {
+  readonly debug?: {facts?: readonly string[]; unknowns?: readonly string[]};
   readonly title: string;
   readonly goal?: string;
   readonly createdSourceCommit?: string;
@@ -198,6 +203,14 @@ export class TaskService {
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#completion = options.completion;
   }
+  debugService(): DebugService {
+    if (this.#completion === undefined) throw taskError("TASK_DEBUG_CONTEXT_REQUIRED", "Debug operations require repository context.");
+    return new DebugService({store:this.#store,tasks:this,...this.#completion});
+  }
+  async assertDebugBaseline(): Promise<void> {
+    if (this.#completion === undefined || (await collectChangeSurface(this.#completion.gitRunner)).paths.length > 0)
+      throw taskError("TASK_DEBUG_BASELINE_DIRTY", "Preserve user edits; debug intake needs a clean committed baseline before worktree allocation.");
+  }
 
   async create(input: CreateTaskInput): Promise<StoredTaskRecord> {
     if (
@@ -211,6 +224,11 @@ export class TaskService {
     }
     if (input.sessionId !== undefined) {
       assertSessionId(input.sessionId);
+    }
+    // A new session must not restart an active issue's budget and rounds.
+    if (input.debug !== undefined && input.parentTaskId === undefined && input.goal !== undefined) {
+      const existing = await this.activeDebugRoot(input.goal);
+      if (existing !== null) return input.sessionId === undefined ? existing : await this.attach(input.sessionId, existing.task.id);
     }
     let createdSourceCommit = input.createdSourceCommit;
     if (createdSourceCommit === undefined && this.#completion !== undefined) {
@@ -234,6 +252,17 @@ export class TaskService {
         ? {}
         : { parentTaskId: input.parentTaskId })
     };
+    let debugSettings: {budgetMs:number; maxRounds:number} | undefined;
+    if (input.debug !== undefined) {
+      if (input.goal === undefined || createdSourceCommit === undefined || this.#completion === undefined)
+        throw taskError("TASK_DEBUG_CONTEXT_REQUIRED", "Debug intake requires the original issue and a committed baseline.");
+      if ((await collectChangeSurface(this.#completion.gitRunner)).paths.length > 0)
+        throw taskError("TASK_DEBUG_BASELINE_DIRTY", "Preserve original user edits; investigate read-only or ask for an explicit committed baseline.");
+      const config = await this.#completion.loadConfig();
+      if (config.features.debug?.enabled === false) throw taskError("TASK_DEBUG_DISABLED", "Task debug routing is explicitly disabled.");
+      debugSettings = config.features.debug ?? DEBUG_DEFAULTS;
+      task.debug = {rootTaskId:task.id,facts:[...(input.debug.facts ?? [])],unknowns:[...(input.debug.unknowns ?? [])]};
+    }
     const validation = validateTask(task);
     if (!validation.ok) {
       throw taskError(
@@ -284,9 +313,14 @@ export class TaskService {
             throw taskError("TASK_GOAL_IMMUTABLE", "Subtasks must retain their parent original goal.");
           validation.value.goal = parent.task.goal;
         }
+        if (parent.task.debug !== undefined) {
+          if (input.debug !== undefined) throw taskError("TASK_DEBUG_ROOT_IMMUTABLE", "A child cannot create a new issue budget.");
+          validation.value.debug = structuredClone(parent.task.debug);
+        }
       }
       const record: StoredTaskRecord = {
         task: validation.value,
+        ...(input.debug === undefined ? {} : {debug:createDebugState(task.id,createdSourceCommit!,debugSettings!,this.#completion!.root)}),
         ...(createdSourceCommit === undefined ? {} : {createdSourceCommit}),
         status: "active",
         evidence: {},
@@ -439,6 +473,7 @@ export class TaskService {
       const task: AgentTask = {schemaVersion: TASK_SCHEMA_VERSION, id: planned.id ?? this.#generateId(),
         title: planned.title, intent: planned.intent, goal: root.task.goal ?? root.task.intent ?? root.task.title,
         criteria: structuredClone(planned.criteria) as AcceptanceCriterion[], parentTaskId: taskId};
+      if (root.task.debug !== undefined) task.debug = structuredClone(root.task.debug);
       const checked = config === undefined ? validateTask(task) : validateTaskAgainstConfig(task, config);
       if (!checked.ok) throw taskError("TASK_INVALID", checked.errors[0]?.message ?? "Invalid split task.");
       if (task.criteria.some(c => c.acceptance !== undefined)) await this.#retainBaselines(task);
@@ -498,6 +533,8 @@ export class TaskService {
         if (record.policyConfigHash !== parent.policyConfigHash || !validateTask(task).ok) {
           throw taskError("TASK_DELIVERY_INVALID", `Task ${task.id} has an incompatible policy or definition.`);
         }
+        if (parent.task.debug !== undefined && (task.goal !== parent.task.goal || JSON.stringify(task.debug) !== JSON.stringify(parent.task.debug) || record.debug !== undefined))
+          throw taskError("TASK_DEBUG_ROOT_MISMATCH","A delivery must retain the original issue identity and cannot import an independent debug budget.");
         const existing = state.tasks.find((item) => item.task.id === task.id);
         if (existing !== undefined) {
           if (JSON.stringify(existing.task) !== JSON.stringify(task)) {
@@ -522,6 +559,12 @@ export class TaskService {
         });
       }
     });
+  }
+
+  /** The active DEBUG root already holding this original issue, if any. */
+  async activeDebugRoot(goal: string): Promise<StoredTaskRecord | null> {
+    return (await this.list()).find((record) => record.status === "active" && record.task.debug?.rootTaskId === record.task.id &&
+      record.task.goal !== undefined && sameDebugText(record.task.goal, goal)) ?? null;
   }
 
   async list(

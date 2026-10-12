@@ -39,6 +39,14 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+test("Codex Interrupt is accepted by runtime and published manifest schema", async () => {
+  const manifest={schemaVersion:2,scope:"project",harness:["codex"],artifacts:[],markers:[],
+    hooks:[{id:"codex-hooks",path:".codex/hooks.json",harness:"codex",events:["Stop","Interrupt"],owner:"agent-ops"}]};
+  assert.equal(validateManifest(manifest).ok,true);
+  const schema=await compileJsonSchema("manifest.schema.json");
+  assert.equal(schema(manifest),true,JSON.stringify(schema.errors));
+});
+
 function firstErrorCode(result: { errors: { code: string }[] }): string {
   return result.errors[0]?.code ?? "";
 }

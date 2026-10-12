@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { collectChangeSurface } from "../verify/change-surface.js";
+import { FileRunRepository } from "../run/service.js";
 import type { FinishDependencies } from "./finish.js";
 import {
   assertSessionId,
@@ -189,8 +190,10 @@ export async function resumeWorktree(
   const sessionId = assertSessionId(options.sessionId);
   const mainRoot = await mainCheckout(deps, options.cwd);
   const previous = await requireRecord(mainRoot, name);
-  const tasks = deps.tasks(previous.path);
+  // A base gives the service repository context, which debug resume needs.
+  const tasks = deps.tasks(previous.path, previous.base);
   const attached = await tasks.status({ sessionId: previous.sessionId }).catch(() => null);
+  if (attached?.task.debug !== undefined) await tasks.debugService().resume(attached.task.id,sessionId);
   if (attached !== null) await tasks.attach(sessionId, attached.task.id);
   const record: WorktreeRecord = { ...previous, sessionId };
   await writeWorktreeRecord(record);
@@ -271,6 +274,15 @@ export async function removeWorktree(
   const name = assertWorktreeName(options.name);
   const mainRoot = await mainCheckout(deps, options.cwd);
   const status = await describe(deps, await requireRecord(mainRoot, name));
+  // A running run still writes here; --force discards work, it does not stop the run.
+  const runId = status.record.runId;
+  if (runId !== undefined) {
+    const commonDir = join(mainRoot, ".git");
+    const run = await new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir).read(runId).catch(() => null);
+    if (run !== null && ["active", "awaiting-input", "stopping"].includes(run.status)) {
+      throw manageError("WORKTREE_RUN_ACTIVE", `${name} belongs to run ${runId}, which is ${run.status}. Stop it first: agent-ops run stop ${runId}.`);
+    }
+  }
   if ((status.dirty || status.ahead > 0) && !options.force) {
     throw manageError("WORKTREE_UNMERGED",
       `${name} has ${status.dirty ? "uncommitted changes" : ""}${status.dirty && status.ahead > 0 ? " and " : ""}${status.ahead > 0 ? `${status.ahead} commit(s) not in ${status.record.targetBranch}` : ""}. Finish it, or remove it with --force to discard that work (the user is asked).`);
@@ -283,7 +295,10 @@ export async function removeWorktree(
       ? mainGate.redirect(record.sessionId, null)
       : mainGate.removeRoot(record.sessionId, record.path));
   }
-  await deps.trust.revoke(record.path, await deps.loadConfig(record.path)).catch(() => undefined);
+  // A paused or stopped run's worktree has no loadable policy config; its trust
+  // was never this checkout's to revoke, so removal must not depend on it.
+  const config = await deps.loadConfig(record.path).catch(() => null);
+  if (config !== null) await deps.trust.revoke(record.path, config).catch(() => undefined);
   await removeCheckout(deps, record, true);
   return status;
 }
