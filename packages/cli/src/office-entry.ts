@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -97,16 +97,38 @@ export function officePhaseHint(event: NormalizedHookEvent): string | undefined 
       : [];
   let phase: string | undefined;
   for (const command of commands) {
-    if (basename(command.command) !== "agent-ops") continue;
-    const action = command.args[0];
+    let argv = [command.command, ...command.args];
+    // Unwrap display hints here; command-policy normalization stays unchanged.
+    while (basename(argv[0] ?? "") === "env") {
+      argv = argv.slice(1);
+      while (argv.length > 0) {
+        if (argv[0] === "-u" || argv[0] === "--unset") {
+          if (argv[1] === undefined || !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(argv[1])) break;
+          argv = argv.slice(2);
+        } else if (/^--unset=[A-Za-z_][A-Za-z0-9_]*$/u.test(argv[0] ?? "")) argv = argv.slice(1);
+        else break;
+      }
+      if (argv[0] === "--") argv = argv.slice(1);
+      while (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(argv[0] ?? "")) argv = argv.slice(1);
+    }
+    if (basename(argv[0] ?? "") === "node" || basename(argv[0] ?? "") === "node.exe") {
+      const script = argv[1];
+      if (script === undefined || ![
+        fileURLToPath(new URL("./bin.js", import.meta.url)),
+        resolve(event.projectRoot, "dist/packages/cli/src/bin.js")
+      ].includes(resolve(event.projectRoot, script))) continue;
+      argv = ["agent-ops", ...argv.slice(2)];
+    }
+    if (basename(argv[0] ?? "") !== "agent-ops") continue;
+    const action = argv[1];
     // batch and advance report their later steps themselves; this is their first.
     const next = action === "verify" || action === "batch"
       ? "verifying"
       : action === "review"
         ? "reviewing"
-        : action === "worktree" && command.args[1] === "finish"
+        : action === "worktree" && argv[2] === "finish"
           ? "integrating"
-          : action === "task" && (command.args[1] === "complete" || command.args[1] === "advance")
+          : action === "task" && (argv[2] === "complete" || argv[2] === "advance")
             ? "integrating"
             : action === "task"
               ? "planning"
@@ -122,9 +144,10 @@ export function officeLoopPhaseHint(input: unknown, root: string): string | unde
   if (!observationInput(input)) return undefined;
   const tool = input.tool_name;
   if (tool === "Edit" || tool === "Write" || tool === "NotebookEdit" || tool === "FileWrite") return "implementing";
-  if (tool !== "Bash") return undefined;
   const toolInput = recordValue(input, "tool_input");
-  const command = recordValue(toolInput, "command");
+  const command = recordValue(toolInput, "command") ?? recordValue(toolInput, "cmd");
+  if (tool === "apply_patch") return typeof command === "string" && command.length > 0 ? "implementing" : undefined;
+  if (tool !== "Bash") return undefined;
   return typeof command === "string" ? officePhaseHint(normalizeShellHookEvent(command, root)) : undefined;
 }
 

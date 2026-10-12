@@ -148,6 +148,9 @@ export function buildCodexHookConfig(
   if (capabilities.includes("task-debug")) {
     hooks.Interrupt = [{hooks:[{...commandHook("Interrupt",runtimePath),timeout:3}]}];
   }
+  if (capabilities.includes("office-presence") && hooks.PreToolUse !== undefined) {
+    hooks.PreToolUse = hooks.PreToolUse.map(group => ({...group, matcher: "^(Bash|apply_patch)$"}));
+  }
   return {
     description: "agent-ops lifecycle hooks.",
     hooks

@@ -4,6 +4,17 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-13
+
+- Office observes native Codex `apply_patch` edits as development activity in
+  ordinary sessions and project-loop sessions.
+- Office recognizes verification and review commands launched through `env`
+  wrappers or the installed/project-built Node CLI entrypoint, including
+  Codex command inputs using `cmd`.
+- Command-policy matchers and Claude hooks retain their existing behavior.
+  After upgrading, run `agent-ops update --yes` in Office-enabled projects to
+  register the expanded Codex edit matcher.
+
 ## [0.8.4] - 2026-10-12
 
 - Run startup and read-only controller Stop no longer count untracked Claude
