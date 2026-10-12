@@ -26,7 +26,7 @@ import type {
   HookResult,
   StopVerificationOptions
 } from "../../../runtime/src/hooks/events.js";
-import {officePhaseHint, type OfficeSessionObservation} from "./office-entry.js";
+import {officePhaseHint, officeLoopPhaseHint, type OfficeSessionObservation} from "./office-entry.js";
 import { evaluateWorktreeEnter } from "../../../runtime/src/parallel/enter.js";
 import {
   evaluateWorktreeWrite,
@@ -617,7 +617,7 @@ export async function runHookProcess(
       await startDebugSession(root,normalized.sessionId,harnessId).catch(() => undefined);
     if (dependencies.office !== undefined && config.features.office?.enabled === true) {
       if (normalized !== null) {
-        const phase = officePhaseHint(normalized);
+        const phase = officePhaseHint(normalized) ?? (harnessId === "codex" ? officeLoopPhaseHint(parsedInput, root) : undefined);
         void dependencies.office({
           root,
           harness: harnessId,
@@ -628,6 +628,8 @@ export async function runHookProcess(
           ...(normalized.agentId === undefined ? {} : {agentId: normalized.agentId}),
           ...(phase === undefined ? {} : {phase})
         }).catch(() => undefined);
+        // Native patch hooks added for Office must not emit unsupported-policy messages.
+        if (harnessId === "codex" && normalized.event === "unsupported" && phase === "implementing") return 0;
       }
     }
     const gitRunner = dependencies.gitRunner ?? defaultGitRunner(root);
