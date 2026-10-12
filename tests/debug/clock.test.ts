@@ -111,11 +111,13 @@ test("native stop closes foreground while a live operation remains accountable",
 test("a native continue can extend an exhausted clock before any receipt, but not a stale event",async()=>{
   const f=await fixture();
   const previousHome=process.env.HOME;
+  const previousUserProfile=process.env.USERPROFILE;
   const session="12345678-1234-1234-1234-123456789abc";
   const transcript=join(f.root,".claude/projects",f.root.replace(/[^a-zA-Z0-9]/gu,"-"),session+".jsonl");
   const writeEvent=async(timestamp:number,text="繼續")=>await writeFile(transcript,JSON.stringify({type:"user",sessionId:session,cwd:f.root,timestamp:new Date(timestamp).toISOString(),message:{role:"user",content:text}})+"\n");
   try {
     process.env.HOME=f.root;
+    if (process.platform === "win32") process.env.USERPROFILE=f.root;
     await mkdir(join(f.root,".claude/projects",f.root.replace(/[^a-zA-Z0-9]/gu,"-")),{recursive:true});
     await f.tasks.attach(session,f.taskId);
     const now=Date.now();
@@ -143,6 +145,8 @@ test("a native continue can extend an exhausted clock before any receipt, but no
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME=previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE=previousUserProfile;
     await f.close();
   }
 });
