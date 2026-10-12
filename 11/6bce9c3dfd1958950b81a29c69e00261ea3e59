@@ -1,0 +1,7 @@
+worktree: session-01a12ab6 (agent-ops/session-01a12ab6)
+session: 01a12ab6-2aed-75d2-9fd0-c4650a8fd209
+agent-ops task task-1d2afc15-fa0b-483b-8a64-b58a084e4319: Prepare agent-ops 0.8.3 PR
+intent: Update only package version metadata and its lockfile in the owned worktree. Verify the package reports 0.8.3 and the existing release workflow remains unchanged. Include the accumulated verified release changes when opening the PR against origin/main; do not trigger npm publication.
+criteria:
+- release-version: Package and root lockfile metadata consistently identify 0.8.3; the built and packed CLI reports 0.8.3.
+- trusted-publisher: The existing release workflow, OIDC permissions, release environment and npm provenance publishing command are preserved; release preparation is compatible with the existing workflow.
