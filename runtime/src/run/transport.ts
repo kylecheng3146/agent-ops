@@ -2,6 +2,7 @@ import {nativeProcessGroupAlive, signalNativeProcessGroup} from "./hosts/util.js
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
 import {AgentOpsError} from "../fs/paths.js";
+import {readWindowsProcessIdentity} from "../security/permissions.js";
 import type {NativeGoalHost as Transport, NativeGoalHandle, NativeGoalEvent} from "./hosts/types.js";
 import type {NativeGoalHost, NativeSessionIdentity, NativeSessionObservation} from "./supervisor.js";
 import type {RunRepository, RunWorkerRecord} from "./service.js";
@@ -9,6 +10,7 @@ import type {RunRepository, RunWorkerRecord} from "./service.js";
 const exec = promisify(execFile);
 export async function nativeProcessIdentity(pid: number): Promise<string | null> {
   if (!Number.isSafeInteger(pid) || pid < 1) return null;
+  if (process.platform === "win32") return await readWindowsProcessIdentity(pid);
   try {
     const {stdout} = await exec("ps", ["-p", String(pid), "-o", "lstart="], {maxBuffer: 8192});
     return stdout.trim() || null;

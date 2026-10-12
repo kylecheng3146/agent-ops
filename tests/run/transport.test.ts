@@ -12,6 +12,15 @@ import {RunSupervisor} from "../../runtime/src/run/supervisor.js";
 import {NativeRunTransport, nativeProcessIdentity} from "../../runtime/src/run/transport.js";
 import type {NativeGoalHost, NativeGoalHandle} from "../../runtime/src/run/hosts/types.js";
 
+test("native process identity is stable for a live process and rejects invalid or absent PIDs", async () => {
+  const identity = await nativeProcessIdentity(process.pid);
+  assert.ok(identity);
+  if (process.platform === "win32") assert.match(identity, /^windows:\d+$/u);
+  assert.equal(await nativeProcessIdentity(process.pid), identity);
+  for (const pid of [0, -1, NaN, 1.5, Number.MAX_SAFE_INTEGER + 1, 999_999_999])
+    assert.equal(await nativeProcessIdentity(pid), null);
+});
+
 test("run parser separates native start options from persistent control actions", () => {
   const args = parseArgs(["run", "Goal", "--host", "claude", "--time-budget", "60m", "--jobs", "2", "--wait"]);
   assert.equal(args.command, "run"); assert.equal(args.host, "claude");

@@ -1,6 +1,6 @@
 import {lstat,readFile,readdir,realpath} from "node:fs/promises";
 import {homedir} from "node:os";
-import {join,relative} from "node:path";
+import {isAbsolute,join,relative,sep} from "node:path";
 import {sha256} from "../fs/hash.js";
 import {AgentOpsError} from "../fs/paths.js";
 
@@ -47,10 +47,11 @@ export async function readDebugUserEvent(root:string,sessionId:string,home=homed
   for (const path of paths) {
     try {
       const stat=await lstat(path),canonical=await realpath(path);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size>16*1024*1024 || relative(canonicalHome,canonical).startsWith("..")) continue;
+      const fromHome=relative(canonicalHome,canonical);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size>16*1024*1024 || fromHome.startsWith("..") || isAbsolute(fromHome)) continue;
       const lines=(await readFile(path,"utf8")).split("\n");
       const rows=lines.map(line=>{try{return JSON.parse(line);}catch{return null;}});
-      const codexSource=path.startsWith(codex+"/");
+      const codexSource=path.startsWith(codex+sep);
       if (codexSource && !rows.some(row=>row?.type === "session_meta" && row.payload?.id === sessionId && row.payload?.cwd === root)) continue;
       for(let index=rows.length-1;index>=0;index--) {
         const row=rows[index];

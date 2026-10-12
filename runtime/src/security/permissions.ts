@@ -346,9 +346,10 @@ async function readPosixProcessIdentity(
   }
 }
 
-async function readWindowsProcessIdentity(
+export async function readWindowsProcessIdentity(
   processId: number
 ): Promise<string | null> {
+  if (!Number.isSafeInteger(processId) || processId < 1) return null;
   try {
     const script = [
       `$process = Get-Process -Id ${processId} -ErrorAction Stop`,
