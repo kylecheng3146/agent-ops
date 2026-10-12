@@ -1,0 +1,8 @@
+worktree: session-01a13069 (agent-ops/session-01a13069)
+session: 01a13069-8dc1-7a13-86a8-fd2256da2f05
+agent-ops task task-e7265e54-55eb-4943-be59-f91e62f50cfb: Release 0.8.5 with Codex Office phase fixes
+intent: Prepare version 0.8.5, include the reviewed Codex Office fix, create and merge the release PR after green CI, and publish via the unchanged GitHub npm Trusted Publishing workflow.
+criteria:
+- office-fix: Release contains the reviewed Codex Office patch-edit and wrapped verification/review phase fixes with passing regression checks.
+- release-metadata: Package and lock metadata consistently identify 0.8.5 and the changelog describes its Office fixes and hook-update requirement.
+- release-policy: Existing tokenless npm Trusted Publishing, version/tag guards, build and packed CLI checks remain valid.
