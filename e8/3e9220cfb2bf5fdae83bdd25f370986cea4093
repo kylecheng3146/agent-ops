@@ -1,0 +1,10 @@
+worktree: session-01a12ab6 (agent-ops/session-01a12ab6)
+session: 01a12ab6-2aed-75d2-9fd0-c4650a8fd209
+agent-ops task task-d6b38c41-1c9b-4077-a51c-284da276f61d: Close Codex DEBUG loops with human controls
+intent: Implement the agreed DEBUG-only continuation and authoritative human controls using existing task, evidence, checkpoint, budget and worktree mechanisms. Preserve ordinary tasks and old state. Update generated harness content through its source and updater without touching frontend product code.
+criteria:
+- debug-default: DEBUG intake defaults to the full investigation, repair, verification, two-review and finish loop without asking permission for clean HEAD; failure to reproduce alone never permits stopping.
+- codex-debug-gate: Codex native Stop keeps unfinished DEBUG tasks running across repeated stops, honors runtime limits and checkpoints, and preserves unrelated tasks and interrupts.
+- human-debug-control: Native human diagnosis-only, pause and resume controls retain the original active task, evidence and budgets; diagnosis continues to proof or a legitimate blocker, while pause stops immediately.
+- gate-recovery: A DEBUG gate fault requests one targeted recovery, then allows an explicit UNKNOWN stop with preserved progress and diagnostics instead of silently allowing or looping.
+- debug-compatibility: Legacy DEBUG state stays readable and managed artifacts, tests and docs reflect the new Codex contract; build and installed hook paths are validated.
