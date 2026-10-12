@@ -1,0 +1,7 @@
+worktree: session-01a12ab6 (agent-ops/session-01a12ab6)
+session: 01a12ab6-2aed-75d2-9fd0-c4650a8fd209
+agent-ops task task-4219e915-3c78-4abe-b8e1-0488f5c5db65: Fix Windows DEBUG release blockers
+intent: Fix the shared Windows process identity and native transcript path handling at their roots. Reuse existing mechanisms, retain PID reuse and source-authority protections, add regression coverage, and preserve all task state and release workflow settings. Complete verify, two reviews and finish before submitting the corrective PR.
+criteria:
+- windows-process-identity: Windows DEBUG operations can prove current and child process identity and account foreground lifetime, while dead or reused PIDs and identity-probe errors remain rejected.
+- windows-human-event: Authentic native user events resolve the originating Windows repository and authorize diagnosis, pause, resume and budget continuation; unmatched paths, symlinks and synthetic events remain rejected.
