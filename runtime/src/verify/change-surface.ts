@@ -4,6 +4,8 @@ import { AgentOpsError } from "../fs/paths.js";
 
 const WINDOWS_RESERVED_SEGMENT =
   /^(?:aux|com[1-9]|con|lpt[1-9]|nul|prn)(?:\..*)?$/i;
+const HARNESS_PROCESS_HEARTBEAT =
+  /^\.(?:claude|codex)\/\.agent-ops-process-[1-9]\d*-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 export interface GitRunResult {
   readonly exitCode: number;
@@ -150,7 +152,9 @@ export async function collectChangeSurface(
   ])).filter(
     // Indexed runtime was rejected above; only generated, untracked output is excluded.
     (path) => !path.startsWith(".agent-ops/tasks/") &&
-      !path.startsWith(".agent-ops/reviews/")
+      !path.startsWith(".agent-ops/reviews/") &&
+      // Private marker locks keep these runtime heartbeats until process exit.
+      !HARNESS_PROCESS_HEARTBEAT.test(path)
   );
 
   return {

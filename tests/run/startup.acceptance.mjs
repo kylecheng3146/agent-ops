@@ -86,9 +86,11 @@ const checks = {
     const service = gate(root); await service.seed('changed');
     await writeFile(join(root, heartbeat), 'changed tracked data\n');
     await writeFile(join(root, '.claude/.agent-ops-process-not-a-heartbeat'), 'user data\n');
+    const collision = '.agent-ops-process-12345-00000000-0000-4000-8000-000000000000';
+    await writeFile(join(root, collision), 'user source with a reserved-looking basename\n');
     await writeFile(join(root, 'source.txt'), 'changed product\n');
     assert.deepEqual((await collectChangeSurface(runner(root))).paths,
-      [heartbeat, '.claude/.agent-ops-process-not-a-heartbeat', 'source.txt'].sort());
+      [heartbeat, '.claude/.agent-ops-process-not-a-heartbeat', collision, 'source.txt'].sort());
     assert.equal((await service.handle({event: 'stop', projectRoot: root, sessionId: 'changed', terminationReason: 'model_stop', fullyIdle: true}))?.code, 'COMPLETION_GATE_TASK_REQUIRED');
     const commonDir = join(root, '.git'), repository = new FileRunRepository(join(commonDir, 'agent-ops/runs'), commonDir);
     const state = createRunState({root, commonDir, goal: 'Protect executable runtime', targetBranch: 'main', host: 'codex', ownerSessionId: 'owner'});
@@ -105,7 +107,7 @@ const phase = process.env.AGENT_OPS_ACCEPTANCE_PHASE ?? 'candidate';
 const results = [];
 for (const [checkId, check] of Object.entries(checks)) {
   let status = 'PASS', failureClass = 'none', detail = 'Real Git/process assertions completed';
-  try {await check();} catch (e) {status = 'FAIL'; failureClass = e.code === 'ERR_ASSERTION' ? 'assertion-failed' : 'infrastructure-error'; detail = String(e.stack ?? e);}
+  try {await check();} catch (e) {status = 'FAIL'; failureClass = e.code === 'ERR_ASSERTION' ? 'assertion-failed' : 'infrastructure-error'; detail = String(e.stack ?? e).replace(/[\r\n]/gu, ' ').slice(0,4000);}
   results.push({executionId, phase, framework: 'node-assert', frameworkVersion: '1', checkId, status, failureClass, attempts: 1, evidence: [detail]});
 }
 console.log(JSON.stringify({protocolVersion: 1, executionId, phase, framework: 'node-assert', frameworkVersion: '1', results,
