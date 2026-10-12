@@ -4,7 +4,7 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
-## [0.8.5] - 2026-10-12
+## [0.8.5] - 2026-10-13
 
 - Office observes native Codex `apply_patch` edits as development activity in
   ordinary sessions and project-loop sessions.
