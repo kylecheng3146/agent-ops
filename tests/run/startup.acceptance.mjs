@@ -4,6 +4,7 @@ import {mkdtemp, mkdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {recoveryChecks} from '../debug/recovery-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -45,6 +46,7 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...recoveryChecks,
   'live-worktree-heartbeats': () => fixture(async ({root, runner, gate}) => {
     const deps = {git: async (cwd, args) => {
       try {return {exitCode: 0, stdout: execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}), stderr: ''};}
@@ -111,5 +113,5 @@ for (const [checkId, check] of Object.entries(checks)) {
   results.push({executionId, phase, framework: 'node-assert', frameworkVersion: '1', checkId, status, failureClass, attempts: 1, evidence: [detail]});
 }
 console.log(JSON.stringify({protocolVersion: 1, executionId, phase, framework: 'node-assert', frameworkVersion: '1', results,
-  completed: true, completionEvidence: ['All four named checks ran once'], diagnostics: []}));
+  completed: true, completionEvidence: ['All named checks ran once'], diagnostics: []}));
 if (results.some(r => r.status !== 'PASS')) process.exitCode = 1;

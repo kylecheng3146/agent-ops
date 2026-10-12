@@ -290,9 +290,9 @@ export class DebugService {
     if (root.debug.receipts.length >= 256) fail("TASK_DEBUG_HISTORY_LIMIT","Execution history is full; retain it and report the blocker.");
     const productDigest = await this.#productDigest(root.debug);
     const previousCandidate = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
-    const latestAttempt = root.debug.receipts.filter(r=>r.kind === "verify").at(-1)?.productDigest ?? sha256("[]");
     const cause = debugStopCause(root.debug);
-    if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify" && productDigest === latestAttempt)) && !(cause === "iterations" && kind === "review" && productDigest === previousCandidate))
+    // Recovery reruns the original verifier; changed product content still needs fresh proof.
+    if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify")) && !(cause === "iterations" && kind === "review" && productDigest === previousCandidate))
       fail("TASK_DEBUG_STOP_REQUIRED",`Runtime stop predicate: ${cause}. Record a checkpoint; resume alone cannot reset it.`);
     const processIdentity = await nativeProcessIdentity(process.pid);
     if (processIdentity === null) fail("TASK_DEBUG_PROCESS_IDENTITY_REQUIRED","The host cannot prove the debug operation process identity; preserve the issue and report the unsupported environment.");
@@ -478,7 +478,7 @@ export class DebugService {
     const exhaustedAtEvent=foregroundActive
       ? remainingAtEvent === 0
       : debugRemainingMs(root.debug) === 0 && event.timestamp > lastSealedAt;
-    if (!exhaustedAtEvent || otherCause !== null || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()))
+    if (!exhaustedAtEvent || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()))
       fail("TASK_DEBUG_GRANT_INVALID","Only a contemporaneous human continue event extends exhausted time; other blockers remain authoritative.");
     await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS}],checkpoint:null});
   }
