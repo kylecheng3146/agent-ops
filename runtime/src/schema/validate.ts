@@ -58,6 +58,7 @@ const HOOK_EVENT_VALUES = new Set([
   "SubagentStart",
   "SubagentStop",
   "Stop",
+  "Interrupt",
   "SessionEnd"
 ]);
 const MAX_TIMEOUT_MS = 2_147_483_647;

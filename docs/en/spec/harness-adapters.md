@@ -129,6 +129,9 @@ halts it. `stop_hook_active` identifies a prior continuation and cannot waive
 the DEBUG check. Native `Interrupt` pauses with a three-second timeout and
 never blocks or restarts the human interruption. This DEBUG-specific policy
 does not enable Codex's generic completion gate or optional Stop verifier.
+Codex separately trusts each exact native hook definition. After managed hook
+updates, review new or changed definitions in `/hooks`; agent-ops repository
+trust alone does not make an unreviewed native hook active.
 
 The agy adapter uses native project `GEMINI.md` routing to
 `.agent-ops/GEMINI.md`;

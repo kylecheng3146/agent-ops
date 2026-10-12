@@ -711,7 +711,7 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     assert.ok(!initial.capabilities.includes("command-policy"));
     assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "agy")!.events, ["SessionStart", "PreToolUse", "Stop"]);
     // A submitted prompt starts the turn's work in Office.
-    assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "codex")!.events, ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"]);
+    assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "codex")!.events, ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Interrupt"]);
     // Only Claude publishes the end of a conversation, which closes its Office room.
     assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "claude")!.events, ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "SessionEnd"]);
     const plugin = writeOperation(initial, ".opencode/plugins/agent-ops.js");
@@ -726,7 +726,7 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     await applyInstallPlan(root, disabled);
     assert.deepEqual(
       Object.fromEntries((disabled.manifest.hooks ?? []).map(hook => [hook.harness, hook.events])),
-      {claude: ["UserPromptSubmit", "Stop"], codex: ["UserPromptSubmit", "Stop"], agy: ["SessionStart", "Stop"]},
+      {claude: ["UserPromptSubmit", "Stop"], codex: ["UserPromptSubmit", "Stop", "Interrupt"], agy: ["SessionStart", "Stop"]},
       "DEBUG prompt and foreground clock hooks stay enabled when Office is off"
     );
   } finally {

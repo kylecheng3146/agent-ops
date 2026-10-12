@@ -267,7 +267,8 @@ export type HookEventName =
   | "PostCompact"
   | "SubagentStart"
   | "SubagentStop"
-  | "Stop";
+  | "Stop"
+  | "Interrupt";
 
 /**
  * Hook handlers live inside a settings file the harness owns, so the record

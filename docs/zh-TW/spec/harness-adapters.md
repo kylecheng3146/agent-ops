@@ -109,6 +109,8 @@ Codex DEBUG lifecycle 語意於 2026-10-11 依[官方 hook 文件](https://learn
 會停止。`stop_hook_active` 表示已經續跑過，不能繞過 DEBUG 檢查。
 原生 `Interrupt` 暫停採三秒 timeout，不得阻擋或重啟人類中斷。
 此 DEBUG 專用政策不會啟用 Codex 的一般 completion gate 或 optional Stop verifier。
+Codex 另以每個原生 hook 的精確定義保存信任。更新受管理 hook 後，必須在 `/hooks`
+審核新增或變更的定義；agent-ops repository trust 不會啟用尚未審核的原生 hook。
 
 agy adapter 在 project scope 使用原生 `GEMINI.md` routing 到
 `.agent-ops/GEMINI.md`；user
