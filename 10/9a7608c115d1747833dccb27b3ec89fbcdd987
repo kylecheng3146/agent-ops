@@ -1,0 +1,8 @@
+worktree: session-01a13069 (agent-ops/session-01a13069)
+session: 01a13069-8dc1-7a13-86a8-fd2256da2f05
+agent-ops task task-bd8f3d4d-d17b-4fbc-8f32-dbe6877f0524: Fix Codex Office phase reporting
+criteria:
+- codex-edit-presence: Office-enabled Codex ordinary and project-loop hooks observe canonical apply_patch edits as implementing without changing command-policy-only matchers or host output.
+- wrapped-loop-phases: Office recognizes env-wrapped agent-ops review and canonical Bash cmd input while preserving exact command matching and unsupported-input handling.
+- node-cli-verification: Office recognizes node-launched agent-ops bin.js verify or review entrypoints and does not label unrelated node scripts or npm commands as verification.
+- phase-observation-regression: Regression tests reproduce baseline phase gaps and prove candidate observations through both native hook process boundaries; existing Office movement and Claude behavior remain covered.
