@@ -145,15 +145,14 @@ export function debugRemainingMs(state: DebugState, now = Date.now()): number {
 }
 export function debugStopCause(state: DebugState, now = Date.now()): DebugCause | null {
   if (state.control?.paused === true) return "user-pause";
-  const latest = state.receipts.at(-1);
-  if (latest?.cause !== null && latest?.cause !== undefined) return latest.cause;
   if (debugRemainingMs(state,now) === 0) return "budget";
   if (debugRounds(state) >= state.maxRounds) return "iterations";
   const rounds = state.receipts.filter(r=>r.round);
   const since = rounds.slice(state.strategy?.afterRound ?? 0);
   let stagnant = 0;
   for (const round of [...since].reverse()) { if (round.progress.length > 0) break; stagnant++; }
-  return stagnant >= 2 ? state.strategy === null ? "strategy-required" : "stagnation" : null;
+  if (stagnant >= 2) return state.strategy === null ? "strategy-required" : "stagnation";
+  return state.receipts.at(-1)?.cause ?? null;
 }
 /** Only reviewed reasoning/proof belongs in the digest; operations and clocks do not. */
 export function debugProofDigest(state: DebugState): string {

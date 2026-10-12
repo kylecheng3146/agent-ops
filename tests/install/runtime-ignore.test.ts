@@ -18,7 +18,7 @@ for (const harness of ["codex", "claude", "agy", "opencode"] as const) {
     const runner = { run: async (args: readonly string[]) => ({ exitCode: 0, stdout: git(args) }) };
     try {
       await applyInstallPlan(root, await createInstallPlan({ root, scope: "project", harness: [harness], profiles: ["core"], adapters: commonHarnessAdapters() }));
-      for (const directory of ["tasks", "reviews"]) {
+      for (const directory of ["tasks", "reviews", "state"]) {
         await mkdir(join(root, ".agent-ops", directory), { recursive: true });
         await writeFile(join(root, ".agent-ops", directory, "runtime.json"), "{}\n");
       }
@@ -50,12 +50,12 @@ test("legacy update adds runtime ignores; selective uninstall retains them; full
     manifest.artifacts = manifest.artifacts.filter((artifact: { id: string }) => artifact.id !== "runtime-ignore");
     await writeFile(manifestPath, JSON.stringify(manifest));
     await assert.rejects(createUpdatePlan({ root, adapters: commonHarnessAdapters(), targetVersion: "0.1.22" }), { code: "UNMANAGED_INSTALL_PATH" });
-    assert.equal(await readFile(join(root, ".agent-ops/.gitignore"), "utf8"), "/tasks/\n/reviews/\n");
+    assert.equal(await readFile(join(root, ".agent-ops/.gitignore"), "utf8"), "/tasks/\n/reviews/\n/state/\n");
     await rm(join(root, ".agent-ops/.gitignore"));
     await applyUpdatePlan(root, await createUpdatePlan({ root, adapters: commonHarnessAdapters(), targetVersion: "0.1.22" }));
-    assert.equal(await readFile(join(root, ".agent-ops/.gitignore"), "utf8"), "/tasks/\n/reviews/\n");
+    assert.equal(await readFile(join(root, ".agent-ops/.gitignore"), "utf8"), "/tasks/\n/reviews/\n/state/\n");
     await applyUninstallPlan(root, await createUninstallPlan(root, ["claude"]));
-    assert.equal(await readFile(join(root, ".agent-ops/.gitignore"), "utf8"), "/tasks/\n/reviews/\n");
+    assert.equal(await readFile(join(root, ".agent-ops/.gitignore"), "utf8"), "/tasks/\n/reviews/\n/state/\n");
     await mkdir(join(root, ".agent-ops/tasks"), { recursive: true });
     await writeFile(join(root, ".agent-ops/tasks/state.json"), "{}\n");
     await applyUninstallPlan(root, await createUninstallPlan(root));

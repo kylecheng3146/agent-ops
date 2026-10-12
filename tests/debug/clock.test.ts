@@ -135,11 +135,15 @@ test("a native continue can extend an exhausted clock before any receipt, but no
       record.debug!.foreground=null;
       record.debug!.consumedMs=record.debug!.budgetMs;
       record.debug!.grants=[];
+      record.debug!.receipts.push({id:"blocked",taskId:f.taskId,kind:"verify",contractHash:"a".repeat(64),configHash:"b".repeat(64),sourceFingerprint:"c".repeat(64),productDigest:"d".repeat(64),durationMs:1,finishedAt:now-1_000,round:false,progress:[],references:[],outcome:"UNKNOWN",cause:"environment"});
       Object.assign(record,{updatedAt:new Date(Date.now()).toISOString()});
     });
     await writeEvent(Date.now()-1_000);
     await assert.rejects(f.tasks.debugService().extend(f.taskId,session,"latest"),e=>e instanceof Error && "code" in e && e.code === "TASK_DEBUG_GRANT_INVALID");
     await writeEvent(Date.now());
+    await f.tasks.debugService().extend(f.taskId,session,"latest");
+    assert.equal((await f.tasks.debugService().root(f.taskId)).debug.grants.length,1);
+    assert.equal((await f.tasks.debugService().root(f.taskId)).debug.receipts.at(-1)?.cause,"environment");
     await f.tasks.debugService().extend(f.taskId,session,"latest");
     assert.equal((await f.tasks.debugService().root(f.taskId)).debug.grants.length,1);
   } finally {

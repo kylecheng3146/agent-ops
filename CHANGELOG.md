@@ -4,6 +4,23 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-12
+
+- Run startup and read-only controller Stop no longer count untracked Claude
+  and Codex process heartbeats as source changes. Tracked files, malformed
+  heartbeat names and real source edits remain subject to the existing gates.
+- Project installs now ignore `.agent-ops/state/`, including the documented
+  `run-goal.md` path.
+- DEBUG can rerun the original verifier on a changed candidate after an
+  environment or permission failure. Exhausted time, repair-round and
+  stagnation limits remain authoritative.
+- A native human "continue" can extend exhausted time while an environment or
+  permission blocker remains recorded. Grants stay single-use and preserve
+  the original task, consumed time and failure evidence.
+- Runtime changes during a run still require explicit recovery. Regression
+  checks cover live heartbeats, controller Stop, runtime-goal ignores and
+  changed-candidate DEBUG recovery.
+
 ## [0.8.2] - 2026-10-10
 
 - Task DEBUG: an investigation or bugfix request in a native conversation
