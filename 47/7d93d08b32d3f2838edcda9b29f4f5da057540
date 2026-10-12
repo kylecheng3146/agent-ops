@@ -1,0 +1,7 @@
+worktree: session-01a12e3c (agent-ops/session-01a12e3c)
+session: 01a12e3c-ae5a-7c22-bad5-46f0a688c7fb
+agent-ops task task-76c97860-fd04-4a19-af84-ae56cb1448e8: Release 0.8.4: run startup and DEBUG recovery
+intent: Prepare version 0.8.4 and release notes for the reviewed run heartbeat, runtime-ignore and DEBUG recovery fixes; preserve the existing OIDC trusted publishing workflow, complete verification and two fresh reviews, then create and merge the PR, tag and publish through the existing Release workflow.
+criteria:
+- release-metadata: package.json and both root package-lock version fields are 0.8.4, CLI version follows package metadata, and CHANGELOG documents the reviewed startup and DEBUG recovery changes.
+- release-safety: Existing tests, regression checks and dispatch-only OIDC trusted publishing policy remain passing; packed CLI is installable with no added runtime dependencies or breaking contracts.
