@@ -118,7 +118,17 @@ installed configuration; the managed OpenCode `tool.execute.before` plugin can
 throw its documented denial or unavailable-runtime error for its supported Bash
 surface. Codex remains `unknown` and never emits a denial. Fixture tests assert
 these wire and plugin shapes only; they do not prove that a host honors a
-denial. Every `SessionStart` and `Stop` failure path remains fail-open.
+denial. `SessionStart` and ordinary `Stop` failures remain fail-open. Active
+DEBUG Stop faults instead retry one targeted reload, then explicitly report
+UNKNOWN/incomplete and preserve the original state before non-success Stop.
+
+Codex DEBUG lifecycle semantics were rechecked on 2026-10-11 against the
+[official hooks reference](https://learn.chatgpt.com/docs/hooks#stop): Stop
+`decision: "block"` with `reason` schedules a continuation; `continue: false`
+halts it. `stop_hook_active` identifies a prior continuation and cannot waive
+the DEBUG check. Native `Interrupt` pauses with a three-second timeout and
+never blocks or restarts the human interruption. This DEBUG-specific policy
+does not enable Codex's generic completion gate or optional Stop verifier.
 
 The agy adapter uses native project `GEMINI.md` routing to
 `.agent-ops/GEMINI.md`;
@@ -130,7 +140,7 @@ unproven final changed conversation. Read-only conversations stop normally.
 On Windows the generated command is invoked through `cmd /c`.
 
 Stop verification is explicit, trusted, report-only, and disabled by default.
-Every Stop result continues the native harness and may carry only bounded
+Every optional Stop verification result continues the native harness and may carry only bounded
 command evidence; it is never task-completion evidence.
 
 The `loop` profile is separate from the ordinary capability matrix above. It

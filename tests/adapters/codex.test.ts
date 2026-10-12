@@ -67,11 +67,13 @@ test("outside the loop, Office or command policy adds one managed Codex prompt h
   assert.match(JSON.stringify(buildCodexHookConfig(["project-loop", "office-presence"], RUNTIME_PATH).hooks.UserPromptSubmit), /agent-ops-loop\.sh/u);
 });
 
-test("task-debug installs Codex prompt and advisory Stop lifecycle hooks", () => {
+test("task-debug installs Codex prompt, enforced Stop and bounded Interrupt hooks", () => {
   const managed = buildCodexHookConfig(["task-debug"], RUNTIME_PATH);
   assert.equal(managed.hooks.UserPromptSubmit?.length, 1);
   assert.equal(managed.hooks.Stop?.length, 1);
   assert.match(JSON.stringify(managed.hooks.Stop), /codex Stop --managed-by=agent-ops/u);
+  assert.match(JSON.stringify(managed.hooks.Interrupt), /codex Interrupt --managed-by=agent-ops/u);
+  assert.equal(managed.hooks.Interrupt![0]!.hooks[0]!.timeout,3);
 });
 
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {
@@ -255,7 +257,7 @@ test("normalizes only documented Codex common fields", () => {
       event: "stop",
       projectRoot: "/repo",
       terminationReason: "model_stop",
-      fullyIdle: false
+      fullyIdle: true
     }
   );
 });
@@ -278,8 +280,8 @@ test("encodes only documented Codex output behavior", () => {
     {
       exitCode: 0,
       stdout: JSON.stringify({
-        continue: false,
-        stopReason: "STOP_FAILED"
+        decision: "block",
+        reason: "agent-ops: STOP_FAILED. Continue the unfinished task."
       })
     }
   );
@@ -333,7 +335,8 @@ test("declares only documented event and matcher support", () => {
     "PostCompact",
     "SubagentStart",
     "SubagentStop",
-    "Stop"
+    "Stop",
+    "Interrupt"
   ]);
   assert.equal(codexMatcherSupport("PreToolUse"), "tool-name");
   assert.equal(codexMatcherSupport("Stop"), "unsupported");

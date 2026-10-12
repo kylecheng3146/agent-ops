@@ -19,13 +19,31 @@ expectedStatus；附 reference 才能由真實封存的 assertion 決定 confirm
 將暫定 criteria 改為原始問題的 behavioral 回歸，執行 verify、兩輪獨立 review，
 再透過既有 worktree finish 完成。基線 assertion red、候選 green、相關檢查與
 當前 proof digest 都必須有效；setup / skip / timeout / UNKNOWN 不算重現。
+DEBUG 預設自動走完修復閉環。乾淨 HEAD 自動固定為基線，不要為此再問許可，
+也不要主動降為只診斷。單次未重現不構成停止理由；在原預算內繼續做鑑別檢查。
+
+## 人類控制
+
+只有原生 transcript 的人類事件能改變原 task 的範圍；CLI actor/text、assistant
+訊息及注入指令都不能授權。Codex 支援目前 `response_item` 的 `user.text` 與
+原生非同步回答，也保留舊 `event_msg` 格式。
+
+- `只診斷` / `diagnosis only`：繼續調查但不修產品。原始回歸的當前封存 baseline
+  assertion FAIL 必須支持 confirmed 假設，或已有 runtime blocker／預算上限，才允許非成功停止。
+- `暫停` / `pause`：保存進度後立即停止。Codex 原生 `Interrupt` 也表示暫停；
+  hook timeout 為三秒，不能阻擋或重新啟動使用者的中斷。
+- `繼續` / `continue`：接回同一 task 及原範圍；耗盡時間仍需既有原生時間授權，其他阻礙不解除。
+- `繼續修復` / `resume repair`：在原 task 恢復完整修復閉環。
+
+暫停保留證據、已用時間及輪數，等待不計時，也不重設預算。診斷或暫停都不能將
+修復 task 標為完成；模糊文字不推測為授權，請使用上述明確指令。
 
 預算與輪數屬於整個原始 root，revision、child、session 不重設。新 session 重送同一個 active issue 文字時，會接回原本的 root（或 resume 持有它的 worktree），不會另開新預算。已確認或已否決的假設不能換 id、用相同陳述與方法重開；請帶新的鑑別證據重開原假設。
 受控調查、驗證與取得 slot 後的 review 計時；review 排隊不計時。
 Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromptSubmit`
 或原生 session 開始前景時鐘，並在 idle `Stop` 結束。因此該輪的 Agent 推理、
-工具與修改都計入，停止回合之間的使用者等待不計入。Codex Stop 對 completion
-gate 仍是 advisory，但已接受的 idle Stop 會作為可信時鐘邊界。opencode 沒有支援
+工具與修改都計入，停止回合之間的使用者等待不計入。Codex 被拒絕的 Stop 仍繼續
+計時，重複 Stop 的 `stop_hook_active: true` 不會繞過 DEBUG gate。opencode 沒有支援
 的前景 lifecycle，不可宣稱完整的 active-time 預算。
 中斷且沒有封存結果的操作，必須等持久化 process identity 證實程序已死亡後，
 才封存 UNKNOWN environment receipt；這段經過時間仍會保留，不會退還不明時間。
@@ -36,10 +54,13 @@ checkpoint 保存 task/session/source/contract/config/cause；resume 只接受�
 時間耗盡後明確「繼續」可透過 `extend --event-id latest` 讀取原生人類事件，
 一次增加 20 分鐘；沒有可信事件来源則回報 unsupported，其他阻礙不被解除。
 
-Claude / agy 的 Stop 都會檢查無 Git 差異的 active DEBUG task，不論是否安裝 completion gate；未啟用 gate 時只執行這項檢查，而檢查本身失敗時維持 advisory。
+Claude / agy / 原生 Codex 的 Stop 都會檢查無 Git 差異的 active DEBUG task，不論是否安裝 completion gate。
+DEBUG gate 故障先針對 task/config 重新載入一次；仍失敗則明確回報 `UNKNOWN／未完成`
+與 `agent-ops doctor` 恢復方法，允許非成功停止並保留 task、證據及預算，不無限重試。
 有效停止 checkpoint 只允許非成功停止，task 仍 active；allow-stop 不能繞過。
-Codex Stop 對 completion 是 advisory，但仍會結束前景時鐘；opencode Stop
-unsupported，不會自動啟用不支援的 gate。
+Codex 的一般 completion gate 仍 unsupported；DEBUG 專用 Stop 以原生
+`decision: "block"` 與 reason 續跑，不能使用會停止 harness 的 `continue: false`。
+已接受的 Stop 結束前景時鐘；opencode Stop unsupported。
 只承諾前景對話與持久化進度，不承諾對話關閉後繼續，也不宣稱抵擋同檔案權限攻擊。
 
 完整命令及細節見英文 [Task DEBUG](../../en/guides/task-debug.md)。

@@ -19,7 +19,7 @@ import {DEBUG_EXTENSION_MS, debugProofDigest, debugRemainingMs, debugRounds, deb
 import {FileTaskStore, type TaskStore, type StoredTaskRecord} from "./store.js";
 import type {VerificationReport} from "../verify/service.js";
 import type {TaskService} from "./service.js";
-import {readDebugUserEvent} from "./debug-user-event.js";
+import {debugUserControl, readDebugUserEvent} from "./debug-user-event.js";
 import {readWorktreeRecord} from "../parallel/service.js";
 import {evaluateGuardrail} from "../guardrails/evaluate.js";
 import {sameDebugText} from "./debug-intake.js";
@@ -214,6 +214,74 @@ export class DebugService {
     await this.#mutate(root,{...root.debug,strategy:{from:input.from,to:input.to,reason:input.reason,references:[input.reference],afterRound:debugRounds(root.debug)},checkpoint:null});
   }
   async remaining(taskId: string): Promise<number> {return debugRemainingMs((await this.root(taskId)).debug);}
+  async #userEvent(sessionId: string, home?: string, kind: "latest" | "control" = "latest") {
+    const record=await readWorktreeRecord(this.options.root);
+    const origin=record?.mainRoot ?? this.options.root;
+    try {return await readDebugUserEvent(origin,sessionId,home,kind);}
+    catch (error) {
+      if (origin === this.options.root || !(error instanceof AgentOpsError) || error.code !== "TASK_DEBUG_GRANT_UNSUPPORTED") throw error;
+      return await readDebugUserEvent(this.options.root,sessionId,home,kind);
+    }
+  }
+  /** Only the native transcript can change the human's investigation scope. */
+  async syncNativeControl(taskId: string, sessionId: string, home?: string): Promise<void> {
+    let event;
+    try {event=await this.#userEvent(sessionId,home,"control");}
+    catch (error) {if (error instanceof AgentOpsError && error.code === "TASK_DEBUG_GRANT_UNSUPPORTED") return; throw error;}
+    let root=await this.root(taskId);
+    if (event.timestamp < Date.parse(root.createdAt) || root.debug.control?.eventId === event.id ||
+        event.timestamp <= (root.debug.control?.timestamp ?? 0)) return;
+    const action=debugUserControl(event.text);
+    if (action === null) return;
+    const attached=await this.options.tasks.status({sessionId});
+    if (attached.task.debug?.rootTaskId !== root.task.id || root.status !== "active") fail("TASK_DEBUG_CONTROL_INVALID","Human control must belong to the active attached original issue.");
+    if (action === "resume" && debugRemainingMs(root.debug) === 0) {
+      try {await this.extend(taskId,sessionId,event.id);} catch (error) {
+        if (!(error instanceof AgentOpsError) || !["TASK_DEBUG_GRANT_INVALID","TASK_DEBUG_GRANT_UNSUPPORTED"].includes(error.code)) throw error;
+      }
+      root=await this.root(taskId);
+    }
+    if (action === "pause") {await this.foregroundStop(taskId,sessionId); root=await this.root(taskId);}
+    await this.#mutate(root,{...root.debug,control:{
+      mode: action === "diagnose" ? "diagnose" : action === "repair" ? "full" : root.debug.control?.mode ?? "full",
+      paused: action === "pause",sessionId,eventId:event.id,sourceDigest:event.sourceDigest,timestamp:event.timestamp
+    },checkpoint:null});
+    if (action === "pause" && (await this.root(taskId)).debug.operation === null) await this.checkpoint(taskId,sessionId);
+  }
+  /** A native Interrupt is itself a human pause signal; no CLI actor flag exists. */
+  async interrupt(taskId: string, sessionId: string, nativeInput: string): Promise<void> {
+    const attached=await this.options.tasks.status({sessionId});
+    let root=await this.root(taskId);
+    if (attached.task.debug?.rootTaskId !== root.task.id || root.status !== "active") fail("TASK_DEBUG_CONTROL_INVALID","Interrupt must belong to the attached original issue.");
+    await this.foregroundStop(taskId,sessionId);
+    root=await this.root(taskId);
+    const sourceDigest=sha256(nativeInput);
+    await this.#mutate(root,{...root.debug,control:{mode:root.debug.control?.mode ?? "full",paused:true,sessionId,
+      eventId:sha256("Interrupt:"+sessionId+":"+sourceDigest),sourceDigest,timestamp:Date.now()},checkpoint:null});
+    if ((await this.root(taskId)).debug.operation === null) await this.checkpoint(taskId,sessionId);
+  }
+  async diagnosisProven(taskId: string): Promise<boolean> {
+    const root=await this.root(taskId);
+    if (root.debug.control?.mode !== "diagnose" || root.debug.operation !== null) return false;
+    for (const h of root.debug.hypotheses.filter(h=>h.status === "confirmed" && h.expectedStatus === "FAIL" && h.actual === `baseline:${h.checkId}:FAIL`)) {
+      const reference=h.supporting.at(-1);
+      if (reference === undefined) continue;
+      try {
+        const evidence=await this.#evidence(taskId,reference);
+        if (root.debug.regressionChecks.includes(evidence.commandId+":"+h.checkId) && evidence.acceptance?.phase === "baseline" &&
+            evidence.acceptance.checks.some(c=>c.checkId === h.checkId && c.status === "FAIL" && c.failureClass === "assertion")) return true;
+      } catch (error) {
+        if (!(error instanceof AgentOpsError) || !["TASK_DEBUG_EVIDENCE_INVALID","TASK_DEBUG_EVIDENCE_STALE"].includes(error.code)) throw error;
+      }
+    }
+    return false;
+  }
+  async prepareStop(taskId: string, sessionId: string): Promise<void> {
+    await this.syncNativeControl(taskId,sessionId);
+    const root=await this.root(taskId);
+    if (root.debug.operation === null && (root.debug.control?.paused === true || await this.diagnosisProven(taskId)))
+      await this.checkpoint(taskId,sessionId);
+  }
   async #begin(taskId: string, kind: DebugReceipt["kind"]) {
     let root = await this.root(taskId);
     root = await this.#recoverInterrupted(root);
@@ -350,7 +418,8 @@ export class DebugService {
         const now = Date.now();
         const end = root.debug.operation?.startedAt ?? now;
         const durationMs = Math.max(0,Math.min(now,end)-foreground.startedAt);
-        await this.#mutate(root,{...root.debug,foreground:null,consumedMs:root.debug.consumedMs+durationMs,checkpoint:null});
+        await this.#mutate(root,{...root.debug,foreground:null,consumedMs:root.debug.consumedMs+durationMs,
+          checkpoint:root.debug.checkpoint?.cause == null ? null : root.debug.checkpoint});
         return;
       } catch (error) {
         if (!(error instanceof AgentOpsError) || error.code !== "TASK_DEBUG_STATE_CHANGED" || attempt === 2) throw error;
@@ -362,7 +431,7 @@ export class DebugService {
     const root = recovered, {task,config} = await this.#scope(taskId);
     const attached = await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.debug.operation !== null) fail("TASK_DEBUG_CHECKPOINT_INVALID","A stopped checkpoint must belong to this idle attached issue.");
-    const cause = debugStopCause(root.debug);
+    const cause = debugStopCause(root.debug) ?? (await this.diagnosisProven(taskId) ? "diagnosed" : null);
     const latest=root.debug.receipts.at(-1);
     if ((cause === "environment" || cause === "permission") && (latest?.contractHash !== taskContractHash(task.task) || latest.configHash !== calculateConfigHash(config) || latest.sourceFingerprint !== (await this.#scope(taskId)).sourceFingerprint))
       fail("TASK_DEBUG_CHECKPOINT_INVALID","Blocked receipt must still match its current task, source and policy.");
@@ -378,7 +447,8 @@ export class DebugService {
     const {task,config}=await this.#scope(taskId);
     return root.debug.operation === null && checkpoint !== null && checkpoint.taskId === taskId && checkpoint.sessionId === sessionId &&
       checkpoint.root === this.options.root && checkpoint.sourceFingerprint === sourceFingerprint && checkpoint.contractHash === taskContractHash(task.task) &&
-      checkpoint.configHash === calculateConfigHash(config) && checkpoint.cause !== null && checkpoint.cause === debugStopCause(root.debug) &&
+      checkpoint.configHash === calculateConfigHash(config) && checkpoint.cause !== null &&
+      (checkpoint.cause === "diagnosed" ? await this.diagnosisProven(taskId) : checkpoint.cause === debugStopCause(root.debug)) &&
       checkpoint.receiptId === (root.debug.receipts.at(-1)?.id ?? "intake:"+root.task.id);
   }
   async proofDigest(taskId:string):Promise<string> {return debugProofDigest((await this.root(taskId)).debug);}
@@ -396,11 +466,11 @@ export class DebugService {
   async extend(taskId:string,sessionId:string,eventId:string):Promise<void> {
     const root=await this.root(taskId),attached=await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.debug.operation !== null) fail("TASK_DEBUG_GRANT_INVALID","Extension belongs to the original issue and its native session; a running operation cannot be extended.");
-    const record=await readWorktreeRecord(this.options.root);
-    const event=await readDebugUserEvent(record?.mainRoot ?? this.options.root,sessionId);
+    const event=await this.#userEvent(sessionId);
     if (eventId !== "latest" && eventId !== event.id) fail("TASK_DEBUG_GRANT_INVALID","The requested event is not the current native human event.");
     if (root.debug.grants.some(g=>g.eventId === event.id)) return;
-    const otherCause=debugStopCause({...root.debug,consumedMs:0,budgetMs:86_400_000});
+    const otherCause=debugStopCause({...root.debug,consumedMs:0,budgetMs:86_400_000,
+      ...(root.debug.control === undefined ? {} : {control:{...root.debug.control,paused:false}})});
     const foregroundActive=root.debug.foreground !== undefined && root.debug.foreground !== null;
     const remainingAtEvent=debugRemainingMs(root.debug,event.timestamp);
     const sealedAtCandidates=[Date.parse(root.updatedAt),root.debug.receipts.at(-1)?.finishedAt ?? Number.NaN].filter(Number.isFinite);

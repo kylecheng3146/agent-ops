@@ -23,11 +23,13 @@ export async function checkTaskCompletionEvidence(
     readonly evidenceStore: FileEvidenceStore;
   }
 ): Promise<CompletionProblem | null> {
+  const debug=stored.task.debug === undefined ? undefined : await loadDebugProof(options.root,stored.task.debug.rootTaskId);
+  if (debug?.control?.paused === true || debug?.control?.mode === "diagnose")
+    return {status:"FAIL",code:"TASK_DEBUG_SCOPE_RESTRICTED",remedy:"The human restricted this issue to pause or diagnosis. Preserve the active task; only a native human resume repair event authorizes repair completion."};
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
-  if (stored.task.debug !== undefined) {
-    const debug=await loadDebugProof(options.root,stored.task.debug.rootTaskId);
+  if (debug !== undefined) {
     const coverage=await acceptanceCoverage(stored,options.config,options.sourceFingerprint,options.evidenceStore);
     const {FileTaskStore}=await import("./store.js");
     const {join}=await import("node:path");

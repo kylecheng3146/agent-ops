@@ -145,6 +145,9 @@ export function buildCodexHookConfig(
   if (capabilities.includes("task-debug") || capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
   }
+  if (capabilities.includes("task-debug")) {
+    hooks.Interrupt = [{hooks:[{...commandHook("Interrupt",runtimePath),timeout:3}]}];
+  }
   return {
     description: "agent-ops lifecycle hooks.",
     hooks

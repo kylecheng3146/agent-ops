@@ -4,7 +4,15 @@ import {AgentOpsError} from "../fs/paths.js";
 
 export const DEBUG_DEFAULTS = {enabled: true, budgetMs: 60 * 60_000, maxRounds: 5} as const;
 export const DEBUG_EXTENSION_MS = 20 * 60_000;
-export type DebugCause = "budget" | "iterations" | "strategy-required" | "stagnation" | "environment" | "permission";
+export type DebugCause = "budget" | "iterations" | "strategy-required" | "stagnation" | "environment" | "permission" | "user-pause" | "diagnosed";
+export interface DebugControl {
+  mode: "full" | "diagnose";
+  paused: boolean;
+  sessionId: string;
+  eventId: string;
+  sourceDigest: string;
+  timestamp: number;
+}
 export interface DebugHypothesis {
   id: string;
   statement: string;
@@ -61,6 +69,8 @@ export interface DebugState {
   receipts: DebugReceipt[];
   strategy: {from: string; to: string; reason: string; references: string[]; afterRound: number} | null;
   grants: {eventId: string; sessionId: string; sourceDigest: string; grantedMs: number}[];
+  /** Omitted by legacy state; the default is the full repair loop. */
+  control?: DebugControl;
   /** A native host turn currently being measured. Omitted by legacy state. */
   foreground?: DebugForeground | null;
   operation: {id: string; startedAt: number; taskId: string; contractHash: string; configHash: string; sourceFingerprint: string; productDigest: string; kind: DebugReceipt["kind"]; processId?: number; processIdentity?: string} | null;
@@ -73,7 +83,7 @@ const integer = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 const strings = (v: unknown) => Array.isArray(v) && v.length <= 128 && v.every(text) && new Set(v).size === v.length;
 const exact = (v: unknown, names: string[]): v is Record<string, unknown> => object(v) && Object.keys(v).length === names.length && names.every(k => Object.hasOwn(v,k));
 const statuses = ["proposed", "investigating", "confirmed", "rejected", "inconclusive"];
-export const debugCauses: readonly DebugCause[] = ["budget", "iterations", "strategy-required", "stagnation", "environment", "permission"];
+export const debugCauses: readonly DebugCause[] = ["budget", "iterations", "strategy-required", "stagnation", "environment", "permission", "user-pause", "diagnosed"];
 export function validDebugSettings(v: unknown): boolean {
   return exact(v,["enabled","budgetMs","maxRounds"]) && typeof v.enabled === "boolean" &&
     integer(v.budgetMs) && (v.budgetMs as number) > 0 && (v.budgetMs as number) <= 86_400_000 &&
@@ -84,11 +94,14 @@ export function validDebugIntake(v: unknown): boolean {
 }
 export function validDebugState(v: unknown): v is DebugState {
   const baseKeys = ["schemaVersion","rootTaskId","ownerRoot","baselineCommit","budgetMs","maxRounds","consumedMs","regressionChecks","hypotheses","receipts","strategy","grants","operation","checkpoint"];
-  if ((!exact(v,baseKeys) && !exact(v,[...baseKeys,"foreground"])) ||
+  if (!object(v) || Object.keys(v).some(k=>!baseKeys.includes(k) && k !== "foreground" && k !== "control") || !baseKeys.every(k=>Object.hasOwn(v,k)) ||
       v.schemaVersion !== 1 || !text(v.rootTaskId) || !text(v.ownerRoot) || typeof v.baselineCommit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(v.baselineCommit) ||
       !validDebugSettings({enabled:true,budgetMs:v.budgetMs,maxRounds:v.maxRounds}) || !integer(v.consumedMs) || !strings(v.regressionChecks) ||
       !Array.isArray(v.hypotheses) || v.hypotheses.length > 32 || !Array.isArray(v.receipts) || v.receipts.length > 256 ||
       !Array.isArray(v.grants) || v.grants.length > 128) return false;
+  if (Object.hasOwn(v,"control") && (!exact(v.control,["mode","paused","sessionId","eventId","sourceDigest","timestamp"]) ||
+      !["full","diagnose"].includes(String(v.control.mode)) || typeof v.control.paused !== "boolean" || !text(v.control.sessionId) ||
+      (v.control.sessionId as string).length > 256 || !hash(v.control.eventId) || !hash(v.control.sourceDigest) || !integer(v.control.timestamp))) return false;
   for (const h of v.hypotheses) {
     if (!exact(h,["id","statement","method","expected","checkId","expectedStatus","status","supporting","opposing","actual","history"]) ||
         ![h.id,h.statement,h.method,h.expected,h.checkId].every(text) || !["PASS","FAIL"].includes(String(h.expectedStatus)) || !statuses.includes(String(h.status)) ||
@@ -131,6 +144,7 @@ export function debugRemainingMs(state: DebugState, now = Date.now()): number {
   return Math.max(0,state.budgetMs + state.grants.reduce((n,g)=>n+g.grantedMs,0) - state.consumedMs - active);
 }
 export function debugStopCause(state: DebugState, now = Date.now()): DebugCause | null {
+  if (state.control?.paused === true) return "user-pause";
   const latest = state.receipts.at(-1);
   if (latest?.cause !== null && latest?.cause !== undefined) return latest.cause;
   if (debugRemainingMs(state,now) === 0) return "budget";

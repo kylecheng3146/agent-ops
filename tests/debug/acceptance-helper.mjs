@@ -34,6 +34,25 @@ export async function fixture(debug=true,maxRounds=5) {
 async function withFixture(fn,debug=true){const f=await fixture(debug);try{await fn(f)}finally{await f.close()}}
 const hypothesis={id:'cause',statement:'Original value is zero',method:'Execute original issue assertion',expected:'Baseline assertion fails',checkId:'issue',expectedStatus:'FAIL'};
 const checks={
+'debug-diagnosis-control':async()=>withFixture(async f=>{
+ const d=f.tasks.debugService(),id=f.record.task.id,session='12345678-1234-1234-1234-123456789abc';
+ await f.tasks.attach(session,id);
+ const home=join(f.root,'.agent-ops/native-home'),directory=join(home,'.codex/sessions/2026/10/11');await mkdir(directory,{recursive:true});
+ const path=join(directory,'rollout-'+session+'.jsonl');
+ await writeFile(path,[{type:'session_meta',payload:{id:session,cwd:f.root}},{type:'response_item',timestamp:new Date().toISOString(),payload:{type:'message',role:'user',internal_chat_message_metadata_passthrough:{content_item_kinds:['user.text']},content:[{type:'input_text',text:'只診斷'}]}}].map(row=>JSON.stringify(row)).join('\n')+'\n');
+ await d.syncNativeControl(id,session,home);
+ assert.equal(await d.diagnosisProven(id),false);
+ await f.candidate(0);const report=await f.verify();assert.equal(report.status,'FAIL');
+ const ref=report.acceptance.find(r=>r.phase==='baseline' && r.criterionId==='issue').reference;
+ await d.hypothesis(id,{...hypothesis,reference:ref});
+ assert.equal(await d.diagnosisProven(id),true);
+ await d.checkpoint(id,session);const state=(await d.root(id)).debug;
+ assert.equal(state.checkpoint.cause,'diagnosed');assert.ok(await d.validCheckpoint(id,session,state.checkpoint.sourceFingerprint));
+ const current=await f.tasks.status({taskId:id});await assert.rejects(f.tasks.complete(id,current.evidence),e=>e.code==='TASK_COMPLETION_TASK_DEBUG_SCOPE_RESTRICTED');
+ await writeFile(join(f.root,'product.mjs'),'export const value=2;\n');
+ assert.equal(await d.diagnosisProven(id),false);
+ assert.equal((await f.tasks.status({taskId:id})).status,'active');
+}),
 'debug-state':async()=>withFixture(async f=>{
  const d=f.tasks.debugService();const h=await d.hypothesis(f.record.task.id,hypothesis);assert.equal(h.status,'proposed');assert.equal((await d.root(f.record.task.id)).debug.budgetMs,1200000);
  await assert.rejects(d.hypothesis(f.record.task.id,{...hypothesis,status:'confirmed'}),e=>e.code==='TASK_DEBUG_HYPOTHESIS_INVALID');

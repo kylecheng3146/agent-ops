@@ -592,6 +592,7 @@ export class CompletionGateService {
     const debugTask=await this.#options.taskService.status({sessionId}).catch(()=>null);
     if (debugTask?.task.debug !== undefined) {
       if (debugTask.status === "active") {
+        await this.#options.taskService.debugService().prepareStop(debugTask.task.id,sessionId);
         const valid=await this.#options.taskService.debugService().validCheckpoint(debugTask.task.id,sessionId,fingerprint);
         return valid ? gateResult("continue","UNKNOWN","COMPLETION_GATE_TASK_DEBUG_STOPPED","Original issue remains active with a runtime-bound non-success checkpoint.") :
           gateResult("block","FAIL","COMPLETION_GATE_TASK_DEBUG_ACTIVE","Continue the investigation/evidence loop or record a current runtime stop checkpoint, even when Git has no net diff.");

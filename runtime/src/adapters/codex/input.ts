@@ -47,7 +47,8 @@ export function normalizeCodexHookInput(
       terminationReason: typeof input.termination_reason === "string"
         ? input.termination_reason
         : "model_stop",
-      fullyIdle: input.stop_hook_active !== true
+      // stop_hook_active means a prior continuation, not a non-idle Stop.
+      fullyIdle: true
     };
   }
   if (

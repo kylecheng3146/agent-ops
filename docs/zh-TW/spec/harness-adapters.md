@@ -101,7 +101,14 @@ Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安�
 OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface 上 throw 文件化的
 denial 或 unavailable-runtime error。Codex 維持 `unknown` 且絕不輸出 denial。
 Fixture test 只斷言這些 wire 與 plugin shape；它們不證明 host 會實際遵守 denial。
-每個 `SessionStart` 與 `Stop` failure path 都維持 fail-open。
+`SessionStart` 與一般 `Stop` failure 維持 fail-open。active DEBUG Stop 故障則
+針對 task/config 重新載入一次，再明確回報 UNKNOWN／未完成並保留原狀態，才允許非成功停止。
+
+Codex DEBUG lifecycle 語意於 2026-10-11 依[官方 hook 文件](https://learn.chatgpt.com/docs/hooks#stop)
+重新檢查：Stop 的 `decision: "block"` 加 `reason` 會排程續跑；`continue: false`
+會停止。`stop_hook_active` 表示已經續跑過，不能繞過 DEBUG 檢查。
+原生 `Interrupt` 暫停採三秒 timeout，不得阻擋或重啟人類中斷。
+此 DEBUG 專用政策不會啟用 Codex 的一般 completion gate 或 optional Stop verifier。
 
 agy adapter 在 project scope 使用原生 `GEMINI.md` routing 到
 `.agent-ops/GEMINI.md`；user
@@ -112,7 +119,7 @@ changed conversation 才回傳 `decision: "continue"`；唯讀 conversation 正�
 結束。在 Windows 透過 `cmd /c` 呼叫產生的 command。
 
 Stop verification 必須明確啟用、具備 trust、為 report-only 且預設 disabled。
-每個 Stop 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠
+每個 optional Stop verification 結果都會讓 native harness 繼續，最多攜帶有界 command evidence，永遠
 不是 task-completion evidence。
 
 `loop` profile 與上方 ordinary capability matrix 分離。它只保存有界的 local
