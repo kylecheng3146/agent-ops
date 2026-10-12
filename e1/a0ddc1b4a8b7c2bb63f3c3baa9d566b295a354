@@ -1,0 +1,8 @@
+worktree: session-01a12e3c (agent-ops/session-01a12e3c)
+session: 01a12e3c-ae5a-7c22-bad5-46f0a688c7fb
+agent-ops task task-526b3c70-20a4-4ed3-8675-d213a150919e: $grill-me
+intent: Investigate and fix the original issue through authoritative task debug evidence.
+criteria:
+- issue-regression: Live supervisor heartbeats do not dirty clean worktrees or block a read-only controller Stop, and installed ignores cover the documented run goal path.
+- related-checks: Tracked and real source changes remain gated; executable runtime changes still require explicit recovery; mandatory tests and two independent reviews pass.
+- debug-recovery: After UNKNOWN/environment the original verifier can test a changed candidate; exhausted limits still block operations and allow a current non-success checkpoint. Native time grants preserve blockers and remain single-use.
