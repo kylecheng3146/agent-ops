@@ -4,6 +4,24 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-13
+
+- DEBUG intake no longer opens an issue from harness-injected turns such as
+  subagent hand-backs (`<agent-message>`) or task notifications, even when
+  their text mentions failures and fixes.
+- DEBUG human controls and time grants ignore Claude transcript rows marked
+  as peer, system or meta turns; older transcripts without an origin keep
+  working.
+- DEBUG human controls typed after the shell moved into the session's owned
+  worktree now count; previously the transcript row's worktree cwd failed the
+  main-checkout match and the pause was silently dropped.
+- A run no longer blocks with `RUN_AUTHORIZATION_INVALID` when the native host
+  writes a file or patch larger than 32 KiB; the recorded observation keeps a
+  bounded excerpt plus the full input's sha256.
+- `task debug` accepts `--base`, so a DEBUG repair committed in a worktree
+  can confirm its hypotheses against the same committed range that verify
+  and review used.
+
 ## [0.8.5] - 2026-10-13
 
 - Office observes native Codex `apply_patch` edits as development activity in

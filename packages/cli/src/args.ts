@@ -800,10 +800,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     );
   }
   if (base !== undefined && command !== "verify" && command !== "review" &&
-    command !== "batch" && !(command === "task" && action === "complete")) {
+    command !== "batch" && !(command === "task" && (action === "complete" || action === "debug"))) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "--base may be used only with verify, review, batch or task complete."
+      "--base may be used only with verify, review, batch, task complete or task debug."
     );
   }
   if ((parentBase !== undefined || width !== undefined) && command !== "batch") {

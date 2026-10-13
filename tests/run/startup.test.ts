@@ -10,6 +10,6 @@ test("run startup ignores live runtime artifacts and preserves source and runtim
   });
   const report = JSON.parse(result.stdout.trim());
   assert.equal(report.completed, true);
-  assert.equal(report.results.length, 9);
+  assert.equal(report.results.length, 14);
   assert.ok(report.results.every((r: {status: string}) => r.status === "PASS"), result.stdout);
 });

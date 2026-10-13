@@ -220,7 +220,7 @@ Options:
   --task <id>                           status, attach, revise, replan, pin-finding, complete, archive, export, advance
   --session <id>                        create, attach, status, advance, debug
   --evidence <criterion-id=reference>   complete, repeatable
-  --base <git-ref>                      complete: a clean committed range
+  --base <git-ref>                      complete, debug: a clean committed range
   --yes                                 advance: authorize the two review sessions
   --json
 
