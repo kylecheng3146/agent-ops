@@ -11,6 +11,7 @@ const {routeDebugPrompt} = await mod('packages/cli/src/debug-intake.js');
 const {readDebugUserEvent} = await mod('runtime/src/task/debug-user-event.js');
 const {TaskService} = await mod('runtime/src/task/service.js');
 const {FileTaskStore} = await mod('runtime/src/task/store.js');
+const {parseArgs} = await mod('packages/cli/src/args.js');
 
 /** Harness-injected turns are model output, never a human report or control. */
 export const peerOriginChecks = {
@@ -54,5 +55,14 @@ export const peerOriginChecks = {
       await writeFile(path, row('繼續') + '\n');
       assert.equal((await readDebugUserEvent(root, session, home, 'control')).text, '繼續');
     } finally {await rm(root, {recursive: true, force: true}); await rm(home, {recursive: true, force: true});}
+  },
+  // A committed DEBUG repair confirms its cause against the same range verify and review used.
+  'debug-base-argument': async () => {
+    const parsed = (() => {
+      try {return parseArgs(['task', 'debug', '--task', 'task-id', '--base', 'HEAD~1', '--debug-action', 'hypothesis', '--payload-file', 'h.json']);}
+      catch (error) {assert.fail(`task debug rejected --base: ${error.message}`);}
+    })();
+    assert.equal(parsed.base, 'HEAD~1');
+    assert.throws(() => parseArgs(['task', 'status', '--task', 'task-id', '--base', 'HEAD~1']), {code: 'CLI_OPTION_NOT_ALLOWED'});
   }
 };

@@ -10,6 +10,9 @@ All notable changes to the project are documented here.
 - DEBUG human controls and time grants ignore Claude transcript rows marked
   as peer, system or meta turns; older transcripts without an origin keep
   working.
+- `task debug` accepts `--base`, so a DEBUG repair committed in a worktree
+  can confirm its hypotheses against the same committed range that verify
+  and review used.
 
 ## [0.8.5] - 2026-10-13
 
