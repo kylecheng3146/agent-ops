@@ -6,6 +6,10 @@ import type {NativeGoalEvent} from "./hosts/types.js";
 import type {RunRepository} from "./service.js";
 
 const plain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const MAX_SCOPE = 32 * 1024;
+/** A large Write or patch is still one observation: keep its identity by digest, never block the run on its size. */
+const bounded = (scope: string): string => scope.length <= MAX_SCOPE ? scope :
+  canonicalJson({truncated: true, length: scope.length, sha256: sha256(scope), head: scope.slice(0, 4096)});
 
 /** Provider decisions are observations, never an alternate permission executor. */
 export async function recordNativeRunAuthorization(repository: RunRepository, event: NativeGoalEvent): Promise<void> {
@@ -47,9 +51,9 @@ export async function recordNativeRunAuthorization(repository: RunRepository, ev
   if (event.host === "codex" && payload.threadId !== worker.nativeJobId)
     throw new AgentOpsError("RUN_AUTHORIZATION_STALE", "Native approval belongs to another thread.");
   const service = new RunControlService(repository);
-  for (const decision of decisions) await service.recordAuthorization(event.runId, {...decision,
-    authorizationId: decision.id, workerId: worker.workerId, generation: worker.generation, nativeSessionId: worker.nativeSessionId,
-    source: event.host === "codex" ? "codex-auto-review" : "claude-auto-mode", commandDigest: sha256(decision.command),
-    resourceDigest: sha256(decision.resource), policyConfigHash: state.policyBinding.configHash,
+  for (const {command, resource, ...decision} of decisions) await service.recordAuthorization(event.runId, {...decision,
+    command: bounded(command), resource: bounded(resource), authorizationId: decision.id, workerId: worker.workerId, generation: worker.generation, nativeSessionId: worker.nativeSessionId,
+    source: event.host === "codex" ? "codex-auto-review" : "claude-auto-mode", commandDigest: sha256(bounded(command)),
+    resourceDigest: sha256(bounded(resource)), policyConfigHash: state.policyBinding.configHash,
     runtimeHash: state.policyBinding.runtimeHash, policyArtifactDigest: state.policyBinding.artifactDigest, expiresAt: state.policyBinding.expiresAt});
 }

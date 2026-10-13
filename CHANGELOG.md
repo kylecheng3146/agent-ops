@@ -13,6 +13,9 @@ All notable changes to the project are documented here.
 - DEBUG human controls typed after the shell moved into the session's owned
   worktree now count; previously the transcript row's worktree cwd failed the
   main-checkout match and the pause was silently dropped.
+- A run no longer blocks with `RUN_AUTHORIZATION_INVALID` when the native host
+  writes a file or patch larger than 32 KiB; the recorded observation keeps a
+  bounded excerpt plus the full input's sha256.
 - `task debug` accepts `--base`, so a DEBUG repair committed in a worktree
   can confirm its hypotheses against the same committed range that verify
   and review used.
