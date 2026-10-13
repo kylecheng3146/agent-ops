@@ -1,0 +1,7 @@
+worktree: session-0d8f5441 (agent-ops/session-0d8f5441)
+session: 0d8f5441-356e-4869-aff1-b40bc47e333b
+agent-ops task task-a831ea21-13b8-48a7-8c08-b9a7ca6f5f51: Release 0.8.6 (DEBUG intake, controls and run authorization fixes)
+intent: Cherry-pick the four unreleased fix commits and their tests onto origin/main, bump the version to 0.8.6 and date the changelog. No product changes beyond those commits.
+criteria:
+- fixes-carried: release/0.8.6 carries the four unreleased fixes (bac8fbb, b48b2c5, 3f7b26b, d5c1d6c) and their tests on top of origin/main, and npm test passes with all 14 startup acceptance checks
+- version-0-8-6: package.json and package-lock.json report 0.8.6; CHANGELOG keeps an empty ## [Unreleased] and adds ## [0.8.6] - 2026-10-13 below it with the four fix entries; docs and package metadata tests pass; package:check and scan-source pass
