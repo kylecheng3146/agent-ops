@@ -56,7 +56,8 @@ export async function readDebugUserEvent(root:string,sessionId:string,home=homed
       for(let index=rows.length-1;index>=0;index--) {
         const row=rows[index];
         const text=codexSource ? codexUserText(row) :
-          row?.type === "user" && row.sessionId === sessionId && row.cwd === root && row.message?.role === "user" ? row.message.content : undefined;
+          row?.type === "user" && row.sessionId === sessionId && row.cwd === root && row.message?.role === "user" &&
+          row.isMeta !== true && (row.origin === undefined || row.origin?.kind === "human") ? row.message.content : undefined;
         if (typeof text !== "string" || text.length > 64*1024 || (kind === "control" && debugUserControl(text) === null)) continue;
         const timestamp=Date.parse(row.timestamp);
         if (!Number.isFinite(timestamp)) break;
