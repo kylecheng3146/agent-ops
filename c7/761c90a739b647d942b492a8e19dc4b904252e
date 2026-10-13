@@ -1,0 +1,7 @@
+worktree: session-0d8f5441 (agent-ops/session-0d8f5441)
+session: 0d8f5441-356e-4869-aff1-b40bc47e333b
+agent-ops task task-68fc0643-05f9-4b2a-a43a-479727db7acf: Fix surface-spec-docs on CRLF checkouts
+intent: Normalize CRLF before locating spec sections in the surface-spec-docs acceptance check, and assert the CRLF form locally. Test-only change.
+criteria:
+- spec-docs-crlf: surface-spec-docs locates spec sections in both LF and CRLF checkouts (Windows CI checks out docs with CRLF), asserted locally by re-reading the same docs with CRLF line endings; npm test passes
+- no-product-change: Only tests/surface/surface-checks.mjs changes; product code, specs and the 0.9.0 release commit stay untouched, and package:check plus scan-source still pass
