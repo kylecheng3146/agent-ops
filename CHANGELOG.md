@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-13
+
 - DEBUG intake no longer opens an issue from harness-injected turns such as
   subagent hand-backs (`<agent-message>`) or task notifications, even when
   their text mentions failures and fixes.
