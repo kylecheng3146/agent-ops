@@ -1,0 +1,9 @@
+worktree: session-0d8f5441 (agent-ops/session-0d8f5441)
+session: 0d8f5441-356e-4869-aff1-b40bc47e333b
+agent-ops task task-1f1fe53c-5790-46af-a294-1c326e997e77: DEBUG intake treats subagent hand-back as human prompt
+intent: Treat only native human prompts as DEBUG intake and control: skip harness-injected peer/system prompts in routeDebugPrompt and non-human-origin transcript rows in readDebugUserEvent. No other behavior changes.
+criteria:
+- peer-message-no-intake: routeDebugPrompt returns null and creates no task for a harness-injected peer prompt (subagent hand-back <agent-message from=...> or <task-notification>) even when it contains bug/fix keywords; a typed human bug report still creates the DEBUG task
+- non-human-control-ignored: readDebugUserEvent skips Claude transcript rows whose origin.kind is not human or that are meta turns, so a peer 暫停 or 繼續 cannot pause, resume or grant time, while human-origin and legacy untagged rows still do
+- debug-base-argument: agent-ops task debug accepts --base <git-ref>, so a DEBUG repair committed in its worktree confirms hypotheses against committed-range evidence; other task actions still reject --base
+- debug-suite-green: Existing DEBUG intake, control and gate tests still pass under npm test
