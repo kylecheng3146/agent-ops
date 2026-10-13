@@ -217,7 +217,7 @@ export class DebugService {
   async #userEvent(sessionId: string, home?: string, kind: "latest" | "control" = "latest") {
     const record=await readWorktreeRecord(this.options.root);
     const origin=record?.mainRoot ?? this.options.root;
-    try {return await readDebugUserEvent(origin,sessionId,home,kind);}
+    try {return await readDebugUserEvent(origin,sessionId,home,kind,origin === this.options.root ? undefined : this.options.root);}
     catch (error) {
       if (origin === this.options.root || !(error instanceof AgentOpsError) || error.code !== "TASK_DEBUG_GRANT_UNSUPPORTED") throw error;
       return await readDebugUserEvent(this.options.root,sessionId,home,kind);

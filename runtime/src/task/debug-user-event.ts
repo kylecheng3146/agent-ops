@@ -31,7 +31,8 @@ function codexUserText(row: any): string | undefined {
   return undefined;
 }
 /** Host transcripts are the user-event authority; CLI actor/text fields are never accepted. */
-export async function readDebugUserEvent(root:string,sessionId:string,home=homedir(),kind: "latest" | "control" = "latest"):Promise<DebugUserEvent> {
+/** `worktreeRoot` is the session's owned worktree: Claude stamps each row with the shell's cwd, which moves there after `cd`. */
+export async function readDebugUserEvent(root:string,sessionId:string,home=homedir(),kind: "latest" | "control" = "latest",worktreeRoot?:string):Promise<DebugUserEvent> {
   if (!/^[a-f0-9-]{36}$/u.test(sessionId)) throw new AgentOpsError("TASK_DEBUG_GRANT_UNSUPPORTED","This host has no identifiable native user-event source.");
   const canonicalHome=await realpath(home).catch(()=>home);
   const paths=[join(home,".claude/projects",root.replace(/[^a-zA-Z0-9]/gu,"-"),sessionId+".jsonl")];
@@ -56,7 +57,7 @@ export async function readDebugUserEvent(root:string,sessionId:string,home=homed
       for(let index=rows.length-1;index>=0;index--) {
         const row=rows[index];
         const text=codexSource ? codexUserText(row) :
-          row?.type === "user" && row.sessionId === sessionId && row.cwd === root && row.message?.role === "user" &&
+          row?.type === "user" && row.sessionId === sessionId && (row.cwd === root || (worktreeRoot !== undefined && row.cwd === worktreeRoot)) && row.message?.role === "user" &&
           row.isMeta !== true && (row.origin === undefined || row.origin?.kind === "human") ? row.message.content : undefined;
         if (typeof text !== "string" || text.length > 64*1024 || (kind === "control" && debugUserControl(text) === null)) continue;
         const timestamp=Date.parse(row.timestamp);

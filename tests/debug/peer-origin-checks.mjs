@@ -12,6 +12,8 @@ const {readDebugUserEvent} = await mod('runtime/src/task/debug-user-event.js');
 const {TaskService} = await mod('runtime/src/task/service.js');
 const {FileTaskStore} = await mod('runtime/src/task/store.js');
 const {parseArgs} = await mod('packages/cli/src/args.js');
+const {calculateConfigHash} = await mod('runtime/src/config/hash.js');
+const {writeWorktreeRecord} = await mod('runtime/src/parallel/service.js');
 
 /** Harness-injected turns are model output, never a human report or control. */
 export const peerOriginChecks = {
@@ -64,5 +66,47 @@ export const peerOriginChecks = {
     })();
     assert.equal(parsed.base, 'HEAD~1');
     assert.throws(() => parseArgs(['task', 'status', '--task', 'task-id', '--base', 'HEAD~1']), {code: 'CLI_OPTION_NOT_ALLOWED'});
+  },
+  // Claude records the shell's cwd per row; after cd into the owned worktree a typed 暫停 must still count.
+  'worktree-cwd-control': async () => {
+    const session = '12345678-1234-1234-1234-123456789abc';
+    const root = await mkdtemp(join(tmpdir(), 'agent-ops-cwd-worktree-'));
+    const home = await mkdtemp(join(tmpdir(), 'agent-ops-cwd-home-'));
+    const main = join(home, 'main');
+    const git = (...args) => execFileSync('git', args, {cwd: root, stdio: ['ignore', 'pipe', 'pipe']});
+    const config = {schemaVersion: 3, profiles: ['core'], verification: {commands: [], acceptanceRunners: []},
+      features: {completionGate: {enabled: false}, stopVerification: {enabled: false}, debug: {enabled: true, budgetMs: 3_600_000, maxRounds: 5}},
+      pathMappings: [], securityExceptions: []};
+    try {
+      git('init', '-q'); git('config', 'user.name', 'Cwd fixture'); git('config', 'user.email', 'fixture@example.invalid');
+      await mkdir(join(root, '.agent-ops')); await mkdir(main);
+      await writeFile(join(root, '.agent-ops/config.json'), JSON.stringify(config));
+      await writeFile(join(root, '.gitignore'), '.agent-ops/tasks/\n');
+      git('add', '.'); git('commit', '-qm', 'baseline');
+      const baseline = git('rev-parse', 'HEAD').toString().trim();
+      const gitRunner = {run: async args => {try {return {exitCode: 0, stdout: git(...args)};} catch {return {exitCode: 1, stdout: Buffer.alloc(0)};}}};
+      const tasks = new TaskService(new FileTaskStore(join(root, '.agent-ops/tasks/state.json'), root), {completion: {root, gitRunner, loadConfig: async () => config}});
+      const review = {mode: 'review-only', baselineCommit: baseline, bindings: [], reviewOnlyReason: 'Fixture'};
+      const {task} = await tasks.create({title: 'Cwd fixture', goal: 'Investigate the original issue', sessionId: session, policyConfigHash: calculateConfigHash(config),
+        criteria: [{id: 'issue', description: 'Issue', verifierIds: [], acceptance: review}, {id: 'related', description: 'Related', verifierIds: [], acceptance: review}],
+        debug: {facts: ['reported'], unknowns: ['root cause']}});
+      await writeWorktreeRecord({schemaVersion: 1, name: 'session-cwd', branch: 'agent-ops/session-cwd', path: root, mainRoot: main, targetBranch: 'main',
+        base: baseline, sessionId: session, createdAt: new Date().toISOString()});
+      const debug = tasks.debugService();
+      await debug.foregroundStart(task.id, session);
+      // Claude keys the transcript directory by the directory the session was launched from: the main checkout.
+      const directory = join(home, '.claude/projects', main.replace(/[^a-zA-Z0-9]/gu, '-'));
+      await mkdir(directory, {recursive: true});
+      const path = join(directory, session + '.jsonl');
+      let at = Date.now();
+      const row = cwd => JSON.stringify({type: 'user', sessionId: session, cwd, timestamp: new Date(at++).toISOString(),
+        origin: {kind: 'human'}, promptSource: 'typed', message: {role: 'user', content: '暫停'}});
+      await writeFile(path, row(join(home, 'elsewhere')) + '\n');
+      await debug.syncNativeControl(task.id, session, home);
+      assert.notEqual((await debug.root(task.id)).debug.control?.paused, true, 'a 暫停 from an unrelated cwd must not pause');
+      await writeFile(path, row(join(home, 'elsewhere')) + '\n' + row(root) + '\n');
+      await debug.syncNativeControl(task.id, session, home);
+      assert.equal((await debug.root(task.id)).debug.control?.paused, true, 'a 暫停 typed from the owned worktree cwd must pause');
+    } finally {await rm(root, {recursive: true, force: true}); await rm(home, {recursive: true, force: true});}
   }
 };

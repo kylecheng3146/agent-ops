@@ -10,6 +10,9 @@ All notable changes to the project are documented here.
 - DEBUG human controls and time grants ignore Claude transcript rows marked
   as peer, system or meta turns; older transcripts without an origin keep
   working.
+- DEBUG human controls typed after the shell moved into the session's owned
+  worktree now count; previously the transcript row's worktree cwd failed the
+  main-checkout match and the pause was silently dropped.
 - `task debug` accepts `--base`, so a DEBUG repair committed in a worktree
   can confirm its hypotheses against the same committed range that verify
   and review used.
