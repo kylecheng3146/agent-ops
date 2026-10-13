@@ -1,4 +1,6 @@
 import type { ParsedArgs } from "../args.js";
+import { redactSecrets } from "../../../../runtime/src/security/redact.js";
+import { safeTaskText } from "../../../../runtime/src/task/render.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 import {
   resolveCommandSessionId,
@@ -62,6 +64,9 @@ function finishText(result: FinishResult): string {
     `Merged ${record.branch} into ${record.targetBranch} at ${result.mergedHead}${result.rebased ? " after a clean rebase and re-verification" : ""}.`,
     `Completed and recorded in git notes (refs/notes/agent-ops): ${result.taskIds.join(", ")}.`,
     `Removed ${record.path}.`,
+    ...(result.receipt === undefined ? [] : [`Receipt: ${result.receipt}`]),
+    ...(result.residualRisks === undefined || result.residualRisks.length === 0 ? [] :
+      ["Residual risks from review:", ...result.residualRisks.map((risk) => `- ${safeTaskText(redactSecrets(risk))}`)]),
     ...result.warnings.map((warning) => `Warning: ${warning}`)
   ].join("\n");
 }

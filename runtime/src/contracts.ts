@@ -195,6 +195,10 @@ export interface AgentTask {
    * evidence, and lifecycle, and completing one does not touch its parent.
    */
   parentTaskId?: string;
+  /** EVIDENCE-SURFACE-001 audit, or `covers` for a child of a surfaced parent. */
+  surface?: import("./surface/schema.js").TaskSurface;
+  /** Set on tasks created after the surface audit shipped; older tasks are grandfathered. */
+  surfaceRequired?: true;
 }
 
 export interface VerificationEvidence {

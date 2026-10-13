@@ -4,6 +4,37 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-13
+
+- Surface audit (`EVIDENCE-SURFACE-001`): before writing acceptance criteria,
+  a task records which places and scenarios a change can affect. The audit
+  covers four axes (dependents, duplicated code, other paths to the same
+  concept, shared state and data contracts), included / excluded / unknown
+  surfaces with an observable behavior each, value-semantics changes, and
+  five generic scenarios (initial state, redo, time boundary, identity
+  switch, concurrency). `LOOP-START-001`, `REVIEW-ADVERSARIAL-001` and
+  `JUDGMENT-STOP-001` are amended to match, in English and zh-TW.
+- `task create` now requires `--surface-file <json>` for every new non-DEBUG
+  task, and `task revise --surface-file` updates it; the surface is bound into
+  the task contract and its revision history goes to reviewers. Tasks created
+  before this release keep working without one. A parent may hold the audit
+  while subtasks declare `{"covers": [...]}`.
+- Before review, agent-ops replays the recorded queries plus tokens, template
+  fragments and enclosing function names taken from the diff with
+  `git grep -F` (argv only, budgeted and cached). Untouched files that match
+  and are neither included nor excluded stop review with
+  `SURFACE_UNCLASSIFIED`; `SURFACE_MISSING`, `SURFACE_QUERY_TOO_BROAD`,
+  `SURFACE_EXCLUSION_TOO_BROAD`, `SCENARIO_MISSING`,
+  `SURFACE_BUDGET_EXCEEDED` and `SURFACE_UNASSIGNED` cover the other gaps.
+- Reviewers receive the surface data and judge a blocking `surface-coverage`
+  criterion; they may replay the recorded queries and, in the adversarial
+  round, add a few new ones per axis instead of being told not to survey the
+  repository.
+- A plain `worktree finish` now writes a receipt with both review rounds'
+  residual risks and prints them, so they survive task cleanup.
+- Upgrading: after `npm i -g`, run `agent-ops update --yes`; agents creating
+  tasks must pass `--surface-file` from now on.
+
 ## [0.8.6] - 2026-10-13
 
 - DEBUG intake no longer opens an issue from harness-injected turns such as

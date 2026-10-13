@@ -11,7 +11,9 @@ export function criterionContractHash(criterion: AcceptanceCriterion): string {
 export function taskContractHash(task: AgentTask): string {
   return sha256(canonicalJson({ goalHash: goalHash(task), title: task.title,
     intent: task.intent ?? null, revision: task.contractRevision ?? 0,
-    criteria: task.criteria.map(criterionContractHash), ...(task.debug === undefined ? {} : {debug:task.debug}) }));
+    criteria: task.criteria.map(criterionContractHash), ...(task.debug === undefined ? {} : {debug:task.debug}),
+    ...(task.surface === undefined ? {} : {surface: sha256(canonicalJson(task.surface))}),
+    ...(task.surfaceRequired === undefined ? {} : {surfaceRequired: true}) }));
 }
 export function treeContractHash(tasks: readonly AgentTask[]): string {
   return sha256(canonicalJson(tasks.map(task => ({id: task.id, hash: taskContractHash(task)}))

@@ -10,6 +10,13 @@ The operator MUST stop when requirements, authorization, or a required decision 
 - Positive: `Ask whether project or user scope is intended before applying installation.`
 - Negative: `Assume project scope because it is more convenient.`
 
+Surface audit triggers ([EVIDENCE-SURFACE-001](acceptance-and-evidence.md#evidence-surface-001)) also stop before editing:
+
+- A `breaking` change to a shared contract with any UNKNOWN reader.
+- A discovered surface excluded as "intentionally different": send the human
+  one consolidated behavior table (surface, current behavior, proposed
+  behavior, reason) and wait for the decision.
+
 ## JUDGMENT-RETRY-001
 
 The operator MUST change approach after the same failure repeats without new information.

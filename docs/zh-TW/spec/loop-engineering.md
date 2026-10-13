@@ -26,10 +26,10 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 
 ## LOOP-START-001
 
-操作者 MUST 在編輯前列出驗收條件，並在每項條件都有證據時停止。
+操作者 MUST 先盤點變更影響的 surface，再於編輯前列出驗收條件，並在每項條件都有證據時停止。
 
 - Trigger: 開始多步驟實作或除錯迴圈。
-- Action: 記錄 2–5 個可觀察條件，只檢查目前步驟所需檔案。
+- Action: 記錄 surface audit（[EVIDENCE-SURFACE-001](acceptance-and-evidence.md#evidence-surface-001)），再記錄 2–5 個可觀察條件，只檢查已盤點範圍內、目前步驟所需的檔案。
 - Evidence: 任務紀錄與最終報告把每項條件連到命令或讀回內容。
 - Positive: `條件：測試通過；套件建置；讀回變更檔案。`
 - Negative: `先修改，再決定成功標準。`

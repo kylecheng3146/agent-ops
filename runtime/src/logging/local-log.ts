@@ -42,8 +42,20 @@ export interface LoopLogEvent {
   code: string;
 }
 
+/** Advisory per-source surface discovery counts (EVIDENCE-SURFACE-001); never evidence. */
+export interface SurfaceMetricsLogEvent {
+  type: "surface-metrics";
+  source: "agent" | "hunk-header" | "template-fragment" | "diff-token" | "review";
+  hits: number;
+  included: number;
+  excluded: number;
+  postBlockExclusions: number;
+  residualRisks: number;
+}
+
 export type LocalLogEvent =
   | CommandResultLogEvent
+  | SurfaceMetricsLogEvent
   | DiagnosticLogEvent
   | LoopLogEvent
   | TrustChangeLogEvent;
@@ -190,6 +202,25 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
       event: value.event as LoopLogEvent["event"],
       outcome: value.outcome as LoopLogEvent["outcome"],
       code: value.code
+    };
+  }
+  if (value.type === "surface-metrics") {
+    const counts = ["excluded", "hits", "included", "postBlockExclusions", "residualRisks"] as const;
+    if (
+      !hasExactKeys(value, [...counts, "source", "type"]) ||
+      !["agent", "hunk-header", "template-fragment", "diff-token", "review"].includes(String(value.source)) ||
+      counts.some((key) => !Number.isSafeInteger(value[key]) || (value[key] as number) < 0)
+    ) {
+      return invalidEvent();
+    }
+    return {
+      type: "surface-metrics",
+      source: value.source as SurfaceMetricsLogEvent["source"],
+      hits: value.hits as number,
+      included: value.included as number,
+      excluded: value.excluded as number,
+      postBlockExclusions: value.postBlockExclusions as number,
+      residualRisks: value.residualRisks as number
     };
   }
   return invalidEvent();

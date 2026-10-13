@@ -10,7 +10,16 @@ export interface ReviewEvidenceRequirement {
   readonly requirement: string;
 }
 
+/** EVIDENCE-SURFACE-001 data for the surface-coverage criterion. */
+export interface ReviewSurfaceData {
+  readonly audit: unknown;
+  readonly history: readonly { readonly at: string; readonly reason: string; readonly surface: unknown }[];
+  readonly discovery: unknown;
+  readonly postBlockExclusions: readonly unknown[];
+}
+
 export interface ReviewPacket {
+  readonly surface?: ReviewSurfaceData;
   readonly contractArtifacts?: readonly {readonly path: string; readonly digest: string; readonly content: string}[];
   readonly contractManifest?: {readonly path: string; readonly digest: string; readonly content: string};
   readonly request: string;
@@ -43,6 +52,14 @@ export function reviewPacketData(packet: ReviewPacket) {
 
 function safe(value: string): string {
   return safeTaskText(redactSecrets(value));
+}
+
+function safeDeep(value: unknown): unknown {
+  if (typeof value === "string") return safe(value);
+  if (Array.isArray(value)) return value.map(safeDeep);
+  if (typeof value === "object" && value !== null)
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, safeDeep(item)]));
+  return value;
 }
 
 function checkSensitive(value: string): void {
@@ -81,11 +98,14 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
     input.request,
     ...input.criteria.flatMap((criterion) => [criterion.id, criterion.description, ...(criterion.verifierIds ?? [])]),
     ...input.artifactRefs,
-    ...input.evidenceRequirements.flatMap((requirement) => [requirement.criterionId, requirement.requirement])
+    ...input.evidenceRequirements.flatMap((requirement) => [requirement.criterionId, requirement.requirement]),
+    ...(input.surface === undefined ? [] : [JSON.stringify(input.surface)])
   ]) {
     checkSensitive(value);
   }
   const packet: ReviewPacket = {
+    // Task text, redacted like every other string the reviewer reads.
+    ...(input.surface === undefined ? {} : {surface: safeDeep(input.surface) as ReviewSurfaceData}),
     ...(input.contractArtifacts === undefined ? {} : {contractArtifacts: input.contractArtifacts}),
     ...(input.contractManifest === undefined ? {} : {contractManifest: input.contractManifest}),
     request: safe(input.request),

@@ -25,6 +25,7 @@ import {
 } from "../contracts.js";
 
 import { acceptanceError, runnerError, commitIdentity } from "./acceptance.js";
+import { parseSurface } from "../surface/schema.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -939,7 +940,7 @@ export function validateCriterion(
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug"],
+    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug", "surface", "surfaceRequired"],
     isRecord(value) && value.schemaVersion === 1 ? 1 : TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
@@ -947,6 +948,11 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   }
   if (root.debug !== undefined && (!validDebugIntake(root.debug) || root.schemaVersion !== TASK_SCHEMA_VERSION || root.goal === undefined))
     return failure("INVALID_DEBUG_TASK", "$.debug", "Debug tasks require immutable goal and bounded root intake.");
+  if (root.surfaceRequired !== undefined && root.surfaceRequired !== true)
+    return failure("INVALID_SURFACE", "$.surfaceRequired", "surfaceRequired is either absent or true.");
+  if (root.surface !== undefined) {
+    try { parseSurface(root.surface); } catch { return failure("INVALID_SURFACE", "$.surface", "Task surface is invalid."); }
+  }
   if (root.contractRevision !== undefined && (!Number.isSafeInteger(root.contractRevision) || (root.contractRevision as number) < 0))
     return failure("INVALID_CONTRACT_REVISION", "$.contractRevision", "Invalid contract revision.");
   if (root.goal !== undefined && (!isNonEmptyString(root.goal) || Buffer.byteLength(root.goal as string, "utf8") > 65536))

@@ -68,6 +68,60 @@ Each child worktree MUST record its modification intent before editing.
 - Positive: `A child records its planned API change, commits it, and the final receipt includes that intent and integrated verification.`
 - Negative: `A child edits first and supplies a retrospective one-line intent at delivery.`
 
+## EVIDENCE-SURFACE-001
+
+Every new task MUST record a surface audit of where else its change lands before writing criteria, and review MUST NOT run while discovery finds an unclassified place.
+
+- Trigger: Creating a task (`task create`, a run plan, or before a DEBUG task's first repair), revising its surface, or reviewing it.
+- Action: Search four axes with recorded fixed-string queries or `n/a: reason`, classify every hit as included, excluded (glob + reason) or UNKNOWN, give every surface row an observable `behavior`, and declare each shared contract compatible or breaking. Pass it with `task create|revise --surface-file <json>`.
+- Evidence: The surface is stored on the task, bound into its contract hash with revision history, replayed by `git grep -F` before review, and handed to both reviewers under the `surface-coverage` criterion.
+- Positive: `A diff token hits three copy-pasted sibling pages; the audit includes them with their behavior before review runs.`
+- Negative: `Exclude src/** because it is "out of scope", or list only the files the diff already touches.`
+
+- Axes: `dependents` (importers, callers, readers), `duplicates` (copied
+  markup, strings, logic that imports nothing), `otherPaths` (other routes,
+  modes, entry points or re-entries to the same concept) and `sharedState`
+  (storage, cache, messages, external APIs, client storage, issued URLs). The
+  design is stack-agnostic: the same axes cover frontend, backend, database,
+  cache and message flows.
+- `included` rows carry `id`, `path` glob and `behavior`; `excluded` rows carry
+  `glob` and a reason saying why the surface is unaffected ("out of scope" is
+  not a reason); `unknown` rows name a reader the repository cannot see.
+  `contracts` declare `compatible` or `breaking`. A single surface is allowed.
+- `valueChanges` `[{producer, kind, change, consumers, indirectConsumers}]`
+  list two hops whenever a value's semantics change (clear, redact, default,
+  normalize, unit/format).
+- `scenarios` cover five generic dimensions — `initialState` (empty vs
+  existing), `redo` (reload, retry, redelivery, idempotency), `timeBoundary`
+  (day, TTL, timezone), `identitySwitch` (store, role, tenant) and
+  `concurrency` — each `{applies: true, behavior}` or `{na: reason}`.
+- A parent holds the surface; its children declare `{"covers": [surface-id]}`
+  and their union must equal the parent's included list.
+- Before any reviewer runs, discovery replays with `git grep -F` through argv
+  (never a shell or a regex built from task text), cheapest source first:
+  recorded queries; enclosing function names from diff hunk headers;
+  template-literal fixed fragments (at least 4 characters, separator-bounded,
+  such as `order:`, `user_`, `menu.`); compound identifiers (snake_case,
+  camelCase or containing digits, so prose words are not queries) and string
+  literals from added and removed lines (at least 6 characters; skipped as too
+  generic above 30 file hits). Every hit outside the diff and the surface lists stops review.
+  Results are cached by HEAD, base, diff, query set and config hash.
+- Review returns NOT_RUN with: `SURFACE_MISSING` (no or unparseable surface;
+  also refused at create for non-DEBUG tasks), `SURFACE_UNCLASSIFIED`,
+  `SURFACE_QUERY_TOO_BROAD` (one recorded query over 200 files),
+  `SURFACE_EXCLUSION_TOO_BROAD` (one glob over 10 files, or any file in the
+  diff), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
+  silently skipped) or `SURFACE_UNASSIGNED` (children's covers differ from the
+  parent's included list; checked by every review, including advance and batch).
+- A surface revision is a contract revision: fresh evidence and two fresh
+  reviews. Exclusions added after an `SURFACE_UNCLASSIFIED` block are flagged
+  to reviewers as post-block exclusions.
+- Tasks created before this rule shipped are grandfathered. Advisory local-log
+  metrics per discovery source are fail-open and never evidence.
+- Plain `worktree finish` writes the same local receipt as advance, including
+  both rounds' residual risks and non-blocking findings, references it in the
+  git note and prints the residual risks.
+
 ## EVIDENCE-AGGREGATE-001
 
 The verifier MUST return FAIL when a criterion is missing, duplicated, unknown, or has empty evidence.

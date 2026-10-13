@@ -12,6 +12,12 @@ English source version: 2026-07-23. Revalidate: when the English specification c
 - Positive: `套用安裝前詢問要 project 或 user scope。`
 - Negative: `因為方便就假設 project scope。`
 
+Surface audit 觸發條件（[EVIDENCE-SURFACE-001](acceptance-and-evidence.md#evidence-surface-001)）同樣要在編輯前停止：
+
+- 共享契約有 `breaking` 變更，且存在任何 UNKNOWN 讀取者。
+- 發現的 surface 以「刻意不同」為由排除：交給使用者一張整合的行為表（surface、
+  目前行為、提議行為、理由）並等待決定。
+
 ## JUDGMENT-RETRY-001
 
 相同失敗在沒有新資訊時重複發生，操作者 MUST 改變方法。

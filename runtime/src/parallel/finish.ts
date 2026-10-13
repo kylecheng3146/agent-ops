@@ -15,6 +15,8 @@ import {
 } from "../verify/command-executor.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
 import { prepareFinishReceipt } from "./receipt.js";
+import { resolveReviewScope } from "../review/scope.js";
+import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration} from "../run/integration.js";
 import type {IntegrationReceiptBinding} from "../run/integration.js";
 import {canonicalJson} from "../config/hash.js";
@@ -60,6 +62,8 @@ export interface FinishResult {
   readonly taskIds: readonly string[];
   readonly warnings: readonly string[];
   readonly receipt?: string;
+  /** Both review rounds' residual risks, copied from the receipt so finish can print them. */
+  readonly residualRisks?: readonly string[];
 }
 
 export interface FinalCandidateProof {
@@ -438,9 +442,23 @@ export async function finishWorktree(
           `The worktree's task is not ready to merge (${problem.code}). ${problem.remedy ?? ""}`.trim());
       }
     };
+    let plainReceipt: Awaited<ReturnType<typeof prepareFinishReceipt>> | undefined;
+    let plainReceiptWarning: string | undefined;
     if (options.finalProof === undefined) {
       await completeTasks();
       await validateGate();
+      // A plain finish keeps the same local proof as advance, measured over the
+      // range the root task was reviewed against, so residual risks survive.
+      try {
+        const reviewBase = tree[0]!.task.reviewBase ?? record.base;
+        const scope = await resolveReviewScope({root: record.path, runner: worktreeRunner, base: reviewBase});
+        plainReceipt = await prepareFinishReceipt({commonDir, record, candidateHead: headBeforeCompletion, targetCommit: reviewBase,
+          expectedFingerprint: await calculateSourceFingerprint(record.path, scope, worktreeRunner), children: [],
+          config: worktreeConfig, gitRunner: worktreeRunner,
+          tasks: (await deps.tasks(record.path).list()).filter(({ status }) => status !== "archived")});
+      } catch (error) {
+        plainReceiptWarning = `receipt: ${error instanceof Error ? error.message : String(error)}`;
+      }
     }
 
     const head = await git(deps, record.path, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
@@ -498,7 +516,7 @@ export async function finishWorktree(
       ...(noChangeProof === undefined ? {} : { noChange: noChangeProof }),
       ...(integrationJournal === undefined ? {} : { integrationJournal })
     };
-    let receipt = receiptOptions === undefined ? undefined : await prepareFinishReceipt({
+    let receipt = receiptOptions === undefined ? plainReceipt : await prepareFinishReceipt({
       ...receiptOptions,
       tasks: await deps.tasks(record.path).list().then((tasks) => tasks.filter(({ status }) => status !== "archived"))
     });
@@ -559,7 +577,7 @@ export async function finishWorktree(
     }
 
     // The merge happened; everything below is cleanup, reported, never undone.
-    const warnings: string[] = [];
+    const warnings: string[] = plainReceiptWarning === undefined ? [] : [plainReceiptWarning];
     const attempt = async (label: string, step: () => Promise<unknown>) => {
       try {
         await step();
@@ -609,6 +627,6 @@ export async function finishWorktree(
       options.finalProof === undefined, options.finalProof?.head));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
     return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings,
-      ...(receipt === undefined ? {} : { receipt: receipt.path }) };
+      ...(receipt === undefined ? {} : { receipt: receipt.path, residualRisks: receipt.receipt.residualRisks }) };
   }));
 }

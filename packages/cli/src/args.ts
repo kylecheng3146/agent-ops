@@ -104,6 +104,7 @@ export interface ParsedArgs {
   criteria?: string[];
   criterionFiles?: string[];
   criteriaFile?: string;
+  surfaceFile?: string;
   planFile?: string;
   expectedContract?: string;
   expectedTreeContract?: string;
@@ -238,6 +239,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const criteria: string[] = [];
   const criterionFiles: string[] = [];
   let criteriaFile: string | undefined;
+  let surfaceFile: string | undefined;
   let planFile: string | undefined;
   let expectedContract: string | undefined;
   let expectedTreeContract: string | undefined;
@@ -383,6 +385,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       case "--criterion-file": criterionFiles.push(readOptionValue(argv, index++, token)); break;
       case "--criteria-file": if (criteriaFile !== undefined) duplicate(token); criteriaFile = readOptionValue(argv, index++, token); break;
+      case "--surface-file": if (surfaceFile !== undefined) duplicate(token); surfaceFile = readOptionValue(argv, index++, token); break;
       case "--plan-file": if (planFile !== undefined) duplicate(token); planFile = readOptionValue(argv, index++, token); break;
       case "--expected-contract": if (expectedContract !== undefined) duplicate(token); expectedContract = readOptionValue(argv, index++, token); break;
       case "--expected-tree-contract": if (expectedTreeContract !== undefined) duplicate(token); expectedTreeContract = readOptionValue(argv, index++, token); break;
@@ -878,6 +881,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError("CLI_MISSING_VALUE","Task debug requires --task, --debug-action and the operation's exact payload/command/event options.");
   if ((criterionFiles.length > 0 && !(command === "task" && (action === "create" || action === "pin-finding"))) ||
     (criteriaFile !== undefined && !(command === "task" && action === "revise")) ||
+    (surfaceFile !== undefined && !(command === "task" && (action === "create" || action === "revise"))) ||
     (planFile !== undefined && !(command === "task" && action === "replan")) ||
     (expectedContract !== undefined && !(command === "task" && (action === "revise" || action === "pin-finding"))) ||
     (expectedTreeContract !== undefined && !(command === "task" && action === "replan")) ||
@@ -885,7 +889,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     (baseline !== undefined && !(command === "task" && (action === "create" || action === "revise"))))
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Acceptance options are not supported by this command.");
   if (revisionAction && (taskId === undefined || evidence.length > 0 || title !== undefined || intent !== undefined || parentTaskId !== undefined || sessionId !== undefined || criteria.length > 0 || base !== undefined ||
-    (action === "revise" && (expectedContract === undefined || criteriaFile === undefined || reason === undefined)) ||
+    (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined) || reason === undefined)) ||
     (action === "replan" && (expectedTreeContract === undefined || planFile === undefined || reason === undefined)) ||
     (action === "pin-finding" && (expectedContract === undefined || findingReference === undefined || criterionFiles.length !== 1))))
     throw new CliArgumentError("CLI_MISSING_VALUE", "Acceptance revision requires task, expected contract, payload and reason.");
@@ -1129,6 +1133,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(criterionFiles.length === 0 ? {} : {criterionFiles}),
     ...(criteriaFile === undefined ? {} : {criteriaFile}),
+    ...(surfaceFile === undefined ? {} : {surfaceFile}),
     ...(planFile === undefined ? {} : {planFile}),
     ...(expectedContract === undefined ? {} : {expectedContract}),
     ...(expectedTreeContract === undefined ? {} : {expectedTreeContract}),

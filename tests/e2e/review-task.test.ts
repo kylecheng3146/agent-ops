@@ -12,7 +12,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { probeLoopbackBind } from "../../runtime/src/review/host-sandbox.js";
-import { cleanupE2eRoot, runBuiltCli } from "./helpers.js";
+import { cleanupE2eRoot, runBuiltCli, SURFACE_FILE_ARGS } from "./helpers.js";
 
 const HOST_CAN_RUN_REVIEW = process.env.CODEX_SANDBOX_NETWORK_DISABLED !== "1" &&
   await probeLoopbackBind();
@@ -35,7 +35,8 @@ test("review routes an explicit task through real Git preflight", () => {
         id: "second",
         description: "Second criterion.",
         verifierIds: ["unit"]
-      })
+      }),
+      ...SURFACE_FILE_ARGS
     ], root).result;
     assert.equal(created.status, 0);
     const taskId = JSON.parse(created.stdout).data.record.task.id as string;
@@ -92,7 +93,8 @@ test("review uses the configured pair and rejects target overrides", () => {
         id: "second",
         description: "Second criterion.",
         verifierIds: ["unit"]
-      })
+      }),
+      ...SURFACE_FILE_ARGS
     ], root).result;
     const taskId = JSON.parse(created.stdout).data.record.task.id as string;
 
@@ -145,7 +147,8 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
         id: "second",
         description: "Second criterion.",
         verifierIds: ["node-version"]
-      })
+      }),
+      ...SURFACE_FILE_ARGS
     ], root).result;
     assert.equal(created.status, 0, created.stdout);
     const taskId = JSON.parse(created.stdout).data.record.task.id as string;

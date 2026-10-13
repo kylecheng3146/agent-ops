@@ -308,10 +308,33 @@ const RULES_BEFORE_RUN = [
   }
 ] as const;
 
+// EVIDENCE-SURFACE-001 deliberately rewrote steps 1 and 2; everything else is unchanged.
+const SURFACE_STEPS = [
+  "1. Audit the change's surfaces first (EVIDENCE-SURFACE-001): dependents,",
+  "   duplicates, other paths to the same concept, and shared state/data",
+  "   contracts, each with recorded fixed-string queries or n/a: reason; pass",
+  "   them with `task create --surface-file <json>`. An exclusion says why",
+  "   the surface is unaffected; \"out of scope\" is not a reason. Then define",
+  "   two to five mechanically verifiable acceptance criteria.",
+  "2. Inspect the smallest relevant scope within the audited surfaces and",
+  "   preserve unrelated changes."
+].join("\n");
+const STEPS_BEFORE_SURFACE = [
+  "1. Define two to five mechanically verifiable acceptance criteria.",
+  "2. Inspect the smallest relevant scope and preserve unrelated changes."
+].join("\n");
+
+test("managed rules start every change with the surface audit", () => {
+  for (const id of ["claude", "codex", "agy", "opencode"] as const) {
+    const content = managedRules(harnessDescriptor(id), { scope: "project", profiles: ["core"], capabilities: ["rules", "task"] });
+    assert.ok(content.includes("For every change:\n\n" + SURFACE_STEPS), id);
+  }
+});
+
 test("managed rules without auto-run are byte-identical to before the run profile", () => {
   for (const { context, digests } of RULES_BEFORE_RUN) {
     for (const [id, digest] of Object.entries(digests)) {
-      const content = managedRules(harnessDescriptor(id as never), context as never);
+      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE);
       assert.equal(createHash("sha256").update(content).digest("hex"), digest, id);
     }
   }
