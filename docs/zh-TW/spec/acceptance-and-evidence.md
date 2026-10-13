@@ -42,6 +42,54 @@ English source version: 2026-10-06. Revalidate: when the English specification c
 - Positive: `子 agent 先記錄預定 API 修改、提交程式碼，最後完成紀錄包含該意圖與整合後驗證。`
 - Negative: `先修改程式碼，交付時才補寫一行事後意圖。`
 
+## EVIDENCE-SURFACE-001
+
+每個新 task MUST 在寫驗收條件前記錄變更還會影響哪些位置（surface audit）；discovery 找到未分類位置時，review MUST NOT 執行。
+
+- Trigger: 建立 task（`task create`、run plan，或 DEBUG task 第一次修復之前）、修訂 surface，或審查 task。
+- Action: 以記錄下來的固定字串查詢或 `n/a: 理由` 搜尋四個軸向，把每個命中分類為 included、excluded（glob + 理由）或 UNKNOWN，每列 surface 都寫出可觀察的 `behavior`，並宣告每個共享契約為 compatible 或 breaking。以 `task create|revise --surface-file <json>` 提交。
+- Evidence: surface 存在 task 上、綁進 contract hash 並保留修訂歷史，review 前以 `git grep -F` 重放，並以 `surface-coverage` 條件交給兩位 reviewer。
+- Positive: `diff token 命中三個複製貼上的同類頁面；review 前 audit 已把它們連同行為列入 included。`
+- Negative: `以「out of scope」排除 src/**，或只列 diff 已修改的檔案。`
+
+- 軸向：`dependents`（import、呼叫者、讀取者）、`duplicates`（複製的 markup、
+  字串或不 import 任何東西的邏輯）、`otherPaths`（同一概念的其他路由、模式、
+  入口或重新進入點）、`sharedState`（storage、cache、訊息、外部 API、client
+  storage、已發出的 URL）。設計與技術棧無關：相同軸向涵蓋前端、後端、資料庫、
+  cache 與訊息流。
+- `included` 列含 `id`、`path` glob 與 `behavior`；`excluded` 列含 `glob` 與說明
+  該 surface 為何不受影響的理由（「out of scope」不是理由）；`unknown` 列記錄
+  repository 看不到的讀取者。`contracts` 宣告 `compatible` 或 `breaking`。只有單一
+  surface 也可以。
+- 值的語意改變（clear、redact、default、normalize、unit/format）時，
+  `valueChanges` `[{producer, kind, change, consumers, indirectConsumers}]` 列出兩層
+  consumer。
+- `scenarios` 涵蓋五個通用維度：`initialState`（空 vs 既有）、`redo`（重新載入、
+  重試、重送、冪等）、`timeBoundary`（日界、TTL、時區）、`identitySwitch`（門市、
+  角色、租戶）與 `concurrency`，每項為 `{applies: true, behavior}` 或 `{na: 理由}`。
+- 父 task 持有 surface；子 task 宣告 `{"covers": [surface-id]}`，聯集必須等於父
+  task 的 included 清單。
+- 任何 reviewer 執行前，discovery 以 argv 執行 `git grep -F`（絕不經過 shell，也
+  不以 task 文字組 regex），由便宜的來源先跑：記錄的查詢；diff hunk header 的外層
+  函式名；template literal 固定片段（至少 4 字元且以分隔符界定，例如 `order:`、
+  `user_`、`menu.`）；新增與刪除行的複合識別字（snake_case、camelCase 或含數字，
+  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元；命中超過 30 個檔案視為
+  太通用而略過）。diff 與 surface 清單之外的任何命中都會擋下 review。
+  結果以 HEAD、base、diff、查詢集合與 config hash 快取。
+- Review 以 NOT_RUN 回報：`SURFACE_MISSING`（沒有或無法解析的 surface；非 DEBUG
+  task 建立時也會拒絕）、`SURFACE_UNCLASSIFIED`、`SURFACE_QUERY_TOO_BROAD`（單一
+  記錄查詢超過 200 個檔案）、`SURFACE_EXCLUSION_TOO_BROAD`（單一 glob 超過 10 個
+  檔案，或包含 diff 內的檔案）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
+  （總計 120 秒，絕不默默略過）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
+  included 不一致；每次 review 都檢查，包含 advance 與 batch）。
+- 修訂 surface 等同修訂 contract：需要新的證據與兩次新的 review。在
+  `SURFACE_UNCLASSIFIED` 阻擋之後才加入的排除，會以 post-block exclusion 標示給
+  reviewer。
+- 本規則上線前建立的 task 不受影響。每個 discovery 來源的 local-log 指標僅供參考、
+  fail-open，絕不作為證據。
+- 一般 `worktree finish` 也會寫入與 advance 相同的本機 receipt，包含兩輪的 residual
+  risks 與 non-blocking findings，在 git note 引用它並印出 residual risks。
+
 ## EVIDENCE-AGGREGATE-001
 
 驗證器 MUST 在條件缺少、重複、未知或證據為空時回傳 FAIL。

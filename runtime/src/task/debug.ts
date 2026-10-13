@@ -289,6 +289,9 @@ export class DebugService {
     if (root.status !== "active" || root.debug.operation !== null) fail("TASK_DEBUG_BUSY","The original issue has a running or interrupted operation; preserve its checkpoint.");
     if (root.debug.receipts.length >= 256) fail("TASK_DEBUG_HISTORY_LIMIT","Execution history is full; retain it and report the blocker.");
     const productDigest = await this.#productDigest(root.debug);
+    // EVIDENCE-SURFACE-001: intake may start without a surface, the first repair may not.
+    if (kind === "verify" && task.task.surfaceRequired === true && task.task.surface === undefined && productDigest !== sha256(canonicalJson([])))
+      fail("SURFACE_MISSING","Add the surface audit with task revise --surface-file before verifying the first repair.");
     const previousCandidate = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
     const cause = debugStopCause(root.debug);
     // Recovery reruns the original verifier; changed product content still needs fresh proof.

@@ -1,0 +1,20 @@
+{
+  "axes": {
+    "dependents": {"na": "Test fixture repository has no importers of the changed file."},
+    "duplicates": {"na": "Test fixture repository has no copied markup or logic."},
+    "otherPaths": {"na": "Test fixture repository has a single entry point."},
+    "sharedState": {"na": "Test fixture repository stores no shared state."}
+  },
+  "included": [{"id": "fixture", "path": "**", "behavior": "Every fixture file follows the task criteria."}],
+  "excluded": [],
+  "unknown": [],
+  "contracts": [],
+  "valueChanges": [],
+  "scenarios": {
+    "initialState": {"na": "Fixture has no persisted state to start from."},
+    "redo": {"na": "Fixture operations are not retried or redelivered."},
+    "timeBoundary": {"na": "Fixture has no dates, TTLs or timezones."},
+    "identitySwitch": {"na": "Fixture has no stores, roles or tenants."},
+    "concurrency": {"na": "Fixture runs one writer at a time."}
+  }
+}

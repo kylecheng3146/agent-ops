@@ -60,6 +60,9 @@ import {
 } from "../../../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../../../runtime/src/schema/validate.js";
 import {loadDebugProof,debugProofDigest} from "../../../../runtime/src/task/debug-state.js";
+import {logSurfaceResidualRisks, runSurfaceGate, type SurfaceCode, type SurfaceGateResult} from "../../../../runtime/src/surface/discovery.js";
+import {isCovers} from "../../../../runtime/src/surface/schema.js";
+import type {ReviewSurfaceData} from "../../../../runtime/src/review/packet.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 
@@ -115,7 +118,7 @@ interface TaskContext {
   readonly policyConfigHash: string | null;
   readonly evidence: Readonly<Record<string, readonly string[]>>;
   readonly failureFingerprint: { readonly value: string } | null;
-  readonly criteria: readonly ReviewCriterion[];
+  criteria: readonly ReviewCriterion[];
   readonly allCriteriaReviewed: boolean;
   readonly treeTasks?: readonly StoredTaskRecord[];
   readonly criterionOwners?: ReadonlyMap<string, { readonly taskId: string; readonly criterionId: string }>;
@@ -464,6 +467,76 @@ function scopeReason(error: unknown): ReviewRunResult["reason"] | undefined {
   }[error.code] as ReviewRunResult["reason"] | undefined;
 }
 
+const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]>> = {
+  SURFACE_MISSING: "surface-missing",
+  SURFACE_UNCLASSIFIED: "surface-unclassified",
+  SURFACE_QUERY_TOO_BROAD: "surface-query-too-broad",
+  SURFACE_EXCLUSION_TOO_BROAD: "surface-exclusion-too-broad",
+  SCENARIO_MISSING: "scenario-missing",
+  SURFACE_BUDGET_EXCEEDED: "surface-budget-exceeded",
+  SURFACE_UNASSIGNED: "surface-unassigned"
+};
+
+/** Review-only: gives an omission a criterion that a blocking finding can name. */
+export const SURFACE_COVERAGE: ReviewCriterion = {
+  id: "surface-coverage",
+  description: "Every place and scenario the change affects is listed in the surface audit and its listed behavior is " +
+    "implemented: recorded queries replayed, valueChanges consumers (both hops) read, the five scenario dimensions " +
+    "checked, and every exclusion shows why the surface is unaffected (post-block exclusions especially)."
+};
+
+/**
+ * EVIDENCE-SURFACE-001: the nearest surfaced task on the way to the tree root
+ * holds the audit; its direct children must cover its included surfaces.
+ */
+async function reviewSurface(options: ReviewCommandOptions, context: TaskContext, scope: ReviewScope):
+  Promise<{ gate: SurfaceGateResult; packet?: ReviewSurfaceData }> {
+  // Grandfathered standalone tasks never touch the discovery path.
+  if (context.records.every(r => r.task.surface === undefined && r.task.surfaceRequired !== true && r.task.parentTaskId === undefined))
+    return {gate: {status: "PASS", discovery: null}};
+  const all = await options.tasks!.list();
+  const own = context.records.find(r => r.task.id === context.taskId)!;
+  let holder: StoredTaskRecord | undefined;
+  for (let record: StoredTaskRecord | undefined = own; record !== undefined && holder === undefined;
+    record = all.find(r => r.task.id === record!.task.parentTaskId)) {
+    if (record.task.surface !== undefined && !isCovers(record.task.surface)) holder = record;
+    if (record.task.parentTaskId === undefined) break;
+  }
+  const children = holder === undefined ? [] : all
+    .filter(r => r.task.parentTaskId === holder!.task.id && r.status !== "archived" && r.supersededBy === undefined)
+    .map(r => ({taskId: r.task.id, covers: r.task.surface !== undefined && isCovers(r.task.surface) ? r.task.surface.covers : []}));
+  const gate = await runSurfaceGate({
+    root: options.root!, taskId: context.taskId, surface: holder?.task.surface,
+    // Grandfathered roots keep reviewing even when a newer subtask sits under them.
+    required: own.task.surfaceRequired === true, children,
+    metrics: options.config?.profiles.includes("advisory") === true,
+    ...(scope.mode === "base" ? {base: scope.resolvedBase} : {}), changedFiles: scope.changedFiles,
+    configHash: options.policyConfigHash ?? (options.config === undefined ? "" : calculateConfigHash(options.config))
+  });
+  if (gate.status === "NOT_RUN" || holder === undefined || gate.discovery === null) return {gate};
+  return {gate, packet: {
+    audit: holder.task.surface,
+    history: (holder.revisions ?? []).slice(-10).map(revision => ({at: revision.at, reason: revision.reason, surface: revision.previousTask.surface ?? null})),
+    discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped},
+    postBlockExclusions: gate.discovery.postBlockExclusions
+  }};
+}
+
+function surfaceNotRunEnvelope(result: ReviewRunResult): CliEnvelope<ReviewCommandData> {
+  const surface = result.surface!;
+  const message = `${surface.code}: ${surface.message}`;
+  return {
+    code: surface.code,
+    status: "error",
+    data: {
+      message,
+      result,
+      text: [renderReviewResult(result), message, ...surface.details.slice(0, 50).map(detail => `- ${redactSecrets(JSON.stringify(detail))}`)].join("\n")
+    },
+    errors: [{ code: surface.code, message }]
+  };
+}
+
 function notRunEnvelope(
   result: ReviewRunResult
 ): CliEnvelope<ReviewCommandData> {
@@ -760,6 +833,7 @@ export async function runReviewCommand(
   let scope: ReviewScope | undefined;
   let sourceFingerprint: string | undefined;
   let verification: ReviewVerificationSummary | undefined;
+  let surfacePacket: ReviewSurfaceData | undefined;
   if (options.root !== undefined && options.gitRunner !== undefined) {
     try {
       scope = await resolveReviewScope({
@@ -808,6 +882,20 @@ export async function runReviewCommand(
           scope
         });
       }
+    }
+    if (context !== undefined && options.tasks !== undefined) {
+      const surface = await reviewSurface(options, context, scope);
+      if (surface.gate.status === "NOT_RUN") {
+        return surfaceNotRunEnvelope({
+          ...resultBase,
+          status: "NOT_RUN",
+          reason: SURFACE_REASONS[surface.gate.code],
+          taskId: context.taskId,
+          scope,
+          surface: {code: surface.gate.code, message: surface.gate.message, details: surface.gate.details}
+        });
+      }
+      surfacePacket = surface.packet;
     }
     if (context !== undefined) {
       const preflight = await preflightReview(
@@ -869,8 +957,11 @@ export async function runReviewCommand(
     };
   }
   const criteria: ReviewCriterion[] = [
-    ...(context?.criteria ?? GENERIC_CRITERIA)
+    ...(context?.criteria ?? GENERIC_CRITERIA),
+    ...(surfacePacket === undefined || context?.criteria.some(c => c.id === SURFACE_COVERAGE.id) === true ? [] : [SURFACE_COVERAGE])
   ];
+  // Tree attestations bind the exact criterion list the reviewer answered.
+  if (context !== undefined) context.criteria = criteria;
   if (context?.treeTasks !== undefined && criteria.length > 128) {
     return notRunEnvelope({ ...resultBase, status: "NOT_RUN", reason: "scope-too-large" });
   }
@@ -910,6 +1001,7 @@ export async function runReviewCommand(
       await writePrivateFile(options.root + "/" + path, content, options.root);
     }
     packet = buildReviewPacket({
+      ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
       ...(contractManifest === undefined ? {} : {contractManifest, contractArtifacts}),
       request: context?.title ?? GENERIC_REQUEST,
       criteria,
@@ -956,6 +1048,8 @@ export async function runReviewCommand(
     }))
   });
   const result=await executeReview();
+  if (surfacePacket !== undefined && result.report !== undefined && options.config?.profiles.includes("advisory") === true)
+    await logSurfaceResidualRisks(result.report.residualRisks.length + (result.adversarial?.report.residualRisks.length ?? 0));
   if (scope !== undefined && result.report !== undefined && options.root !== undefined) {
     try {
       if (

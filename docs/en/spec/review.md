@@ -84,6 +84,11 @@ successful refutation MUST make the run FAIL.
 - Negative: `Manufacture a refutation so the challenge looks effective.`
 - Note: With one configured target the same target is invoked again in a fresh
   session. A FAIL is already terminal and is never re-checked.
+- Note: For a surfaced task the second round also hunts unlisted surfaces and
+  scenarios under `surface-coverage`: it checks the five fixed scenario
+  dimensions and may run at most 3 new `git grep -F` queries per axis. Round 1
+  replays the recorded queries and reads every listed `valueChanges` consumer;
+  this is the only exception to "do not survey the repository".
 
 ## REVIEW-HOST-001
 

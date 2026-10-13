@@ -78,6 +78,14 @@ async function jsonFile(path: string): Promise<unknown> {
   catch { throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Invalid JSON payload."); }
 }
 
+/** An unreadable surface file is a missing surface, not a generic payload error. */
+async function surfaceFile(path: string): Promise<unknown> {
+  try { return await jsonFile(path); }
+  catch (error) {
+    throw new AgentOpsError("SURFACE_MISSING", `Surface file is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function parseEvidence(
   values: readonly string[]
 ): CriterionEvidenceInput {
@@ -191,7 +199,9 @@ export async function runTaskCommand(
         ...(options.args.parentTaskId === undefined
           ? {}
           : { parentTaskId: options.args.parentTaskId }),
-        ...(sessionId === undefined ? {} : { sessionId })
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(options.args.surfaceFile === undefined ? {} : {surface: await surfaceFile(options.args.surfaceFile)}),
+        requireSurface: true
       });
       // An explicit CLI DEBUG intake may be the only start signal on hosts
       // without a prompt hook (notably agy). The native session owns the clock;
@@ -243,10 +253,12 @@ export async function runTaskCommand(
       return taskEnvelope(action,"TASK_DEBUG_UPDATED","Original issue debug state preserved.",await service.root(id));
     }
     if (action === "revise") {
-      const payload = await jsonFile(options.args.criteriaFile!);
-      if (!Array.isArray(payload)) throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Criteria file must contain an array.");
+      const payload = options.args.criteriaFile === undefined ? undefined : await jsonFile(options.args.criteriaFile);
+      if (payload !== undefined && !Array.isArray(payload)) throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Criteria file must contain an array.");
       const record = await options.service.revise(requireTaskId(options.args), {
-        expectedContractHash: options.args.expectedContract!, criteria: payload as AcceptanceCriterion[],
+        expectedContractHash: options.args.expectedContract!,
+        ...(payload === undefined ? {} : {criteria: payload as AcceptanceCriterion[]}),
+        ...(options.args.surfaceFile === undefined ? {} : {surface: await surfaceFile(options.args.surfaceFile)}),
         reason: options.args.reason!, ...(options.args.baseline === undefined ? {} : {baseline: options.args.baseline})
       });
       return taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain new verification and fresh review.", record);

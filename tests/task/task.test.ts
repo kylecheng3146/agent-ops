@@ -24,6 +24,9 @@ import { FileTaskStore } from "../../runtime/src/task/store.js";
 import { calculateConfigHash } from "../../runtime/src/config/hash.js";
 import { COMPLETION_CONFIG, completionContext, passingCompletionEvidence } from "./completion-fixture.js";
 
+const SURFACE = ["--surface-file", join(process.cwd(), "tests/fixtures/surface/minimal.json")];
+const COVERS = ["--surface-file", join(process.cwd(), "tests/fixtures/surface/covers.json")];
+
 function input(title = "Ship the task state"): CreateTaskInput {
   return {
     title,
@@ -435,7 +438,8 @@ test("task command returns stable human and JSON views", async () => {
         id: "criterion-two",
         description: "Second CLI outcome.",
         verifierIds: ["unit"]
-      })
+      }),
+      ...SURFACE
     ]);
     const result = await runTaskCommand({ args, service: tasks });
     assert.equal(result.code, "TASK_CREATED");
@@ -530,8 +534,8 @@ test("the task CLI creates subtasks and lists them by parent", async () => {
         service: tasks
       });
 
-    await create();
-    const child = await create(["--parent", "task-1"]);
+    await create(SURFACE);
+    const child = await create(["--parent", "task-1", ...COVERS]);
     assert.equal(child.code, "TASK_CREATED");
     assert.equal(child.data?.record?.task.parentTaskId, "task-1");
     assert.match(child.data?.text ?? "", /^Parent task: task-1$/m);
@@ -549,7 +553,7 @@ test("the task CLI creates subtasks and lists them by parent", async () => {
 
     const missingParent = await runTaskCommand({
       args: parseArgs([
-        "task", "create", "--title", "Orphan", ...criterionArgs,
+        "task", "create", "--title", "Orphan", ...criterionArgs, ...SURFACE,
         "--parent", "task-absent"
       ]),
       service: tasks
@@ -578,7 +582,7 @@ test("a subtask keeps the session attached to the top of its tree", async () => 
     const message = await runTaskCommand({
       args: parseArgs(["task", "create", "--title", "Via CLI", "--parent", "task-1",
         "--criterion", JSON.stringify({ id: "one", description: "One.", verifierIds: ["unit"] }),
-        "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] })]),
+        "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] }), ...SURFACE]),
       service: tasks,
       sessionId: "session-one"
     });
@@ -617,7 +621,8 @@ test("task create in worktree auto mode lands in the session's worktree", async 
     const args = parseArgs([
       "task", "create", "--title", "Worktree task",
       "--criterion", JSON.stringify({ id: "one", description: "One.", verifierIds: ["unit"] }),
-      "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] })
+      "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] }),
+      ...SURFACE
     ]);
     const sessionWorktree = async (sessionId: string) => {
       sessions.push(sessionId);

@@ -38,6 +38,9 @@ export interface FinishReceipt {
   readonly historicalReviews?: Readonly<Record<string, SealedValue>>;
   readonly reviews: Readonly<Record<string, { readonly attestation: SealedValue; readonly report: SealedValue }>>;
   readonly residualRisks: readonly string[];
+  /** Both rounds' non-blocking findings: what passed review but was still worth saying. */
+  readonly nonBlockingFindings?: readonly { readonly taskId: string; readonly round: "primary" | "adversarial";
+    readonly severity: string; readonly title: string; readonly details: string }[];
   readonly createdAt: string;
   /** Present only for the explicit verified-no-change final proof path. */
   readonly noChange?: {
@@ -99,6 +102,7 @@ export async function prepareFinishReceipt(options: {
   const executionArtifacts: Record<string, SealedValue> = {};
   const reviews: Record<string, { attestation: SealedValue; report: SealedValue }> = {};
   const residualRisks = new Set<string>();
+  const nonBlockingFindings: NonNullable<FinishReceipt["nonBlockingFindings"]>[number][] = [];
   const modes = new Set<"tree" | "per-task-fallback">();
   for (const task of tasks) {
     const problem = await checkTaskCompletionEvidence(task, {
@@ -135,6 +139,9 @@ export async function prepareFinishReceipt(options: {
     for (const risk of [...(report.report?.residualRisks ?? []), ...(report.adversarial?.report.residualRisks ?? [])]) {
       residualRisks.add(risk);
     }
+    for (const [round, findings] of [["primary", report.report?.findings ?? []], ["adversarial", report.adversarial?.report.findings ?? []]] as const)
+      for (const finding of findings) if (!finding.blocking)
+        nonBlockingFindings.push({taskId: task.task.id, round, severity: finding.severity, title: finding.title, details: finding.details});
     reviews[task.task.id] = { attestation: seal(attestation), report: seal(report) };
   }
   if (modes.size !== 1 || (modes.has("tree") && new Set(Object.values(reviews)
@@ -170,6 +177,7 @@ export async function prepareFinishReceipt(options: {
     historicalReviews,
     reviews,
     residualRisks: [...residualRisks],
+    nonBlockingFindings,
     createdAt: new Date().toISOString(),
     ...(options.noChange === undefined ? {} : {
       noChange: {

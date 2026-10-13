@@ -9,13 +9,17 @@ export interface RunWorkerPlan {
   readonly intent: string;
   readonly criteria: readonly AcceptanceCriterion[];
   readonly dependencies: readonly string[];
+  /** Parent included surface IDs this worker delivers (EVIDENCE-SURFACE-001). */
+  readonly covers?: readonly string[];
 }
 const plain = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= 4096 && !v.includes("\0");
 
 /** Validate a deferred worker plan without freezing criteria before dependencies are delivered. */
 export function workerPlan(value: unknown, taskId: string, state: RunState): RunWorkerPlan {
-  if (!plain(value) || Object.keys(value).some(k => !["title", "intent", "criteria", "dependencies"].includes(k)) ||
+  if (!plain(value) || Object.keys(value).some(k => !["title", "intent", "criteria", "dependencies", "covers"].includes(k)) ||
+    (value.covers !== undefined && (!Array.isArray(value.covers) || value.covers.length === 0 || value.covers.length > 256 ||
+      value.covers.some(id => typeof id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/u.test(id)) || new Set(value.covers).size !== value.covers.length)) ||
     !text(value.title) || !text(value.intent) || !Array.isArray(value.criteria) || value.criteria.length < 2 || value.criteria.length > 5 ||
     !Array.isArray(value.dependencies) || value.dependencies.length > 512 || new Set(value.dependencies).size !== value.dependencies.length ||
     value.dependencies.some(id => typeof id !== "string" || id === state.rootTaskId || !state.tasks.some(task => task.taskId === id)))
@@ -31,5 +35,6 @@ export function workerPlan(value: unknown, taskId: string, state: RunState): Run
     // TaskService.create resolves the real checkout SHA when this worker starts.
     return structuredClone(criterion) as unknown as AcceptanceCriterion;
   });
-  return {taskId, title: value.title, intent: value.intent, criteria, dependencies: [...value.dependencies] as string[]};
+  return {taskId, title: value.title, intent: value.intent, criteria, dependencies: [...value.dependencies] as string[],
+    ...(value.covers === undefined ? {} : {covers: [...value.covers] as string[]})};
 }

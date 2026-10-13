@@ -6,10 +6,10 @@ import test from "node:test";
 
 test("run startup ignores live runtime artifacts and preserves source and runtime gates", async () => {
   const result = await promisify(execFile)(process.execPath, ["tests/run/startup.acceptance.mjs"], {
-    cwd: process.cwd(), env: {...process.env, AGENT_OPS_DEBUG_TEST_BUILD: resolve(".tmp/test-dist")}, timeout: 120000, maxBuffer: 1024 * 1024
+    cwd: process.cwd(), env: {...process.env, AGENT_OPS_DEBUG_TEST_BUILD: resolve(".tmp/test-dist")}, timeout: 240000, maxBuffer: 1024 * 1024
   });
   const report = JSON.parse(result.stdout.trim());
   assert.equal(report.completed, true);
-  assert.equal(report.results.length, 14);
+  assert.equal(report.results.length, 26);
   assert.ok(report.results.every((r: {status: string}) => r.status === "PASS"), result.stdout);
 });

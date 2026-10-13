@@ -211,6 +211,8 @@ Options:
   --criterion <json>                    create, repeatable, two to five total
   --criterion-file <path>               create: one criterion object, repeatable; pin-finding: exactly one
   --criteria-file <path>                revise: replacement criterion array
+  --surface-file <path>                 create (required unless --debug), revise: EVIDENCE-SURFACE-001
+                                        audit JSON, or {"covers":[surface-id]} under a surfaced parent
   --plan-file <path>                    replan: split-task array with requirement mappings
   --expected-contract <hash>            revise, pin-finding: current task contract from status
   --expected-tree-contract <hash>       replan: current tree contract from status

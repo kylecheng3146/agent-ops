@@ -158,7 +158,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           "Commit product changes before revising the contract. A contract revision stops existing generations; dirty recovery preserves the checkout and blocks takeover.",
           "Write one request atomically to .agent-ops/tasks/run-request.json; wait for matching run-response.json before another request.",
           "Requests require requestId (unique alphanumeric or hyphen, max 64), workerId, generation and current contractHash.",
-          "Plan fields: action=plan,title,intent,criteria. Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered).",
+          "Plan fields: action=plan,title,intent,criteria,surface (the EVIDENCE-SURFACE-001 audit object, same shape as task create --surface-file). Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered),covers (parent included surface IDs this worker delivers; every included surface needs one worker).",
           "Only the coordinator may change execution policy: submit action=policy, configFile (relative proposed JSON), expectedPolicyHash, approvals (each changed capabilityId command:<id>/runner:<id>/setup:<index>, classification=non-dangerous, reason assessing the entire fixed definition including setup/build). Commit source changes and wait until every writer is clean before requesting policy synchronization. Never use init/update/trust grant to create permanent execution authorization. Explicit native or organization denial must not be bypassed.",
           "Worker task baselines are frozen after dependency commits enter its checkout. Handoff fields: action=handoff,sourceFiles (explicit existing source paths when unchanged). Question fields: action=question,prompt. Coordinator finalize fields: action=finalize.",
           "The supervisor, after stopping writers, runs final verification, two fresh reviews and finish. A native completed goal is never final proof."], diagnostic};
@@ -236,7 +236,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           const service = new TaskService(new FileTaskStore(join(workerRoot, ".agent-ops", "tasks", "state.json"), workerRoot), {
             generateId: () => node.taskId, completion: {root: workerRoot, gitRunner: gitRunner(workerRoot), loadConfig: async () => config}});
           await service.create({title: plan.title, intent: plan.intent, criteria: plan.criteria, goal: current.goal,
-            sessionId: ownerSessionId, policyConfigHash: calculateConfigHash(config)});
+            sessionId: ownerSessionId, policyConfigHash: calculateConfigHash(config), ...(plan.covers === undefined ? {} : {surface: {covers: plan.covers}})});
           await start((await repository.read(runId))!.workers.find(w => w.workerId === registration.workerId)!);
         } catch (cause) {
           const latest = (await repository.read(runId))!;
@@ -671,7 +671,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           try {
             if (current.status !== "active" || request.contractHash !== current.currentContractHash)
               throw new AgentOpsError("RUN_CONTRACT_CHANGED", "Request must bind the current run contract.");
-            const fields = request.action === "policy" ? ["configFile", "expectedPolicyHash", "approvals"] : request.action === "plan" ? ["title", "intent", "criteria"] : request.action === "question" ? ["prompt"] : request.action === "worker" ? ["title", "intent", "criteria", "dependencies"] :
+            const fields = request.action === "policy" ? ["configFile", "expectedPolicyHash", "approvals"] : request.action === "plan" ? ["title", "intent", "criteria", "surface"] : request.action === "question" ? ["prompt"] : request.action === "worker" ? ["title", "intent", "criteria", "dependencies", "covers"] :
               request.action === "handoff" || request.action === "finalize" ? ["sourceFiles"] : [];
             if (Object.keys(request).some(key => !["requestId", "workerId", "generation", "contractHash", "action", ...fields].includes(key)))
               throw new AgentOpsError("RUN_REQUEST_INVALID", "Unknown request fields are not accepted.");
@@ -703,7 +703,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               const service = new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops", "tasks", "state.json"), worker.worktree!),
                 {completion: {root: worker.worktree!, gitRunner: gitRunner(worker.worktree!), loadConfig: async () => config}});
               const task = await service.create({title: request.title, intent: request.intent, goal: current.goal,
-                criteria: request.criteria as AcceptanceCriterion[], sessionId: worker.ownerSessionId, policyConfigHash: calculateConfigHash(config)});
+                criteria: request.criteria as AcceptanceCriterion[], sessionId: worker.ownerSessionId, policyConfigHash: calculateConfigHash(config),
+                ...(request.surface === undefined ? {} : {surface: request.surface}), requireSurface: true});
               await repository.mutate(runId, saved => ({...saved, rootTaskId: task.task.id, currentContractHash: treeContractHash([task.task]),
                 tasks: saved.tasks.map(node => node.taskId === worker.taskId ? {...node, taskId: task.task.id} : node),
                 workers: saved.workers.map(w => w.workerId === worker.workerId ? {...w, taskId: task.task.id} : w)}));
@@ -714,7 +715,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               if (worker.workerId !== current.coordinatorId || current.rootTaskId === null)
                 throw new AgentOpsError("RUN_COORDINATOR_REQUIRED", "Only the registered coordinator can plan child workers.");
               const taskId = "task-" + (await import("node:crypto")).randomUUID();
-              const plan = workerPlan({title: request.title, intent: request.intent, criteria: request.criteria, dependencies: request.dependencies}, taskId, current);
+              const plan = workerPlan({title: request.title, intent: request.intent, criteria: request.criteria, dependencies: request.dependencies,
+                ...(request.covers === undefined ? {} : {covers: request.covers})}, taskId, current);
               const {taskId: _id, ...specification} = plan;
               const content = JSON.stringify(specification);
               await writePrivateFile(join(directory, runId, "plans", taskId + ".json"), content, commonDir);

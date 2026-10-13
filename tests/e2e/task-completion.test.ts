@@ -15,7 +15,7 @@ import { runReviewCommand } from "../../packages/cli/src/commands/review.js";
 import { parseArgs } from "../../packages/cli/src/args.js";
 import { reportFor } from "../review/report-fixture.js";
 import { COMPLETION_CONFIG, passingCompletionEvidence } from "../task/completion-fixture.js";
-import { cleanupE2eRoot, runBuiltCli } from "./helpers.js";
+import { cleanupE2eRoot, runBuiltCli, SURFACE_FILE_ARGS } from "./helpers.js";
 
 test("default core CLI completion enforces evidence and review regardless of host or disabled hooks", async () => {
   const { root, result } = runBuiltCli(["init", "--scope", "project", "--harness", "codex", "--profile", "core", "--yes", "--json"]);
@@ -32,7 +32,8 @@ test("default core CLI completion enforces evidence and review regardless of hos
     execFileSync("git", ["commit", "-m", "baseline"], { cwd: root, stdio: "ignore" });
     writeFileSync(join(root, "source.txt"), "changed\n");
     const created = runBuiltCli(["task", "create", "--json", "--title", "Complete source",
-      ...["behavior", "regression"].flatMap((id) => ["--criterion", JSON.stringify({ id, description: `${id} passes`, verifierIds: ["unit"] })])
+      ...["behavior", "regression"].flatMap((id) => ["--criterion", JSON.stringify({ id, description: `${id} passes`, verifierIds: ["unit"] })]),
+      ...SURFACE_FILE_ARGS
     ], root).result;
     assert.equal(created.status, 0);
     const task = JSON.parse(created.stdout).data.record as StoredTaskRecord;
@@ -59,7 +60,8 @@ test("default core CLI completion enforces evidence and review regardless of hos
     execFileSync("git", ["add", "source.txt"], { cwd: root });
     execFileSync("git", ["commit", "-m", "change"], { cwd: root, stdio: "ignore" });
     const committed = runBuiltCli(["task", "create", "--json", "--title", "Complete committed source",
-      ...task.task.criteria.flatMap((criterion) => ["--criterion", JSON.stringify(criterion)])
+      ...task.task.criteria.flatMap((criterion) => ["--criterion", JSON.stringify(criterion)]),
+      ...SURFACE_FILE_ARGS
     ], root).result;
     assert.equal(committed.status, 0);
     const committedId = JSON.parse(committed.stdout).data.record.task.id as string;

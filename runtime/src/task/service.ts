@@ -36,10 +36,14 @@ import { commitIdentity } from "../schema/acceptance.js";
 import {createDebugState, DEBUG_DEFAULTS} from "./debug-state.js";
 import {DebugService} from "./debug.js";
 import {sameDebugText} from "./debug-intake.js";
+import {isCovers, parseSurface} from "../surface/schema.js";
 
 export interface ReviseTaskInput {
   readonly expectedContractHash: string;
-  readonly criteria: readonly AcceptanceCriterion[];
+  /** Absent keeps the current criteria (a surface-only revision). */
+  readonly criteria?: readonly AcceptanceCriterion[];
+  /** EVIDENCE-SURFACE-001 audit; revised like criteria, with fresh proof and reviews. */
+  readonly surface?: unknown;
   readonly reason: string;
   readonly diagnostics?: readonly string[];
   readonly baseline?: string;
@@ -63,6 +67,14 @@ export interface CreateTaskInput {
   readonly parentTaskId?: string;
   /** Optionally creates and attaches the task in one state mutation. */
   readonly sessionId?: string;
+  /** EVIDENCE-SURFACE-001 audit, or `{covers}` for a child of a surfaced parent. */
+  readonly surface?: unknown;
+  /**
+   * Front doors (CLI create, run plan, DEBUG intake) set this: the task then
+   * needs a surface before review. DEBUG intake may add it before the first
+   * repair; API callers that omit it keep the grandfathered behavior.
+   */
+  readonly requireSurface?: boolean;
 }
 
 export interface TaskServiceOptions {
@@ -241,9 +253,12 @@ export class TaskService {
     const criteria = structuredClone(input.criteria).map(criterion => ({...criterion,
       ...(criterion.acceptance === undefined ? {} : {acceptance: {...criterion.acceptance,
         baselineCommit: criterion.acceptance.baselineCommit ?? createdSourceCommit}})})) as AcceptanceCriterion[];
+    const surface = input.surface === undefined ? undefined : parseSurface(input.surface);
     const task: AgentTask = {
       schemaVersion: TASK_SCHEMA_VERSION,
       id: this.#generateId(),
+      ...(surface === undefined ? {} : {surface}),
+      ...(input.requireSurface === true ? {surfaceRequired: true as const} : {}),
       title: input.title,
       ...(input.intent === undefined ? {} : { intent: input.intent }),
       criteria,
@@ -318,6 +333,14 @@ export class TaskService {
           validation.value.debug = structuredClone(parent.task.debug);
         }
       }
+      if (input.requireSurface === true && validation.value.debug === undefined) {
+        const parentSurface = state.tasks.find(record => record.task.id === input.parentTaskId)?.task.surface;
+        const surfacedParent = parentSurface !== undefined && !isCovers(parentSurface);
+        if (surface === undefined || isCovers(surface) !== surfacedParent)
+          throw taskError("SURFACE_MISSING", surfacedParent
+            ? "A subtask of a surfaced parent declares --surface-file {\"covers\": [surface-id]}."
+            : "A new task needs --surface-file with the four-axis surface audit (EVIDENCE-SURFACE-001).");
+      }
       const record: StoredTaskRecord = {
         task: validation.value,
         ...(input.debug === undefined ? {} : {debug:createDebugState(task.id,createdSourceCommit!,debugSettings!,this.#completion!.root)}),
@@ -380,8 +403,11 @@ export class TaskService {
     const previous = await this.status({taskId});
     if (previous.status !== "active") throw taskError("TASK_NOT_ACTIVE", "Only active tasks can revise acceptance.");
     if (taskContractHash(previous.task) !== input.expectedContractHash) throw taskError("TASK_CONTRACT_CHANGED", "Task contract changed.");
+    if (input.criteria === undefined && input.surface === undefined)
+      throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, or both.");
+    const surface = input.surface === undefined ? previous.task.surface : parseSurface(input.surface);
     const baseline = input.baseline ?? previous.createdSourceCommit;
-    const criteria = structuredClone(input.criteria).map(criterion => {
+    const criteria = input.criteria === undefined ? structuredClone(previous.task.criteria) : structuredClone(input.criteria).map(criterion => {
       if (criterion.acceptance === undefined) return criterion;
       const sha = criterion.acceptance.baselineCommit ?? baseline;
       if (sha === undefined) throw taskError("BASELINE_REQUIRED", "Legacy tasks need an explicit baseline before typed acceptance.");
@@ -390,7 +416,7 @@ export class TaskService {
       return {...criterion, acceptance: {...criterion.acceptance, baselineCommit: sha}};
     });
     const next: AgentTask = {...previous.task, schemaVersion: TASK_SCHEMA_VERSION,
-      contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria};
+      contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria, ...(surface === undefined ? {} : {surface})};
     const checked = validateTask(next);
     if (!checked.ok) throw taskError("TASK_INVALID", checked.errors[0]?.message ?? "Invalid criterion revision.");
     const records = (await this.#store.read()).tasks;

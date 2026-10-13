@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** A valid EVIDENCE-SURFACE-001 audit that includes every fixture file. */
+export const SURFACE_FILE_ARGS = ["--surface-file", join(process.cwd(), "tests/fixtures/surface/minimal.json")] as const;
+
 export interface CliResult {
   readonly status: number;
   readonly stdout: string;
