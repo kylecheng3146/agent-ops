@@ -1,0 +1,7 @@
+worktree: session-0d8f5441 (agent-ops/session-0d8f5441)
+session: 0d8f5441-356e-4869-aff1-b40bc47e333b
+agent-ops task task-293a5227-5762-4961-962b-16158ca13cc5: Release 0.9.0 (surface audit phase 1)
+intent: Bump to 0.9.0 and add the dated changelog section for the integrated surface-audit phase 1. No product changes.
+criteria:
+- version-0-9-0: package.json and package-lock.json report 0.9.0 on top of the integrated phase-1 commit dfa747c; npm test passes
+- changelog-0-9-0: CHANGELOG keeps an empty ## [Unreleased] and adds ## [0.9.0] - 2026-10-13 below it describing the surface audit (EVIDENCE-SURFACE-001, required --surface-file, git grep -F discovery and SURFACE_* codes, reviewer surface-coverage, finish receipts with residual risks) and the upgrade impact; package:check and scan-source pass
