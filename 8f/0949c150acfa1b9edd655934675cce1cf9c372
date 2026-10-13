@@ -1,0 +1,7 @@
+worktree: session-0d8f5441 (agent-ops/session-0d8f5441)
+session: 0d8f5441-356e-4869-aff1-b40bc47e333b
+agent-ops task task-52b7353c-a6ed-449a-a1b5-3fe11f2bba5d: DEBUG pause typed from a worktree cwd is ignored
+intent: Accept native human Claude transcript rows whose cwd is the session's owned worktree when reading DEBUG controls and grants; keep rejecting unrelated cwds and non-human rows. No other behavior changes.
+criteria:
+- worktree-cwd-control: A native human Claude control (暫停/繼續) typed while the session's shell cwd is its owned worktree is honored: the transcript under the main checkout's project dir is read and rows whose cwd is that worktree count, while rows from an unrelated cwd stay ignored
+- debug-suite-green: Existing DEBUG intake, control and gate tests still pass under npm test
