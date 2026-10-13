@@ -6,6 +6,7 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {recoveryChecks} from '../debug/recovery-checks.mjs';
 import {officePhaseChecks} from '../office/phase-checks.mjs';
+import {peerOriginChecks} from '../debug/peer-origin-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -49,6 +50,7 @@ async function fixture(check) {
 const checks = {
   ...recoveryChecks,
   ...officePhaseChecks,
+  ...peerOriginChecks,
   'live-worktree-heartbeats': () => fixture(async ({root, runner, gate}) => {
     const deps = {git: async (cwd, args) => {
       try {return {exitCode: 0, stdout: execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}), stderr: ''};}
