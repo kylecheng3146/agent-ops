@@ -1,0 +1,7 @@
+worktree: session-0d8f5441 (agent-ops/session-0d8f5441)
+session: 0d8f5441-356e-4869-aff1-b40bc47e333b
+agent-ops task task-342d22b7-92ed-44f2-8452-6a4449068fe3: Run blocks on native tool scopes over 32 KiB
+intent: Bound oversized native tool scopes before recording run authorization observations so a large Write/Edit/applyPatch no longer blocks the run; keep the digest identity of the full input, redaction, lineage, staleness and denial semantics unchanged.
+criteria:
+- large-native-authorization: recordNativeRunAuthorization accepts a native tool scope larger than 32 KiB (Claude Write/Edit tool_use, Codex applyPatch action): the run stays active, an authorization event is recorded, and the stored scope is bounded but identifies the full input by its sha256; existing digest, lineage and denial checks still hold
+- run-suite-green: Existing run policy, authorization and startup tests still pass under npm test
