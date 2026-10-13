@@ -149,12 +149,16 @@ function report(criteria, failed = []) {
 
 const raw = {
   'surface-spec-docs': async () => {
-    const section = (text, id) => {
+    const section = (raw, id) => {
+      const text = raw.replace(/\r\n/gu, '\n');
       const start = text.indexOf(`## ${id}\n`);
       assert.ok(start >= 0, `missing ${id}`);
       const end = text.indexOf('\n## ', start + 1);
       return text.slice(start, end < 0 ? undefined : end);
     };
+    // Windows CI checks the docs out with CRLF; the same sections must still be found there.
+    const crlf = section((await readFile(join('docs', 'en', 'spec', 'acceptance-and-evidence.md'), 'utf8')).replace(/\r?\n/gu, '\r\n'), 'EVIDENCE-SURFACE-001');
+    assert.ok(crlf.includes('SURFACE_UNCLASSIFIED'), 'CRLF section lost its content');
     for (const lang of ['en', 'zh-TW']) {
       const doc = async name => readFile(join('docs', lang, 'spec', name), 'utf8');
       const rule = section(await doc('acceptance-and-evidence.md'), 'EVIDENCE-SURFACE-001');
