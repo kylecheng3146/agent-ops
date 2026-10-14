@@ -6,3 +6,13 @@ criteria:
 - ac2-suite: The full npm test suite passes, including the startup runner count (63), and CHANGELOG 0.10.0 describes the fix.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-b88bbd099089aec702813ec51fa07adc58e95d6b.json
 receipt-sha256: 1065b9725672a5cf35efd1849916bdd9c06c87da9acc00cb57ab8882deea9dc3
+
+worktree: gate-b (agent-ops/gate-b)
+session: bf3a95c5-b9ae-4249-8ee4-c6b97127520b
+agent-ops task task-c6134f30-5d53-442f-a7ed-4fd9eab1c975: Update syncs session worktree config and trust; reason-only rebind (B)
+criteria:
+- ac1-worktree-sync: After an approved agent-ops update, when the main checkout is trusted, its config is copied into every session worktree (record without runId) whose copy is still the previously trusted one, and that copy is trusted for the same commands; hand-edited copies stay untouched, run worktrees are never listed or changed, nothing is granted while the main checkout is untrusted, and the dry-run and confirmation plan list the session worktrees. Check: update-syncs-session-worktrees.
+- ac2-rebind: task revise with only --expected-contract and --reason rebinds an active task to the current configuration (criteria and surface unchanged, policy hash updated) and is refused with TASK_REVISION_INVALID when nothing changed; a reviewer-policy-changed review prints the exact revise command with the task id and contract hash. Configuration guides (en, zh-TW) and CHANGELOG describe both. Checks: revise-rebinds-policy, review-policy-remedy.
+- ac3-suite: The full npm test suite passes, including the startup runner count (62) and existing update, worktree and review tests.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-17198ea652484f76722004acdf9fb2c478985514.json
+receipt-sha256: 80400d8a245b0c2f260f785ef5d03d0eeccf5ca1793ea4aeaeaf01f18d5a8e5a
