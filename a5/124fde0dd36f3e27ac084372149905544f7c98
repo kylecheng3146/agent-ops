@@ -1,0 +1,8 @@
+worktree: gate-e (agent-ops/gate-e)
+session: bf3a95c5-b9ae-4249-8ee4-c6b97127520b
+agent-ops task task-35e6311c-791d-4ba8-89f6-28c74525f258: Keep verify and review results when temp cleanup fails
+criteria:
+- ac1-cleanup-fail-open: When the acceptance replay checkout cannot be removed after a run (Windows EBUSY after a killed step; a read-only directory in the check), verify returns its report instead of throwing, and the undeletable checkout is left in the temp directory. Replay, review attempt and probe cleanup all use removeTemporary (runtime/src/fs/temporary.ts), which retries transient errors. Check: temporary-cleanup-fail-open.
+- ac2-suite: The full npm test suite passes, including the startup runner count (63), and CHANGELOG 0.10.0 describes the fix.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-b88bbd099089aec702813ec51fa07adc58e95d6b.json
+receipt-sha256: 1065b9725672a5cf35efd1849916bdd9c06c87da9acc00cb57ab8882deea9dc3
