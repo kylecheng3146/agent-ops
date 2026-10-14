@@ -48,6 +48,8 @@ export interface TaskCommandData {
   readonly treeContractHash?: string;
   readonly coverage?: Awaited<ReturnType<TaskService["coverage"]>>;
   readonly records?: readonly StoredTaskRecord[];
+  /** Escape Loop link state, labels, facts and blame hints of a declared escape-of origin. */
+  readonly escape?: unknown;
   readonly text: string;
 }
 
@@ -76,6 +78,28 @@ async function jsonFile(path: string): Promise<unknown> {
     throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Payload must be a regular JSON file at most 64 KiB.");
   try { return JSON.parse(await readFile(path, "utf8")) as unknown; }
   catch { throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Invalid JSON payload."); }
+}
+
+async function escapeOrigin(args: ParsedArgs, service: TaskService) {
+  return args.escapeOf === undefined ? undefined : await service.resolveOrigin({kind: "escape-of", commit: args.escapeOf,
+    label: args.escapeLabel, ...(args.escapeReceipt === undefined ? {} : {receipt: args.escapeReceipt})});
+}
+
+/** Link state, label and blame hints are printed; the ledger record is committed with the fix. */
+function withEscape(envelope: CliEnvelope<TaskCommandData | null>, escape: Awaited<ReturnType<TaskService["declareEscape"]>> | undefined):
+  CliEnvelope<TaskCommandData | null> {
+  if (escape === undefined || envelope.data === null) return envelope;
+  const {link, label, agentLabel, facts} = escape.record;
+  const lines = [
+    `Escape of ${escape.record.escapeOf}: ${link.state}${link.state === "unresolved" ? ` (${link.reason})` : ""}` +
+      `${link.state === "gated" ? ` via receipt ${link.receipt} (${link.matchedBy})` : ""}; label ${label}${label === agentLabel ? "" : ` (agent proposed ${agentLabel})`}.`,
+    ...facts.map(fact => `- ${fact.path}: ${fact.surface}`),
+    `Ledger record: ${escape.path} (commit it with the fix).`,
+    escape.blame.length === 0 ? "Blame hints: none (the fix only adds lines; an omission has no author)."
+      : `Blame hints (a hint only): ${escape.blame.map(hint => `${hint.commit.slice(0, 12)} (${hint.lines} line${hint.lines === 1 ? "" : "s"})`).join(", ")}`
+  ];
+  return {...envelope, data: {...envelope.data, escape: {...escape.record, blame: escape.blame, path: escape.path},
+    text: `${envelope.data.text ?? ""}${envelope.data.text?.endsWith("\n") === false ? "\n" : ""}${lines.join("\n")}\n`}};
 }
 
 /** An unreadable surface file is a missing surface, not a generic payload error. */
@@ -184,6 +208,7 @@ export async function runTaskCommand(
       const worktree = sessionId === undefined || options.sessionWorktree === undefined
         ? undefined
         : await options.sessionWorktree(sessionId);
+      const origin = await escapeOrigin(options.args, worktree?.service ?? options.service);
       const record = await (worktree?.service ?? options.service).create({
         title: options.args.title,
         ...(options.args.goal === undefined ? {} : {goal:options.args.goal}),
@@ -201,15 +226,17 @@ export async function runTaskCommand(
           : { parentTaskId: options.args.parentTaskId }),
         ...(sessionId === undefined ? {} : { sessionId }),
         ...(options.args.surfaceFile === undefined ? {} : {surface: await surfaceFile(options.args.surfaceFile)}),
+        ...(origin === undefined ? {} : {origin}),
         requireSurface: true
       });
+      const escape = origin === undefined ? undefined : await (worktree?.service ?? options.service).declareEscape(record.task.id);
       // An explicit CLI DEBUG intake may be the only start signal on hosts
       // without a prompt hook (notably agy). The native session owns the clock;
       // foregroundStart is idempotent for a repeated hook or command.
       if (options.args.debug && sessionId !== undefined) {
         await (worktree?.service ?? options.service).debugService().foregroundStart(record.task.id,sessionId);
       }
-      const created = taskEnvelope(
+      const created = withEscape(taskEnvelope(
         action,
         "TASK_CREATED",
         sessionId === undefined
@@ -218,7 +245,7 @@ export async function runTaskCommand(
             ? `Created and attached task ${record.task.id}.`
             : `Created subtask ${record.task.id}; the session stays on the top of its task tree.`,
         record
-      );
+      ), escape);
       if (worktree === undefined || created.data === null) return created;
       return {
         ...created,
@@ -240,6 +267,10 @@ export async function runTaskCommand(
     }
     if (action === "debug") {
       const id=requireTaskId(options.args), service=options.service.debugService();
+      if (options.args.debugAction === "origin") {
+        const declared = await service.origin(id,await jsonFile(options.args.payloadFile!));
+        return withEscape(taskEnvelope(action,"TASK_DEBUG_ORIGIN_DECLARED","Origin bound into the contract; re-verify, re-record the confirmed hypothesis, then review.",declared.record),declared.escape);
+      }
       switch (options.args.debugAction) {
         case "hypothesis": await service.hypothesis(id,await jsonFile(options.args.payloadFile!) as Parameters<typeof service.hypothesis>[1]); break;
         case "strategy": await service.strategy(id,await jsonFile(options.args.payloadFile!) as Parameters<typeof service.strategy>[1]); break;
@@ -255,13 +286,16 @@ export async function runTaskCommand(
     if (action === "revise") {
       const payload = options.args.criteriaFile === undefined ? undefined : await jsonFile(options.args.criteriaFile);
       if (payload !== undefined && !Array.isArray(payload)) throw new AgentOpsError("TASK_PAYLOAD_INVALID", "Criteria file must contain an array.");
+      const origin = await escapeOrigin(options.args, options.service);
       const record = await options.service.revise(requireTaskId(options.args), {
         expectedContractHash: options.args.expectedContract!,
         ...(payload === undefined ? {} : {criteria: payload as AcceptanceCriterion[]}),
         ...(options.args.surfaceFile === undefined ? {} : {surface: await surfaceFile(options.args.surfaceFile)}),
+        ...(origin === undefined ? {} : {origin}),
         reason: options.args.reason!, ...(options.args.baseline === undefined ? {} : {baseline: options.args.baseline})
       });
-      return taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain new verification and fresh review.", record);
+      return withEscape(taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain new verification and fresh review.", record),
+        origin === undefined ? undefined : await options.service.declareEscape(record.task.id));
     }
     if (action === "replan") {
       const payload = await jsonFile(options.args.planFile!);

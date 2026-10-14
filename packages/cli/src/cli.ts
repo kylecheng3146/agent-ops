@@ -203,8 +203,8 @@ Options:
   --title <text>                        create
   --goal <text>                         create: immutable original issue/goal
   --debug                               create: task-level investigation tag
-  --debug-action <status|hypothesis|strategy|investigate|checkpoint|resume|extend>
-  --payload-file <path>                 debug hypothesis/strategy: bounded JSON
+  --debug-action <status|hypothesis|strategy|investigate|checkpoint|resume|extend|origin>
+  --payload-file <path>                 debug hypothesis/strategy/origin: bounded JSON
   --command-id <id>                     debug investigate: trusted configured command
   --event-id <native-event-id|latest>    debug extend: authentic human continue event
   --intent <text>                       create: intended behavior and constraints before editing
@@ -213,6 +213,9 @@ Options:
   --criteria-file <path>                revise: replacement criterion array
   --surface-file <path>                 create (required unless --debug), revise: EVIDENCE-SURFACE-001
                                         audit JSON, or {"covers":[surface-id]} under a surfaced parent
+  --escape-of <commit>                  create, revise: the commit this bug escaped from (Escape Loop)
+  --escape-label <label>                with --escape-of: requirement|surface|scenario|criteria|verify|review|flagged|out-of-model
+  --escape-receipt <id>                 with --escape-of: link this local finish receipt instead of resolving one
   --plan-file <path>                    replan: split-task array with requirement mappings
   --expected-contract <hash>            revise, pin-finding: current task contract from status
   --expected-tree-contract <hash>       replan: current tree contract from status

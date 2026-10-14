@@ -90,6 +90,40 @@ English source version: 2026-10-06. Revalidate: when the English specification c
 - 一般 `worktree finish` 也會寫入與 advance 相同的本機 receipt，包含兩輪的 residual
   risks 與 non-blocking findings，在 git note 引用它並印出 residual risks。
 
+## EVIDENCE-ESCAPE-001
+
+每個 DEBUG 修復 MUST 在 review 前宣告 bug 的來源；宣告的逃逸 MUST 以機械方式連結、標記並記錄。
+
+- Trigger: DEBUG 假設已確認，或一般 task 修復一個通過了先前關卡的 bug。
+- Action: 以 `task debug --debug-action origin --payload-file <json>` 宣告 `origin`：`{"kind": "escape-of", "commit": "<commit>", "label": "<label>"}`（可選 `"receipt"`），或 `{"kind": "pre-existing" | "external", "reason": "..."}`。一般 task 可用 `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]` 選擇加入。把 `.agent-ops-escapes/<task-id>.json` 記錄與修復一起 commit。
+- Evidence: `origin` 綁進 task contract hash；本規則上線後建立的 DEBUG task 沒有它時，finish、`task complete` 與 completion gate 以 `ESCAPE_ORIGIN_MISSING` 拒絕；兩位 reviewer 在 `escape-label` 條件下收到連結狀態、標記、事實與 residual risks。
+- Positive: `假設已確認；origin escape-of 864dbbe2 label surface；重放把漏掉的頁面標為 surface-unseen；記錄與修復一起 commit。`
+- Negative: `DEBUG 修復沒有 origin 就 finish，或把 surface-excluded 的漏網改標成 review，理由是 reviewer「應該注意到」。`
+
+- 宣告必須在假設確認之後（否則 `ESCAPE_ORIGIN_EARLY`），並計入 DEBUG 預算。它是一次
+  contract revision：重新 verify、以新證據重新記錄已確認的假設，然後 review。重新宣告會
+  取代記錄。輸出會列出修復所改或刪行的 `git blame` 提示 commit；blame 只是提示，因為遺漏
+  型 bug 存在於沒人寫過的行。
+- finish receipt 留在本機 Git common directory。Schema 2 記錄 target..candidate 的每個
+  commit 與逐檔 diff fingerprint（去掉 blob id 與 hunk 位置，squash merge 後仍相同）；
+  schema 1 receipt 仍可載入，但只以 exact head 連結。
+- 連結狀態分開計數：`gated`（找到 receipt）、帶理由的 `unresolved`（Git note 或
+  `--escape-receipt` 指向本機沒有的 receipt 時為 `receipt-not-local`，另有
+  `ambiguous-receipt`、`link-unavailable`）與 `ungated`（沒有 receipt 也沒有 note）。
+  解析順序：`--escape-receipt` 覆寫、commit 位於某 receipt 記錄的範圍內（schema 1：exact
+  head）、逐檔 fingerprint 相符，最後才是 unresolved 或 ungated。
+- 標記：單一主要標記，取最早能抓到此逃逸的關卡 —— `requirement`、`surface`、
+  `scenario`、`criteria`、`verify`、`review` —— 或 `flagged`（residual risk 或 finding 已
+  提過）或 `out-of-model`。由 agent 提議；以 `git grep -F` 在被連結 receipt 的 candidate
+  上重放其記錄的 surface 查詢，把修復碰到的每個檔標為 included、excluded、hit、unseen 或
+  absent，`surface-excluded` 或 `surface-unseen` 會覆寫任何較晚的標記。兩位 reviewer 裁決。
+- ledger 受 git 追蹤且只含資料（commit、路徑、標記、理由、計數；絕不含檔案內容或對話紀錄），
+  每個 task 一個檔案，平行 worktree 不會衝突。關卡攔截（`SURFACE_*` 與 `SCENARIO_MISSING`
+  review 阻擋、review FAIL、verify 由紅轉綠）會附加僅含 code 與 task id 的參考性 local-log
+  `gate-catch` 事件；記錄失敗時 fail-open，origin 要求則 fail-closed。
+- 範圍 R1 只負責記錄。由逃逸學到的規則、重放證明、回測、`--escape-fix` 與
+  `agent-ops escapes` 報表屬於 R2。
+
 ## EVIDENCE-AGGREGATE-001
 
 驗證器 MUST 在條件缺少、重複、未知或證據為空時回傳 FAIL。

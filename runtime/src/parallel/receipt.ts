@@ -16,6 +16,7 @@ import type { GitRunner } from "../verify/change-surface.js";
 import type { IntegratedChild } from "./integrate.js";
 import type { WorktreeRecord } from "./service.js";
 import { validateRunIntegrationReceipt, type IntegrationReceiptBinding } from "../run/integration.js";
+import { receiptRange, type FileFingerprint } from "../escape/link.js";
 
 interface SealedValue {
   readonly digest: string;
@@ -23,10 +24,15 @@ interface SealedValue {
 }
 
 export interface FinishReceipt {
-  readonly schemaVersion: 1;
+  /** 2 adds commits and fileFingerprints; a v1 receipt links only by exact candidateHead. */
+  readonly schemaVersion: 1 | 2;
   readonly sessionId: string;
   readonly candidateHead: string;
   readonly targetCommit: string;
+  /** Every commit in targetCommit..candidateHead, oldest first (v2). */
+  readonly commits?: readonly string[];
+  /** Per-file diff identity of targetCommit..candidateHead that survives a squash merge (v2). */
+  readonly fileFingerprints?: readonly FileFingerprint[];
   readonly sourceFingerprint: string;
   readonly reviewMode: "tree" | "per-task-fallback";
   readonly tasks: readonly StoredTaskRecord[];
@@ -164,10 +170,11 @@ export async function prepareFinishReceipt(options: {
     historicalReviews[path] = seal(content);
   }
   const receipt: FinishReceipt = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sessionId: record.sessionId,
     candidateHead,
     targetCommit,
+    ...await receiptRange(options.gitRunner, targetCommit, candidateHead),
     sourceFingerprint,
     reviewMode: modes.has("tree") ? "tree" : "per-task-fallback",
     tasks,

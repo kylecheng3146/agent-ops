@@ -71,7 +71,7 @@ export async function readFinishedReview(
   let receipt: FinishReceipt;
   try { receipt = JSON.parse(source) as FinishReceipt; }
   catch { return invalid("Final review receipt is malformed."); }
-  if (receipt.schemaVersion !== 1 || !/^[a-f0-9]{40,64}$/u.test(receipt.candidateHead) ||
+  if ((receipt.schemaVersion !== 1 && receipt.schemaVersion !== 2) || !/^[a-f0-9]{40,64}$/u.test(receipt.candidateHead) ||
       !Array.isArray(receipt.tasks) || receipt.tasks.length === 0 ||
       !["tree", "per-task-fallback"].includes(receipt.reviewMode) ||
       typeof receipt.reviews !== "object" || receipt.reviews === null) {

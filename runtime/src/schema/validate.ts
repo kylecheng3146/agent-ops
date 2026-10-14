@@ -26,6 +26,7 @@ import {
 
 import { acceptanceError, runnerError, commitIdentity } from "./acceptance.js";
 import { parseSurface } from "../surface/schema.js";
+import { validOrigin } from "../escape/origin.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -940,7 +941,7 @@ export function validateCriterion(
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug", "surface", "surfaceRequired"],
+    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug", "surface", "surfaceRequired", "origin", "originRequired"],
     isRecord(value) && value.schemaVersion === 1 ? 1 : TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
@@ -953,6 +954,10 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   if (root.surface !== undefined) {
     try { parseSurface(root.surface); } catch { return failure("INVALID_SURFACE", "$.surface", "Task surface is invalid."); }
   }
+  if (root.origin !== undefined && !validOrigin(root.origin))
+    return failure("INVALID_ORIGIN", "$.origin", "origin is escape-of {commit, label, receipt?} or pre-existing/external {reason}.");
+  if (root.originRequired !== undefined && (root.originRequired !== true || root.debug === undefined))
+    return failure("INVALID_ORIGIN", "$.originRequired", "originRequired is either absent or true on a DEBUG task.");
   if (root.contractRevision !== undefined && (!Number.isSafeInteger(root.contractRevision) || (root.contractRevision as number) < 0))
     return failure("INVALID_CONTRACT_REVISION", "$.contractRevision", "Invalid contract revision.");
   if (root.goal !== undefined && (!isNonEmptyString(root.goal) || Buffer.byteLength(root.goal as string, "utf8") > 65536))

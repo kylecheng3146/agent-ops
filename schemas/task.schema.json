@@ -288,6 +288,13 @@
     "surfaceRequired": {
       "const": true
     },
+    "origin": {
+      "description": "Escape Loop origin: {kind: escape-of, commit, label, receipt?} or {kind: pre-existing|external, reason}; validated strictly by the runtime.",
+      "type": "object"
+    },
+    "originRequired": {
+      "const": true
+    },
     "debug": {
       "type": "object",
       "additionalProperties": false,

@@ -56,6 +56,13 @@ try {
  await assert.rejects(f.tasks.complete(id,stored.evidence),e=>e.code==='TASK_COMPLETION_TASK_DEBUG_PROOF_REQUIRED');
  assert.equal((await f.tasks.status({taskId:id})).status,'active');
  stored=await reviewed(f,report);
+ // Escape Loop: a DEBUG fix cannot complete until it declares where the bug came from.
+ await assert.rejects(f.tasks.complete(id,stored.evidence),e=>e.code==='TASK_COMPLETION_ESCAPE_ORIGIN_MISSING');
+ await d.origin(id,{kind:'pre-existing',reason:'The zero default predates every gated change in this fixture.'});
+ report=await f.verify();assert.equal(report.status,'PASS');
+ reference=report.acceptance.find(r=>r.criterionId==='issue' && r.phase==='baseline').reference;
+ await d.hypothesis(id,{...hypothesis,reference});
+ stored=await reviewed(f,report);
  assert.equal((await f.tasks.complete(id,stored.evidence)).status,'complete');
  console.log('Actual regression, review bindings, retry, UNKNOWN rejection and debug completion passed.');
 } finally {await f.close();}

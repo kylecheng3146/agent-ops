@@ -1,5 +1,9 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { AgentOpsError } from "../fs/paths.js";
 import {
+  localStatePaths,
   readPrivateFile,
   withPrivateFileLock,
   writePrivateFile
@@ -53,8 +57,16 @@ export interface SurfaceMetricsLogEvent {
   residualRisks: number;
 }
 
+/** Escape Loop: a gate that caught something (SURFACE_*, SCENARIO_MISSING, REVIEW_FAIL, VERIFY_RED_GREEN). Code and task only. */
+export interface GateCatchLogEvent {
+  type: "gate-catch";
+  code: string;
+  taskId: string;
+}
+
 export type LocalLogEvent =
   | CommandResultLogEvent
+  | GateCatchLogEvent
   | SurfaceMetricsLogEvent
   | DiagnosticLogEvent
   | LoopLogEvent
@@ -223,6 +235,13 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
       residualRisks: value.residualRisks as number
     };
   }
+  if (value.type === "gate-catch") {
+    if (!hasExactKeys(value, ["code", "taskId", "type"]) || typeof value.code !== "string" || !ID_PATTERN.test(value.code) ||
+      typeof value.taskId !== "string" || !ID_PATTERN.test(value.taskId)) {
+      return invalidEvent();
+    }
+    return { type: "gate-catch", code: value.code, taskId: value.taskId };
+  }
   return invalidEvent();
 }
 
@@ -346,4 +365,12 @@ export async function appendLocalLog(
       );
     }
   );
+}
+
+/** Advisory and fail-open: a logging fault never changes the gate that caught something. */
+export async function logGateCatch(code: string, taskId: string, home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<void> {
+  try {
+    const state = localStatePaths(home);
+    await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "gate-catch", code, taskId}, {anchorDirectory: state.anchorDirectory});
+  } catch { /* advisory only */ }
 }

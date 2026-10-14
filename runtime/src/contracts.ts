@@ -199,6 +199,10 @@ export interface AgentTask {
   surface?: import("./surface/schema.js").TaskSurface;
   /** Set on tasks created after the surface audit shipped; older tasks are grandfathered. */
   surfaceRequired?: true;
+  /** Escape Loop: where the fixed bug came from (escape-of a commit, pre-existing, external). */
+  origin?: import("./escape/origin.js").TaskOrigin;
+  /** Set on DEBUG roots created after the origin gate shipped; completion needs `origin`. */
+  originRequired?: true;
 }
 
 export interface VerificationEvidence {

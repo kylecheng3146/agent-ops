@@ -9,6 +9,7 @@ import {officePhaseChecks} from '../office/phase-checks.mjs';
 import {peerOriginChecks} from '../debug/peer-origin-checks.mjs';
 import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
+import {escapeChecks} from '../escape/escape-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -55,6 +56,7 @@ const checks = {
   ...peerOriginChecks,
   ...authorizationChecks,
   ...surfaceChecks,
+  ...escapeChecks,
   'live-worktree-heartbeats': () => fixture(async ({root, runner, gate}) => {
     const deps = {git: async (cwd, args) => {
       try {return {exitCode: 0, stdout: execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}), stderr: ''};}

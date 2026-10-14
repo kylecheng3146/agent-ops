@@ -122,6 +122,49 @@ Every new task MUST record a surface audit of where else its change lands before
   both rounds' residual risks and non-blocking findings, references it in the
   git note and prints the residual risks.
 
+## EVIDENCE-ESCAPE-001
+
+Every DEBUG fix MUST declare where its bug came from before review, and a declared escape MUST be linked, labelled and recorded mechanically.
+
+- Trigger: A DEBUG hypothesis is confirmed, or a normal task fixes a bug that passed earlier gates.
+- Action: Declare `origin` with `task debug --debug-action origin --payload-file <json>`: `{"kind": "escape-of", "commit": "<commit>", "label": "<label>"}` (optional `"receipt"`), or `{"kind": "pre-existing" | "external", "reason": "..."}`. A normal task may opt in with `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]`. Commit the `.agent-ops-escapes/<task-id>.json` record with the fix.
+- Evidence: `origin` is bound into the task contract hash; finish, `task complete` and the completion gate refuse a DEBUG task created after this rule without it as `ESCAPE_ORIGIN_MISSING`; both reviewers receive the link state, labels, facts and residual risks under the `escape-label` criterion.
+- Positive: `Hypothesis confirmed; origin escape-of 864dbbe2 label surface; replay marks the missed page surface-unseen; the record is committed with the fix.`
+- Negative: `Finish a DEBUG fix without an origin, or relabel a surface-excluded miss as review because the reviewer "should have noticed".`
+
+- The declaration comes after a confirmed hypothesis (`ESCAPE_ORIGIN_EARLY`
+  otherwise), inside the DEBUG budget. It is a contract revision: re-verify,
+  re-record the confirmed hypothesis with the new evidence, then review.
+  Re-declaring replaces the record. The output lists `git blame` hint commits
+  for lines the fix changed or removed; blame is a hint only, because an
+  omission bug lives in lines nobody wrote.
+- Finish receipts stay local in the Git common directory. Schema 2 records
+  every commit in target..candidate and a per-file diff fingerprint (blob ids
+  and hunk positions dropped, so a squash merge keeps it); schema 1 receipts
+  still load and link by exact head only.
+- Link states are counted separately: `gated` (a receipt matched),
+  `unresolved` with a reason (`receipt-not-local` when a Git note or
+  `--escape-receipt` names a receipt this machine lacks, `ambiguous-receipt`,
+  `link-unavailable`) and `ungated` (no receipt and no note). Resolution
+  order: `--escape-receipt` override, the commit inside a receipt's recorded
+  range (schema 1: exact head), per-file fingerprint match, then unresolved or
+  ungated.
+- Label: one primary label, the earliest gate that could have caught the
+  escape — `requirement`, `surface`, `scenario`, `criteria`, `verify`,
+  `review` — or `flagged` (a residual risk or finding already said it) or
+  `out-of-model`. The agent proposes it; `git grep -F` replay of the linked
+  receipt's recorded surface queries at its candidate marks each file the fix
+  touched as included, excluded, hit, unseen or absent, and `surface-excluded`
+  or `surface-unseen` overrides any later label. The two reviewers adjudicate.
+- The ledger is git-tracked and data only (commits, paths, labels, reasons,
+  counts; never file contents or transcripts), one file per task so parallel
+  worktrees never conflict. Gate catches (`SURFACE_*` and `SCENARIO_MISSING`
+  review blocks, review FAIL, verify red to green) append advisory local-log
+  `gate-catch` events with only the code and task id; logging fails open,
+  while the origin requirement fails closed.
+- Scope R1 records. Rules learned from escapes, replay proof, backtests,
+  `--escape-fix` and an `agent-ops escapes` report are R2.
+
 ## EVIDENCE-AGGREGATE-001
 
 The verifier MUST return FAIL when a criterion is missing, duplicated, unknown, or has empty evidence.

@@ -41,6 +41,9 @@ export async function checkTaskCompletionEvidence(
         attestation?.debugProofs?.[stored.task.id] !== debugProofDigest(debug))
       return {status:"FAIL",code:"TASK_DEBUG_PROOF_REQUIRED",remedy:"Confirm the original cause with current discriminating regression proof, then obtain two fresh independent reviews bound to that debug proof."};
   }
+  // Fails closed: the Escape Loop needs every DEBUG fix to say where the bug came from.
+  if (stored.task.originRequired === true && stored.task.origin === undefined)
+    return {status:"FAIL",code:"ESCAPE_ORIGIN_MISSING",remedy:"Declare the issue origin with task debug --debug-action origin --payload-file <json> (escape-of <commit> + label, pre-existing or external + reason) after the hypothesis is confirmed, then re-verify, re-record the hypothesis and obtain review."};
   if (attestation === null || attestation.taskId !== stored.task.id ||
       ((stored.task.criteria.some(c => c.acceptance !== undefined) || (stored.task.contractRevision ?? 0) > 0 || stored.task.goal !== undefined) &&
        (attestation.schemaVersion !== 3 || attestation.taskContracts?.[stored.task.id] !== taskContractHash(stored.task))) ||

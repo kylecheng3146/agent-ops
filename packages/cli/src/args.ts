@@ -50,7 +50,7 @@ export type TaskAction =
   | "replan"
   | "pin-finding"
   | "debug";
-export type DebugAction = "status" | "hypothesis" | "strategy" | "investigate" | "checkpoint" | "resume" | "extend";
+export type DebugAction = "status" | "hypothesis" | "strategy" | "investigate" | "checkpoint" | "resume" | "extend" | "origin";
 export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
@@ -105,6 +105,10 @@ export interface ParsedArgs {
   criterionFiles?: string[];
   criteriaFile?: string;
   surfaceFile?: string;
+  /** Escape Loop: the commit this task's bug escaped from, with its agent label and optional receipt override. */
+  escapeOf?: string;
+  escapeLabel?: string;
+  escapeReceipt?: string;
   planFile?: string;
   expectedContract?: string;
   expectedTreeContract?: string;
@@ -240,6 +244,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const criterionFiles: string[] = [];
   let criteriaFile: string | undefined;
   let surfaceFile: string | undefined;
+  let escapeOf: string | undefined;
+  let escapeLabel: string | undefined;
+  let escapeReceipt: string | undefined;
   let planFile: string | undefined;
   let expectedContract: string | undefined;
   let expectedTreeContract: string | undefined;
@@ -372,7 +379,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--debug-action": {
         if (debugAction !== undefined) duplicate(token);
         const value=readOptionValue(argv,index++,token);
-        if (!["status","hypothesis","strategy","investigate","checkpoint","resume","extend"].includes(value)) invalidValue(token,value);
+        if (!["status","hypothesis","strategy","investigate","checkpoint","resume","extend","origin"].includes(value)) invalidValue(token,value);
         debugAction=value as DebugAction; break;
       }
       case "--payload-file": if (payloadFile !== undefined) duplicate(token); payloadFile=readOptionValue(argv,index++,token); break;
@@ -386,6 +393,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--criterion-file": criterionFiles.push(readOptionValue(argv, index++, token)); break;
       case "--criteria-file": if (criteriaFile !== undefined) duplicate(token); criteriaFile = readOptionValue(argv, index++, token); break;
       case "--surface-file": if (surfaceFile !== undefined) duplicate(token); surfaceFile = readOptionValue(argv, index++, token); break;
+      case "--escape-of": if (escapeOf !== undefined) duplicate(token); escapeOf = readOptionValue(argv, index++, token); break;
+      case "--escape-label": if (escapeLabel !== undefined) duplicate(token); escapeLabel = readOptionValue(argv, index++, token); break;
+      case "--escape-receipt": if (escapeReceipt !== undefined) duplicate(token); escapeReceipt = readOptionValue(argv, index++, token); break;
       case "--plan-file": if (planFile !== undefined) duplicate(token); planFile = readOptionValue(argv, index++, token); break;
       case "--expected-contract": if (expectedContract !== undefined) duplicate(token); expectedContract = readOptionValue(argv, index++, token); break;
       case "--expected-tree-contract": if (expectedTreeContract !== undefined) duplicate(token); expectedTreeContract = readOptionValue(argv, index++, token); break;
@@ -876,7 +886,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED","Debug operation options apply only to task debug.");
   if (command === "task" && action === "debug" && (taskId === undefined || debugAction === undefined || title !== undefined || intent !== undefined ||
     parentTaskId !== undefined || criteria.length > 0 || evidence.length > 0 ||
-    ((debugAction === "hypothesis" || debugAction === "strategy") !== (payloadFile !== undefined)) ||
+    ((debugAction === "hypothesis" || debugAction === "strategy" || debugAction === "origin") !== (payloadFile !== undefined)) ||
     ((debugAction === "investigate") !== (commandId !== undefined)) || ((debugAction === "extend") !== (eventId !== undefined))))
     throw new CliArgumentError("CLI_MISSING_VALUE","Task debug requires --task, --debug-action and the operation's exact payload/command/event options.");
   if ((criterionFiles.length > 0 && !(command === "task" && (action === "create" || action === "pin-finding"))) ||
@@ -888,8 +898,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     (reason !== undefined && !revisionAction) ||
     (baseline !== undefined && !(command === "task" && (action === "create" || action === "revise"))))
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Acceptance options are not supported by this command.");
+  if ((escapeOf !== undefined || escapeLabel !== undefined || escapeReceipt !== undefined) && !(command === "task" && (action === "create" || action === "revise")))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Escape options apply only to task create and revise.");
+  if ((escapeOf === undefined) !== (escapeLabel === undefined) || (escapeReceipt !== undefined && escapeOf === undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "--escape-of needs --escape-label; --escape-label and --escape-receipt need --escape-of.");
   if (revisionAction && (taskId === undefined || evidence.length > 0 || title !== undefined || intent !== undefined || parentTaskId !== undefined || sessionId !== undefined || criteria.length > 0 || base !== undefined ||
-    (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined) || reason === undefined)) ||
+    (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined && escapeOf === undefined) || reason === undefined)) ||
     (action === "replan" && (expectedTreeContract === undefined || planFile === undefined || reason === undefined)) ||
     (action === "pin-finding" && (expectedContract === undefined || findingReference === undefined || criterionFiles.length !== 1))))
     throw new CliArgumentError("CLI_MISSING_VALUE", "Acceptance revision requires task, expected contract, payload and reason.");
@@ -1134,6 +1148,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(criterionFiles.length === 0 ? {} : {criterionFiles}),
     ...(criteriaFile === undefined ? {} : {criteriaFile}),
     ...(surfaceFile === undefined ? {} : {surfaceFile}),
+    ...(escapeOf === undefined ? {} : {escapeOf}),
+    ...(escapeLabel === undefined ? {} : {escapeLabel}),
+    ...(escapeReceipt === undefined ? {} : {escapeReceipt}),
     ...(planFile === undefined ? {} : {planFile}),
     ...(expectedContract === undefined ? {} : {expectedContract}),
     ...(expectedTreeContract === undefined ? {} : {expectedTreeContract}),

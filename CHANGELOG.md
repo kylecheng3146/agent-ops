@@ -4,6 +4,27 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Escape Loop R1 (`EVIDENCE-ESCAPE-001`, English and zh-TW): every DEBUG fix
+  declares where its bug came from with `task debug --debug-action origin`
+  (`escape-of <commit>` with the earliest-gate label, `pre-existing` or
+  `external` with a reason) after a confirmed hypothesis. The origin is bound
+  into the task contract; DEBUG tasks created from this release cannot finish
+  without it (`ESCAPE_ORIGIN_MISSING`). Normal tasks may opt in with
+  `task create|revise --escape-of <commit> --escape-label <label>
+  [--escape-receipt <id>]`. The declaration prints `git blame` hint commits.
+- Finish receipts move to schema 2: every commit in target..candidate plus a
+  per-file diff fingerprint that survives squash merges. Schema 1 receipts
+  still load and link by exact head; `review show` reads both.
+- A declared escape resolves to `gated`, `unresolved` (with a reason such as
+  `receipt-not-local`) or `ungated`; `git grep -F` replay of the linked
+  receipt's surface queries marks missed files `surface-excluded` or
+  `surface-unseen`, which overrides a later agent label. Both reviewers get the
+  label, facts and the receipt's residual risks under a new `escape-label`
+  criterion. Each escape writes one data-only, git-tracked record under
+  `.agent-ops-escapes/`.
+- Advisory local-log `gate-catch` events record surface blocks, review FAIL and
+  verify red-to-green with only the code and task id.
+
 ## [0.9.0] - 2026-10-13
 
 - Surface audit (`EVIDENCE-SURFACE-001`): before writing acceptance criteria,
