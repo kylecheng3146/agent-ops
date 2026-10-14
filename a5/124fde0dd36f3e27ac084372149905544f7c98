@@ -16,3 +16,13 @@ criteria:
 - ac3-suite: The full npm test suite passes, including the startup runner count (62) and existing update, worktree and review tests.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-17198ea652484f76722004acdf9fb2c478985514.json
 receipt-sha256: 80400d8a245b0c2f260f785ef5d03d0eeccf5ca1793ea4aeaeaf01f18d5a8e5a
+
+worktree: gate-a (agent-ops/gate-a)
+session: bf3a95c5-b9ae-4249-8ee4-c6b97127520b
+agent-ops task task-1df48dc1-7f01-4148-949d-cfdda4eda871: Per-step runner timeouts and 30-minute review rounds (A)
+criteria:
+- ac1-runner-timeouts: Acceptance runner steps without their own timeoutMs use per-step defaults (setup 600 s, build 300 s, testBuild 300 s, run 300 s, git checkout 60 s) instead of a shared 60 s; a step that times out yields UNKNOWN with a detail naming the step, its limit and the timeoutMs field that raises it, printed by agent-ops verify. Configuration guides (en, zh-TW) and CHANGELOG describe it. Checks: acceptance-step-timeouts, acceptance-timeout-detail.
+- ac2-review-timeout: DEFAULT_REVIEW_TIMEOUT_MS is 30 minutes per reviewer round (was 15); a configured reviewRoles[].timeoutMs is honored even above the default (it was silently capped), short stages keep their own ceilings, the chain deadline still wins, and the stall guards are unchanged. Checks: review-default-timeout, review-timeout-not-capped.
+- ac3-suite: The full npm test suite passes, including the startup runner count (59) and the updated thirty-minute review default test.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-b2bba217e87baa01465293f0fa5b1fad8732d00a.json
+receipt-sha256: 61fb77da36fdbb857ff7e85a682844a22f4b5c29c56e282a79d0f694dba61245
