@@ -4,6 +4,10 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Review packets send the surface revision history as per-revision deltas
+  (rows added or removed, other fields before and after, or `unchanged`)
+  instead of whole previous audits, so a large audit revised a few times no
+  longer overflows the 64 KiB packet as `scope-too-large`.
 - Escape Loop R1 (`EVIDENCE-ESCAPE-001`, English and zh-TW): every DEBUG fix
   declares where its bug came from with `task debug --debug-action origin`
   (`escape-of <commit>` with the earliest-gate label, `pre-existing` or
