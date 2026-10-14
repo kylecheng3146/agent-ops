@@ -11,6 +11,7 @@ import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
 import {escapeChecks} from '../escape/escape-checks.mjs';
 import {ruleChecks} from '../escape/rule-checks.mjs';
+import {timeoutChecks} from '../verify/timeout-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -59,6 +60,7 @@ const checks = {
   ...surfaceChecks,
   ...escapeChecks,
   ...ruleChecks,
+  ...timeoutChecks,
   'live-worktree-heartbeats': () => fixture(async ({root, runner, gate}) => {
     const deps = {git: async (cwd, args) => {
       try {return {exitCode: 0, stdout: execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}), stderr: ''};}

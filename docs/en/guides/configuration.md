@@ -115,7 +115,14 @@ Capability checks and model starts are reported on stderr, including under
 `--json`; stdout remains one final JSON envelope and raw reviewer output is
 never streamed. SIGINT or SIGTERM terminates the active reviewer process tree,
 does not advance the fallback chain, and never writes an attestation. An
-exhausted timeout chain reports `timeout`, not `missing-cli`.
+exhausted timeout chain reports `timeout`, not `missing-cli`. Each reviewer
+round may take 30 minutes by default (`reviewRoles[].timeoutMs` overrides it);
+a reviewer that prints nothing for the stall window is still stopped early.
+
+Acceptance runner steps without their own `timeoutMs` get 10 minutes for
+`setup`, 5 minutes each for `build`, `testBuild` and the runner itself, and
+1 minute for the git checkout. A step that times out is reported as
+`UNKNOWN` with the step, its limit and the `timeoutMs` field that raises it.
 
 The task ID is explicit and its criteria are always used; no session fallback
 or criterion filter can replace the original task requirements. Review rechecks

@@ -9,7 +9,7 @@ import {withPrivateFileLock} from "../security/permissions.js";
 /** Reviews allowed at once across every worktree of a repository. */
 export const REVIEW_SLOT_WIDTH = 2;
 const POLL_MS = 1000;
-// A review is two reviewer sessions of at most 15 minutes each plus probes.
+// A review is two reviewer sessions of at most 30 minutes each plus probes.
 const STALE_MS = 2 * 60 * 60 * 1000;
 
 export interface ReviewSlotOptions {

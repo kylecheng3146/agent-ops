@@ -140,7 +140,10 @@ function formatReport(report: PublicVerificationReport): string {
     `Scope: ${report.selection.reason} (${
       report.selection.fallback ? "fallback" : "bounded"
     })`,
-    ...report.results.flatMap(formatResult)
+    ...report.results.flatMap(formatResult),
+    // A timed-out runner step says which step and which limit; plain UNKNOWN left people guessing.
+    ...(report.acceptance ?? []).flatMap(row => row.detail === undefined ? [] :
+      [`- ${row.status} ${safe(row.runnerId)} (${row.criterionId}, ${row.phase}): ${safe(row.detail)}`])
   ];
   if (report.signal !== null) {
     lines.push(`Signal: ${report.signal}`);

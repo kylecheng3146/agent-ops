@@ -50,9 +50,9 @@ interface Attempt {
   readonly stdin?: string;
 }
 
-test("full reviews default to a fifteen-minute target timeout", () => {
-  // A real working-tree review outruns five minutes on both codex and claude.
-  assert.equal(DEFAULT_REVIEW_TIMEOUT_MS, 900_000);
+test("full reviews default to a thirty-minute target timeout", () => {
+  // A real working-tree review outruns five minutes on codex and claude, and fifteen on agy.
+  assert.equal(DEFAULT_REVIEW_TIMEOUT_MS, 1_800_000);
 });
 
 /** Where the target was told to write its own log, when it was told at all. */

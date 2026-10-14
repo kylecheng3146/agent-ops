@@ -62,9 +62,11 @@ export interface ReviewTargetPreflightOutcome {
  * Full repository reviews need far more headroom than the lightweight auth
  * probe. Five minutes was not enough: reviewing a real working tree, codex and
  * claude both exceeded it on this repository, and a timeout costs the whole
- * review while looking like an unavailable target.
+ * review while looking like an unavailable target. Fifteen minutes was not
+ * enough either: agy rounds took 450-900 s and timed out at 900 s; the stall
+ * guards still stop a reviewer that goes quiet.
  */
-export const DEFAULT_REVIEW_TIMEOUT_MS = 900_000;
+export const DEFAULT_REVIEW_TIMEOUT_MS = 1_800_000;
 
 /**
  * How long a reviewer may produce nothing at all before it is treated as

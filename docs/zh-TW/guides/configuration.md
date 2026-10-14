@@ -99,7 +99,13 @@ diagnostic。
 Capability check 與模型啟動進度都寫到 stderr，包括 `--json` 模式；stdout
 仍只有最終 JSON envelope，且不會串流 reviewer 原始輸出。SIGINT 或 SIGTERM
 會終止目前 reviewer 的完整 process tree、不進入 fallback，也不寫入
-attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli`。
+attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli`。每輪
+reviewer 預設最多 30 分鐘（可用 `reviewRoles[].timeoutMs` 覆寫）；在 stall 視窗內
+完全沒有輸出的 reviewer 仍會提早停止。
+
+Acceptance runner 的步驟若未設定自己的 `timeoutMs`，`setup` 為 10 分鐘，
+`build`、`testBuild` 與 runner 本身各 5 分鐘，git checkout 為 1 分鐘。逾時的步驟
+回報為 `UNKNOWN`，並指出是哪個步驟、上限多少，以及要調整哪個 `timeoutMs` 欄位。
 
 task ID 必須明確指定，且永遠使用該 task 的原始 criteria；不能用 session fallback
 或 criterion filter 取代需求。review 會在 adversarial session 前、以及寫入證據前

@@ -35,7 +35,12 @@ export interface AcceptanceReplayResult {
   readonly status: "PASS" | "FAIL" | "UNKNOWN";
   readonly failureClass: string;
   readonly reference: string;
+  /** Set when a step timed out: which step, its limit and the config field that raises it. */
+  readonly detail?: string;
 }
+
+/** Limits for runner steps without their own timeoutMs: installs are slow, git plumbing is not. */
+export const ACCEPTANCE_TIMEOUTS = {setup: 600_000, build: 300_000, testBuild: 300_000, run: 300_000, git: 60_000} as const;
 
 async function executableIdentity(command: string, cwd: string, env: Record<string, string>): Promise<string> {
   const paths = isAbsolute(command) ? [command] : command.includes("/") ? [join(cwd, command)] :
@@ -125,12 +130,20 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       const temp = await mkdtemp(join(tmpdir(), "agent-ops-acceptance-"));
       const checkout = join(temp, "repository");
       const env = replayEnvironment(checkout, phase, executionId);
-      const command = async (executable: string, args: readonly string[], cwd: string, timeoutMs = 60_000) => {
+      let timedOut: string | undefined;
+      const command = async (executable: string, args: readonly string[], cwd: string, stage: keyof typeof ACCEPTANCE_TIMEOUTS,
+        own?: number) => {
         const remaining = await options.remainingMs?.();
         if (remaining === 0) throw new AgentOpsError("TASK_DEBUG_BUDGET_EXHAUSTED","The original issue's active budget is exhausted.");
-        return await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
-          evidence: {kind: "exit-code"}, timeoutMs:Math.min(timeoutMs,remaining ?? Infinity)}, {cwd, runner: options.processRunner, env, replaceEnv: true,
+        const limit = own ?? ACCEPTANCE_TIMEOUTS[stage];
+        const result = await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
+          evidence: {kind: "exit-code"}, timeoutMs:Math.min(limit,remaining ?? Infinity)}, {cwd, runner: options.processRunner, env, replaceEnv: true,
           outputLimitBytes: 1024 * 1024, ...(options.signal === undefined ? {} : {signal: options.signal})});
+        if (result.failureClass === "timeout" && timedOut === undefined) timedOut = stage === "git"
+          ? `Runner ${group.runner.id} ${phase}: git checkout exceeded ${limit} ms.`
+          : `Runner ${group.runner.id} ${phase}: ${stage} step ${executable} exceeded ${limit} ms; raise ` +
+            (stage === "run" ? "verification.acceptanceRunners[].timeoutMs" : `the step's timeoutMs in verification.acceptanceRunners[].${stage}`) + ".";
+        return result;
       };
       let aggregate: AcceptanceAggregate | undefined;
       let failure = "replay-unavailable";
@@ -144,12 +157,13 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       try {
         for (const [cwd, args] of [[temp, ["clone", "--no-hardlinks", "--quiet", "--", options.root, checkout]],
           [checkout, ["fetch", "--quiet", "--", options.root, commit]], [checkout, ["checkout", "--detach", "--quiet", commit]]] as const) {
-          const result = await command("git", args, cwd);
+          const result = await command("git", args, cwd, "git");
           if (result.status !== "PASS") throw new Error("checkout-unavailable");
         }
         const cwd = group.runner.cwd === "." ? checkout : await resolveContainedPath(checkout, group.runner.cwd);
-        for (const step of [...(group.runner.setup ?? []), ...(group.runner.build ?? [])]) {
-          const result = await command(step.command, step.args, cwd, step.timeoutMs);
+        for (const [stage, step] of [...(group.runner.setup ?? []).map(step => ["setup", step] as const),
+          ...(group.runner.build ?? []).map(step => ["build", step] as const)]) {
+          const result = await command(step.command, step.args, cwd, stage, step.timeoutMs);
           steps.push({command: step.command, args: step.args, status: result.status, failureClass: result.failureClass, stderr: result.stderr});
           if (result.status !== "PASS") throw new Error("setup-or-build-unavailable");
         }
@@ -168,7 +182,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           await chmod(path, material.mode);
         }
         for (const step of group.runner.testBuild ?? []) {
-          const result = await command(step.command, step.args, cwd, step.timeoutMs);
+          const result = await command(step.command, step.args, cwd, "testBuild", step.timeoutMs);
           steps.push({command: step.command, args: step.args, status: result.status, failureClass: result.failureClass, stderr: result.stderr});
           if (result.status !== "PASS") throw new Error("test-build-unavailable");
         }
@@ -183,7 +197,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
         if (identity === "unavailable") throw new Error("missing-executable");
         executionDigest = sha256(canonicalJson({commit, materialDigest, runner: group.runner, argv, dependencies,
           executable: identity, platform: process.platform, arch: process.arch, environment: sha256(canonicalJson(env))}));
-        output = await command(group.runner.command, argv, cwd, group.runner.timeoutMs);
+        output = await command(group.runner.command, argv, cwd, "run", group.runner.timeoutMs);
         run = collected(group.runner, output, checkout, {executionId, phase,
           frameworkVersion: group.runner.adapter === "node" ? process.version : "dependency-lock:" + sha256(canonicalJson(dependencies))});
         aggregate = aggregateAcceptanceRun(run, requested);
@@ -221,7 +235,8 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           taskContractHash: taskContractHash(options.task), acceptance: {criterionContractHash: criterionContractHash(criterion),
             bindingHash: sha256(canonicalJson({runnerId: group.runner.id, materials: group.binding.materials})), phase, commit, pairedCommit: phase === "baseline" ? candidate : group.baseline, materialDigest, executionDigest, executionArtifact, checks}});
         const reference = await options.evidenceStore.save(evidence);
-        reports.push({criterionId: criterion.id, runnerId: group.runner.id, phase, status, failureClass: evidence.failureClass, reference});
+        reports.push({criterionId: criterion.id, runnerId: group.runner.id, phase, status, failureClass: evidence.failureClass, reference,
+          ...(timedOut === undefined || status === "PASS" ? {} : {detail: timedOut})});
       }
     }
   }
