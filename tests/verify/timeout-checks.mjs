@@ -50,7 +50,8 @@ async function slowBuild(check) {
     const report = await new VerificationService({root, scope: 'project', config, gitRunner, processRunner: new NodeVerificationProcessRunner(),
       taskService: tasks, evidenceStore: new FileEvidenceStore(root, root), trusted: true, base: baseline}).verify(record.task.id);
     await check(report);
-  } finally {await rm(root, {recursive: true, force: true});}
+  // Windows: the killed timeout step can hold the replay checkout briefly (EBUSY); rm retries.
+  } finally {await rm(root, {recursive: true, force: true, maxRetries: 10});}
 }
 
 const raw = {
