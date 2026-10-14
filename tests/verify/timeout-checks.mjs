@@ -70,6 +70,17 @@ const raw = {
   'review-default-timeout': async () => {
     const {DEFAULT_REVIEW_TIMEOUT_MS} = await load('runtime/src/review/execute.js');
     assert.equal(DEFAULT_REVIEW_TIMEOUT_MS, 1_800_000);
+  },
+
+  'review-timeout-not-capped': async () => {
+    const execute = await load('runtime/src/review/execute.js');
+    assert.equal(typeof execute.stageTimeout, 'function', 'stageTimeout is not exported');
+    // A configured reviewer timeout above the default is honored, not cut back to it.
+    assert.equal(execute.stageTimeout({timeoutMs: 3_600_000}), 3_600_000);
+    assert.equal(execute.stageTimeout({}), execute.DEFAULT_REVIEW_TIMEOUT_MS);
+    // Short stages keep their own ceiling, and the chain deadline still wins.
+    assert.equal(execute.stageTimeout({timeoutMs: 3_600_000}, 60_000), 60_000);
+    assert.equal(execute.stageTimeout({timeoutMs: 3_600_000, deadlineAt: 1_000, now: () => 400}), 600);
   }
 };
 

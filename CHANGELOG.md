@@ -8,7 +8,8 @@ All notable changes to the project are documented here.
   for setup and 5 minutes each for build, test build and the runner (all were
   60 seconds); a timed-out step is reported with its name, limit and the
   `timeoutMs` field that raises it. Reviewer rounds default to 30 minutes
-  (was 15); the stall guards are unchanged.
+  (was 15), and a larger `reviewRoles[].timeoutMs` is honored instead of being
+  cut back to the default; the stall guards are unchanged.
 - Surface discovery skips derived queries above 10 file hits (was 30), and a
   surface may dismiss an incidental derived query once in its new optional
   `dismissed` list instead of excluding each file it reaches. Recorded and

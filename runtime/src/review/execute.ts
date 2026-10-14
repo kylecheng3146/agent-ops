@@ -143,13 +143,16 @@ export interface ReviewExecutorOptions {
 
 /**
  * What one subprocess may take: its own ceiling, or whatever is left of the
- * chain, whichever is smaller. Recomputed at each call site on purpose.
+ * chain, whichever is smaller. Recomputed at each call site on purpose. The
+ * reviewer itself has no ceiling beyond the configured timeout: capping it at
+ * the default silently ignored a larger `reviewRoles[].timeoutMs`.
  */
-function stageTimeout(
-  options: ReviewExecutorOptions,
-  ceilingMs = DEFAULT_REVIEW_TIMEOUT_MS
+export function stageTimeout(
+  options: Pick<ReviewExecutorOptions, "timeoutMs" | "deadlineAt" | "now">,
+  ceilingMs?: number
 ): number {
-  const own = Math.min(options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS, ceilingMs);
+  const configured = options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS;
+  const own = ceilingMs === undefined ? configured : Math.min(configured, ceilingMs);
   if (options.deadlineAt === undefined) {
     return own;
   }
