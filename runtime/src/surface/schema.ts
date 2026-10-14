@@ -1,4 +1,5 @@
 import { AgentOpsError } from "../fs/paths.js";
+import { canonicalJson } from "../config/hash.js";
 
 /** EVIDENCE-SURFACE-001: where else the change lands, recorded before criteria. */
 export const SURFACE_AXES = ["dependents", "duplicates", "otherPaths", "sharedState"] as const;
@@ -142,4 +143,31 @@ export function globMatcher(pattern: string): (path: string) => boolean {
   }
   const expression = new RegExp(`^${source}$`, "u");
   return path => expression.test(path);
+}
+
+export type SurfaceDelta = "unchanged" | {
+  readonly added?: Readonly<Record<string, readonly unknown[]>>;
+  readonly removed?: Readonly<Record<string, readonly unknown[]>>;
+  readonly changed?: Readonly<Record<string, { readonly before: unknown; readonly after: unknown }>>;
+};
+
+/** What one revision did to the surface: list rows added/removed, other fields before/after. Size follows the edit, not the audit. */
+export function surfaceDelta(before: TaskSurface | null | undefined, after: TaskSurface | null | undefined): SurfaceDelta {
+  const key = (value: unknown) => canonicalJson(value ?? null);
+  if (key(before) === key(after)) return "unchanged";
+  const from = (before ?? {}) as Record<string, unknown>, to = (after ?? {}) as Record<string, unknown>;
+  const added: Record<string, unknown[]> = {}, removed: Record<string, unknown[]> = {};
+  const changed: Record<string, { before: unknown; after: unknown }> = {};
+  for (const field of [...new Set([...Object.keys(from), ...Object.keys(to)])].sort()) {
+    const a = from[field], b = to[field];
+    if (key(a) === key(b)) continue;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      const old = new Set(a.map(key)), next = new Set(b.map(key));
+      const plus = b.filter(row => !old.has(key(row))), minus = a.filter(row => !next.has(key(row)));
+      if (plus.length > 0) added[field] = plus;
+      if (minus.length > 0) removed[field] = minus;
+    } else changed[field] = {before: a ?? null, after: b ?? null};
+  }
+  return {...(Object.keys(added).length > 0 ? {added} : {}), ...(Object.keys(removed).length > 0 ? {removed} : {}),
+    ...(Object.keys(changed).length > 0 ? {changed} : {})};
 }

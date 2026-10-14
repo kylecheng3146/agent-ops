@@ -63,7 +63,7 @@ import {loadDebugProof,debugProofDigest} from "../../../../runtime/src/task/debu
 import {logSurfaceResidualRisks, runSurfaceGate, type SurfaceCode, type SurfaceGateResult} from "../../../../runtime/src/surface/discovery.js";
 import {escapeReviewData} from "../../../../runtime/src/escape/link.js";
 import {logGateCatch} from "../../../../runtime/src/logging/local-log.js";
-import {isCovers} from "../../../../runtime/src/surface/schema.js";
+import {isCovers, surfaceDelta} from "../../../../runtime/src/surface/schema.js";
 import type {ReviewSurfaceData} from "../../../../runtime/src/review/packet.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
@@ -549,7 +549,9 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
   if (gate.status === "NOT_RUN" || holder === undefined || gate.discovery === null) return {gate};
   return {gate, packet: {
     audit: holder.task.surface,
-    history: (holder.revisions ?? []).slice(-10).map(revision => ({at: revision.at, reason: revision.reason, surface: revision.previousTask.surface ?? null})),
+    // Deltas, not whole previous audits: a large audit revised a few times must still fit the review packet.
+    history: (holder.revisions ?? []).map((revision, i, all) => ({at: revision.at, reason: revision.reason,
+      change: surfaceDelta(revision.previousTask.surface, (all[i + 1]?.previousTask ?? holder!.task).surface)})).slice(-10),
     discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped},
     postBlockExclusions: gate.discovery.postBlockExclusions
   }};

@@ -13,7 +13,8 @@ export interface ReviewEvidenceRequirement {
 /** EVIDENCE-SURFACE-001 data for the surface-coverage criterion. */
 export interface ReviewSurfaceData {
   readonly audit: unknown;
-  readonly history: readonly { readonly at: string; readonly reason: string; readonly surface: unknown }[];
+  /** One entry per revision (latest ten): what it added, removed or changed in the audit. */
+  readonly history: readonly { readonly at: string; readonly reason: string; readonly change: SurfaceDelta }[];
   readonly discovery: unknown;
   readonly postBlockExclusions: readonly unknown[];
 }
@@ -135,6 +136,7 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
   return packet;
 }
 import { evaluateGuardrail } from "../guardrails/evaluate.js";
+import type { SurfaceDelta } from "../surface/schema.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { redactSecrets } from "../security/redact.js";
 import { safeTaskText } from "../task/render.js";

@@ -323,7 +323,7 @@ function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversar
   return [
     "",
     "Surface coverage (narrow exception to \"Do not survey\"): task data carries the surface audit, its revision " +
-      "history, discovery counts and post-block exclusions (exclusions added after an unclassified-surface block; " +
+      "history (each revision's added, removed and changed audit entries), discovery counts and post-block exclusions (exclusions added after an unclassified-surface block; " +
       "scrutinize each). Judge the surface-coverage criterion on places and scenarios: an affected place or scenario " +
       "that is not listed, an exclusion whose reason does not show the surface is unaffected, or a listed behavior the " +
       "change does not implement is a blocking finding on surface-coverage.",
