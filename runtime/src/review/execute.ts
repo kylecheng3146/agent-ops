@@ -964,7 +964,7 @@ async function attemptTarget(
       metrics: metrics()
     };
   } finally {
-    await rm(attemptDirectory, { recursive: true, force: true });
+    await removeTemporary(attemptDirectory);
   }
 }
 
@@ -1304,5 +1304,6 @@ export function createReviewExecutor(
 }
 
 import {sha256} from "../fs/hash.js";
+import {removeTemporary} from "../fs/temporary.js";
 
 import {writePrivateFile} from "../security/permissions.js";

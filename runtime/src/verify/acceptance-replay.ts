@@ -1,4 +1,4 @@
-import {lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile, chmod} from "node:fs/promises";
+import {lstat, mkdir, mkdtemp, readFile, realpath, writeFile, chmod} from "node:fs/promises";
 import {dirname, join, delimiter, isAbsolute} from "node:path";
 import {tmpdir} from "node:os";
 import {writePrivateFile} from "../security/permissions.js";
@@ -7,6 +7,7 @@ import {randomUUID} from "node:crypto";
 import type {AcceptanceBinding, AcceptanceRunner, AgentOpsConfig, AgentTask, VerificationEvidence} from "../contracts.js";
 import {canonicalJson} from "../config/hash.js";
 import {sha256} from "../fs/hash.js";
+import {removeTemporary} from "../fs/temporary.js";
 import {AgentOpsError, resolveContainedPath} from "../fs/paths.js";
 import {criterionContractHash, taskContractHash} from "../task/contract.js";
 import {aggregateAcceptanceRun, makeAcceptanceCheck, makeAcceptanceRun, type AcceptanceRun, type AcceptanceAggregate, type AcceptancePhase} from "./acceptance-protocol.js";
@@ -208,7 +209,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
         failure = aggregate?.failureClass ?? output.failureClass;
       } catch (error) {
         failure = error instanceof AgentOpsError && error.code === "TASK_DEBUG_BUDGET_EXHAUSTED" ? "debug-budget-exhausted" : error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
-      } finally { await rm(temp, {recursive: true, force: true}); }
+      } finally { await removeTemporary(temp); }
       const finishedAt = new Date().toISOString();
       const artifactContent = redactSecrets(JSON.stringify({schemaVersion: 1, executionId, phase, commit,
         pairedCommit: phase === "baseline" ? candidate : group.baseline, materialDigest, executionDigest,

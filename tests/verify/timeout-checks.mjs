@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -13,8 +13,10 @@ const load = async path => {
   catch (e) {assert.fail(`${path} is unavailable: ${e.code ?? e.message}`);}
 };
 
-/** A one-criterion behavioral task whose runner has a build step that outlives its own 300 ms limit. */
-async function slowBuild(check) {
+const SLOW_STEP = {command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], timeoutMs: 300};
+
+/** A one-criterion behavioral task whose runner has one build step, by default one that outlives its own 300 ms limit. */
+async function slowBuild(check, step = SLOW_STEP) {
   const {FileTaskStore} = await load('runtime/src/task/store.js');
   const {TaskService} = await load('runtime/src/task/service.js');
   const {FileEvidenceStore, calculateConfigHash} = await load('runtime/src/verify/evidence.js');
@@ -33,7 +35,7 @@ async function slowBuild(check) {
     }};
     const config = {schemaVersion: 3, profiles: ['core'], verification: {commands: [], acceptanceRunners: [{id: 'acceptance',
       command: process.execPath, args: ['tests/check.mjs'], cwd: '.', adapter: 'generic',
-      build: [{command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], timeoutMs: 300}]}]},
+      build: [step]}]},
       features: {completionGate: {enabled: false}, stopVerification: {enabled: false}}, pathMappings: [], securityExceptions: []};
     const tasks = new TaskService(new FileTaskStore(join(root, '.agent-ops/tasks/state.json'), root),
       {completion: {root, gitRunner, base: baseline, loadConfig: async () => config}});
@@ -50,8 +52,7 @@ async function slowBuild(check) {
     const report = await new VerificationService({root, scope: 'project', config, gitRunner, processRunner: new NodeVerificationProcessRunner(),
       taskService: tasks, evidenceStore: new FileEvidenceStore(root, root), trusted: true, base: baseline}).verify(record.task.id);
     await check(report);
-  // Windows: the killed timeout step can hold the replay checkout briefly (EBUSY); rm retries.
-  } finally {await rm(root, {recursive: true, force: true, maxRetries: 10});}
+  } finally {await rm(root, {recursive: true, force: true});}
 }
 
 const raw = {
@@ -67,6 +68,23 @@ const raw = {
     assert.ok(details.length > 0 && details.every(detail => /build step .+ exceeded 300 ms; raise the step's timeoutMs in verification\.acceptanceRunners\[\]\.build\./u.test(detail ?? '')),
       JSON.stringify(report.acceptance));
   }),
+
+  'temporary-cleanup-fail-open': async () => {
+    // Windows holds a killed step's files open (EBUSY); a read-only directory stands in for that here.
+    // An undeletable replay checkout must not turn a finished verification into a crash.
+    const scratch = await mkdtemp(join(tmpdir(), 'agent-ops-scratch-'));
+    const saved = process.env.TMPDIR; process.env.TMPDIR = scratch;
+    try {
+      await slowBuild(report => assert.ok(['PASS', 'FAIL', 'UNKNOWN'].includes(report.status), JSON.stringify(report.acceptance)),
+        {command: process.execPath, args: ['-e', "const fs = require('fs'); fs.mkdirSync('locked'); fs.writeFileSync('locked/f', 'x'); fs.chmodSync('locked', 0o555);"]});
+      if (process.platform !== 'win32') assert.ok((await readdir(scratch)).some(name => name.startsWith('agent-ops-acceptance-')),
+        'the fixture left no undeletable checkout, so cleanup was never exercised');
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved;
+      for (const name of await readdir(scratch)) await chmod(join(scratch, name, 'repository/locked'), 0o755).catch(() => undefined);
+      await rm(scratch, {recursive: true, force: true});
+    }
+  },
 
   'review-default-timeout': async () => {
     const {DEFAULT_REVIEW_TIMEOUT_MS} = await load('runtime/src/review/execute.js');

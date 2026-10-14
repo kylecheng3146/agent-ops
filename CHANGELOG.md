@@ -6,6 +6,10 @@ All notable changes to the project are documented here.
 
 ## [0.10.0] - 2026-10-14
 
+- Verify and review no longer crash when their temporary directory cannot
+  be removed. On Windows a step killed for exceeding its time limit can hold
+  the replay checkout open (EBUSY), which turned a TIMEOUT result into an
+  error; cleanup now retries and then leaves the directory behind.
 - An approved `agent-ops update` now copies the new config into every
   session worktree whose copy is still the previously trusted one and trusts
   it for the same commands (hand-edited copies and run worktrees are left
