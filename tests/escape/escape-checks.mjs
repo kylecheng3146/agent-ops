@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {mkdir, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -522,6 +522,14 @@ const raw = {
     assert.equal(JSON.parse(await readFile(first.path, 'utf8')).label, 'surface');
     assert.deepEqual(f.git('status', '--porcelain', '--untracked-files=all', '--', '.agent-ops-escapes').split('\n').sort(),
       ['?? .agent-ops-escapes/task-one.json', '?? .agent-ops-escapes/task-two.json'], 'the ledger is trackable, not ignored');
+    // A checked-in symlink cannot redirect the ledger outside the worktree.
+    const outside = await realpath(await mkdtemp(join(tmpdir(), 'agent-ops-escape-outside-')));
+    try {
+      f.git('rm', '-rq', '--cached', '--ignore-unmatch', '.agent-ops-escapes'); await rm(join(f.root, '.agent-ops-escapes'), {recursive: true, force: true});
+      await symlink(outside, join(f.root, '.agent-ops-escapes'), 'junction');
+      await assert.rejects(declare('task-three', 'review'), {code: 'ESCAPE_LEDGER_UNSAFE'});
+      assert.equal(existsSync(join(outside, 'task-three.json')), false);
+    } finally {await rm(outside, {recursive: true, force: true});}
   }),
 
   'escape-catch-events': () => withHome(async ({home, catches}) => {

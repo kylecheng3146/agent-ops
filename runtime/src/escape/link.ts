@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, readdir, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { sha256 } from "../fs/hash.js";
@@ -219,6 +220,23 @@ export function ledgerPath(root: string, taskId: string): string {
   return join(root, LEDGER_DIRECTORY, `${taskId}.json`);
 }
 
+/** The ledger is repository content: never follow a checked-in symlink out of the worktree. */
+async function unsafe(target: string, kind: "directory" | "file"): Promise<boolean> {
+  try {
+    const stat = await lstat(target);
+    return stat.isSymbolicLink() || (kind === "directory" ? !stat.isDirectory() : !stat.isFile());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+async function safeLedgerPath(root: string, taskId: string): Promise<string> {
+  const path = ledgerPath(root, taskId);
+  if (await unsafe(join(root, LEDGER_DIRECTORY), "directory") || await unsafe(path, "file"))
+    throw new AgentOpsError("ESCAPE_LEDGER_UNSAFE", `${LEDGER_DIRECTORY} must be a real directory of regular files.`);
+  return path;
+}
+
 /** One record per task; re-declaring replaces it. Commit it with the fix. */
 export async function declareEscape(input: { root: string; git: GitRunner; taskId: string; origin: Extract<TaskOrigin, { kind: "escape-of" }>;
   base: string; now: string }): Promise<{ record: EscapeRecord; path: string; blame: { commit: string; lines: number }[] }> {
@@ -226,18 +244,21 @@ export async function declareEscape(input: { root: string; git: GitRunner; taskI
   const record: EscapeRecord = {schemaVersion: 1, taskId: input.taskId, escapeOf: input.origin.commit, link: assessment.link,
     agentLabel: assessment.agentLabel, label: assessment.label, missedPaths: assessment.missedPaths, facts: assessment.facts,
     residualRisks: assessment.residualRisks.length, declaredAt: input.now};
-  const path = ledgerPath(input.root, input.taskId);
+  await safeLedgerPath(input.root, input.taskId);
   await mkdir(join(input.root, LEDGER_DIRECTORY), {recursive: true});
-  await writeFile(path, `${JSON.stringify(record, null, 2)}\n`);
+  const path = await safeLedgerPath(input.root, input.taskId);
+  // O_NOFOLLOW closes the lstat-to-open race on POSIX; Windows has no such flag.
+  const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0), 0o644);
+  try { await handle.writeFile(`${JSON.stringify(record, null, 2)}\n`, "utf8"); } finally { await handle.close(); }
   return {record, path, blame: await blameHints(input.git, input.base)};
 }
 
 export async function removeEscapeRecord(root: string, taskId: string): Promise<void> {
-  await rm(ledgerPath(root, taskId), {force: true});
+  await rm(await safeLedgerPath(root, taskId), {force: true});
 }
 
 export async function readEscapeRecord(root: string, taskId: string): Promise<EscapeRecord | null> {
-  try { return JSON.parse(await readFile(ledgerPath(root, taskId), "utf8")) as EscapeRecord; }
+  try { return JSON.parse(await readFile(await safeLedgerPath(root, taskId), "utf8")) as EscapeRecord; }
   catch { return null; }
 }
 
