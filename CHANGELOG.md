@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-14
+
 - An approved `agent-ops update` now copies the new config into every
   session worktree whose copy is still the previously trusted one and trusts
   it for the same commands (hand-edited copies and run worktrees are left
