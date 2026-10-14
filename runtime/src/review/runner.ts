@@ -143,6 +143,9 @@ export type ReviewUnavailableReason =
   | "scenario-missing"
   | "surface-budget-exceeded"
   | "surface-unassigned"
+  | "escape-rule-invalid"
+  | "escape-rule-unsafe"
+  | "escape-rule-no-exclude"
   | "timeout";
 
 export interface ReviewExecutionRequest {

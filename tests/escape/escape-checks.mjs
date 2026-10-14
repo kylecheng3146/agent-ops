@@ -332,10 +332,11 @@ const raw = {
       let stored = await reviewed(f, report);
       await assert.rejects(f.tasks.complete(id, stored.evidence), e => e.code === 'TASK_COMPLETION_ESCAPE_ORIGIN_MISSING');
       const payload = join(f.root, '.agent-ops', 'origin.json');
-      await writeFile(payload, JSON.stringify({kind: 'escape-of', commit: f.baseline.slice(0, 12), label: 'criteria'}));
+      // R2: a criteria escape names the red-to-green check that proves it.
+      await writeFile(payload, JSON.stringify({kind: 'escape-of', commit: f.baseline.slice(0, 12), label: 'criteria', promote: 'regression:issue'}));
       const declared = await runTaskCommand({args: parseArgs(['task', 'debug', '--task', id, '--debug-action', 'origin', '--payload-file', payload]), service: f.tasks});
       assert.equal(declared.code, 'TASK_DEBUG_ORIGIN_DECLARED', JSON.stringify(declared.errors));
-      assert.deepEqual(declared.data.record.task.origin, {kind: 'escape-of', commit: f.baseline, label: 'criteria'});
+      assert.deepEqual(declared.data.record.task.origin, {kind: 'escape-of', commit: f.baseline, label: 'criteria', promote: 'regression:issue'});
       assert.equal(declared.data.record.task.contractRevision, (current.task.contractRevision ?? 0) + 1);
       assert.notEqual(taskContractHash(declared.data.record.task), taskContractHash(current.task));
       assert.ok(existsSync(join(f.root, '.agent-ops-escapes', `${id}.json`)), 'escape-of writes its ledger record');
@@ -512,7 +513,7 @@ const raw = {
     assert.equal(LEDGER_DIRECTORY, '.agent-ops-escapes');
     assert.equal(first.path, join(f.root, '.agent-ops-escapes', 'task-one.json'));
     const stored = JSON.parse(await readFile(first.path, 'utf8'));
-    assert.deepEqual(Object.keys(stored).sort(), ['agentLabel', 'declaredAt', 'escapeOf', 'facts', 'label', 'link', 'missedPaths', 'residualRisks', 'schemaVersion', 'taskId']);
+    assert.deepEqual(Object.keys(stored).sort(), ['agentLabel', 'declaredAt', 'escapeOf', 'facts', 'label', 'link', 'missedPaths', 'proof', 'residualRisks', 'schemaVersion', 'taskId']);
     assert.deepEqual([stored.taskId, stored.escapeOf, stored.link.state, stored.label, stored.residualRisks], ['task-one', escaped, 'ungated', 'review', 0]);
     assert.deepEqual(stored.missedPaths, ['src/pages/ComboPage.tsx']);
     assert.doesNotMatch(await readFile(first.path, 'utf8'), /secret-ish body|<img/u, 'data only, never file contents');

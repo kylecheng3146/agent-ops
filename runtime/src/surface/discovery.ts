@@ -4,12 +4,15 @@ import { join } from "node:path";
 
 import { canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
+import { loadRules, ruleFires, ruleHits } from "../escape/rules.js";
+import { AgentOpsError } from "../fs/paths.js";
 import { appendLocalLog } from "../logging/local-log.js";
 import { localStatePaths, readPrivateFile, writePrivateFile } from "../security/permissions.js";
 import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, type SurfaceAudit, type TaskSurface } from "./schema.js";
 
 export type SurfaceCode = "SURFACE_MISSING" | "SURFACE_UNCLASSIFIED" | "SURFACE_QUERY_TOO_BROAD" |
-  "SURFACE_EXCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED";
+  "SURFACE_EXCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED" |
+  "ESCAPE_RULE_INVALID" | "ESCAPE_RULE_UNSAFE" | "ESCAPE_RULE_NO_EXCLUDE";
 /** Cheapest first: a budget overrun stops before the long tail of diff tokens. */
 export const DISCOVERY_SOURCES = ["agent", "hunk-header", "template-fragment", "diff-token"] as const;
 export type DiscoverySource = typeof DISCOVERY_SOURCES[number];
@@ -128,6 +131,14 @@ async function logMetrics(home: string, rows: readonly Record<string, number | s
   } catch { /* advisory only */ }
 }
 
+async function logRuleMetrics(home: string, rows: readonly {ruleId: string; included: number; excluded: number}[]): Promise<void> {
+  try {
+    const state = localStatePaths(home);
+    for (const row of rows) await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "escape-rule", ...row},
+      {anchorDirectory: state.anchorDirectory});
+  } catch { /* advisory only */ }
+}
+
 export async function logSurfaceResidualRisks(count: number, home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<void> {
   await logMetrics(home, [{source: "review", hits: 0, included: 0, excluded: 0, postBlockExclusions: 0, residualRisks: count}]);
 }
@@ -153,6 +164,14 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
     const unknown = [...covered].filter(id => !included.has(id));
     if (uncovered.length > 0 || unknown.length > 0)
       return notRun("SURFACE_UNASSIGNED", "Children covers must equal the parent included surfaces.", [{uncovered, unknown}]);
+  }
+  // Escape Loop R2: learned rules fail closed before any discovery.
+  let rules: Awaited<ReturnType<typeof loadRules>>;
+  try { rules = await loadRules(input.root); }
+  catch (error) {
+    if (error instanceof AgentOpsError && (error.code === "ESCAPE_RULE_INVALID" || error.code === "ESCAPE_RULE_UNSAFE"))
+      return notRun(error.code, error.message, []);
+    throw error;
   }
   const now = input.now ?? Date.now;
   const started = now();
@@ -211,7 +230,7 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   });
   const sources = Object.fromEntries(DISCOVERY_SOURCES.map(source => [source, {queries: 0, files: 0}])) as Record<DiscoverySource, {queries: number; files: number}>;
   const skipped: {source: DiscoverySource; query: string; files: number}[] = [];
-  const unclassified = new Map<string, {source: DiscoverySource; query: string}[]>();
+  const unclassified = new Map<string, {source: DiscoverySource | "escape-rule"; query: string}[]>();
   const metrics = new Map<DiscoverySource, {hits: Set<string>; included: Set<string>; excluded: Set<string>}>(
     DISCOVERY_SOURCES.map(source => [source, {hits: new Set(), included: new Set(), excluded: new Set()}]));
   for (const hit of hits) {
@@ -231,6 +250,30 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
       else unclassified.set(path, [...(unclassified.get(path) ?? []), {source: hit.source, query: hit.query}]);
     }
   }
+  // A fired rule's hits must be classified like any other; noExclude hits cannot be excluded.
+  const ruleRows: {ruleId: string; included: number; excluded: number}[] = [];
+  const noExclude: {ruleId: string; path: string; glob: string}[] = [];
+  for (const {rule} of rules) {
+    if (!ruleFires(rule, [...changed], diff)) continue;
+    if (remaining() <= 0) return notRun("SURFACE_BUDGET_EXCEEDED", "Discovery budget exhausted before escape rules ran.", [{rule: rule.id}]);
+    let paths: string[];
+    try { paths = await ruleHits(input.root, rule, undefined, Math.min(SURFACE_LIMITS.queryTimeoutMs, remaining())); }
+    catch (error) {
+      if (error instanceof AgentOpsError) return notRun("SURFACE_BUDGET_EXCEEDED", error.message, [{rule: rule.id}]);
+      throw error;
+    }
+    const row = {ruleId: rule.id, included: 0, excluded: 0};
+    for (const path of paths) {
+      if (changed.has(path) || included.some(match => match(path)) || unknownPaths.some(match => match(path))) { row.included += 1; continue; }
+      const exclusion = exclusions.find(e => e.match(path));
+      if (exclusion !== undefined) { row.excluded += 1; if (rule.noExclude) noExclude.push({ruleId: rule.id, path, glob: exclusion.glob}); }
+      else unclassified.set(path, [...(unclassified.get(path) ?? []), {source: "escape-rule", query: `rule:${rule.id}`}]);
+    }
+    ruleRows.push(row);
+  }
+  if (input.metrics === true) await logRuleMetrics(input.logHome ?? process.env.AGENT_OPS_HOME ?? homedir(), ruleRows);
+  if (noExclude.length > 0)
+    return notRun("ESCAPE_RULE_NO_EXCLUDE", "A learned escape rule marks these places noExclude: include them or mark them UNKNOWN.", noExclude);
   for (const source of DISCOVERY_SOURCES) sources[source].files = metrics.get(source)!.hits.size;
   const discovery: SurfaceDiscovery = {cached, sources, skipped: skipped.slice(0, 50), postBlockExclusions};
   if (input.metrics === true) await logMetrics(input.logHome ?? process.env.AGENT_OPS_HOME ?? homedir(), DISCOVERY_SOURCES.map(source => ({source,

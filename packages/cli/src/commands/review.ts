@@ -476,7 +476,10 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   SURFACE_EXCLUSION_TOO_BROAD: "surface-exclusion-too-broad",
   SCENARIO_MISSING: "scenario-missing",
   SURFACE_BUDGET_EXCEEDED: "surface-budget-exceeded",
-  SURFACE_UNASSIGNED: "surface-unassigned"
+  SURFACE_UNASSIGNED: "surface-unassigned",
+  ESCAPE_RULE_INVALID: "escape-rule-invalid",
+  ESCAPE_RULE_UNSAFE: "escape-rule-unsafe",
+  ESCAPE_RULE_NO_EXCLUDE: "escape-rule-no-exclude"
 };
 
 /** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */

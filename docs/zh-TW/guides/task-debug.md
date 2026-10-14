@@ -54,7 +54,10 @@ Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromp
 "pre-existing" | "external", "reason": "..."}`。它會修訂 contract，因此 review 前要重新
 verify 並重新記錄已確認的假設；沒有它時 finish 以 `ESCAPE_ORIGIN_MISSING` 拒絕。
 `escape-of` 會印出連結狀態與 `git blame` 提示，並寫入 `.agent-ops-escapes/<task-id>.json`，
-與修復一起 commit（見 `EVIDENCE-ESCAPE-001`）。
+與修復一起 commit（見 `EVIDENCE-ESCAPE-001`）。surface 標記還需要一條在被逃逸 commit
+重放成立、受追蹤的 `.agent-ops-escapes/rules/<rule-id>.json` 規則；criteria/verify 標記需要
+`"promote": "<runnerId:checkId>"`；否則 finish 以 `ESCAPE_RULE_UNPROVEN` 拒絕（見
+`EVIDENCE-ESCAPE-002`）。
 
 checkpoint 保存 task/session/source/contract/config/cause；resume 只接受同一
 擁有者 worktree 的匹配 checkpoint，保留 dirty 內容及預算。失配需要人類確認。

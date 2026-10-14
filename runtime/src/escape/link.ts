@@ -10,6 +10,7 @@ import { readPrivateFile } from "../security/permissions.js";
 import { globMatcher, isCovers, type SurfaceAudit } from "../surface/schema.js";
 import { collectBaseChangePaths, collectChangeSurface, type GitRunner } from "../verify/change-surface.js";
 import { RECEIPT_ID, validOrigin, type EscapeLabel, type TaskOrigin } from "./origin.js";
+import { fixPaths, gitRunner, proveEscape, type EscapeProof } from "./rules.js";
 
 /** Git-tracked, data only: one record per task so parallel worktrees never conflict. */
 export const LEDGER_DIRECTORY = ".agent-ops-escapes";
@@ -35,6 +36,10 @@ export interface EscapeRecord {
   readonly schemaVersion: 1;
   readonly taskId: string;
   readonly escapeOf: string;
+  /** R2 backfill: missed paths came from this fix commit's diff. */
+  readonly fix?: string;
+  /** R2: rule replay + backtest, the promoted check, or an unproven lesson. Absent on R1 records. */
+  readonly proof?: EscapeProof;
   readonly link: EscapeLink;
   readonly agentLabel: EscapeLabel;
   readonly label: PrimaryLabel;
@@ -61,9 +66,16 @@ export async function resolveOrigin(git: GitRunner, value: unknown): Promise<Tas
     const resolved = await git.run(["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`]);
     if (resolved.exitCode !== 0) throw new AgentOpsError("ESCAPE_ORIGIN_INVALID", `Commit ${ref} does not exist in this repository.`);
     origin = {...raw, commit: out(resolved).trim()};
+    if (raw.fix !== undefined) {
+      if (typeof raw.fix !== "string" || !/^[A-Za-z0-9._/^~][A-Za-z0-9._/^~-]{0,255}$/u.test(raw.fix))
+        throw new AgentOpsError("ESCAPE_ORIGIN_INVALID", "escape fix needs a commit.");
+      const fix = await git.run(["rev-parse", "--verify", "--quiet", "--end-of-options", `${raw.fix}^{commit}`]);
+      if (fix.exitCode !== 0) throw new AgentOpsError("ESCAPE_ORIGIN_INVALID", `Fix commit ${raw.fix} does not exist in this repository.`);
+      origin = {...origin as object, fix: out(fix).trim()};
+    }
   }
   if (!validOrigin(origin))
-    throw new AgentOpsError("ESCAPE_ORIGIN_INVALID", "origin is {kind: escape-of, commit, label, receipt?} with label requirement|surface|scenario|criteria|verify|review|flagged|out-of-model, or {kind: pre-existing|external, reason}.");
+    throw new AgentOpsError("ESCAPE_ORIGIN_INVALID", "origin is {kind: escape-of, commit, label, receipt?, fix?, promote? (runnerId:checkId)} with label requirement|surface|scenario|criteria|verify|review|flagged|out-of-model, or {kind: pre-existing|external, reason}.");
   return origin;
 }
 
@@ -204,7 +216,8 @@ export async function assessEscape(input: { root: string; git: GitRunner; origin
     receipts = await loadReceipts(await gitCommonDir(input.git, input.root));
     link = await resolveEscape(input.git, receipts, input.origin.commit, input.origin.receipt);
   } catch { link = {state: "unresolved", reason: "link-unavailable"}; }
-  const paths = await missedPaths(input.git, input.base);
+  // A backfill names the past fix: its diff, not this task's, is what the gates missed.
+  const paths = input.origin.fix === undefined ? await missedPaths(input.git, input.base) : await fixPaths(input.root, input.origin.fix);
   const linked = link.state === "gated" ? receipts.find(r => r.id === link.receipt)?.receipt : undefined;
   let facts: EscapeAssessment["facts"] = [];
   if (linked !== undefined) {
@@ -241,9 +254,10 @@ async function safeLedgerPath(root: string, taskId: string): Promise<string> {
 export async function declareEscape(input: { root: string; git: GitRunner; taskId: string; origin: Extract<TaskOrigin, { kind: "escape-of" }>;
   base: string; now: string }): Promise<{ record: EscapeRecord; path: string; blame: { commit: string; lines: number }[] }> {
   const assessment = await assessEscape(input);
-  const record: EscapeRecord = {schemaVersion: 1, taskId: input.taskId, escapeOf: input.origin.commit, link: assessment.link,
+  const record: EscapeRecord = {schemaVersion: 1, taskId: input.taskId, escapeOf: input.origin.commit,
+    ...(input.origin.fix === undefined ? {} : {fix: input.origin.fix}), link: assessment.link,
     agentLabel: assessment.agentLabel, label: assessment.label, missedPaths: assessment.missedPaths, facts: assessment.facts,
-    residualRisks: assessment.residualRisks.length, declaredAt: input.now};
+    residualRisks: assessment.residualRisks.length, proof: await proof(input.root, input.origin, assessment), declaredAt: input.now};
   await safeLedgerPath(input.root, input.taskId);
   await mkdir(join(input.root, LEDGER_DIRECTORY), {recursive: true});
   const path = await safeLedgerPath(input.root, input.taskId);
@@ -251,6 +265,44 @@ export async function declareEscape(input: { root: string; git: GitRunner; taskI
   const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0), 0o644);
   try { await handle.writeFile(`${JSON.stringify(record, null, 2)}\n`, "utf8"); } finally { await handle.close(); }
   return {record, path, blame: await blameHints(input.git, input.base)};
+}
+
+/** Proof never throws at declaration: a broken rule is recorded as unproven and finish refuses it. */
+async function proof(root: string, origin: Extract<TaskOrigin, { kind: "escape-of" }>, assessment: EscapeAssessment): Promise<EscapeProof> {
+  try {
+    return await proveEscape({root, escapeOf: origin.commit, label: assessment.label, missedPaths: assessment.missedPaths,
+      ...(origin.promote === undefined ? {} : {promote: origin.promote})});
+  } catch (error) {
+    return {status: "unproven", code: "ESCAPE_RULE_UNPROVEN",
+      reason: error instanceof AgentOpsError ? `${error.code}: ${error.message}` : "The rule proof could not run."};
+  }
+}
+const proofKey = (value: EscapeProof | undefined) => value === undefined ? null : JSON.stringify([value.status,
+  "rule" in value ? value.rule ?? null : null, "ruleHash" in value ? value.ruleHash : null, "check" in value ? value.check : null]);
+
+/**
+ * Fails closed at finish: a fresh replay must prove the escape and match the
+ * committed ledger record. A criteria/verify label returns the check to prove.
+ */
+export async function escapeCompletionProblem(input: { root: string; taskId: string; origin: Extract<TaskOrigin, { kind: "escape-of" }>; base: string }):
+  Promise<{ code: string; reason: string } | { check: string } | null> {
+  let assessment: EscapeAssessment, current: EscapeProof;
+  try {
+    assessment = await assessEscape({...input, git: gitRunner(input.root)});
+    current = await proveEscape({root: input.root, escapeOf: input.origin.commit, label: assessment.label, missedPaths: assessment.missedPaths,
+      ...(input.origin.promote === undefined ? {} : {promote: input.origin.promote})});
+  } catch (error) {
+    const code = error instanceof AgentOpsError && ["ESCAPE_RULE_INVALID", "ESCAPE_RULE_UNSAFE"].includes(error.code) ? error.code : "ESCAPE_RULE_UNPROVEN";
+    return {code, reason: error instanceof Error ? error.message : "The escape proof could not run."};
+  }
+  if (current.status === "unproven") return {code: current.code, reason: current.reason};
+  const recorded = await readEscapeRecord(input.root, input.taskId);
+  if (recorded === null || recorded.label !== assessment.label || proofKey(recorded.proof) !== proofKey(current))
+    return {code: "ESCAPE_RULE_UNPROVEN", reason: `The tracked ${LEDGER_DIRECTORY}/${input.taskId}.json record is missing or stale; re-declare the origin and commit the record.`};
+  if (current.status === "check") return current.check === null
+    ? {code: "ESCAPE_RULE_UNPROVEN", reason: "A criteria/verify escape names its red-to-green check: --escape-promote <runnerId:checkId> (DEBUG payload promote)."}
+    : {check: current.check};
+  return null;
 }
 
 export async function removeEscapeRecord(root: string, taskId: string): Promise<void> {
@@ -269,5 +321,5 @@ export async function escapeReviewData(input: { root: string; git: GitRunner; ta
   const recorded = await readEscapeRecord(input.root, input.taskId);
   const current = recorded !== null && JSON.stringify([recorded.escapeOf, recorded.link, recorded.label, recorded.missedPaths, recorded.facts]) ===
     JSON.stringify([input.origin.commit, assessment.link, assessment.label, assessment.missedPaths, assessment.facts]);
-  return {taskId: input.taskId, origin: input.origin, ...assessment, recordCurrent: current};
+  return {taskId: input.taskId, origin: input.origin, ...assessment, recordCurrent: current, ...(recorded?.proof === undefined ? {} : {proof: recorded.proof})};
 }

@@ -163,7 +163,53 @@ Every DEBUG fix MUST declare where its bug came from before review, and a declar
   `gate-catch` events with only the code and task id; logging fails open,
   while the origin requirement fails closed.
 - Scope R1 records. Rules learned from escapes, replay proof, backtests,
-  `--escape-fix` and an `agent-ops escapes` report are R2.
+  `--escape-fix` and an `agent-ops escapes` report are R2
+  ([EVIDENCE-ESCAPE-002](#evidence-escape-002)).
+
+## EVIDENCE-ESCAPE-002
+
+A surface escape MUST become a proven, tracked rule before its fix finishes, and learned rules MUST only tighten the surface gate.
+
+- Trigger: A declared escape-of origin (EVIDENCE-ESCAPE-001), or a past escape backfilled with `task create --escape-of <commit> --escape-label <label> --escape-fix <fix-commit>`.
+- Action: For a `surface`, `surface-unseen` or `surface-excluded` label, commit a rule `.agent-ops-escapes/rules/<rule-id>.json` shaped `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}` and re-declare the origin. For `criteria` or `verify`, name the fixing task's red-to-green check with `--escape-promote <runnerId:checkId>` (DEBUG payload `"promote"`). Other labels record a lesson.
+- Evidence: Finish, `task complete` and the completion gate re-run the proof and refuse `ESCAPE_RULE_UNPROVEN`, `ESCAPE_RULE_TOO_BROAD` or `SURFACE_BUDGET_EXCEEDED`; the ledger record stores the proving rule, its content hash and its backtest fires, commits and rate.
+- Positive: `Escape surface-unseen; rule image-size-siblings fires on the escaped commit, its query hits both missed sibling pages there, and fires on 2 of the last 200 commits.`
+- Negative: `Finish a surface escape whose rule never fires on the escaped commit, or add a rule field that excludes paths.`
+
+- Rules are data only and need no trust: triggers and expands become argv
+  `git grep -F` queries and path globs, never shell or regex. The strict schema
+  has no field that removes a query, adds an exclusion or relaxes any gate.
+  An invalid rule fails closed as review NOT_RUN `ESCAPE_RULE_INVALID`; a
+  symlinked or non-regular rules directory or file as `ESCAPE_RULE_UNSAFE`.
+- Surface gate: a rule fires only when the task diff matches a trigger path
+  glob or a changed line contains a trigger token. Every expand hit of a fired
+  rule must be in the diff, included, UNKNOWN or excluded, else
+  `SURFACE_UNCLASSIFIED`; with `noExclude` an excluded hit is
+  `ESCAPE_RULE_NO_EXCLUDE`. Fires and included/excluded counts per rule go to
+  local-log `escape-rule` events (fail-open).
+- Proof: the rule must name the escaped commit, fire on that commit's own diff
+  and, replayed at that commit, hit every missed path that existed there.
+  Missed paths come from the fix commit with `--escape-fix`, otherwise from
+  the task diff. A `criteria`/`verify` escape needs its promoted check to be a
+  `redCheckIds` entry of a proven behavioral criterion of the fixing task
+  (red baseline, green candidate); the output prints a config proposal for a
+  new required verifier, and agent-ops never writes `.agent-ops/config.json`.
+  `scenario`, `review`, `requirement`, `flagged` and `out-of-model` record an
+  unproven lesson with a reason and do not block. No review or test ever runs
+  at the escaped commit.
+- Backtest: the trigger is matched against the diffs of the last 200
+  first-parent commits in one argv `git log`; a fire rate above 30% is
+  `ESCAPE_RULE_TOO_BROAD`. It is time-budgeted (over budget is
+  `SURFACE_BUDGET_EXCEEDED`, never a silent pass) and cached by HEAD and rule
+  hash. Editing a proving rule makes the ledger record stale until re-declared.
+- `agent-ops escapes [--json]` is a read-only, fail-open report: misses per
+  label from the ledger, `gate-catch` codes from the local log, origin mix,
+  link-state mix with unresolved reasons, and per-rule fire/included/excluded
+  counts with time windows, as raw counts with n and `insufficient-data`
+  when n < 10. Rules with at least 10 fires and no included hit are listed as
+  retirement candidates; removal is always a reviewed commit, never automatic.
+- R2 supersedes the phase-2 `surface.aliases` config (now tracked rules) and
+  `surface stats` (now `agent-ops escapes`).
 
 ## EVIDENCE-AGGREGATE-001
 

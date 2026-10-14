@@ -54,6 +54,7 @@ Commands:
   review     Run an independent review or show recorded reports
   run        Start or control a supervised Claude/Codex native goal
   office     Open the local pixel office (Preview; opt-in)
+  escapes    Report escaped bugs, gate catches and learned rules (read-only)
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -99,6 +100,14 @@ Options:
  * rejected.
  */
 export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
+  escapes: `Usage: agent-ops escapes [--json]
+
+Read-only Escape Loop report: misses per gate from the tracked
+.agent-ops-escapes ledger, gate catches from this machine's local log, origin
+and link-state mix, and per-rule fire/included/excluded counts with retirement
+candidates. Counts are raw with n; fewer than 10 observations are marked
+insufficient-data. It never writes files and fails open.
+`,
   office: `Usage: agent-ops office [--json]
 
 Office (Preview) is opt-in: select it during init/update or run
@@ -216,6 +225,8 @@ Options:
   --escape-of <commit>                  create, revise: the commit this bug escaped from (Escape Loop)
   --escape-label <label>                with --escape-of: requirement|surface|scenario|criteria|verify|review|flagged|out-of-model
   --escape-receipt <id>                 with --escape-of: link this local finish receipt instead of resolving one
+  --escape-fix <commit>                 with --escape-of: backfill; missed paths come from this past fix commit
+  --escape-promote <runner:check>       with --escape-of: the red-to-green check proving a criteria/verify escape
   --plan-file <path>                    replan: split-task array with requirement mappings
   --expected-contract <hash>            revise, pin-finding: current task contract from status
   --expected-tree-contract <hash>       replan: current tree contract from status

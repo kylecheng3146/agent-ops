@@ -94,6 +94,7 @@ import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
+import { runEscapesCommand } from "./commands/escapes.js";
 import { runAllowStopCommand } from "./commands/allow-stop.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import {
@@ -366,6 +367,7 @@ process.exitCode = await runCli(
             const context = await productionRunContext(root);
             return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser)});
           }
+          if (args.command === "escapes") return await runEscapesCommand({root});
           if (args.command === "office") {
             return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser),
               foreground: async (onUrl) => await serveOffice(root, onUrl), writeStdout: (text) => {process.stdout.write(text);}});
