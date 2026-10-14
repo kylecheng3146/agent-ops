@@ -37,3 +37,12 @@ criteria:
 - ac3-suite: The full npm test suite passes, including the startup runner count (55) and every existing surface, review and escape test.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-5a2f00556f0d1513b8298e2fa03ccefaaf3fdf0d.json
 receipt-sha256: bb7f8cc23e8ff068a25a957f7358af6c7d6e53bffa62366f041e89015f0d4d8e
+
+worktree: gate-d (agent-ops/gate-d)
+session: bf3a95c5-b9ae-4249-8ee4-c6b97127520b
+agent-ops task task-24c1f41f-9cdf-4169-9d4a-6707067b1d92: Review packet: surface history as per-revision deltas (D)
+criteria:
+- ac1-history-delta: The review packet surface history carries one delta per revision (added/removed list rows, changed fields before/after, or unchanged) instead of whole previous audits, so a large audit (over 30 KB) revised three times still reviews (PASS, not scope-too-large) with history under 4 KB; the existing surface-review-packet check asserts the delta shape. Checks: surface-history-delta, surface-review-packet.
+- ac2-suite: The full npm test suite passes, including the startup runner count (53) and every existing review, surface and escape test.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-6d68f7d4e9ff55fb0f02432d1444ae63942d04f2.json
+receipt-sha256: f09a8f0e0c71417fe40e011af0e997b00bcb33f06e0e56d3443d1da8d6519765
