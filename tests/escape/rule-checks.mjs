@@ -43,13 +43,14 @@ async function repo(files, root) {
   const pad = async n => {for (let i = 0; i < n; i += 1) await commit({[`docs/note-${i}.md`]: `note ${i}\n`}, `note ${i}`);};
   return {root, git, write, commit, pad, base, runner: runner(root)};
 }
+// Windows: a git child killed by a 1 ms budget can hold the directory briefly (EBUSY); rm retries.
 async function withRepo(files, check) {
   const f = await repo(files);
-  try {return await check(f);} finally {await rm(f.root, {recursive: true, force: true});}
+  try {return await check(f);} finally {await rm(f.root, {recursive: true, force: true, maxRetries: 10});}
 }
 async function withHome(check) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'agent-ops-rules-home-')));
-  try {return await check(home);} finally {await rm(home, {recursive: true, force: true});}
+  try {return await check(home);} finally {await rm(home, {recursive: true, force: true, maxRetries: 10});}
 }
 const events = async home => {
   try {return (await readFile(join(home, '.agent-ops/state/logs/events.ndjson'), 'utf8')).split('\n').filter(Boolean).map(l => JSON.parse(l));}
