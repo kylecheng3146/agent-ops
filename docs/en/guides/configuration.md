@@ -115,7 +115,14 @@ Capability checks and model starts are reported on stderr, including under
 `--json`; stdout remains one final JSON envelope and raw reviewer output is
 never streamed. SIGINT or SIGTERM terminates the active reviewer process tree,
 does not advance the fallback chain, and never writes an attestation. An
-exhausted timeout chain reports `timeout`, not `missing-cli`.
+exhausted timeout chain reports `timeout`, not `missing-cli`. Each reviewer
+round may take 30 minutes by default (`reviewRoles[].timeoutMs` overrides it);
+a reviewer that prints nothing for the stall window is still stopped early.
+
+Acceptance runner steps without their own `timeoutMs` get 10 minutes for
+`setup`, 5 minutes each for `build`, `testBuild` and the runner itself, and
+1 minute for the git checkout. A step that times out is reported as
+`UNKNOWN` with the step, its limit and the `timeoutMs` field that raises it.
 
 The task ID is explicit and its criteria are always used; no session fallback
 or criterion filter can replace the original task requirements. Review rechecks
@@ -200,6 +207,14 @@ evidence. Give each editing conversation its own worktree instead:
   `.env` or `local.properties`); a file Git already checked out is never
   overwritten. Trust is inherited only when the main checkout is trusted and
   the worktree's effective config is identical.
+- An approved `agent-ops update` in the main checkout copies the new config
+  into every session worktree whose copy is still the previously trusted one,
+  and trusts it for the same commands; the plan lists the session worktrees
+  before you confirm. A hand-edited worktree config is left alone, and run
+  worktrees keep their own authorization. A task created under the old config is
+  not rebound automatically: review names the
+  `agent-ops task revise --task <id> --expected-contract <hash> --reason <text>`
+  that rebinds it (criteria and surface unchanged), then verify again.
 - `setup` commands run in the new worktree (default timeout ten minutes) for
   what Git does not carry, such as installed dependencies. They are part of
   the trusted config, so they need no separate approval; a failing step

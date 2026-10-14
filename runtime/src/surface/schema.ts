@@ -1,4 +1,5 @@
 import { AgentOpsError } from "../fs/paths.js";
+import { canonicalJson } from "../config/hash.js";
 
 /** EVIDENCE-SURFACE-001: where else the change lands, recorded before criteria. */
 export const SURFACE_AXES = ["dependents", "duplicates", "otherPaths", "sharedState"] as const;
@@ -22,6 +23,8 @@ export interface SurfaceAudit {
   }[];
   /** Completeness is checked before review (SCENARIO_MISSING), not at create. */
   readonly scenarios: Readonly<Partial<Record<ScenarioId, SurfaceScenario>>>;
+  /** Derived discovery queries judged incidental: their hits need no per-file row (guards in the surface gate). */
+  readonly dismissed?: readonly { readonly query: string; readonly reason: string }[];
 }
 /** A child of a surfaced parent names the parent's included surfaces it delivers. */
 export interface SurfaceCovers { readonly covers: readonly string[] }
@@ -64,7 +67,7 @@ export function parseSurface(value: unknown): TaskSurface {
       invalid("covers must list unique parent surface IDs.");
     return {covers: [...value.covers as string[]]};
   }
-  if (!record(value) || !exact(value, ["axes", "included", "excluded", "unknown", "contracts", "valueChanges", "scenarios"]))
+  if (!record(value) || !exact(value, ["axes", "included", "excluded", "unknown", "contracts", "valueChanges", "scenarios"], ["dismissed"]))
     invalid("Surface file needs axes, included, excluded, unknown, contracts, valueChanges and scenarios (or covers for a child).");
   const axes = value.axes;
   if (!record(axes) || !exact(axes, [...SURFACE_AXES])) invalid("axes must name dependents, duplicates, otherPaths and sharedState.");
@@ -117,9 +120,22 @@ export function parseSurface(value: unknown): TaskSurface {
     else if (record(row) && exact(row, ["na"]) && reason(row.na)) parsedScenarios[key as ScenarioId] = {na: row.na};
     else invalid(`Scenario ${key} needs {applies: true, behavior} or {na: reason}.`);
   }
+  let dismissed: { query: string; reason: string }[] | undefined;
+  if (value.dismissed !== undefined) {
+    if (!list(value.dismissed, 256)) invalid("dismissed must be a list.");
+    const seen = new Set<string>();
+    dismissed = value.dismissed.map(row => {
+      if (!record(row) || !exact(row, ["query", "reason"]) || !text(row.query, 256) || /[\n\r]/u.test(row.query) || seen.has(row.query))
+        invalid("Each dismissal needs a unique single-line query and a reason.");
+      seen.add(row.query);
+      if (!reason(row.reason) || row.reason.length > 256)
+        invalid(`Dismissal ${row.query}: say in at most 256 characters why its hits are incidental; "out of scope" is not a reason.`);
+      return {query: row.query, reason: row.reason};
+    });
+  }
   return {
     axes: Object.fromEntries(SURFACE_AXES.map(name => [name, axis(axes[name], name)])) as Record<SurfaceAxisId, SurfaceAxis>,
-    included, excluded, unknown, contracts, valueChanges, scenarios: parsedScenarios
+    included, excluded, unknown, contracts, valueChanges, scenarios: parsedScenarios, ...(dismissed === undefined ? {} : {dismissed})
   };
 }
 
@@ -142,4 +158,31 @@ export function globMatcher(pattern: string): (path: string) => boolean {
   }
   const expression = new RegExp(`^${source}$`, "u");
   return path => expression.test(path);
+}
+
+export type SurfaceDelta = "unchanged" | {
+  readonly added?: Readonly<Record<string, readonly unknown[]>>;
+  readonly removed?: Readonly<Record<string, readonly unknown[]>>;
+  readonly changed?: Readonly<Record<string, { readonly before: unknown; readonly after: unknown }>>;
+};
+
+/** What one revision did to the surface: list rows added/removed, other fields before/after. Size follows the edit, not the audit. */
+export function surfaceDelta(before: TaskSurface | null | undefined, after: TaskSurface | null | undefined): SurfaceDelta {
+  const key = (value: unknown) => canonicalJson(value ?? null);
+  if (key(before) === key(after)) return "unchanged";
+  const from = (before ?? {}) as Record<string, unknown>, to = (after ?? {}) as Record<string, unknown>;
+  const added: Record<string, unknown[]> = {}, removed: Record<string, unknown[]> = {};
+  const changed: Record<string, { before: unknown; after: unknown }> = {};
+  for (const field of [...new Set([...Object.keys(from), ...Object.keys(to)])].sort()) {
+    const a = from[field], b = to[field];
+    if (key(a) === key(b)) continue;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      const old = new Set(a.map(key)), next = new Set(b.map(key));
+      const plus = b.filter(row => !old.has(key(row))), minus = a.filter(row => !next.has(key(row)));
+      if (plus.length > 0) added[field] = plus;
+      if (minus.length > 0) removed[field] = minus;
+    } else changed[field] = {before: a ?? null, after: b ?? null};
+  }
+  return {...(Object.keys(added).length > 0 ? {added} : {}), ...(Object.keys(removed).length > 0 ? {removed} : {}),
+    ...(Object.keys(changed).length > 0 ? {changed} : {})};
 }

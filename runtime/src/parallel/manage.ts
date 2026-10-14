@@ -1,6 +1,7 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { copyFile, readdir, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { calculateConfigHash } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { collectChangeSurface } from "../verify/change-surface.js";
@@ -107,6 +108,50 @@ export async function listWorktrees(deps: FinishDependencies, cwd: string): Prom
     if (record !== null) statuses.push(await describe(deps, record));
   }
   return statuses.sort((left, right) => left.record.name.localeCompare(right.record.name));
+}
+
+/**
+ * Session worktrees an approved update carries its config into. Run worktrees
+ * keep their own scoped authorization and are never touched.
+ */
+export async function sessionWorktreeNames(deps: FinishDependencies, mainRoot: string): Promise<readonly string[]> {
+  const listing = await deps.git(mainRoot, ["worktree", "list", "--porcelain"]);
+  if (listing.exitCode !== 0) return [];
+  const names: string[] = [];
+  for (const line of listing.stdout.split("\n")) {
+    if (!line.startsWith("worktree ")) continue;
+    const listed = resolve(line.slice("worktree ".length));
+    const path = await realpath(listed).catch(() => listed);
+    if (!insideWorktreeDirectory(mainRoot, path)) continue;
+    const record = await readWorktreeRecord(path);
+    if (record !== null && record.runId === undefined) names.push(record.name);
+  }
+  return names.sort();
+}
+
+/**
+ * After `agent-ops update` was approved and the main checkout is trusted, copy
+ * its config into each session worktree and trust that copy: the same commands
+ * the user just approved, and nothing else (a differing copy stays untrusted).
+ * Only a copy that is still the previously trusted one is replaced; a
+ * hand-edited worktree config is user content and is left alone.
+ */
+export async function syncSessionWorktrees(deps: FinishDependencies, mainRoot: string): Promise<readonly string[]> {
+  const config = await deps.loadConfig(mainRoot);
+  if (await deps.trust.status(mainRoot, config) !== "TRUSTED") return [];
+  const synced: string[] = [];
+  for (const name of await sessionWorktreeNames(deps, mainRoot)) {
+    const path = worktreePath(mainRoot, name);
+    const before = await deps.loadConfig(path).catch(() => null);
+    if (before === null || (calculateConfigHash(before) !== calculateConfigHash(config) &&
+        await deps.trust.status(path, before) !== "TRUSTED")) continue;
+    await copyFile(join(mainRoot, ".agent-ops", "config.json"), join(path, ".agent-ops", "config.json"));
+    const copied = await deps.loadConfig(path);
+    if (calculateConfigHash(copied) !== calculateConfigHash(config)) continue;
+    await deps.trust.grant(path, copied);
+    synced.push(name);
+  }
+  return synced;
 }
 
 export function idleWorktrees(statuses: readonly WorktreeStatus[], now: number): readonly WorktreeStatus[] {

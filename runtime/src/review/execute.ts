@@ -62,9 +62,11 @@ export interface ReviewTargetPreflightOutcome {
  * Full repository reviews need far more headroom than the lightweight auth
  * probe. Five minutes was not enough: reviewing a real working tree, codex and
  * claude both exceeded it on this repository, and a timeout costs the whole
- * review while looking like an unavailable target.
+ * review while looking like an unavailable target. Fifteen minutes was not
+ * enough either: agy rounds took 450-900 s and timed out at 900 s; the stall
+ * guards still stop a reviewer that goes quiet.
  */
-export const DEFAULT_REVIEW_TIMEOUT_MS = 900_000;
+export const DEFAULT_REVIEW_TIMEOUT_MS = 1_800_000;
 
 /**
  * How long a reviewer may produce nothing at all before it is treated as
@@ -141,13 +143,16 @@ export interface ReviewExecutorOptions {
 
 /**
  * What one subprocess may take: its own ceiling, or whatever is left of the
- * chain, whichever is smaller. Recomputed at each call site on purpose.
+ * chain, whichever is smaller. Recomputed at each call site on purpose. The
+ * reviewer itself has no ceiling beyond the configured timeout: capping it at
+ * the default silently ignored a larger `reviewRoles[].timeoutMs`.
  */
-function stageTimeout(
-  options: ReviewExecutorOptions,
-  ceilingMs = DEFAULT_REVIEW_TIMEOUT_MS
+export function stageTimeout(
+  options: Pick<ReviewExecutorOptions, "timeoutMs" | "deadlineAt" | "now">,
+  ceilingMs?: number
 ): number {
-  const own = Math.min(options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS, ceilingMs);
+  const configured = options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS;
+  const own = ceilingMs === undefined ? configured : Math.min(configured, ceilingMs);
   if (options.deadlineAt === undefined) {
     return own;
   }
@@ -959,7 +964,7 @@ async function attemptTarget(
       metrics: metrics()
     };
   } finally {
-    await rm(attemptDirectory, { recursive: true, force: true });
+    await removeTemporary(attemptDirectory);
   }
 }
 
@@ -1299,5 +1304,6 @@ export function createReviewExecutor(
 }
 
 import {sha256} from "../fs/hash.js";
+import {removeTemporary} from "../fs/temporary.js";
 
 import {writePrivateFile} from "../security/permissions.js";

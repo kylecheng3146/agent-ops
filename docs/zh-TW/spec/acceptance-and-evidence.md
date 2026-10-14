@@ -73,13 +73,20 @@ English source version: 2026-10-06. Revalidate: when the English specification c
   不以 task 文字組 regex），由便宜的來源先跑：記錄的查詢；diff hunk header 的外層
   函式名；template literal 固定片段（至少 4 字元且以分隔符界定，例如 `order:`、
   `user_`、`menu.`）；新增與刪除行的複合識別字（snake_case、camelCase 或含數字，
-  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元；命中超過 30 個檔案視為
-  太通用而略過）。diff 與 surface 清單之外的任何命中都會擋下 review。
+  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元；命中超過 10 個檔案〈含
+  變更檔案〉視為太通用而略過）。diff 與 surface 清單之外的任何命中都會擋下 review。
+- 衍生查詢（diff 字詞、template 片段或 hunk header 函式名）的命中若只是巧合，可在
+  surface 選用的 `dismissed` 清單中以一筆 `{query, reason}` 排除（理由至多 256
+  字元，「out of scope」不是理由），不必逐檔排除。記錄的軸查詢與 escape rule 命中
+  不能排除；diff 以外命中少於 4 個檔案的查詢（最可能是兄弟頁面線索）也不能排除；
+  至多 128 筆。Reviewer 會看到每筆排除與其命中數，若它隱藏了先前
+  `SURFACE_UNCLASSIFIED` 阻擋所列的檔案則會標示出來。
   結果以 HEAD、base、diff、查詢集合與 config hash 快取。
 - Review 以 NOT_RUN 回報：`SURFACE_MISSING`（沒有或無法解析的 surface；非 DEBUG
   task 建立時也會拒絕）、`SURFACE_UNCLASSIFIED`、`SURFACE_QUERY_TOO_BROAD`（單一
   記錄查詢超過 200 個檔案）、`SURFACE_EXCLUSION_TOO_BROAD`（單一 glob 超過 10 個
-  檔案，或包含 diff 內的檔案）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
+  檔案，或包含 diff 內的檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
+  `SURFACE_DISMISSAL_INVALID`（記錄的查詢或稀有查詢）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
   （總計 120 秒，絕不默默略過）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
   included 不一致；每次 review 都檢查，包含 advance 與 batch）。
 - 修訂 surface 等同修訂 contract：需要新的證據與兩次新的 review。在
@@ -89,6 +96,78 @@ English source version: 2026-10-06. Revalidate: when the English specification c
   fail-open，絕不作為證據。
 - 一般 `worktree finish` 也會寫入與 advance 相同的本機 receipt，包含兩輪的 residual
   risks 與 non-blocking findings，在 git note 引用它並印出 residual risks。
+
+## EVIDENCE-ESCAPE-001
+
+每個 DEBUG 修復 MUST 在 review 前宣告 bug 的來源；宣告的逃逸 MUST 以機械方式連結、標記並記錄。
+
+- Trigger: DEBUG 假設已確認，或一般 task 修復一個通過了先前關卡的 bug。
+- Action: 以 `task debug --debug-action origin --payload-file <json>` 宣告 `origin`：`{"kind": "escape-of", "commit": "<commit>", "label": "<label>"}`（可選 `"receipt"`），或 `{"kind": "pre-existing" | "external", "reason": "..."}`。一般 task 可用 `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]` 選擇加入。把 `.agent-ops-escapes/<task-id>.json` 記錄與修復一起 commit。
+- Evidence: `origin` 綁進 task contract hash；本規則上線後建立的 DEBUG task 沒有它時，finish、`task complete` 與 completion gate 以 `ESCAPE_ORIGIN_MISSING` 拒絕；兩位 reviewer 在 `escape-label` 條件下收到連結狀態、標記、事實與 residual risks。
+- Positive: `假設已確認；origin escape-of 864dbbe2 label surface；重放把漏掉的頁面標為 surface-unseen；記錄與修復一起 commit。`
+- Negative: `DEBUG 修復沒有 origin 就 finish，或把 surface-excluded 的漏網改標成 review，理由是 reviewer「應該注意到」。`
+
+- 宣告必須在假設確認之後（否則 `ESCAPE_ORIGIN_EARLY`），並計入 DEBUG 預算。它是一次
+  contract revision：重新 verify、以新證據重新記錄已確認的假設，然後 review。重新宣告會
+  取代記錄。輸出會列出修復所改或刪行的 `git blame` 提示 commit；blame 只是提示，因為遺漏
+  型 bug 存在於沒人寫過的行。
+- finish receipt 留在本機 Git common directory。Schema 2 記錄 target..candidate 的每個
+  commit 與逐檔 diff fingerprint（去掉 blob id 與 hunk 位置，squash merge 後仍相同）；
+  schema 1 receipt 仍可載入，但只以 exact head 連結。
+- 連結狀態分開計數：`gated`（找到 receipt）、帶理由的 `unresolved`（Git note 或
+  `--escape-receipt` 指向本機沒有的 receipt 時為 `receipt-not-local`，另有
+  `ambiguous-receipt`、`link-unavailable`）與 `ungated`（沒有 receipt 也沒有 note）。
+  解析順序：`--escape-receipt` 覆寫、commit 位於某 receipt 記錄的範圍內（schema 1：exact
+  head）、逐檔 fingerprint 相符，最後才是 unresolved 或 ungated。
+- 標記：單一主要標記，取最早能抓到此逃逸的關卡 —— `requirement`、`surface`、
+  `scenario`、`criteria`、`verify`、`review` —— 或 `flagged`（residual risk 或 finding 已
+  提過）或 `out-of-model`。由 agent 提議；以 `git grep -F` 在被連結 receipt 的 candidate
+  上重放其記錄的 surface 查詢，把修復碰到的每個檔標為 included、excluded、hit、unseen 或
+  absent，`surface-excluded` 或 `surface-unseen` 會覆寫任何較晚的標記。兩位 reviewer 裁決。
+- ledger 受 git 追蹤且只含資料（commit、路徑、標記、理由、計數；絕不含檔案內容或對話紀錄），
+  每個 task 一個檔案，平行 worktree 不會衝突。關卡攔截（`SURFACE_*` 與 `SCENARIO_MISSING`
+  review 阻擋、review FAIL、verify 由紅轉綠）會附加僅含 code 與 task id 的參考性 local-log
+  `gate-catch` 事件；記錄失敗時 fail-open，origin 要求則 fail-closed。
+- 範圍 R1 只負責記錄。由逃逸學到的規則、重放證明、回測、`--escape-fix` 與
+  `agent-ops escapes` 報表屬於 R2（[EVIDENCE-ESCAPE-002](#evidence-escape-002)）。
+
+## EVIDENCE-ESCAPE-002
+
+surface 逃逸 MUST 在修復 finish 前變成已證明、受追蹤的規則；學到的規則 MUST 只能收緊 surface gate。
+
+- Trigger: 已宣告的 escape-of origin（EVIDENCE-ESCAPE-001），或以 `task create --escape-of <commit> --escape-label <label> --escape-fix <fix-commit>` 回填的過去逃逸。
+- Action: 標記為 `surface`、`surface-unseen` 或 `surface-excluded` 時，commit 一條規則 `.agent-ops-escapes/rules/<rule-id>.json`，形狀為 `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}`，並重新宣告 origin。`criteria` 或 `verify` 以 `--escape-promote <runnerId:checkId>`（DEBUG payload `"promote"`）指名修復 task 由紅轉綠的 check。其他標記記錄為 lesson。
+- Evidence: finish、`task complete` 與 completion gate 會重跑證明，並以 `ESCAPE_RULE_UNPROVEN`、`ESCAPE_RULE_TOO_BROAD` 或 `SURFACE_BUDGET_EXCEEDED` 拒絕；ledger 記錄保存證明用規則、其內容 hash 與回測的 fires、commits 與比率。
+- Positive: `逃逸 surface-unseen；規則 image-size-siblings 在被逃逸 commit 上觸發，其查詢在該 commit 命中兩個漏掉的兄弟頁面，且在最近 200 個 commit 中只觸發 2 次。`
+- Negative: `規則從未在被逃逸 commit 上觸發就 finish surface 逃逸，或新增可排除路徑的規則欄位。`
+
+- 規則只含資料且不需要 trust：trigger 與 expand 變成 argv `git grep -F` 查詢與路徑
+  glob，絕不經過 shell 或 regex。嚴格 schema 沒有任何能移除查詢、新增排除或放寬關卡的
+  欄位。無效規則以 review NOT_RUN `ESCAPE_RULE_INVALID` fail-closed；symlink 或非一般
+  檔案的規則目錄或檔案則為 `ESCAPE_RULE_UNSAFE`。
+- Surface gate：只有 task diff 符合 trigger 路徑 glob，或某個變更行包含 trigger token
+  時，規則才會觸發。已觸發規則的每個 expand 命中都必須位於 diff、included、UNKNOWN 或
+  excluded，否則為 `SURFACE_UNCLASSIFIED`；有 `noExclude` 時，被排除的命中為
+  `ESCAPE_RULE_NO_EXCLUDE`。每條規則的觸發與 included/excluded 計數寫入 local-log
+  `escape-rule` 事件（fail-open）。
+- 證明：規則必須指名被逃逸 commit、在該 commit 自身的 diff 上觸發，並在該 commit 重放時
+  命中當時已存在的每個漏掉路徑。有 `--escape-fix` 時漏掉路徑取自 fix commit，否則取自
+  task diff。`criteria`/`verify` 逃逸需要其 promoted check 是修復 task 某個已證明
+  behavioral 條件的 `redCheckIds` 項目（baseline 紅、candidate 綠）；輸出會印出新增
+  required verifier 的 config 提案，agent-ops 絕不寫入 `.agent-ops/config.json`。
+  `scenario`、`review`、`requirement`、`flagged` 與 `out-of-model` 記錄帶理由的未證明
+  lesson，不阻擋。絕不在被逃逸 commit 上執行 review 或測試。
+- 回測：以一次 argv `git log` 把 trigger 比對最近 200 個 first-parent commit 的 diff；
+  觸發比率超過 30% 為 `ESCAPE_RULE_TOO_BROAD`。回測有時間預算（超出為
+  `SURFACE_BUDGET_EXCEEDED`，絕不默默通過），並以 HEAD 與規則 hash 快取。編輯證明用規則
+  會讓 ledger 記錄過期，直到重新宣告。
+- `agent-ops escapes [--json]` 是唯讀、fail-open 的報表：來自 ledger 的各標記漏網數、
+  來自 local log 的 `gate-catch` code、origin 組成、帶 unresolved 理由的連結狀態組成，
+  以及每條規則的觸發/included/excluded 計數與時間窗，皆為附 n 的原始計數，n < 10 時標為
+  `insufficient-data`。至少觸發 10 次且從無 included 命中的規則列為退役候選；移除一律
+  經過審查的 commit，絕不自動。
+- R2 取代 phase-2 的 `surface.aliases` 設定（改為受追蹤規則）與 `surface stats`
+  （改為 `agent-ops escapes`）。
 
 ## EVIDENCE-AGGREGATE-001
 

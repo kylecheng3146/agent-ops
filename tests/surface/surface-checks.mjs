@@ -281,6 +281,49 @@ const raw = {
     assert.equal(passed.status, 'PASS', JSON.stringify(passed));
   }),
 
+  'surface-token-cap': () => withRepo({
+    'src/main.ts': 'export const main = 1;\n',
+    ...Object.fromEntries(Array.from({length: 10}, (_, i) => [`src/wide/w${i}.ts`, `export const w${i} = wideToken_name;\n`])),
+    ...Object.fromEntries(Array.from({length: 9}, (_, i) => [`src/mid/m${i}.ts`, `export const m${i} = midToken_name;\n`]))
+  }, async fixture => {
+    // Derived tokens reaching more than 10 files (the changed file included) are generic: skipped, never blocking.
+    const changed = await fixture.commit({'src/main.ts': 'export const main = [wideToken_name, midToken_name];\n'});
+    const result = await gate(fixture, audit({included: [['main', 'src/main.ts']]}), changed);
+    assert.deepEqual(unclassified(result), Array.from({length: 9}, (_, i) => `src/mid/m${i}.ts`).sort());
+    assert.ok(result.discovery.skipped.some(row => row.query === 'wideToken_name' && row.files === 11), JSON.stringify(result.discovery.skipped));
+  }),
+
+  'surface-dismiss-query': () => withRepo({
+    'src/main.ts': 'export const main = 1;\n',
+    ...Object.fromEntries(Array.from({length: 5}, (_, i) => [`src/generic/g${i}.ts`, `export const g${i} = generic_helper;\n`])),
+    'src/rare/r0.ts': 'export const r0 = rareToken_name;\n', 'src/rare/r1.ts': 'export const r1 = rareToken_name;\n'
+  }, async fixture => {
+    const changed = await fixture.commit({'src/main.ts': 'export const main = [generic_helper, rareToken_name];\n'});
+    const base = {included: [['main', 'src/main.ts']]};
+    const generic = Array.from({length: 5}, (_, i) => `src/generic/g${i}.ts`);
+    const why = 'generic_helper is a shared logging helper; these modules only log and render nothing that changed.';
+    assert.deepEqual(unclassified(await gate(fixture, audit(base), changed)), [...generic, 'src/rare/r0.ts', 'src/rare/r1.ts'].sort());
+    // One dismissal clears every hit of an incidental derived query (here after a block: flagged postBlock).
+    const dismissedOnce = await gate(fixture, {...audit(base), dismissed: [{query: 'generic_helper', reason: why}]}, changed);
+    assert.deepEqual(unclassified(dismissedOnce), ['src/rare/r0.ts', 'src/rare/r1.ts']);
+    // Rare queries are the likeliest sibling signal; recorded axis queries stay the agent's own.
+    const rare = await gate(fixture, {...audit(base), dismissed: [{query: 'rareToken_name', reason: why}]}, changed);
+    assert.equal(rare.code, 'SURFACE_DISMISSAL_INVALID', JSON.stringify(rare));
+    const recorded = await gate(fixture, {...audit({...base, queries: {duplicates: ['generic_helper']}}),
+      dismissed: [{query: 'generic_helper', reason: why}]}, changed);
+    assert.equal(recorded.code, 'SURFACE_DISMISSAL_INVALID', JSON.stringify(recorded));
+    const many = Array.from({length: 129}, (_, i) => ({query: `unused_query${i}`, reason: why}));
+    assert.equal((await gate(fixture, {...audit(base), dismissed: many}, changed)).code, 'SURFACE_DISMISSAL_TOO_BROAD');
+    const passed = await gate(fixture, {...audit({included: [['main', 'src/main.ts'], ['rare', 'src/rare/**']]}),
+      dismissed: [{query: 'generic_helper', reason: why}]}, changed);
+    assert.equal(passed.status, 'PASS', JSON.stringify(passed));
+    assert.deepEqual(passed.discovery.dismissed, [{query: 'generic_helper', files: 5, postBlock: true}]);
+    const {parseSurface} = await load('runtime/src/surface/schema.js');
+    assert.deepEqual(parseSurface({...audit(base), dismissed: [{query: 'generic_helper', reason: why}]}).dismissed,
+      [{query: 'generic_helper', reason: why}]);
+    assert.throws(() => parseSurface({...audit(base), dismissed: [{query: 'generic_helper', reason: 'out of scope'}]}), /not a reason/u);
+  }),
+
   'surface-extract-fragments': () => withRepo({
     'src/orders.ts': 'export function loadOrder(id) {\n  const cached = null;\n  return cached;\n}\n',
     'src/screen.ts': 'import {loadOrder} from "./orders";\nexport const screen = () => loadOrder(1);\n',
@@ -366,6 +409,40 @@ const raw = {
     assert.doesNotMatch(source, /execSync|spawnSync|shell: true/u);
   }),
 
+  'review-policy-remedy': () => reviewFixture(async ({tasks, review, taskContractHash}) => {
+    // Created under another configuration: review names the exact rebind command instead of a bare reason.
+    const task = await tasks.create({title: 'Image size', criteria: CRITERIA, policyConfigHash: 'a'.repeat(64)});
+    const result = await review(task.task.id, async () => {throw new Error('a policy mismatch must not start reviewers');});
+    assert.equal(result.data.result.reason, 'reviewer-policy-changed');
+    assert.ok(result.data.text.includes(`agent-ops task revise --task ${task.task.id} --expected-contract ${taskContractHash(task.task)} --reason`),
+      result.data.text);
+  }),
+
+  'surface-history-delta': () => reviewFixture(async ({tasks, verified, review, policyConfigHash, taskContractHash}) => {
+    // A large audit revised a few times must still fit the 64 KiB review packet.
+    const included = [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx'],
+      ['combo', 'src/pages/Combo*.tsx'], ['pack-detail', 'src/pages/Pack*.tsx']];
+    const reason = 'Unrelated fixture path kept only to make the audit large; nothing here renders product images. '.repeat(2);
+    const excluded = Array.from({length: 150}, (_, i) => [`docs/unrelated-${i}.md`, `${reason}#${i}`]);
+    const surfaces = [audit({included, excluded}), audit({included, excluded: [...excluded, ['docs/extra.md', reason]]}),
+      audit({included, excluded: [...excluded, ['docs/extra.md', reason], ['docs/more.md', reason]]}),
+      audit({included, excluded: [...excluded.slice(1), ['docs/extra.md', reason], ['docs/more.md', reason]]})];
+    assert.ok(JSON.stringify(surfaces[0]).length > 30_000, 'the fixture audit is large');
+    let task = await tasks.create({title: 'Image size', criteria: CRITERIA, policyConfigHash, requireSurface: true, surface: surfaces[0]});
+    for (const surface of surfaces.slice(1))
+      task = await tasks.revise(task.task.id, {expectedContractHash: taskContractHash(task.task), surface, reason: 'Grow the audit.'});
+    await verified(task.task.id);
+    let seen;
+    const passed = await review(task.task.id, async request => {seen = request; return passing(request, report(request.invocation.packet.criteria));});
+    assert.equal(passed.data.result.status, 'PASS', JSON.stringify(passed.data.result.reason));
+    const history = seen.invocation.packet.surface.history;
+    assert.equal(history.length, 3);
+    assert.deepEqual(history[0].change, {added: {excluded: [{glob: 'docs/extra.md', reason}]}});
+    assert.deepEqual(history[1].change, {added: {excluded: [{glob: 'docs/more.md', reason}]}});
+    assert.deepEqual(history[2].change.removed.excluded.map(row => row.glob), ['docs/unrelated-0.md']);
+    assert.ok(JSON.stringify(history).length < 4_000, 'history size follows the edits');
+  }),
+
   'surface-review-packet': () => reviewFixture(async ({tasks, verified, review, policyConfigHash, taskContractHash}) => {
     const {buildAdversarialPrompt, buildReviewPrompt} = await load('runtime/src/review/runner.js');
     const listed = [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx']];
@@ -389,7 +466,12 @@ const raw = {
     assert.equal(passed.data.result.status, 'PASS', JSON.stringify(passed.data.result.reason));
     const packet = seen.invocation.packet;
     assert.deepEqual(packet.surface.audit, second);
-    assert.deepEqual(packet.surface.history.map(h => h.surface), [first]);
+    assert.equal(packet.surface.history.length, 1);
+    const [change] = packet.surface.history.map(h => h.change);
+    assert.deepEqual(change.added.included.map(row => row.id), ['combo', 'pack-detail']);
+    assert.deepEqual(change.added.excluded.map(row => row.glob), ['src/pages/PackDetailStepFlow.tsx']);
+    assert.equal(change.removed, undefined);
+    assert.ok(!('surface' in packet.surface.history[0]), 'history carries deltas, not whole previous audits');
     assert.deepEqual(packet.surface.postBlockExclusions.map(e => e.path), ['src/pages/PackDetailStepFlow.tsx']);
     assert.ok(packet.surface.discovery.sources.agent.queries >= 1);
     assert.deepEqual(packet.criteria.map(c => c.id), ['behavior', 'regression', 'surface-coverage']);

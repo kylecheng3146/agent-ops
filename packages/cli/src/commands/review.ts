@@ -61,7 +61,9 @@ import {
 import { validateEvidence } from "../../../../runtime/src/schema/validate.js";
 import {loadDebugProof,debugProofDigest} from "../../../../runtime/src/task/debug-state.js";
 import {logSurfaceResidualRisks, runSurfaceGate, type SurfaceCode, type SurfaceGateResult} from "../../../../runtime/src/surface/discovery.js";
-import {isCovers} from "../../../../runtime/src/surface/schema.js";
+import {escapeReviewData} from "../../../../runtime/src/escape/link.js";
+import {logGateCatch} from "../../../../runtime/src/logging/local-log.js";
+import {isCovers, surfaceDelta} from "../../../../runtime/src/surface/schema.js";
 import type {ReviewSurfaceData} from "../../../../runtime/src/review/packet.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
@@ -474,8 +476,41 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   SURFACE_EXCLUSION_TOO_BROAD: "surface-exclusion-too-broad",
   SCENARIO_MISSING: "scenario-missing",
   SURFACE_BUDGET_EXCEEDED: "surface-budget-exceeded",
-  SURFACE_UNASSIGNED: "surface-unassigned"
+  SURFACE_UNASSIGNED: "surface-unassigned",
+  SURFACE_DISMISSAL_TOO_BROAD: "surface-dismissal-too-broad",
+  SURFACE_DISMISSAL_INVALID: "surface-dismissal-invalid",
+  ESCAPE_RULE_INVALID: "escape-rule-invalid",
+  ESCAPE_RULE_UNSAFE: "escape-rule-unsafe",
+  ESCAPE_RULE_NO_EXCLUDE: "escape-rule-no-exclude"
 };
+
+/** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
+export const ESCAPE_LABEL: ReviewCriterion = {
+  id: "escape-label",
+  description: "Each declared escape's primary label names the earliest gate that could have caught it (requirement, surface, " +
+    "scenario, criteria, verify, review; flagged if a residual risk or finding already said it; out-of-model if no gate could), " +
+    "is consistent with the mechanical surface facts, and its tracked .agent-ops-escapes record is current."
+};
+
+/** Escape Loop packet rows for every task in scope that declares an origin; linking stays advisory. */
+async function reviewEscapes(options: ReviewCommandOptions, context: TaskContext, scope: ReviewScope | undefined): Promise<unknown[]> {
+  if (options.root === undefined || options.gitRunner === undefined) return [];
+  const rows: unknown[] = [];
+  for (const record of context.records) {
+    const origin = record.task.origin;
+    if (origin === undefined) continue;
+    const base = record.debug?.baselineCommit ?? record.createdSourceCommit ?? (scope?.mode === "base" ? scope.resolvedBase : undefined);
+    try {
+      if (base === undefined) throw new Error("no base");
+      rows.push(await escapeReviewData({root: options.root, git: options.gitRunner, taskId: record.task.id, origin, base}));
+    } catch { rows.push({taskId: record.task.id, origin, link: {state: "unresolved", reason: "link-unavailable"}}); }
+  }
+  return rows;
+}
+
+async function logCatch(options: ReviewCommandOptions, code: string, taskId: string | undefined): Promise<void> {
+  if (taskId !== undefined && options.config?.profiles.includes("advisory") === true) await logGateCatch(code, taskId);
+}
 
 /** Review-only: gives an omission a criterion that a blocking finding can name. */
 export const SURFACE_COVERAGE: ReviewCriterion = {
@@ -516,8 +551,11 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
   if (gate.status === "NOT_RUN" || holder === undefined || gate.discovery === null) return {gate};
   return {gate, packet: {
     audit: holder.task.surface,
-    history: (holder.revisions ?? []).slice(-10).map(revision => ({at: revision.at, reason: revision.reason, surface: revision.previousTask.surface ?? null})),
-    discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped},
+    // Deltas, not whole previous audits: a large audit revised a few times must still fit the review packet.
+    history: (holder.revisions ?? []).map((revision, i, all) => ({at: revision.at, reason: revision.reason,
+      change: surfaceDelta(revision.previousTask.surface, (all[i + 1]?.previousTask ?? holder!.task).surface)})).slice(-10),
+    discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped,
+      dismissed: gate.discovery.dismissed},
     postBlockExclusions: gate.discovery.postBlockExclusions
   }};
 }
@@ -876,16 +914,19 @@ export async function runReviewCommand(
         });
       }
       if (context.policyConfigHash !== options.policyConfigHash) {
-        return notRunEnvelope({
-          ...resultBase,
-          status: "NOT_RUN", reason: "reviewer-policy-changed",
-          scope
-        });
+        const result: ReviewRunResult = {...resultBase, status: "NOT_RUN", reason: "reviewer-policy-changed", scope};
+        const own = context.records.find(r => r.task.id === context.taskId)!.task;
+        const message = "Independent review was not run.";
+        return {code: "REVIEW_NOT_RUN", status: "error", errors: [{code: "REVIEW_NOT_RUN", message}], data: {message, result,
+          text: renderReviewResult(result) +
+            `The configuration changed after task ${context.taskId} was created. Rebind it, then verify again:\n` +
+            `  agent-ops task revise --task ${context.taskId} --expected-contract ${taskContractHash(own)} --reason "Rebind to the current configuration"\n`}};
       }
     }
     if (context !== undefined && options.tasks !== undefined) {
       const surface = await reviewSurface(options, context, scope);
       if (surface.gate.status === "NOT_RUN") {
+        await logCatch(options, surface.gate.code, context.taskId);
         return surfaceNotRunEnvelope({
           ...resultBase,
           status: "NOT_RUN",
@@ -956,9 +997,11 @@ export async function runReviewCommand(
       candidateCommit: await resolveGitCommit(options.gitRunner, "HEAD"), coverageDigest: coverageDigest(rows)
     };
   }
+  const escapes = context === undefined ? [] : await reviewEscapes(options, context, scope);
   const criteria: ReviewCriterion[] = [
     ...(context?.criteria ?? GENERIC_CRITERIA),
-    ...(surfacePacket === undefined || context?.criteria.some(c => c.id === SURFACE_COVERAGE.id) === true ? [] : [SURFACE_COVERAGE])
+    ...(surfacePacket === undefined || context?.criteria.some(c => c.id === SURFACE_COVERAGE.id) === true ? [] : [SURFACE_COVERAGE]),
+    ...(!context?.records.some(r => r.task.origin?.kind === "escape-of") || context.criteria.some(c => c.id === ESCAPE_LABEL.id) ? [] : [ESCAPE_LABEL])
   ];
   // Tree attestations bind the exact criterion list the reviewer answered.
   if (context !== undefined) context.criteria = criteria;
@@ -1002,6 +1045,7 @@ export async function runReviewCommand(
     }
     packet = buildReviewPacket({
       ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
+      ...(escapes.length === 0 ? {} : {escape: escapes}),
       ...(contractManifest === undefined ? {} : {contractManifest, contractArtifacts}),
       request: context?.title ?? GENERIC_REQUEST,
       criteria,
@@ -1171,6 +1215,7 @@ export async function runReviewCommand(
   if (finalResult.status === "PASS") {
     return okEnvelope("REVIEW_RESULT", data);
   }
+  if (finalResult.status === "FAIL") await logCatch(options, "REVIEW_FAIL", context?.taskId);
   const code = finalResult.status === "FAIL" ? "REVIEW_FAILED" : "REVIEW_NOT_RUN";
   return {
     code,

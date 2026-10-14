@@ -4,6 +4,73 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-14
+
+- Verify and review no longer crash when their temporary directory cannot
+  be removed. On Windows a step killed for exceeding its time limit can hold
+  the replay checkout open (EBUSY), which turned a TIMEOUT result into an
+  error; cleanup now retries and then leaves the directory behind.
+- An approved `agent-ops update` now copies the new config into every
+  session worktree whose copy is still the previously trusted one and trusts
+  it for the same commands (hand-edited copies and run worktrees are left
+  alone; the plan lists the worktrees first), so a config change no
+  longer leaves each worktree `STALE`. `task revise` with only `--reason`
+  rebinds a task to the current configuration, and a
+  `reviewer-policy-changed` review prints that exact command.
+- Acceptance runner steps without their own `timeoutMs` now get 10 minutes
+  for setup and 5 minutes each for build, test build and the runner (all were
+  60 seconds); a timed-out step is reported with its name, limit and the
+  `timeoutMs` field that raises it. Reviewer rounds default to 30 minutes
+  (was 15), and a larger `reviewRoles[].timeoutMs` is honored instead of being
+  cut back to the default; the stall guards are unchanged.
+- Surface discovery skips derived queries above 10 file hits (was 30), and a
+  surface may dismiss an incidental derived query once in its new optional
+  `dismissed` list instead of excluding each file it reaches. Recorded and
+  escape-rule queries, queries reaching fewer than 4 files outside the diff
+  and more than 128 dismissals are refused (`SURFACE_DISMISSAL_INVALID`,
+  `SURFACE_DISMISSAL_TOO_BROAD`); reviewers see every dismissal with its hit
+  count.
+- Review packets send the surface revision history as per-revision deltas
+  (rows added or removed, other fields before and after, or `unchanged`)
+  instead of whole previous audits, so a large audit revised a few times no
+  longer overflows the 64 KiB packet as `scope-too-large`.
+- Escape Loop R1 (`EVIDENCE-ESCAPE-001`, English and zh-TW): every DEBUG fix
+  declares where its bug came from with `task debug --debug-action origin`
+  (`escape-of <commit>` with the earliest-gate label, `pre-existing` or
+  `external` with a reason) after a confirmed hypothesis. The origin is bound
+  into the task contract; DEBUG tasks created from this release cannot finish
+  without it (`ESCAPE_ORIGIN_MISSING`). Normal tasks may opt in with
+  `task create|revise --escape-of <commit> --escape-label <label>
+  [--escape-receipt <id>]`. The declaration prints `git blame` hint commits.
+- Finish receipts move to schema 2: every commit in target..candidate plus a
+  per-file diff fingerprint that survives squash merges. Schema 1 receipts
+  still load and link by exact head; `review show` reads both.
+- A declared escape resolves to `gated`, `unresolved` (with a reason such as
+  `receipt-not-local`) or `ungated`; `git grep -F` replay of the linked
+  receipt's surface queries marks missed files `surface-excluded` or
+  `surface-unseen`, which overrides a later agent label. Both reviewers get the
+  label, facts and the receipt's residual risks under a new `escape-label`
+  criterion. Each escape writes one data-only, git-tracked record under
+  `.agent-ops-escapes/`.
+- Advisory local-log `gate-catch` events record surface blocks, review FAIL and
+  verify red-to-green with only the code and task id.
+- Escape Loop R2 (`EVIDENCE-ESCAPE-002`, English and zh-TW): learned rules live
+  in git-tracked `.agent-ops-escapes/rules/<rule-id>.json` files (trigger paths
+  and tokens, expand paths and `git grep -F` queries, `noExclude`). They only
+  tighten: a fired rule's hits must be classified (`SURFACE_UNCLASSIFIED`),
+  `noExclude` hits cannot be excluded (`ESCAPE_RULE_NO_EXCLUDE`), and an invalid
+  or symlinked rule fails closed (`ESCAPE_RULE_INVALID`, `ESCAPE_RULE_UNSAFE`).
+- A surface escape cannot finish until a rule replayed at the escaped commit
+  fires and hits every missed path, and its trigger fires on at most 30% of the
+  last 200 first-parent commits (`ESCAPE_RULE_UNPROVEN`,
+  `ESCAPE_RULE_TOO_BROAD`, `SURFACE_BUDGET_EXCEEDED`). A criteria/verify escape
+  names its red-to-green check with `--escape-promote <runnerId:checkId>` and
+  gets a printed (never written) config proposal; other labels record a lesson.
+- `task create|revise --escape-fix <commit>` backfills a past escape from its
+  fix commit. `agent-ops escapes [--json]` is a read-only report of misses,
+  catches, origin and link mix, and per-rule fires with retirement candidates.
+  This supersedes the planned `surface.aliases` and `surface stats`.
+
 ## [0.9.0] - 2026-10-13
 
 - Surface audit (`EVIDENCE-SURFACE-001`): before writing acceptance criteria,

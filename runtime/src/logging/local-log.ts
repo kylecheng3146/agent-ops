@@ -1,5 +1,9 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { AgentOpsError } from "../fs/paths.js";
 import {
+  localStatePaths,
   readPrivateFile,
   withPrivateFileLock,
   writePrivateFile
@@ -53,8 +57,25 @@ export interface SurfaceMetricsLogEvent {
   residualRisks: number;
 }
 
+/** Escape Loop: a gate that caught something (SURFACE_*, SCENARIO_MISSING, REVIEW_FAIL, VERIFY_RED_GREEN). Code and task only. */
+export interface GateCatchLogEvent {
+  type: "gate-catch";
+  code: string;
+  taskId: string;
+}
+
+/** Escape Loop R2: one learned rule fired in a surface gate; rule id and outcome counts only. */
+export interface EscapeRuleLogEvent {
+  type: "escape-rule";
+  ruleId: string;
+  included: number;
+  excluded: number;
+}
+
 export type LocalLogEvent =
   | CommandResultLogEvent
+  | EscapeRuleLogEvent
+  | GateCatchLogEvent
   | SurfaceMetricsLogEvent
   | DiagnosticLogEvent
   | LoopLogEvent
@@ -223,6 +244,21 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
       residualRisks: value.residualRisks as number
     };
   }
+  if (value.type === "gate-catch") {
+    if (!hasExactKeys(value, ["code", "taskId", "type"]) || typeof value.code !== "string" || !ID_PATTERN.test(value.code) ||
+      typeof value.taskId !== "string" || !ID_PATTERN.test(value.taskId)) {
+      return invalidEvent();
+    }
+    return { type: "gate-catch", code: value.code, taskId: value.taskId };
+  }
+  if (value.type === "escape-rule") {
+    if (!hasExactKeys(value, ["excluded", "included", "ruleId", "type"]) || typeof value.ruleId !== "string" ||
+      !/^[a-z][a-z0-9-]{0,63}$/u.test(value.ruleId) ||
+      [value.included, value.excluded].some((n) => !Number.isSafeInteger(n) || (n as number) < 0)) {
+      return invalidEvent();
+    }
+    return { type: "escape-rule", ruleId: value.ruleId, included: value.included as number, excluded: value.excluded as number };
+  }
   return invalidEvent();
 }
 
@@ -346,4 +382,25 @@ export async function appendLocalLog(
       );
     }
   );
+}
+
+/** Advisory and fail-open: a logging fault never changes the gate that caught something. */
+export async function logGateCatch(code: string, taskId: string, home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<void> {
+  try {
+    const state = localStatePaths(home);
+    await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "gate-catch", code, taskId}, {anchorDirectory: state.anchorDirectory});
+  } catch { /* advisory only */ }
+}
+
+/** Read-only and fail-open for reports: unreadable lines are skipped, a missing log is empty. */
+export async function readLocalLog(home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<{ timestamp: string; event: LocalLogEvent }[]> {
+  try {
+    const state = localStatePaths(home);
+    const source = await readPrivateFile(join(state.logDirectory, "events.ndjson"), state.anchorDirectory);
+    return (source ?? "").split("\n").filter(Boolean).flatMap((line) => {
+      try { return [parseStoredLine(line)]; } catch { return []; }
+    });
+  } catch {
+    return [];
+  }
 }

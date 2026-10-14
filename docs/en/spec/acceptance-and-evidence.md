@@ -104,13 +104,22 @@ Every new task MUST record a surface audit of where else its change lands before
   such as `order:`, `user_`, `menu.`); compound identifiers (snake_case,
   camelCase or containing digits, so prose words are not queries) and string
   literals from added and removed lines (at least 6 characters; skipped as too
-  generic above 30 file hits). Every hit outside the diff and the surface lists stops review.
+  generic above 10 file hits, changed files included). Every hit outside the diff and the surface lists stops review.
+- A derived query (diff token, template fragment or hunk-header name) whose hits
+  are incidental may be dismissed once in the surface's optional `dismissed`
+  list (`{query, reason}`, reason at most 256 characters, "out of scope" is
+  not a reason) instead of one exclusion per file. Recorded axis queries and
+  escape-rule hits cannot be dismissed, nor can a query reaching fewer than 4
+  files outside the diff (the likeliest sibling signal); at most 128
+  dismissals. Reviewers see each dismissal with its hit count, flagged when it
+  hid a file an earlier `SURFACE_UNCLASSIFIED` block named.
   Results are cached by HEAD, base, diff, query set and config hash.
 - Review returns NOT_RUN with: `SURFACE_MISSING` (no or unparseable surface;
   also refused at create for non-DEBUG tasks), `SURFACE_UNCLASSIFIED`,
   `SURFACE_QUERY_TOO_BROAD` (one recorded query over 200 files),
   `SURFACE_EXCLUSION_TOO_BROAD` (one glob over 10 files, or any file in the
-  diff), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
+  diff), `SURFACE_DISMISSAL_TOO_BROAD` (over 128 dismissals),
+  `SURFACE_DISMISSAL_INVALID` (a recorded or rare query), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
   silently skipped) or `SURFACE_UNASSIGNED` (children's covers differ from the
   parent's included list; checked by every review, including advance and batch).
 - A surface revision is a contract revision: fresh evidence and two fresh
@@ -121,6 +130,95 @@ Every new task MUST record a surface audit of where else its change lands before
 - Plain `worktree finish` writes the same local receipt as advance, including
   both rounds' residual risks and non-blocking findings, references it in the
   git note and prints the residual risks.
+
+## EVIDENCE-ESCAPE-001
+
+Every DEBUG fix MUST declare where its bug came from before review, and a declared escape MUST be linked, labelled and recorded mechanically.
+
+- Trigger: A DEBUG hypothesis is confirmed, or a normal task fixes a bug that passed earlier gates.
+- Action: Declare `origin` with `task debug --debug-action origin --payload-file <json>`: `{"kind": "escape-of", "commit": "<commit>", "label": "<label>"}` (optional `"receipt"`), or `{"kind": "pre-existing" | "external", "reason": "..."}`. A normal task may opt in with `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]`. Commit the `.agent-ops-escapes/<task-id>.json` record with the fix.
+- Evidence: `origin` is bound into the task contract hash; finish, `task complete` and the completion gate refuse a DEBUG task created after this rule without it as `ESCAPE_ORIGIN_MISSING`; both reviewers receive the link state, labels, facts and residual risks under the `escape-label` criterion.
+- Positive: `Hypothesis confirmed; origin escape-of 864dbbe2 label surface; replay marks the missed page surface-unseen; the record is committed with the fix.`
+- Negative: `Finish a DEBUG fix without an origin, or relabel a surface-excluded miss as review because the reviewer "should have noticed".`
+
+- The declaration comes after a confirmed hypothesis (`ESCAPE_ORIGIN_EARLY`
+  otherwise), inside the DEBUG budget. It is a contract revision: re-verify,
+  re-record the confirmed hypothesis with the new evidence, then review.
+  Re-declaring replaces the record. The output lists `git blame` hint commits
+  for lines the fix changed or removed; blame is a hint only, because an
+  omission bug lives in lines nobody wrote.
+- Finish receipts stay local in the Git common directory. Schema 2 records
+  every commit in target..candidate and a per-file diff fingerprint (blob ids
+  and hunk positions dropped, so a squash merge keeps it); schema 1 receipts
+  still load and link by exact head only.
+- Link states are counted separately: `gated` (a receipt matched),
+  `unresolved` with a reason (`receipt-not-local` when a Git note or
+  `--escape-receipt` names a receipt this machine lacks, `ambiguous-receipt`,
+  `link-unavailable`) and `ungated` (no receipt and no note). Resolution
+  order: `--escape-receipt` override, the commit inside a receipt's recorded
+  range (schema 1: exact head), per-file fingerprint match, then unresolved or
+  ungated.
+- Label: one primary label, the earliest gate that could have caught the
+  escape — `requirement`, `surface`, `scenario`, `criteria`, `verify`,
+  `review` — or `flagged` (a residual risk or finding already said it) or
+  `out-of-model`. The agent proposes it; `git grep -F` replay of the linked
+  receipt's recorded surface queries at its candidate marks each file the fix
+  touched as included, excluded, hit, unseen or absent, and `surface-excluded`
+  or `surface-unseen` overrides any later label. The two reviewers adjudicate.
+- The ledger is git-tracked and data only (commits, paths, labels, reasons,
+  counts; never file contents or transcripts), one file per task so parallel
+  worktrees never conflict. Gate catches (`SURFACE_*` and `SCENARIO_MISSING`
+  review blocks, review FAIL, verify red to green) append advisory local-log
+  `gate-catch` events with only the code and task id; logging fails open,
+  while the origin requirement fails closed.
+- Scope R1 records. Rules learned from escapes, replay proof, backtests,
+  `--escape-fix` and an `agent-ops escapes` report are R2
+  ([EVIDENCE-ESCAPE-002](#evidence-escape-002)).
+
+## EVIDENCE-ESCAPE-002
+
+A surface escape MUST become a proven, tracked rule before its fix finishes, and learned rules MUST only tighten the surface gate.
+
+- Trigger: A declared escape-of origin (EVIDENCE-ESCAPE-001), or a past escape backfilled with `task create --escape-of <commit> --escape-label <label> --escape-fix <fix-commit>`.
+- Action: For a `surface`, `surface-unseen` or `surface-excluded` label, commit a rule `.agent-ops-escapes/rules/<rule-id>.json` shaped `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}` and re-declare the origin. For `criteria` or `verify`, name the fixing task's red-to-green check with `--escape-promote <runnerId:checkId>` (DEBUG payload `"promote"`). Other labels record a lesson.
+- Evidence: Finish, `task complete` and the completion gate re-run the proof and refuse `ESCAPE_RULE_UNPROVEN`, `ESCAPE_RULE_TOO_BROAD` or `SURFACE_BUDGET_EXCEEDED`; the ledger record stores the proving rule, its content hash and its backtest fires, commits and rate.
+- Positive: `Escape surface-unseen; rule image-size-siblings fires on the escaped commit, its query hits both missed sibling pages there, and fires on 2 of the last 200 commits.`
+- Negative: `Finish a surface escape whose rule never fires on the escaped commit, or add a rule field that excludes paths.`
+
+- Rules are data only and need no trust: triggers and expands become argv
+  `git grep -F` queries and path globs, never shell or regex. The strict schema
+  has no field that removes a query, adds an exclusion or relaxes any gate.
+  An invalid rule fails closed as review NOT_RUN `ESCAPE_RULE_INVALID`; a
+  symlinked or non-regular rules directory or file as `ESCAPE_RULE_UNSAFE`.
+- Surface gate: a rule fires only when the task diff matches a trigger path
+  glob or a changed line contains a trigger token. Every expand hit of a fired
+  rule must be in the diff, included, UNKNOWN or excluded, else
+  `SURFACE_UNCLASSIFIED`; with `noExclude` an excluded hit is
+  `ESCAPE_RULE_NO_EXCLUDE`. Fires and included/excluded counts per rule go to
+  local-log `escape-rule` events (fail-open).
+- Proof: the rule must name the escaped commit, fire on that commit's own diff
+  and, replayed at that commit, hit every missed path that existed there.
+  Missed paths come from the fix commit with `--escape-fix`, otherwise from
+  the task diff. A `criteria`/`verify` escape needs its promoted check to be a
+  `redCheckIds` entry of a proven behavioral criterion of the fixing task
+  (red baseline, green candidate); the output prints a config proposal for a
+  new required verifier, and agent-ops never writes `.agent-ops/config.json`.
+  `scenario`, `review`, `requirement`, `flagged` and `out-of-model` record an
+  unproven lesson with a reason and do not block. No review or test ever runs
+  at the escaped commit.
+- Backtest: the trigger is matched against the diffs of the last 200
+  first-parent commits in one argv `git log`; a fire rate above 30% is
+  `ESCAPE_RULE_TOO_BROAD`. It is time-budgeted (over budget is
+  `SURFACE_BUDGET_EXCEEDED`, never a silent pass) and cached by HEAD and rule
+  hash. Editing a proving rule makes the ledger record stale until re-declared.
+- `agent-ops escapes [--json]` is a read-only, fail-open report: misses per
+  label from the ledger, `gate-catch` codes from the local log, origin mix,
+  link-state mix with unresolved reasons, and per-rule fire/included/excluded
+  counts with time windows, as raw counts with n and `insufficient-data`
+  when n < 10. Rules with at least 10 fires and no included hit are listed as
+  retirement candidates; removal is always a reviewed commit, never automatic.
+- R2 supersedes the phase-2 `surface.aliases` config (now tracked rules) and
+  `surface stats` (now `agent-ops escapes`).
 
 ## EVIDENCE-AGGREGATE-001
 

@@ -57,6 +57,18 @@ Use `task debug --task <id> --debug-action <action>`:
   new reference and `reason`.
 - `strategy --payload-file <json>` records a different `from`/`to` method,
   substantive `reason` and discriminating `reference`. Only one switch is allowed.
+- `origin --payload-file <json>` declares where the bug came from once a
+  hypothesis is confirmed: `{"kind": "escape-of", "commit": "<commit>", "label":
+  "<earliest gate>"}` (optional `"receipt"`) or `{"kind": "pre-existing" |
+  "external", "reason": "..."}`. It revises the contract, so re-verify and
+  re-record the confirmed hypothesis before review; finish refuses
+  `ESCAPE_ORIGIN_MISSING` without it. `escape-of` prints the link state and
+  `git blame` hints and writes `.agent-ops-escapes/<task-id>.json`, which is
+  committed with the fix (see `EVIDENCE-ESCAPE-001`). A surface label also
+  needs a tracked `.agent-ops-escapes/rules/<rule-id>.json` rule that replays
+  at the escaped commit, and a criteria/verify label needs `"promote":
+  "<runnerId:checkId>"`; finish refuses `ESCAPE_RULE_UNPROVEN` otherwise (see
+  `EVIDENCE-ESCAPE-002`).
 - `checkpoint --session <id>` saves the current bound source/policy/stop cause.
 - `resume --session <id>` recovers a matching owned worktree checkpoint. Mismatches
   require human confirmation and remain preserved; this command cannot waive them.

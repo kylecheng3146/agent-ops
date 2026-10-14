@@ -3,7 +3,8 @@ import {
   type VerificationProcessRunner
 } from "../verify/spawn.js";
 import type { ReviewTargetId } from "../contracts.js";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { removeTemporary } from "../fs/temporary.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractFinalMessage } from "./extract.js";
@@ -220,7 +221,7 @@ async function probeOnce(
     : { result: "probe-failed", diagnostic };
   } finally {
     if (deep) {
-      await rm(directory, { recursive: true, force: true });
+      await removeTemporary(directory);
     }
   }
 }

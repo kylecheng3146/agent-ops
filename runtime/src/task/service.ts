@@ -37,6 +37,10 @@ import {createDebugState, DEBUG_DEFAULTS} from "./debug-state.js";
 import {DebugService} from "./debug.js";
 import {sameDebugText} from "./debug-intake.js";
 import {isCovers, parseSurface} from "../surface/schema.js";
+import type {TaskOrigin} from "../escape/origin.js";
+import {declareEscape, resolveOrigin} from "../escape/link.js";
+import {configProposal} from "../escape/rules.js";
+import {logGateCatch} from "../logging/local-log.js";
 
 export interface ReviseTaskInput {
   readonly expectedContractHash: string;
@@ -44,6 +48,10 @@ export interface ReviseTaskInput {
   readonly criteria?: readonly AcceptanceCriterion[];
   /** EVIDENCE-SURFACE-001 audit; revised like criteria, with fresh proof and reviews. */
   readonly surface?: unknown;
+  /** Escape Loop origin; DEBUG tasks declare it only through task debug --debug-action origin. */
+  readonly origin?: TaskOrigin;
+  /** Set by DebugService after its confirmed-hypothesis and budget checks. */
+  readonly debugOrigin?: true;
   readonly reason: string;
   readonly diagnostics?: readonly string[];
   readonly baseline?: string;
@@ -75,6 +83,8 @@ export interface CreateTaskInput {
    * repair; API callers that omit it keep the grandfathered behavior.
    */
   readonly requireSurface?: boolean;
+  /** Optional escape-of declaration for a normal task (DEBUG roots declare origin later). */
+  readonly origin?: TaskOrigin;
 }
 
 export interface TaskServiceOptions {
@@ -259,6 +269,7 @@ export class TaskService {
       id: this.#generateId(),
       ...(surface === undefined ? {} : {surface}),
       ...(input.requireSurface === true ? {surfaceRequired: true as const} : {}),
+      ...(input.origin === undefined ? {} : {origin: structuredClone(input.origin)}),
       title: input.title,
       ...(input.intent === undefined ? {} : { intent: input.intent }),
       criteria,
@@ -277,6 +288,8 @@ export class TaskService {
       if (config.features.debug?.enabled === false) throw taskError("TASK_DEBUG_DISABLED", "Task debug routing is explicitly disabled.");
       debugSettings = config.features.debug ?? DEBUG_DEFAULTS;
       task.debug = {rootTaskId:task.id,facts:[...(input.debug.facts ?? [])],unknowns:[...(input.debug.unknowns ?? [])]};
+      if (input.origin !== undefined) throw taskError("ESCAPE_ORIGIN_DEBUG_ACTION", "A DEBUG issue declares its origin with task debug --debug-action origin after a confirmed hypothesis.");
+      if (input.parentTaskId === undefined) task.originRequired = true;
     }
     const validation = validateTask(task);
     if (!validation.ok) {
@@ -403,8 +416,15 @@ export class TaskService {
     const previous = await this.status({taskId});
     if (previous.status !== "active") throw taskError("TASK_NOT_ACTIVE", "Only active tasks can revise acceptance.");
     if (taskContractHash(previous.task) !== input.expectedContractHash) throw taskError("TASK_CONTRACT_CHANGED", "Task contract changed.");
-    if (input.criteria === undefined && input.surface === undefined)
-      throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, or both.");
+    // With none of them, a revision only rebinds the task to the current configuration (checked below).
+    const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined;
+    if (rebindOnly && this.#completion === undefined)
+      throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, an origin, or a combination.");
+    if (input.origin !== undefined && previous.task.debug !== undefined && input.debugOrigin !== true)
+      throw taskError("ESCAPE_ORIGIN_DEBUG_ACTION", "A DEBUG issue declares its origin with task debug --debug-action origin after a confirmed hypothesis.");
+    // Re-declaring the same origin only refreshes its ledger record; the contract and its proof stand.
+    if (input.criteria === undefined && input.surface === undefined && input.origin !== undefined &&
+        canonicalJson(input.origin) === canonicalJson(previous.task.origin ?? null)) return previous;
     const surface = input.surface === undefined ? previous.task.surface : parseSurface(input.surface);
     const baseline = input.baseline ?? previous.createdSourceCommit;
     const criteria = input.criteria === undefined ? structuredClone(previous.task.criteria) : structuredClone(input.criteria).map(criterion => {
@@ -416,7 +436,8 @@ export class TaskService {
       return {...criterion, acceptance: {...criterion.acceptance, baselineCommit: sha}};
     });
     const next: AgentTask = {...previous.task, schemaVersion: TASK_SCHEMA_VERSION,
-      contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria, ...(surface === undefined ? {} : {surface})};
+      contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria, ...(surface === undefined ? {} : {surface}),
+      ...(input.origin === undefined ? {} : {origin: structuredClone(input.origin)})};
     const checked = validateTask(next);
     if (!checked.ok) throw taskError("TASK_INVALID", checked.errors[0]?.message ?? "Invalid criterion revision.");
     const records = (await this.#store.read()).tasks;
@@ -428,6 +449,8 @@ export class TaskService {
       if (!configured.ok) throw taskError("TASK_INVALID", configured.errors[0]?.message ?? "Invalid binding.");
       policyConfigHash = calculateConfigHash(config);
     }
+    if (rebindOnly && policyConfigHash === previous.policyConfigHash)
+      throw taskError("TASK_REVISION_INVALID", "Nothing to revise: criteria, surface, origin and configuration are unchanged.");
     if (criteria.some(c => c.acceptance !== undefined)) await this.#retainBaselines(next);
     const now = assertTimestamp(this.#now());
     return await this.#store.mutate(state => {
@@ -880,7 +903,10 @@ export class TaskService {
   ): Promise<StoredTaskRecord> {
     if (snapshot.status === "active") {
       const result = await this.recordEvidence(snapshot.task.id, evidenceInput);
-      await this.clearFailure(snapshot.task.id);
+      // A verified red turning green is a gate catch (advisory, fail-open).
+      if (await this.clearFailure(snapshot.task.id) &&
+          (await this.#completion?.loadConfig().catch(() => undefined))?.profiles.includes("advisory") === true)
+        await logGateCatch("VERIFY_RED_GREEN", snapshot.task.id);
       return result;
     }
     const completion = this.#completion;
@@ -1016,18 +1042,45 @@ export class TaskService {
     });
   }
 
-  async clearFailure(taskId: string): Promise<void> {
+  /** Escape Loop: resolve a declared commit-ish through this repository's Git (argv only). */
+  async resolveOrigin(value: unknown): Promise<TaskOrigin> {
+    if (this.#completion === undefined) throw taskError("ESCAPE_CONTEXT_REQUIRED", "Escape linking requires repository context.");
+    return await resolveOrigin(this.#completion.gitRunner, value);
+  }
+
+  /** Link a normal task's escape-of origin and write its tracked ledger record. */
+  async declareEscape(taskId: string): Promise<Awaited<ReturnType<typeof declareEscape>>> {
+    const completion = this.#completion;
+    const record = await this.status({taskId});
+    const origin = record.task.origin;
+    if (completion === undefined || origin?.kind !== "escape-of" || record.createdSourceCommit === undefined)
+      throw taskError("ESCAPE_CONTEXT_REQUIRED", "Escape linking needs an escape-of origin, a creation commit and repository context.");
+    return await declareEscape({root: completion.root, git: completion.gitRunner, taskId, origin,
+      base: record.createdSourceCommit, now: assertTimestamp(this.#now())});
+  }
+
+  /** Escape Loop R2: printed only, never written; the promoted check becomes a required verifier through update. */
+  async escapeConfigProposal(check: string): Promise<unknown> {
+    let config: AgentOpsConfig | undefined;
+    try { config = await this.#completion?.loadConfig(); } catch { config = undefined; }
+    return configProposal(check, config);
+  }
+
+  /** True when a recorded verification failure was cleared (red to green). */
+  async clearFailure(taskId: string): Promise<boolean> {
     const now = assertTimestamp(this.#now());
-    await this.#store.mutate((state) => {
+    return await this.#store.mutate((state) => {
       const current = findTask(state, taskId);
       if (current.failureFingerprint === null) {
-        return;
+        return false;
       }
       replaceTask(state, {
         ...current,
         updatedAt: now,
         failureFingerprint: null
       });
+      // A source change mid-run is not a red the code fixed.
+      return current.failureFingerprint.commandId !== "source-snapshot";
     });
   }
 

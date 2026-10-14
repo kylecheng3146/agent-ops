@@ -99,7 +99,13 @@ diagnostic。
 Capability check 與模型啟動進度都寫到 stderr，包括 `--json` 模式；stdout
 仍只有最終 JSON envelope，且不會串流 reviewer 原始輸出。SIGINT 或 SIGTERM
 會終止目前 reviewer 的完整 process tree、不進入 fallback，也不寫入
-attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli`。
+attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli`。每輪
+reviewer 預設最多 30 分鐘（可用 `reviewRoles[].timeoutMs` 覆寫）；在 stall 視窗內
+完全沒有輸出的 reviewer 仍會提早停止。
+
+Acceptance runner 的步驟若未設定自己的 `timeoutMs`，`setup` 為 10 分鐘，
+`build`、`testBuild` 與 runner 本身各 5 分鐘，git checkout 為 1 分鐘。逾時的步驟
+回報為 `UNKNOWN`，並指出是哪個步驟、上限多少，以及要調整哪個 `timeoutMs` 欄位。
 
 task ID 必須明確指定，且永遠使用該 task 的原始 criteria；不能用 session fallback
 或 criterion filter 取代需求。review 會在 adversarial session 前、以及寫入證據前
@@ -174,6 +180,13 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   `.worktreeinclude`（gitignore 語法，例如 `.env` 或 `local.properties`）比對到
   的檔案；Git 已 checkout 的檔案一律不覆寫。只有主 checkout 已 trusted 且
   worktree 的 effective config 完全相同時才繼承 trust。
+- 在主 checkout 核准的 `agent-ops update` 會把新 config 複製到副本仍是先前已
+  信任版本的每個 session worktree，並以相同指令信任它；確認前 plan 會列出這些
+  session worktree。手動修改過的 worktree config 不會被覆寫，run 的 worktree 也
+  保留自己的授權。舊 config 下建立的 task 不會自動重新綁定：
+  review 會列出可重新綁定的
+  `agent-ops task revise --task <id> --expected-contract <hash> --reason <text>`
+  （criteria 與 surface 不變），之後再重新 verify。
 - `setup` 指令在新 worktree 中執行（預設 timeout 十分鐘），處理 Git 不會帶過去
   的東西，例如已安裝的相依套件。它屬於 trusted config 的一部分，不需另外核准；
   任一步驟失敗會移除該 worktree。

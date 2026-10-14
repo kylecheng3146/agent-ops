@@ -13,13 +13,16 @@ export interface ReviewEvidenceRequirement {
 /** EVIDENCE-SURFACE-001 data for the surface-coverage criterion. */
 export interface ReviewSurfaceData {
   readonly audit: unknown;
-  readonly history: readonly { readonly at: string; readonly reason: string; readonly surface: unknown }[];
+  /** One entry per revision (latest ten): what it added, removed or changed in the audit. */
+  readonly history: readonly { readonly at: string; readonly reason: string; readonly change: SurfaceDelta }[];
   readonly discovery: unknown;
   readonly postBlockExclusions: readonly unknown[];
 }
 
 export interface ReviewPacket {
   readonly surface?: ReviewSurfaceData;
+  /** Escape Loop: declared origins with link state, labels, replay facts and linked residual risks. */
+  readonly escape?: readonly unknown[];
   readonly contractArtifacts?: readonly {readonly path: string; readonly digest: string; readonly content: string}[];
   readonly contractManifest?: {readonly path: string; readonly digest: string; readonly content: string};
   readonly request: string;
@@ -99,13 +102,15 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
     ...input.criteria.flatMap((criterion) => [criterion.id, criterion.description, ...(criterion.verifierIds ?? [])]),
     ...input.artifactRefs,
     ...input.evidenceRequirements.flatMap((requirement) => [requirement.criterionId, requirement.requirement]),
-    ...(input.surface === undefined ? [] : [JSON.stringify(input.surface)])
+    ...(input.surface === undefined ? [] : [JSON.stringify(input.surface)]),
+    ...(input.escape === undefined ? [] : [JSON.stringify(input.escape)])
   ]) {
     checkSensitive(value);
   }
   const packet: ReviewPacket = {
     // Task text, redacted like every other string the reviewer reads.
     ...(input.surface === undefined ? {} : {surface: safeDeep(input.surface) as ReviewSurfaceData}),
+    ...(input.escape === undefined ? {} : {escape: safeDeep(input.escape) as unknown[]}),
     ...(input.contractArtifacts === undefined ? {} : {contractArtifacts: input.contractArtifacts}),
     ...(input.contractManifest === undefined ? {} : {contractManifest: input.contractManifest}),
     request: safe(input.request),
@@ -131,6 +136,7 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
   return packet;
 }
 import { evaluateGuardrail } from "../guardrails/evaluate.js";
+import type { SurfaceDelta } from "../surface/schema.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { redactSecrets } from "../security/redact.js";
 import { safeTaskText } from "../task/render.js";

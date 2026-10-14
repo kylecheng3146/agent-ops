@@ -49,6 +49,16 @@ Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromp
 才封存 UNKNOWN environment receipt；這段經過時間仍會保留，不會退還不明時間。
 測試材料修改不算修復輪；兩輪停滯需要一次實質策略切換，再兩輪停滯停止。
 
+假設確認後以 `origin --payload-file <json>` 宣告 bug 來源：`{"kind": "escape-of",
+"commit": "<commit>", "label": "<最早關卡>"}`（可選 `"receipt"`），或 `{"kind":
+"pre-existing" | "external", "reason": "..."}`。它會修訂 contract，因此 review 前要重新
+verify 並重新記錄已確認的假設；沒有它時 finish 以 `ESCAPE_ORIGIN_MISSING` 拒絕。
+`escape-of` 會印出連結狀態與 `git blame` 提示，並寫入 `.agent-ops-escapes/<task-id>.json`，
+與修復一起 commit（見 `EVIDENCE-ESCAPE-001`）。surface 標記還需要一條在被逃逸 commit
+重放成立、受追蹤的 `.agent-ops-escapes/rules/<rule-id>.json` 規則；criteria/verify 標記需要
+`"promote": "<runnerId:checkId>"`；否則 finish 以 `ESCAPE_RULE_UNPROVEN` 拒絕（見
+`EVIDENCE-ESCAPE-002`）。
+
 checkpoint 保存 task/session/source/contract/config/cause；resume 只接受同一
 擁有者 worktree 的匹配 checkpoint，保留 dirty 內容及預算。失配需要人類確認。
 時間耗盡後明確「繼續」可透過 `extend --event-id latest` 讀取原生人類事件，

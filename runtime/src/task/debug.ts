@@ -24,6 +24,7 @@ import {readWorktreeRecord} from "../parallel/service.js";
 import {evaluateGuardrail} from "../guardrails/evaluate.js";
 import {sameDebugText} from "./debug-intake.js";
 import {nativeProcessIdentity} from "../run/transport.js";
+import {declareEscape, LEDGER_DIRECTORY, removeEscapeRecord, resolveOrigin} from "../escape/link.js";
 
 interface DebugOptions {
   root: string;
@@ -88,7 +89,8 @@ export class DebugService {
     const records = await this.options.tasks.list();
     const materials = new Set(records.flatMap(r=>r.task.criteria.flatMap(c=>c.acceptance?.bindings.flatMap(b=>b.materials.map(m=>m.path)) ?? [])));
     const paths = new Set([...await collectBaseChangePaths(this.options.gitRunner,state.baselineCommit), ...(await collectChangeSurface(this.options.gitRunner)).paths]);
-    const product = [...paths].filter(path=>!materials.has(path) && !/(?:^|\/)(?:tests?|fixtures)(?:\/|$)|(?:\.test|\.spec)\./u.test(path)).sort();
+    // The escape ledger is data about the fix, not a repair candidate.
+    const product = [...paths].filter(path=>!materials.has(path) && !path.startsWith(LEDGER_DIRECTORY+"/") && !/(?:^|\/)(?:tests?|fixtures)(?:\/|$)|(?:\.test|\.spec)\./u.test(path)).sort();
     const entries: {path:string; hash:string}[] = [];
     for (const path of product) {
       try {entries.push({path,hash:sha256(await readFile(join(this.options.root,path)))});}
@@ -212,6 +214,21 @@ export class DebugService {
       fail("TASK_DEBUG_STRATEGY_NOT_ALLOWED","Exactly one strategy switch is allowed after two stagnant repair rounds.");
     await this.#evidence(taskId,input.reference);
     await this.#mutate(root,{...root.debug,strategy:{from:input.from,to:input.to,reason:input.reason,references:[input.reference],afterRound:debugRounds(root.debug)},checkpoint:null});
+  }
+  /** Escape Loop: where the confirmed cause came from, bound into the contract before review. */
+  async origin(taskId: string, input: unknown): Promise<{record: StoredTaskRecord; escape?: Awaited<ReturnType<typeof declareEscape>>}> {
+    const root = await this.root(taskId);
+    if (root.task.id !== taskId) fail("ESCAPE_ORIGIN_INVALID","Declare the origin on the original issue task.");
+    if (root.status !== "active" || root.debug.operation !== null) fail("TASK_DEBUG_BUSY","Origin needs an active idle issue.");
+    if (debugRemainingMs(root.debug) === 0) fail("TASK_DEBUG_BUDGET_EXHAUSTED","The original issue's active budget is exhausted.");
+    if (!root.debug.hypotheses.some(h=>h.status === "confirmed"))
+      fail("ESCAPE_ORIGIN_EARLY","Declare the origin only after discriminating evidence confirms a hypothesis.");
+    const origin = await resolveOrigin(this.options.gitRunner,input);
+    const record = await this.options.tasks.revise(taskId,{expectedContractHash:taskContractHash(root.task),origin,debugOrigin:true,
+      reason:`Declare issue origin: ${origin.kind === "escape-of" ? "escape-of "+origin.commit : origin.kind}.`});
+    if (origin.kind !== "escape-of") {await removeEscapeRecord(this.options.root,taskId); return {record};}
+    return {record, escape: await declareEscape({root:this.options.root,git:this.options.gitRunner,taskId,origin,
+      base:root.debug.baselineCommit,now:new Date().toISOString()})};
   }
   async remaining(taskId: string): Promise<number> {return debugRemainingMs((await this.root(taskId)).debug);}
   async #userEvent(sessionId: string, home?: string, kind: "latest" | "control" = "latest") {

@@ -94,11 +94,13 @@ import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
+import { runEscapesCommand } from "./commands/escapes.js";
 import { runAllowStopCommand } from "./commands/allow-stop.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import {
   formatUpdatePlan,
-  runUpdateCommand
+  runUpdateCommand,
+  worktreeSyncLine
 } from "./commands/update.js";
 import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
@@ -111,6 +113,8 @@ import {
 import {
   listWorktrees,
   branchLockDoctorResult,
+  sessionWorktreeNames,
+  syncSessionWorktrees,
   worktreeDoctorResult
 } from "../../../runtime/src/parallel/manage.js";
 import {
@@ -366,6 +370,7 @@ process.exitCode = await runCli(
             const context = await productionRunContext(root);
             return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser)});
           }
+          if (args.command === "escapes") return await runEscapesCommand({root});
           if (args.command === "office") {
             return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser),
               foreground: async (onUrl) => await serveOffice(root, onUrl), writeStdout: (text) => {process.stdout.write(text);}});
@@ -550,8 +555,12 @@ process.exitCode = await runCli(
               trustStore: store,
               calculateTrustBinding: async (config) =>
                 await plannedTrustBinding(root, config),
-              confirm: async (plan, trust) =>
-                await confirmPlan(formatUpdatePlan(plan, trust)),
+              confirm: async (plan, trust, worktrees) =>
+                await confirmPlan(formatUpdatePlan(plan, trust) + worktreeSyncLine(worktrees)),
+              sessionWorktrees: {
+                list: async () => await sessionWorktreeNames(worktreeDependencies(), root),
+                sync: async () => await syncSessionWorktrees(worktreeDependencies(), root)
+              },
               promptOffice: async (message, enabled) =>
                 await selectYesNo(message, { input: process.stdin, output: process.stdout }, enabled),
               promptAutoRun: async (message, enabled) =>
