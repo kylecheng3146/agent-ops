@@ -5,8 +5,9 @@ All notable changes to the project are documented here.
 ## [Unreleased]
 
 - An approved `agent-ops update` now copies the new config into every
-  session worktree and trusts it for the same commands (run worktrees are
-  left alone; the plan lists the worktrees first), so a config change no
+  session worktree whose copy is still the previously trusted one and trusts
+  it for the same commands (hand-edited copies and run worktrees are left
+  alone; the plan lists the worktrees first), so a config change no
   longer leaves each worktree `STALE`. `task revise` with only `--reason`
   rebinds a task to the current configuration, and a
   `reviewer-policy-changed` review prints that exact command.

@@ -133,6 +133,8 @@ export async function sessionWorktreeNames(deps: FinishDependencies, mainRoot: s
  * After `agent-ops update` was approved and the main checkout is trusted, copy
  * its config into each session worktree and trust that copy: the same commands
  * the user just approved, and nothing else (a differing copy stays untrusted).
+ * Only a copy that is still the previously trusted one is replaced; a
+ * hand-edited worktree config is user content and is left alone.
  */
 export async function syncSessionWorktrees(deps: FinishDependencies, mainRoot: string): Promise<readonly string[]> {
   const config = await deps.loadConfig(mainRoot);
@@ -140,6 +142,9 @@ export async function syncSessionWorktrees(deps: FinishDependencies, mainRoot: s
   const synced: string[] = [];
   for (const name of await sessionWorktreeNames(deps, mainRoot)) {
     const path = worktreePath(mainRoot, name);
+    const before = await deps.loadConfig(path).catch(() => null);
+    if (before === null || (calculateConfigHash(before) !== calculateConfigHash(config) &&
+        await deps.trust.status(path, before) !== "TRUSTED")) continue;
     await copyFile(join(mainRoot, ".agent-ops", "config.json"), join(path, ".agent-ops", "config.json"));
     const copied = await deps.loadConfig(path);
     if (calculateConfigHash(copied) !== calculateConfigHash(config)) continue;

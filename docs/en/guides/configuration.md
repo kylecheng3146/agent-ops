@@ -208,9 +208,10 @@ evidence. Give each editing conversation its own worktree instead:
   overwritten. Trust is inherited only when the main checkout is trusted and
   the worktree's effective config is identical.
 - An approved `agent-ops update` in the main checkout copies the new config
-  into every session worktree and trusts that copy for the same commands; the
-  plan lists those worktrees before you confirm. Run worktrees keep their own
-  authorization and are left alone. A task created under the old config is
+  into every session worktree whose copy is still the previously trusted one,
+  and trusts it for the same commands; the plan lists the session worktrees
+  before you confirm. A hand-edited worktree config is left alone, and run
+  worktrees keep their own authorization. A task created under the old config is
   not rebound automatically: review names the
   `agent-ops task revise --task <id> --expected-contract <hash> --reason <text>`
   that rebinds it (criteria and surface unchanged), then verify again.

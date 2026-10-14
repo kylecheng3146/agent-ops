@@ -180,9 +180,10 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   `.worktreeinclude`（gitignore 語法，例如 `.env` 或 `local.properties`）比對到
   的檔案；Git 已 checkout 的檔案一律不覆寫。只有主 checkout 已 trusted 且
   worktree 的 effective config 完全相同時才繼承 trust。
-- 在主 checkout 核准的 `agent-ops update` 會把新 config 複製到每個 session
-  worktree，並以相同指令信任該副本；確認前 plan 會列出這些 worktree。Run 的
-  worktree 保留自己的授權，不會被更動。舊 config 下建立的 task 不會自動重新綁定：
+- 在主 checkout 核准的 `agent-ops update` 會把新 config 複製到副本仍是先前已
+  信任版本的每個 session worktree，並以相同指令信任它；確認前 plan 會列出這些
+  session worktree。手動修改過的 worktree config 不會被覆寫，run 的 worktree 也
+  保留自己的授權。舊 config 下建立的 task 不會自動重新綁定：
   review 會列出可重新綁定的
   `agent-ops task revise --task <id> --expected-contract <hash> --reason <text>`
   （criteria 與 surface 不變），之後再重新 verify。
