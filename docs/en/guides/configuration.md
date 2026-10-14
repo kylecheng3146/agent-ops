@@ -207,6 +207,13 @@ evidence. Give each editing conversation its own worktree instead:
   `.env` or `local.properties`); a file Git already checked out is never
   overwritten. Trust is inherited only when the main checkout is trusted and
   the worktree's effective config is identical.
+- An approved `agent-ops update` in the main checkout copies the new config
+  into every session worktree and trusts that copy for the same commands; the
+  plan lists those worktrees before you confirm. Run worktrees keep their own
+  authorization and are left alone. A task created under the old config is
+  not rebound automatically: review names the
+  `agent-ops task revise --task <id> --expected-contract <hash> --reason <text>`
+  that rebinds it (criteria and surface unchanged), then verify again.
 - `setup` commands run in the new worktree (default timeout ten minutes) for
   what Git does not carry, such as installed dependencies. They are part of
   the trusted config, so they need no separate approval; a failing step

@@ -99,7 +99,8 @@ import { runAllowStopCommand } from "./commands/allow-stop.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import {
   formatUpdatePlan,
-  runUpdateCommand
+  runUpdateCommand,
+  worktreeSyncLine
 } from "./commands/update.js";
 import { errorEnvelope } from "./output.js";
 import { runAgyHeadless } from "./agy-headless.js";
@@ -112,6 +113,8 @@ import {
 import {
   listWorktrees,
   branchLockDoctorResult,
+  sessionWorktreeNames,
+  syncSessionWorktrees,
   worktreeDoctorResult
 } from "../../../runtime/src/parallel/manage.js";
 import {
@@ -552,8 +555,12 @@ process.exitCode = await runCli(
               trustStore: store,
               calculateTrustBinding: async (config) =>
                 await plannedTrustBinding(root, config),
-              confirm: async (plan, trust) =>
-                await confirmPlan(formatUpdatePlan(plan, trust)),
+              confirm: async (plan, trust, worktrees) =>
+                await confirmPlan(formatUpdatePlan(plan, trust) + worktreeSyncLine(worktrees)),
+              sessionWorktrees: {
+                list: async () => await sessionWorktreeNames(worktreeDependencies(), root),
+                sync: async () => await syncSessionWorktrees(worktreeDependencies(), root)
+              },
               promptOffice: async (message, enabled) =>
                 await selectYesNo(message, { input: process.stdin, output: process.stdout }, enabled),
               promptAutoRun: async (message, enabled) =>

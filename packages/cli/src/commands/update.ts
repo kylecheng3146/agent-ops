@@ -47,7 +47,12 @@ export interface UpdateCommandOptions {
   readonly codexHome?: string;
   readonly trustStore?: TrustStore;
   calculateTrustBinding?(config: UpdatePlan["installation"]["config"]): Promise<TrustBinding | null>;
-  confirm(plan: UpdatePlan, trust: PublicTrustChange): Promise<boolean>;
+  confirm(plan: UpdatePlan, trust: PublicTrustChange, worktrees: readonly string[]): Promise<boolean>;
+  /** Session worktrees that receive the approved config and its trust; run worktrees are excluded. */
+  readonly sessionWorktrees?: {
+    list(): Promise<readonly string[]>;
+    sync(): Promise<readonly string[]>;
+  };
   promptWorktree?(message: string): Promise<boolean>;
   promptOffice?(message: string, enabled: boolean): Promise<boolean>;
   promptAutoRun?(message: string, enabled: boolean): Promise<boolean>;
@@ -60,6 +65,14 @@ export interface UpdateCommandData {
   readonly plan: PublicUpdatePlan;
   readonly message: string;
   readonly text?: string;
+  /** Session worktrees planned for (or given) the new config and trust. */
+  readonly worktrees?: readonly string[];
+}
+
+/** One plan line, so the user approves the worktrees together with the commands. */
+export function worktreeSyncLine(worktrees: readonly string[]): string {
+  return worktrees.length === 0 ? "" :
+    `Session worktrees that receive this config and its trust: ${worktrees.join(", ")}\n`;
 }
 
 function repairedLines(plan: UpdatePlan): string[] {
@@ -242,12 +255,14 @@ export async function runUpdateCommand(
     ...(worktree === undefined ? {} : { worktree })
   });
   const trust = await trustChange(options, plan);
+  const worktrees = await options.sessionWorktrees?.list().catch(() => []) ?? [];
   if (options.args.dryRun) {
     return okEnvelope("UPDATE_PLAN_READY", {
       applied: false,
       plan: toPublicUpdatePlan(plan, trust),
       message: "Update plan calculated; no files were changed.",
-      text: formatUpdatePlan(plan, trust)
+      text: formatUpdatePlan(plan, trust) + worktreeSyncLine(worktrees),
+      ...(worktrees.length === 0 ? {} : {worktrees})
     });
   }
   if (!options.args.yes && !options.isTTY) {
@@ -260,7 +275,7 @@ export async function runUpdateCommand(
   }
   if (
     !options.args.yes &&
-    !(await options.confirm(plan, trust))
+    !(await options.confirm(plan, trust, worktrees))
   ) {
     return updateError(
       "UPDATE_CANCELLED",
@@ -286,16 +301,21 @@ export async function runUpdateCommand(
       );
     }
   }
+  // Fail-open: a worktree that cannot be synced keeps its old trust and says so via trust status.
+  const synced = worktrees.length === 0 ? [] : await options.sessionWorktrees?.sync().catch(() => []) ?? [];
+  const syncedLines = synced.length === 0 ? [] : [`Synced config and trust into session worktrees: ${synced.join(", ")}.`];
   return okEnvelope("UPDATE_APPLIED", {
     applied: true,
     plan: toPublicUpdatePlan(plan, trust),
     message: `Managed installation updated to ${plan.targetVersion}.`,
-    ...(plan.installation.repaired.length === 0
+    ...(synced.length === 0 ? {} : {worktrees: synced}),
+    ...(plan.installation.repaired.length === 0 && synced.length === 0
       ? {}
       : {
           text: [
             `Managed installation updated to ${plan.targetVersion}.`,
-            ...repairedLines(plan)
+            ...repairedLines(plan),
+            ...syncedLines
           ].join("\n")
         })
   });

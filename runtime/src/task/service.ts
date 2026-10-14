@@ -416,7 +416,9 @@ export class TaskService {
     const previous = await this.status({taskId});
     if (previous.status !== "active") throw taskError("TASK_NOT_ACTIVE", "Only active tasks can revise acceptance.");
     if (taskContractHash(previous.task) !== input.expectedContractHash) throw taskError("TASK_CONTRACT_CHANGED", "Task contract changed.");
-    if (input.criteria === undefined && input.surface === undefined && input.origin === undefined)
+    // With none of them, a revision only rebinds the task to the current configuration (checked below).
+    const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined;
+    if (rebindOnly && this.#completion === undefined)
       throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, an origin, or a combination.");
     if (input.origin !== undefined && previous.task.debug !== undefined && input.debugOrigin !== true)
       throw taskError("ESCAPE_ORIGIN_DEBUG_ACTION", "A DEBUG issue declares its origin with task debug --debug-action origin after a confirmed hypothesis.");
@@ -447,6 +449,8 @@ export class TaskService {
       if (!configured.ok) throw taskError("TASK_INVALID", configured.errors[0]?.message ?? "Invalid binding.");
       policyConfigHash = calculateConfigHash(config);
     }
+    if (rebindOnly && policyConfigHash === previous.policyConfigHash)
+      throw taskError("TASK_REVISION_INVALID", "Nothing to revise: criteria, surface, origin and configuration are unchanged.");
     if (criteria.some(c => c.acceptance !== undefined)) await this.#retainBaselines(next);
     const now = assertTimestamp(this.#now());
     return await this.#store.mutate(state => {

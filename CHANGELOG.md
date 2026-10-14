@@ -4,6 +4,12 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- An approved `agent-ops update` now copies the new config into every
+  session worktree and trusts it for the same commands (run worktrees are
+  left alone; the plan lists the worktrees first), so a config change no
+  longer leaves each worktree `STALE`. `task revise` with only `--reason`
+  rebinds a task to the current configuration, and a
+  `reviewer-policy-changed` review prints that exact command.
 - Acceptance runner steps without their own `timeoutMs` now get 10 minutes
   for setup and 5 minutes each for build, test build and the runner (all were
   60 seconds); a timed-out step is reported with its name, limit and the

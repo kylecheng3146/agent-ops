@@ -409,6 +409,15 @@ const raw = {
     assert.doesNotMatch(source, /execSync|spawnSync|shell: true/u);
   }),
 
+  'review-policy-remedy': () => reviewFixture(async ({tasks, review, taskContractHash}) => {
+    // Created under another configuration: review names the exact rebind command instead of a bare reason.
+    const task = await tasks.create({title: 'Image size', criteria: CRITERIA, policyConfigHash: 'a'.repeat(64)});
+    const result = await review(task.task.id, async () => {throw new Error('a policy mismatch must not start reviewers');});
+    assert.equal(result.data.result.reason, 'reviewer-policy-changed');
+    assert.ok(result.data.text.includes(`agent-ops task revise --task ${task.task.id} --expected-contract ${taskContractHash(task.task)} --reason`),
+      result.data.text);
+  }),
+
   'surface-history-delta': () => reviewFixture(async ({tasks, verified, review, policyConfigHash, taskContractHash}) => {
     // A large audit revised a few times must still fit the 64 KiB review packet.
     const included = [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx'],

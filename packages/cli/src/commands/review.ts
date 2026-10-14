@@ -914,11 +914,13 @@ export async function runReviewCommand(
         });
       }
       if (context.policyConfigHash !== options.policyConfigHash) {
-        return notRunEnvelope({
-          ...resultBase,
-          status: "NOT_RUN", reason: "reviewer-policy-changed",
-          scope
-        });
+        const result: ReviewRunResult = {...resultBase, status: "NOT_RUN", reason: "reviewer-policy-changed", scope};
+        const own = context.records.find(r => r.task.id === context.taskId)!.task;
+        const message = "Independent review was not run.";
+        return {code: "REVIEW_NOT_RUN", status: "error", errors: [{code: "REVIEW_NOT_RUN", message}], data: {message, result,
+          text: renderReviewResult(result) +
+            `The configuration changed after task ${context.taskId} was created. Rebind it, then verify again:\n` +
+            `  agent-ops task revise --task ${context.taskId} --expected-contract ${taskContractHash(own)} --reason "Rebind to the current configuration"\n`}};
       }
     }
     if (context !== undefined && options.tasks !== undefined) {
