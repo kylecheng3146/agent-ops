@@ -39,6 +39,7 @@ import {sameDebugText} from "./debug-intake.js";
 import {isCovers, parseSurface} from "../surface/schema.js";
 import type {TaskOrigin} from "../escape/origin.js";
 import {declareEscape, resolveOrigin} from "../escape/link.js";
+import {configProposal} from "../escape/rules.js";
 import {logGateCatch} from "../logging/local-log.js";
 
 export interface ReviseTaskInput {
@@ -1052,6 +1053,13 @@ export class TaskService {
       throw taskError("ESCAPE_CONTEXT_REQUIRED", "Escape linking needs an escape-of origin, a creation commit and repository context.");
     return await declareEscape({root: completion.root, git: completion.gitRunner, taskId, origin,
       base: record.createdSourceCommit, now: assertTimestamp(this.#now())});
+  }
+
+  /** Escape Loop R2: printed only, never written; the promoted check becomes a required verifier through update. */
+  async escapeConfigProposal(check: string): Promise<unknown> {
+    let config: AgentOpsConfig | undefined;
+    try { config = await this.#completion?.loadConfig(); } catch { config = undefined; }
+    return configProposal(check, config);
   }
 
   /** True when a recorded verification failure was cleared (red to green). */

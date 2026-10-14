@@ -5,9 +5,14 @@ export const ESCAPE_LABELS = [...ESCAPE_GATES, "flagged", "out-of-model"] as con
 export type EscapeLabel = typeof ESCAPE_LABELS[number];
 
 export type TaskOrigin =
-  | { readonly kind: "escape-of"; readonly commit: string; readonly label: EscapeLabel; readonly receipt?: string }
+  | { readonly kind: "escape-of"; readonly commit: string; readonly label: EscapeLabel; readonly receipt?: string;
+      /** R2 backfill: the past commit that fixed the escape; missed paths come from its diff. */
+      readonly fix?: string;
+      /** R2: the fixing task's red-to-green check (runnerId:checkId) proving a criteria/verify escape. */
+      readonly promote?: string }
   | { readonly kind: "pre-existing" | "external"; readonly reason: string };
 
+export const PROMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export const RECEIPT_ID = /^[a-f0-9]{64}-[a-f0-9]{40,64}$/u;
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -17,9 +22,11 @@ const keys = (v: Record<string, unknown>, required: string[], optional: string[]
 export function validOrigin(value: unknown): value is TaskOrigin {
   if (!record(value)) return false;
   if (value.kind === "escape-of")
-    return keys(value, ["kind", "commit", "label"], ["receipt"]) && typeof value.commit === "string" &&
+    return keys(value, ["kind", "commit", "label"], ["receipt", "fix", "promote"]) && typeof value.commit === "string" &&
       /^[a-f0-9]{40,64}$/u.test(value.commit) && ESCAPE_LABELS.includes(value.label as EscapeLabel) &&
-      (value.receipt === undefined || (typeof value.receipt === "string" && RECEIPT_ID.test(value.receipt)));
+      (value.receipt === undefined || (typeof value.receipt === "string" && RECEIPT_ID.test(value.receipt))) &&
+      (value.fix === undefined || (typeof value.fix === "string" && /^[a-f0-9]{40,64}$/u.test(value.fix) && value.fix !== value.commit)) &&
+      (value.promote === undefined || (typeof value.promote === "string" && PROMOTE.test(value.promote)));
   return (value.kind === "pre-existing" || value.kind === "external") && keys(value, ["kind", "reason"]) &&
     typeof value.reason === "string" && value.reason.trim().length >= 10 && value.reason.length <= 2048 && !value.reason.includes("\0");
 }

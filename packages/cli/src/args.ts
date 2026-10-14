@@ -25,7 +25,8 @@ export const COMMAND_NAMES = [
   "allow-stop",
   "worktree",
   "run",
-  "office"
+  "office",
+  "escapes"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -109,6 +110,9 @@ export interface ParsedArgs {
   escapeOf?: string;
   escapeLabel?: string;
   escapeReceipt?: string;
+  /** Escape Loop R2: backfill from a past fix commit; promote a red-to-green check for a criteria/verify escape. */
+  escapeFix?: string;
+  escapePromote?: string;
   planFile?: string;
   expectedContract?: string;
   expectedTreeContract?: string;
@@ -247,6 +251,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let escapeOf: string | undefined;
   let escapeLabel: string | undefined;
   let escapeReceipt: string | undefined;
+  let escapeFix: string | undefined;
+  let escapePromote: string | undefined;
   let planFile: string | undefined;
   let expectedContract: string | undefined;
   let expectedTreeContract: string | undefined;
@@ -396,6 +402,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--escape-of": if (escapeOf !== undefined) duplicate(token); escapeOf = readOptionValue(argv, index++, token); break;
       case "--escape-label": if (escapeLabel !== undefined) duplicate(token); escapeLabel = readOptionValue(argv, index++, token); break;
       case "--escape-receipt": if (escapeReceipt !== undefined) duplicate(token); escapeReceipt = readOptionValue(argv, index++, token); break;
+      case "--escape-fix": if (escapeFix !== undefined) duplicate(token); escapeFix = readOptionValue(argv, index++, token); break;
+      case "--escape-promote": if (escapePromote !== undefined) duplicate(token); escapePromote = readOptionValue(argv, index++, token); break;
       case "--plan-file": if (planFile !== undefined) duplicate(token); planFile = readOptionValue(argv, index++, token); break;
       case "--expected-contract": if (expectedContract !== undefined) duplicate(token); expectedContract = readOptionValue(argv, index++, token); break;
       case "--expected-tree-contract": if (expectedTreeContract !== undefined) duplicate(token); expectedTreeContract = readOptionValue(argv, index++, token); break;
@@ -898,10 +906,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     (reason !== undefined && !revisionAction) ||
     (baseline !== undefined && !(command === "task" && (action === "create" || action === "revise"))))
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Acceptance options are not supported by this command.");
-  if ((escapeOf !== undefined || escapeLabel !== undefined || escapeReceipt !== undefined) && !(command === "task" && (action === "create" || action === "revise")))
+  if ((escapeOf !== undefined || escapeLabel !== undefined || escapeReceipt !== undefined || escapeFix !== undefined || escapePromote !== undefined) &&
+    !(command === "task" && (action === "create" || action === "revise")))
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Escape options apply only to task create and revise.");
-  if ((escapeOf === undefined) !== (escapeLabel === undefined) || (escapeReceipt !== undefined && escapeOf === undefined))
-    throw new CliArgumentError("CLI_MISSING_VALUE", "--escape-of needs --escape-label; --escape-label and --escape-receipt need --escape-of.");
+  if ((escapeOf === undefined) !== (escapeLabel === undefined) ||
+    ((escapeReceipt !== undefined || escapeFix !== undefined || escapePromote !== undefined) && escapeOf === undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "--escape-of needs --escape-label; --escape-label, --escape-receipt, --escape-fix and --escape-promote need --escape-of.");
+  if (command === "escapes" && argv.some(token => token !== "escapes" && token !== "--json"))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "escapes accepts only --json; it is a read-only report.");
   if (revisionAction && (taskId === undefined || evidence.length > 0 || title !== undefined || intent !== undefined || parentTaskId !== undefined || sessionId !== undefined || criteria.length > 0 || base !== undefined ||
     (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined && escapeOf === undefined) || reason === undefined)) ||
     (action === "replan" && (expectedTreeContract === undefined || planFile === undefined || reason === undefined)) ||
@@ -1151,6 +1163,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(escapeOf === undefined ? {} : {escapeOf}),
     ...(escapeLabel === undefined ? {} : {escapeLabel}),
     ...(escapeReceipt === undefined ? {} : {escapeReceipt}),
+    ...(escapeFix === undefined ? {} : {escapeFix}),
+    ...(escapePromote === undefined ? {} : {escapePromote}),
     ...(planFile === undefined ? {} : {planFile}),
     ...(expectedContract === undefined ? {} : {expectedContract}),
     ...(expectedTreeContract === undefined ? {} : {expectedTreeContract}),

@@ -122,7 +122,45 @@ English source version: 2026-10-06. Revalidate: when the English specification c
   review 阻擋、review FAIL、verify 由紅轉綠）會附加僅含 code 與 task id 的參考性 local-log
   `gate-catch` 事件；記錄失敗時 fail-open，origin 要求則 fail-closed。
 - 範圍 R1 只負責記錄。由逃逸學到的規則、重放證明、回測、`--escape-fix` 與
-  `agent-ops escapes` 報表屬於 R2。
+  `agent-ops escapes` 報表屬於 R2（[EVIDENCE-ESCAPE-002](#evidence-escape-002)）。
+
+## EVIDENCE-ESCAPE-002
+
+surface 逃逸 MUST 在修復 finish 前變成已證明、受追蹤的規則；學到的規則 MUST 只能收緊 surface gate。
+
+- Trigger: 已宣告的 escape-of origin（EVIDENCE-ESCAPE-001），或以 `task create --escape-of <commit> --escape-label <label> --escape-fix <fix-commit>` 回填的過去逃逸。
+- Action: 標記為 `surface`、`surface-unseen` 或 `surface-excluded` 時，commit 一條規則 `.agent-ops-escapes/rules/<rule-id>.json`，形狀為 `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}`，並重新宣告 origin。`criteria` 或 `verify` 以 `--escape-promote <runnerId:checkId>`（DEBUG payload `"promote"`）指名修復 task 由紅轉綠的 check。其他標記記錄為 lesson。
+- Evidence: finish、`task complete` 與 completion gate 會重跑證明，並以 `ESCAPE_RULE_UNPROVEN`、`ESCAPE_RULE_TOO_BROAD` 或 `SURFACE_BUDGET_EXCEEDED` 拒絕；ledger 記錄保存證明用規則、其內容 hash 與回測的 fires、commits 與比率。
+- Positive: `逃逸 surface-unseen；規則 image-size-siblings 在被逃逸 commit 上觸發，其查詢在該 commit 命中兩個漏掉的兄弟頁面，且在最近 200 個 commit 中只觸發 2 次。`
+- Negative: `規則從未在被逃逸 commit 上觸發就 finish surface 逃逸，或新增可排除路徑的規則欄位。`
+
+- 規則只含資料且不需要 trust：trigger 與 expand 變成 argv `git grep -F` 查詢與路徑
+  glob，絕不經過 shell 或 regex。嚴格 schema 沒有任何能移除查詢、新增排除或放寬關卡的
+  欄位。無效規則以 review NOT_RUN `ESCAPE_RULE_INVALID` fail-closed；symlink 或非一般
+  檔案的規則目錄或檔案則為 `ESCAPE_RULE_UNSAFE`。
+- Surface gate：只有 task diff 符合 trigger 路徑 glob，或某個變更行包含 trigger token
+  時，規則才會觸發。已觸發規則的每個 expand 命中都必須位於 diff、included、UNKNOWN 或
+  excluded，否則為 `SURFACE_UNCLASSIFIED`；有 `noExclude` 時，被排除的命中為
+  `ESCAPE_RULE_NO_EXCLUDE`。每條規則的觸發與 included/excluded 計數寫入 local-log
+  `escape-rule` 事件（fail-open）。
+- 證明：規則必須指名被逃逸 commit、在該 commit 自身的 diff 上觸發，並在該 commit 重放時
+  命中當時已存在的每個漏掉路徑。有 `--escape-fix` 時漏掉路徑取自 fix commit，否則取自
+  task diff。`criteria`/`verify` 逃逸需要其 promoted check 是修復 task 某個已證明
+  behavioral 條件的 `redCheckIds` 項目（baseline 紅、candidate 綠）；輸出會印出新增
+  required verifier 的 config 提案，agent-ops 絕不寫入 `.agent-ops/config.json`。
+  `scenario`、`review`、`requirement`、`flagged` 與 `out-of-model` 記錄帶理由的未證明
+  lesson，不阻擋。絕不在被逃逸 commit 上執行 review 或測試。
+- 回測：以一次 argv `git log` 把 trigger 比對最近 200 個 first-parent commit 的 diff；
+  觸發比率超過 30% 為 `ESCAPE_RULE_TOO_BROAD`。回測有時間預算（超出為
+  `SURFACE_BUDGET_EXCEEDED`，絕不默默通過），並以 HEAD 與規則 hash 快取。編輯證明用規則
+  會讓 ledger 記錄過期，直到重新宣告。
+- `agent-ops escapes [--json]` 是唯讀、fail-open 的報表：來自 ledger 的各標記漏網數、
+  來自 local log 的 `gate-catch` code、origin 組成、帶 unresolved 理由的連結狀態組成，
+  以及每條規則的觸發/included/excluded 計數與時間窗，皆為附 n 的原始計數，n < 10 時標為
+  `insufficient-data`。至少觸發 10 次且從無 included 命中的規則列為退役候選；移除一律
+  經過審查的 commit，絕不自動。
+- R2 取代 phase-2 的 `surface.aliases` 設定（改為受追蹤規則）與 `surface stats`
+  （改為 `agent-ops escapes`）。
 
 ## EVIDENCE-AGGREGATE-001
 

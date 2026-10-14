@@ -64,8 +64,17 @@ export interface GateCatchLogEvent {
   taskId: string;
 }
 
+/** Escape Loop R2: one learned rule fired in a surface gate; rule id and outcome counts only. */
+export interface EscapeRuleLogEvent {
+  type: "escape-rule";
+  ruleId: string;
+  included: number;
+  excluded: number;
+}
+
 export type LocalLogEvent =
   | CommandResultLogEvent
+  | EscapeRuleLogEvent
   | GateCatchLogEvent
   | SurfaceMetricsLogEvent
   | DiagnosticLogEvent
@@ -242,6 +251,14 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
     }
     return { type: "gate-catch", code: value.code, taskId: value.taskId };
   }
+  if (value.type === "escape-rule") {
+    if (!hasExactKeys(value, ["excluded", "included", "ruleId", "type"]) || typeof value.ruleId !== "string" ||
+      !/^[a-z][a-z0-9-]{0,63}$/u.test(value.ruleId) ||
+      [value.included, value.excluded].some((n) => !Number.isSafeInteger(n) || (n as number) < 0)) {
+      return invalidEvent();
+    }
+    return { type: "escape-rule", ruleId: value.ruleId, included: value.included as number, excluded: value.excluded as number };
+  }
   return invalidEvent();
 }
 
@@ -373,4 +390,17 @@ export async function logGateCatch(code: string, taskId: string, home = process.
     const state = localStatePaths(home);
     await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "gate-catch", code, taskId}, {anchorDirectory: state.anchorDirectory});
   } catch { /* advisory only */ }
+}
+
+/** Read-only and fail-open for reports: unreadable lines are skipped, a missing log is empty. */
+export async function readLocalLog(home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<{ timestamp: string; event: LocalLogEvent }[]> {
+  try {
+    const state = localStatePaths(home);
+    const source = await readPrivateFile(join(state.logDirectory, "events.ndjson"), state.anchorDirectory);
+    return (source ?? "").split("\n").filter(Boolean).flatMap((line) => {
+      try { return [parseStoredLine(line)]; } catch { return []; }
+    });
+  } catch {
+    return [];
+  }
 }

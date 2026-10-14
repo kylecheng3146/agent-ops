@@ -24,6 +24,22 @@ All notable changes to the project are documented here.
   `.agent-ops-escapes/`.
 - Advisory local-log `gate-catch` events record surface blocks, review FAIL and
   verify red-to-green with only the code and task id.
+- Escape Loop R2 (`EVIDENCE-ESCAPE-002`, English and zh-TW): learned rules live
+  in git-tracked `.agent-ops-escapes/rules/<rule-id>.json` files (trigger paths
+  and tokens, expand paths and `git grep -F` queries, `noExclude`). They only
+  tighten: a fired rule's hits must be classified (`SURFACE_UNCLASSIFIED`),
+  `noExclude` hits cannot be excluded (`ESCAPE_RULE_NO_EXCLUDE`), and an invalid
+  or symlinked rule fails closed (`ESCAPE_RULE_INVALID`, `ESCAPE_RULE_UNSAFE`).
+- A surface escape cannot finish until a rule replayed at the escaped commit
+  fires and hits every missed path, and its trigger fires on at most 30% of the
+  last 200 first-parent commits (`ESCAPE_RULE_UNPROVEN`,
+  `ESCAPE_RULE_TOO_BROAD`, `SURFACE_BUDGET_EXCEEDED`). A criteria/verify escape
+  names its red-to-green check with `--escape-promote <runnerId:checkId>` and
+  gets a printed (never written) config proposal; other labels record a lesson.
+- `task create|revise --escape-fix <commit>` backfills a past escape from its
+  fix commit. `agent-ops escapes [--json]` is a read-only report of misses,
+  catches, origin and link mix, and per-rule fires with retirement candidates.
+  This supersedes the planned `surface.aliases` and `surface stats`.
 
 ## [0.9.0] - 2026-10-13
 

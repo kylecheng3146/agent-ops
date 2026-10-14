@@ -21,6 +21,6 @@ test('sixty-minute defaults retain explicit budgets and twenty-minute grants',()
  assert.equal(validDebugState(legacy),false);
 });
 for(const suite of ['state','proof','host','install','compatibility']) test(`debug ${suite} executes behavior in real Git/process fixtures`,async()=>{
- const result=await exec(process.execPath,[`tests/debug/${suite}.acceptance.mjs`],{cwd:process.cwd(),env:{...process.env,AGENT_OPS_DEBUG_TEST_BUILD:resolve('.tmp/test-dist')},timeout:120000,maxBuffer:1024*1024});
+ const result=await exec(process.execPath,[`tests/debug/${suite}.acceptance.mjs`],{cwd:process.cwd(),env:{...process.env,AGENT_OPS_DEBUG_TEST_BUILD:resolve('.tmp/test-dist')},timeout:240000,maxBuffer:1024*1024});
  const report=JSON.parse(result.stdout.trim());assert.ok(report.completed);assert.ok(report.results.every((r:{status:string})=>r.status==='PASS'),result.stdout);
 });

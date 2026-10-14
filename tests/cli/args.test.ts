@@ -48,7 +48,8 @@ test("recognizes every top-level command", () => {
     "allow-stop",
     "worktree",
     "run",
-    "office"
+    "office",
+    "escapes"
   ]);
 
   for (const command of COMMAND_NAMES) {
