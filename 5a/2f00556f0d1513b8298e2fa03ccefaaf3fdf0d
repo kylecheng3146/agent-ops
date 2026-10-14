@@ -1,0 +1,10 @@
+worktree: gate-c (agent-ops/gate-c)
+session: bf3a95c5-b9ae-4249-8ee4-c6b97127520b
+agent-ops task task-fd272c26-3fb9-4554-8542-685bcb370638: Surface discovery: 10-file cap and query dismissals (C)
+intent: Replaces task-4923cdaa after the review timeout moved to 30 minutes in config (policy rebind without bloating 0.9.0 packet history).
+criteria:
+- ac1-token-cap: Derived discovery queries (diff tokens, template fragments, hunk-header names) reaching more than 10 files, changed files included, are skipped as generic and listed in discovery.skipped instead of blocking review; a token reaching 10 files still blocks with SURFACE_UNCLASSIFIED. Check: surface-token-cap.
+- ac2-dismissals: A surface may carry an optional dismissed list of {query, reason}: one dismissal clears every hit of an incidental derived query; recorded axis queries and queries reaching fewer than 4 files outside the diff are refused with SURFACE_DISMISSAL_INVALID, more than 128 with SURFACE_DISMISSAL_TOO_BROAD; reasons follow the exclusion rule (no 'out of scope', at most 256 characters); review packets and the reviewer prompt carry each dismissal with its hit count and postBlock flag; EVIDENCE-SURFACE-001 (en and zh-TW) and CHANGELOG describe the cap and dismissals. Check: surface-dismiss-query.
+- ac3-suite: The full npm test suite passes, including the startup runner count (55) and every existing surface, review and escape test.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/f8aa658f654a5026d3a2582635375c5757db1307cf37cbc232f94b6357f57857-5a2f00556f0d1513b8298e2fa03ccefaaf3fdf0d.json
+receipt-sha256: bb7f8cc23e8ff068a25a957f7358af6c7d6e53bffa62366f041e89015f0d4d8e
