@@ -73,13 +73,20 @@ English source version: 2026-10-06. Revalidate: when the English specification c
   不以 task 文字組 regex），由便宜的來源先跑：記錄的查詢；diff hunk header 的外層
   函式名；template literal 固定片段（至少 4 字元且以分隔符界定，例如 `order:`、
   `user_`、`menu.`）；新增與刪除行的複合識別字（snake_case、camelCase 或含數字，
-  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元；命中超過 30 個檔案視為
-  太通用而略過）。diff 與 surface 清單之外的任何命中都會擋下 review。
+  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元；命中超過 10 個檔案〈含
+  變更檔案〉視為太通用而略過）。diff 與 surface 清單之外的任何命中都會擋下 review。
+- 衍生查詢（diff 字詞、template 片段或 hunk header 函式名）的命中若只是巧合，可在
+  surface 選用的 `dismissed` 清單中以一筆 `{query, reason}` 排除（理由至多 256
+  字元，「out of scope」不是理由），不必逐檔排除。記錄的軸查詢與 escape rule 命中
+  不能排除；diff 以外命中少於 4 個檔案的查詢（最可能是兄弟頁面線索）也不能排除；
+  至多 128 筆。Reviewer 會看到每筆排除與其命中數，若它隱藏了先前
+  `SURFACE_UNCLASSIFIED` 阻擋所列的檔案則會標示出來。
   結果以 HEAD、base、diff、查詢集合與 config hash 快取。
 - Review 以 NOT_RUN 回報：`SURFACE_MISSING`（沒有或無法解析的 surface；非 DEBUG
   task 建立時也會拒絕）、`SURFACE_UNCLASSIFIED`、`SURFACE_QUERY_TOO_BROAD`（單一
   記錄查詢超過 200 個檔案）、`SURFACE_EXCLUSION_TOO_BROAD`（單一 glob 超過 10 個
-  檔案，或包含 diff 內的檔案）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
+  檔案，或包含 diff 內的檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
+  `SURFACE_DISMISSAL_INVALID`（記錄的查詢或稀有查詢）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
   （總計 120 秒，絕不默默略過）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
   included 不一致；每次 review 都檢查，包含 advance 與 batch）。
 - 修訂 surface 等同修訂 contract：需要新的證據與兩次新的 review。在

@@ -477,6 +477,8 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   SCENARIO_MISSING: "scenario-missing",
   SURFACE_BUDGET_EXCEEDED: "surface-budget-exceeded",
   SURFACE_UNASSIGNED: "surface-unassigned",
+  SURFACE_DISMISSAL_TOO_BROAD: "surface-dismissal-too-broad",
+  SURFACE_DISMISSAL_INVALID: "surface-dismissal-invalid",
   ESCAPE_RULE_INVALID: "escape-rule-invalid",
   ESCAPE_RULE_UNSAFE: "escape-rule-unsafe",
   ESCAPE_RULE_NO_EXCLUDE: "escape-rule-no-exclude"
@@ -552,7 +554,8 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
     // Deltas, not whole previous audits: a large audit revised a few times must still fit the review packet.
     history: (holder.revisions ?? []).map((revision, i, all) => ({at: revision.at, reason: revision.reason,
       change: surfaceDelta(revision.previousTask.surface, (all[i + 1]?.previousTask ?? holder!.task).surface)})).slice(-10),
-    discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped},
+    discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped,
+      dismissed: gate.discovery.dismissed},
     postBlockExclusions: gate.discovery.postBlockExclusions
   }};
 }

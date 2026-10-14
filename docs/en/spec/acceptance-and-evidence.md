@@ -104,13 +104,22 @@ Every new task MUST record a surface audit of where else its change lands before
   such as `order:`, `user_`, `menu.`); compound identifiers (snake_case,
   camelCase or containing digits, so prose words are not queries) and string
   literals from added and removed lines (at least 6 characters; skipped as too
-  generic above 30 file hits). Every hit outside the diff and the surface lists stops review.
+  generic above 10 file hits, changed files included). Every hit outside the diff and the surface lists stops review.
+- A derived query (diff token, template fragment or hunk-header name) whose hits
+  are incidental may be dismissed once in the surface's optional `dismissed`
+  list (`{query, reason}`, reason at most 256 characters, "out of scope" is
+  not a reason) instead of one exclusion per file. Recorded axis queries and
+  escape-rule hits cannot be dismissed, nor can a query reaching fewer than 4
+  files outside the diff (the likeliest sibling signal); at most 128
+  dismissals. Reviewers see each dismissal with its hit count, flagged when it
+  hid a file an earlier `SURFACE_UNCLASSIFIED` block named.
   Results are cached by HEAD, base, diff, query set and config hash.
 - Review returns NOT_RUN with: `SURFACE_MISSING` (no or unparseable surface;
   also refused at create for non-DEBUG tasks), `SURFACE_UNCLASSIFIED`,
   `SURFACE_QUERY_TOO_BROAD` (one recorded query over 200 files),
   `SURFACE_EXCLUSION_TOO_BROAD` (one glob over 10 files, or any file in the
-  diff), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
+  diff), `SURFACE_DISMISSAL_TOO_BROAD` (over 128 dismissals),
+  `SURFACE_DISMISSAL_INVALID` (a recorded or rare query), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
   silently skipped) or `SURFACE_UNASSIGNED` (children's covers differ from the
   parent's included list; checked by every review, including advance and batch).
 - A surface revision is a contract revision: fresh evidence and two fresh

@@ -23,6 +23,8 @@ export interface SurfaceAudit {
   }[];
   /** Completeness is checked before review (SCENARIO_MISSING), not at create. */
   readonly scenarios: Readonly<Partial<Record<ScenarioId, SurfaceScenario>>>;
+  /** Derived discovery queries judged incidental: their hits need no per-file row (guards in the surface gate). */
+  readonly dismissed?: readonly { readonly query: string; readonly reason: string }[];
 }
 /** A child of a surfaced parent names the parent's included surfaces it delivers. */
 export interface SurfaceCovers { readonly covers: readonly string[] }
@@ -65,7 +67,7 @@ export function parseSurface(value: unknown): TaskSurface {
       invalid("covers must list unique parent surface IDs.");
     return {covers: [...value.covers as string[]]};
   }
-  if (!record(value) || !exact(value, ["axes", "included", "excluded", "unknown", "contracts", "valueChanges", "scenarios"]))
+  if (!record(value) || !exact(value, ["axes", "included", "excluded", "unknown", "contracts", "valueChanges", "scenarios"], ["dismissed"]))
     invalid("Surface file needs axes, included, excluded, unknown, contracts, valueChanges and scenarios (or covers for a child).");
   const axes = value.axes;
   if (!record(axes) || !exact(axes, [...SURFACE_AXES])) invalid("axes must name dependents, duplicates, otherPaths and sharedState.");
@@ -118,9 +120,22 @@ export function parseSurface(value: unknown): TaskSurface {
     else if (record(row) && exact(row, ["na"]) && reason(row.na)) parsedScenarios[key as ScenarioId] = {na: row.na};
     else invalid(`Scenario ${key} needs {applies: true, behavior} or {na: reason}.`);
   }
+  let dismissed: { query: string; reason: string }[] | undefined;
+  if (value.dismissed !== undefined) {
+    if (!list(value.dismissed, 256)) invalid("dismissed must be a list.");
+    const seen = new Set<string>();
+    dismissed = value.dismissed.map(row => {
+      if (!record(row) || !exact(row, ["query", "reason"]) || !text(row.query, 256) || /[\n\r]/u.test(row.query) || seen.has(row.query))
+        invalid("Each dismissal needs a unique single-line query and a reason.");
+      seen.add(row.query);
+      if (!reason(row.reason) || row.reason.length > 256)
+        invalid(`Dismissal ${row.query}: say in at most 256 characters why its hits are incidental; "out of scope" is not a reason.`);
+      return {query: row.query, reason: row.reason};
+    });
+  }
   return {
     axes: Object.fromEntries(SURFACE_AXES.map(name => [name, axis(axes[name], name)])) as Record<SurfaceAxisId, SurfaceAxis>,
-    included, excluded, unknown, contracts, valueChanges, scenarios: parsedScenarios
+    included, excluded, unknown, contracts, valueChanges, scenarios: parsedScenarios, ...(dismissed === undefined ? {} : {dismissed})
   };
 }
 

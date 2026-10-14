@@ -4,6 +4,13 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Surface discovery skips derived queries above 10 file hits (was 30), and a
+  surface may dismiss an incidental derived query once in its new optional
+  `dismissed` list instead of excluding each file it reaches. Recorded and
+  escape-rule queries, queries reaching fewer than 4 files outside the diff
+  and more than 128 dismissals are refused (`SURFACE_DISMISSAL_INVALID`,
+  `SURFACE_DISMISSAL_TOO_BROAD`); reviewers see every dismissal with its hit
+  count.
 - Review packets send the surface revision history as per-revision deltas
   (rows added or removed, other fields before and after, or `unchanged`)
   instead of whole previous audits, so a large audit revised a few times no

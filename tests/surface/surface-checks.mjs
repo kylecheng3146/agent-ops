@@ -281,6 +281,49 @@ const raw = {
     assert.equal(passed.status, 'PASS', JSON.stringify(passed));
   }),
 
+  'surface-token-cap': () => withRepo({
+    'src/main.ts': 'export const main = 1;\n',
+    ...Object.fromEntries(Array.from({length: 10}, (_, i) => [`src/wide/w${i}.ts`, `export const w${i} = wideToken_name;\n`])),
+    ...Object.fromEntries(Array.from({length: 9}, (_, i) => [`src/mid/m${i}.ts`, `export const m${i} = midToken_name;\n`]))
+  }, async fixture => {
+    // Derived tokens reaching more than 10 files (the changed file included) are generic: skipped, never blocking.
+    const changed = await fixture.commit({'src/main.ts': 'export const main = [wideToken_name, midToken_name];\n'});
+    const result = await gate(fixture, audit({included: [['main', 'src/main.ts']]}), changed);
+    assert.deepEqual(unclassified(result), Array.from({length: 9}, (_, i) => `src/mid/m${i}.ts`).sort());
+    assert.ok(result.discovery.skipped.some(row => row.query === 'wideToken_name' && row.files === 11), JSON.stringify(result.discovery.skipped));
+  }),
+
+  'surface-dismiss-query': () => withRepo({
+    'src/main.ts': 'export const main = 1;\n',
+    ...Object.fromEntries(Array.from({length: 5}, (_, i) => [`src/generic/g${i}.ts`, `export const g${i} = generic_helper;\n`])),
+    'src/rare/r0.ts': 'export const r0 = rareToken_name;\n', 'src/rare/r1.ts': 'export const r1 = rareToken_name;\n'
+  }, async fixture => {
+    const changed = await fixture.commit({'src/main.ts': 'export const main = [generic_helper, rareToken_name];\n'});
+    const base = {included: [['main', 'src/main.ts']]};
+    const generic = Array.from({length: 5}, (_, i) => `src/generic/g${i}.ts`);
+    const why = 'generic_helper is a shared logging helper; these modules only log and render nothing that changed.';
+    assert.deepEqual(unclassified(await gate(fixture, audit(base), changed)), [...generic, 'src/rare/r0.ts', 'src/rare/r1.ts'].sort());
+    // One dismissal clears every hit of an incidental derived query (here after a block: flagged postBlock).
+    const dismissedOnce = await gate(fixture, {...audit(base), dismissed: [{query: 'generic_helper', reason: why}]}, changed);
+    assert.deepEqual(unclassified(dismissedOnce), ['src/rare/r0.ts', 'src/rare/r1.ts']);
+    // Rare queries are the likeliest sibling signal; recorded axis queries stay the agent's own.
+    const rare = await gate(fixture, {...audit(base), dismissed: [{query: 'rareToken_name', reason: why}]}, changed);
+    assert.equal(rare.code, 'SURFACE_DISMISSAL_INVALID', JSON.stringify(rare));
+    const recorded = await gate(fixture, {...audit({...base, queries: {duplicates: ['generic_helper']}}),
+      dismissed: [{query: 'generic_helper', reason: why}]}, changed);
+    assert.equal(recorded.code, 'SURFACE_DISMISSAL_INVALID', JSON.stringify(recorded));
+    const many = Array.from({length: 129}, (_, i) => ({query: `unused_query${i}`, reason: why}));
+    assert.equal((await gate(fixture, {...audit(base), dismissed: many}, changed)).code, 'SURFACE_DISMISSAL_TOO_BROAD');
+    const passed = await gate(fixture, {...audit({included: [['main', 'src/main.ts'], ['rare', 'src/rare/**']]}),
+      dismissed: [{query: 'generic_helper', reason: why}]}, changed);
+    assert.equal(passed.status, 'PASS', JSON.stringify(passed));
+    assert.deepEqual(passed.discovery.dismissed, [{query: 'generic_helper', files: 5, postBlock: true}]);
+    const {parseSurface} = await load('runtime/src/surface/schema.js');
+    assert.deepEqual(parseSurface({...audit(base), dismissed: [{query: 'generic_helper', reason: why}]}).dismissed,
+      [{query: 'generic_helper', reason: why}]);
+    assert.throws(() => parseSurface({...audit(base), dismissed: [{query: 'generic_helper', reason: 'out of scope'}]}), /not a reason/u);
+  }),
+
   'surface-extract-fragments': () => withRepo({
     'src/orders.ts': 'export function loadOrder(id) {\n  const cached = null;\n  return cached;\n}\n',
     'src/screen.ts': 'import {loadOrder} from "./orders";\nexport const screen = () => loadOrder(1);\n',
