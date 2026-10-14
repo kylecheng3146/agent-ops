@@ -282,7 +282,7 @@
       "minimum": 0
     },
     "surface": {
-      "description": "EVIDENCE-SURFACE-001 audit (axes, included, excluded, unknown, contracts, valueChanges, scenarios) or a child's covers list; validated strictly by the runtime.",
+      "description": "EVIDENCE-SURFACE-001 audit (axes, included, excluded, unknown, contracts, valueChanges, scenarios, optional dismissed) or a child's covers list; validated strictly by the runtime.",
       "type": "object"
     },
     "surfaceRequired": {
