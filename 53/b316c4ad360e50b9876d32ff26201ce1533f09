@@ -1,0 +1,9 @@
+worktree: session-274ad1de (agent-ops/session-274ad1de)
+session: 274ad1de-3cf3-4daf-9a38-2f40c0be800c
+agent-ops task task-205f3700-5b68-4c09-8a40-2e95aeab4e42: Prepare 0.10.1 release
+intent: Bump package.json and package-lock.json to 0.10.1 and date the Unreleased CHANGELOG entries as 0.10.1 - 2026-10-16. No code change.
+criteria:
+- version-bumped: package.json and package-lock.json (root and packages[""]) report version 0.10.1, and the build and test suite pass.
+- changelog-dated: CHANGELOG.md keeps an empty ## [Unreleased] heading followed by ## [0.10.1] - 2026-10-16 holding the plain finish and adapter matrix entries; docs tests pass.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/01e86ac8624a0ead825b7f8eec0f3594c1a95c5564e3d3d81175270186723589-53b316c4ad360e50b9876d32ff26201ce1533f09.json
+receipt-sha256: e68e9ed1c872107917b2d355b97b1b56f08151d6c6be6419fe8d2cebfe4fe27b
