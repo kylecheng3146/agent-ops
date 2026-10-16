@@ -236,7 +236,7 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   詢問一次。
 - 在 worktree 裡對每個 task 執行 verify 與 review，但不要執行 `task complete`
   （Claude Code 在隔離的 worktree session 中會拒絕它）。`agent-ops worktree finish
-  <name>` 會在任何 rebase 之前 complete worktree 內每個未封存的 task，先 subtask
+  <name>` 會在合併之前 complete worktree 內每個未封存的 task，先 subtask
   後 parent，各自使用其 PASS review 記錄的 base（沒有記錄時使用 worktree 的 base）。
   任一 task 無法完成時不會合併，錯誤訊息會指出是哪個 task。建立 subtask 時 session
   維持附著在 task 樹最上層，且每個 task 各自保留 review 紀錄，所以在同一份原始碼上
@@ -254,8 +254,11 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   finish。主 checkout 就在 target branch 上時，合併會更新它的檔案，所以那裡有未
   commit 的變更會擋住合併；主 checkout 在其他 branch 或 detached 時，只移動
   target 的 ref，checkout、檔案與未 commit 的變更都不會被動到。Target 若被其他
-  worktree checkout 則拒絕，並指出該路徑。Target 若已前進會先 rebase；沒有衝突且自身 patch 不變的 rebase 會先
-  重新驗證再合併；衝突則連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
+  worktree checkout 則拒絕，並指出該路徑。Target 若已前進，會 rebase worktree 後以
+  `WORKTREE_REBASED` 停下，不 complete 任何 task：先前的證據涵蓋的是舊 base，
+  不是即將合併的組合。以印出的 `--base` 重新 verify 與 review，再執行一次 finish；
+  已 complete 的 task 不能再記錄證據，需以 follow-up task 涵蓋 rebase 後的變更。
+  衝突則重設並連同先合併那份工作在 `refs/notes/agent-ops` 的意圖一起
   回報。Note 會記錄 worktree 的每個 task，subtask 縮排在其 parent 之下，並附上
   一行 `session: <id>`，標明完成這次 finish 的 session。Finish 也會把該 session
   的 gate baseline 重設為合併後的原始碼，所以即使 task 現在只存在於 note 裡，

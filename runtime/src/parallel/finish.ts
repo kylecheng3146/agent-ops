@@ -3,17 +3,10 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import { join } from "node:path";
 
-import type { AgentOpsConfig } from "../contracts.js";
-import { sha256 } from "../fs/hash.js";
-import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
+import { AgentOpsError } from "../fs/paths.js";
 import { currentGateFingerprint } from "../hooks/completion-gate.js";
 import type { TaskService } from "../task/service.js";
 import { collectChangeSurface, type GitRunner } from "../verify/change-surface.js";
-import {
-  aggregateVerificationStatus,
-  executeConfiguredCommand
-} from "../verify/command-executor.js";
-import type { VerificationProcessRunner } from "../verify/spawn.js";
 import { prepareFinishReceipt } from "./receipt.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
@@ -49,7 +42,6 @@ export interface FinishDependencies extends WorktreeDependencies {
   /** With `completionBase`, a service that can complete tasks over that range. */
   /** `noChangePaths` is the explicit source material for a verified no-change proof. */
   readonly tasks: (root: string, completionBase?: string, noChangePaths?: readonly string[]) => TaskService;
-  readonly processRunner?: VerificationProcessRunner;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly lockWaitMs?: number;
 }
@@ -57,7 +49,6 @@ export interface FinishDependencies extends WorktreeDependencies {
 export interface FinishResult {
   readonly record: WorktreeRecord;
   readonly mergedHead: string;
-  readonly rebased: boolean;
   /** Every task the merge carries, top of each tree first. */
   readonly taskIds: readonly string[];
   readonly warnings: readonly string[];
@@ -223,38 +214,6 @@ export async function withFinishLock<T>(
       if (owner !== null && JSON.parse(owner)?.token === token) await rm(path, {recursive: true, force: true});
     });
   }
-}
-
-/**
- * The branch's own change, independent of where it is based: hunk positions
- * and blob ids move with a rebase, the change itself does not.
- */
-async function patchHash(deps: WorktreeDependencies, cwd: string, target: string): Promise<string> {
-  const diff = await git(deps, cwd,
-    ["diff", "--no-color", "--no-ext-diff", "--no-textconv", `${target}...HEAD`],
-    "WORKTREE_DIFF_FAILED", "Git could not diff the branch.");
-  return sha256(diff.split("\n")
-    .filter((line) => !line.startsWith("index "))
-    .map((line) => line.startsWith("@@") ? "@@" : line)
-    .join("\n"));
-}
-
-async function reverify(
-  deps: FinishDependencies,
-  root: string,
-  config: AgentOpsConfig
-): Promise<readonly string[]> {
-  const results = [];
-  for (const command of config.verification.commands) {
-    results.push(await executeConfiguredCommand(command, {
-      cwd: command.cwd === "." ? root : await resolveContainedPath(root, command.cwd),
-      trusted: true,
-      ...(deps.processRunner === undefined ? {} : { runner: deps.processRunner })
-    }));
-  }
-  return aggregateVerificationStatus(results) === "PASS"
-    ? []
-    : results.filter((result) => result.required && result.status !== "PASS").map(({ commandId }) => commandId);
 }
 
 async function targetIntents(deps: WorktreeDependencies, cwd: string, target: string): Promise<TargetIntent[]> {
@@ -442,6 +401,26 @@ export async function finishWorktree(
           `The worktree's task is not ready to merge (${problem.code}). ${problem.remedy ?? ""}`.trim());
       }
     };
+    // A final proof already refused a moved target above. A plain finish
+    // rebases for the caller but never delivers the rebased combination: its
+    // evidence and review covered the old base, not what would merge.
+    if (options.finalProof === undefined &&
+        (await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode !== 0) {
+      const rebase = await deps.git(record.path, ["rebase", "--no-autostash", target]);
+      if (rebase.exitCode !== 0) {
+        const files = (await deps.git(record.path, ["diff", "--name-only", "--diff-filter=U"])).stdout
+          .split("\n").map((line) => line.trim()).filter(Boolean);
+        await deps.git(record.path, ["rebase", "--abort"]);
+        await deps.git(record.path, ["reset", "--hard", headBeforeCompletion]);
+        throw new WorktreeConflictError(record, target, headBeforeCompletion, files, await targetIntents(deps, record.path, target));
+      }
+      const completed = tree.filter(({ task }) => task.status === "complete").map(({ task }) => task.task.id);
+      throw finishError("WORKTREE_REBASED",
+        `${record.targetBranch} moved, so ${record.branch} was rebased onto ${target}; its earlier verification and review do not cover the result. ` +
+        (completed.length === 0
+          ? `Verify and review again with --base ${target}, then finish again.`
+          : `Completed task(s) ${completed.join(", ")} cannot take new evidence: create a follow-up task in this worktree covering the rebased change, verify and review it with --base ${target}, then finish again.`));
+    }
     let plainReceipt: Awaited<ReturnType<typeof prepareFinishReceipt>> | undefined;
     let plainReceiptWarning: string | undefined;
     if (options.finalProof === undefined) {
@@ -461,39 +440,7 @@ export async function finishWorktree(
       }
     }
 
-    const head = await git(deps, record.path, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
-    const fastForward = (await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode === 0;
-    if (options.finalProof !== undefined && !fastForward) {
-      throw finishError("WORKTREE_TARGET_MOVED", "The target branch moved after final review.");
-    }
-    if (!fastForward) {
-      const before = await patchHash(deps, record.path, target);
-      const rebase = await deps.git(record.path, ["rebase", "--no-autostash", target]);
-      if (rebase.exitCode !== 0) {
-        const files = (await deps.git(record.path, ["diff", "--name-only", "--diff-filter=U"])).stdout
-          .split("\n").map((line) => line.trim()).filter(Boolean);
-        await deps.git(record.path, ["rebase", "--abort"]);
-        await deps.git(record.path, ["reset", "--hard", head]);
-        throw new WorktreeConflictError(record, target, head, files, await targetIntents(deps, record.path, target));
-      }
-      const reset = async () => { await deps.git(record.path, ["reset", "--hard", head]); };
-      if (await patchHash(deps, record.path, target) !== before) {
-        await reset();
-        throw finishError("WORKTREE_REBASE_CHANGED",
-          `Rebasing onto ${target} changed the branch's own diff, so the review no longer covers it. The branch was reset; rebase it yourself and review the result as a new task.`);
-      }
-      if (await deps.trust.status(record.path, worktreeConfig) !== "TRUSTED") {
-        await reset();
-        throw finishError("WORKTREE_UNTRUSTED",
-          "Re-verifying the rebased branch runs repository commands; run agent-ops trust grant in the worktree.");
-      }
-      const failed = await reverify(deps, record.path, worktreeConfig);
-      if (failed.length > 0) {
-        await reset();
-        throw finishError("WORKTREE_REVERIFY_FAILED",
-          `After rebasing onto ${target}, verification failed: ${failed.join(", ")}. The branch was reset; fix it as a new task and finish again.`);
-      }
-    }
+    const head = headBeforeCompletion;
 
     const sealedIntegration = options.finalProof === undefined || record.runId === undefined
       ? null
@@ -626,7 +573,7 @@ export async function finishWorktree(
     await attempt("remove", async () => await removeCheckout(deps, record,
       options.finalProof === undefined, options.finalProof?.head));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
-    return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings,
+    return { record, mergedHead, taskIds: tree.map(({ task }) => task.task.id), warnings,
       ...(receipt === undefined ? {} : { receipt: receipt.path, residualRisks: receipt.receipt.residualRisks }) };
   }));
 }

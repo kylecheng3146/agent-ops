@@ -93,7 +93,7 @@ script，也不得改變一般 permission request。
 | office-presence (Preview) | degraded | degraded | supported | degraded |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
-| completion-gate | supported | unsupported | unsupported | unsupported |
+| completion-gate | supported | unsupported | supported | unsupported |
 | optional-stop-verify | degraded | unsupported | supported | degraded |
 
 Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安裝的 config

@@ -4,6 +4,20 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-16
+
+- `agent-ops worktree finish` no longer delivers an unreviewed combination
+  when the target branch moved. It used to complete the tasks, rebase,
+  compare the patch and re-run the configured commands, then merge with a
+  receipt bound to the pre-rebase commit. It now rebases the worktree and
+  stops with `WORKTREE_REBASED` before completing anything; verify and
+  review again with the printed `--base`, then finish again, so the receipt
+  always names the merged commit. A task that was already complete gets a
+  follow-up-task remedy. `WORKTREE_REVERIFY_FAILED`,
+  `WORKTREE_REBASE_CHANGED` and the `rebased` finish result are gone.
+- The harness adapter registration matrix now lists the Claude Code
+  completion gate as supported, matching the registered Stop hook.
+
 ## [0.10.0] - 2026-10-14
 
 - Verify and review no longer crash when their temporary directory cannot
