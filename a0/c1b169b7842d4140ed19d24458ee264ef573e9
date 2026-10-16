@@ -1,0 +1,12 @@
+worktree: session-274ad1de (agent-ops/session-274ad1de)
+session: 274ad1de-3cf3-4daf-9a38-2f40c0be800c
+agent-ops task task-1c928a56-56f2-4de5-a294-16d8a1a1b9d2: Plain finish stops after rebasing onto a moved target
+intent: In runtime/src/parallel/finish.ts plain finish (finalProof undefined): check fast-forward before completeTasks; if target moved, rebase (conflict path unchanged), then throw WORKTREE_REBASED naming --base <target>, with a follow-up-task remedy when a task is already complete. Delete patchHash, reverify, the trust check on that path and FinishResult.rebased. Update CLI help/output, finish docs (en/zh-TW), CHANGELOG, and the harness-adapters matrix Claude completion-gate row to supported. No escape-hatch flag, no managed baseline change.
+criteria:
+- rebase-stop: Plain finish on a moved target with a clean rebase throws WORKTREE_REBASED: the branch is rebased onto the new target, every task stays active, the target ref is unchanged, and the message names --base <new target sha>; asserted by a finish.test.ts case.
+- ff-receipt-bound: After the rebase-stop, recording fresh verification and review against the new base and finishing again fast-forwards, and the receipt's candidateHead equals the merged head; asserted by a finish.test.ts case.
+- completed-task-remedy: When a task in the tree is already complete and the target moved, the rebase-stop message tells the user to create a follow-up task verified and reviewed against the new base; following it, finish succeeds; asserted by a finish.test.ts case.
+- conflict-and-cleanup: The rebase-conflict path still resets and throws WorktreeConflictError; patchHash, reverify, WORKTREE_REVERIFY_FAILED, WORKTREE_REBASE_CHANGED and FinishResult.rebased are removed; typecheck and the full npm test suite pass.
+- docs-match-behavior: Finish docs (docs/en and docs/zh-TW guides/configuration.md), CLI help and finish output describe rebase-then-stop instead of automatic rebase with re-verification, and the harness-adapters registration matrix (en and zh-TW) lists Claude Code completion-gate as supported, matching runtime/src/adapters/claude/events.ts.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/01e86ac8624a0ead825b7f8eec0f3594c1a95c5564e3d3d81175270186723589-a0c1b169b7842d4140ed19d24458ee264ef573e9.json
+receipt-sha256: fa4bc3f421410d155873d921bc87bc867f467c9a626e61385c57b94e589ff671
