@@ -1,0 +1,10 @@
+worktree: session-274ad1de (agent-ops/session-274ad1de)
+session: 8b5752e5-79b2-41ad-a9c4-7e14e956fce0
+agent-ops task task-a9850cc4-085b-4279-9bf6-c8f6e7e05e35: Office revival opens no new tab
+intent: Keep the Office record on idle exit; a revived server reuses the previous port and token so open tabs reconnect; ensureBackgroundOffice opens a page only when the URL changed; liveness probes a cheap token-gated /health endpoint instead of the full snapshot.
+criteria:
+- revive-same-url: After the Office server exits (idle) and a hook revives it, the revived server answers on the previous URL (same port and token), so an open tab reconnects, and ensureBackgroundOffice does not open another browser page.
+- slow-snapshot-live: A live Office server whose snapshot takes longer than the liveness timeout is still detected as live by readLiveOffice, so ensure never boots it out and starts a second one.
+- unit-tests: npm test passes, including the updated Office server tests for record reuse.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/92a62beb7d23f14177b72ea5c7fec6cc77b69360fc594251cbebdb2140ffec79-acd9a2cc94069fac2a1f14addfe43bbf2427f686.json
+receipt-sha256: 6f04d446da92bfd033ab3985b7a4c3fbac2b9c2706cf6c4f1a297ccbe4d0e3dc
