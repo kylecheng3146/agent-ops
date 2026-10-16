@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-16
+
 - `agent-ops worktree finish` no longer delivers an unreviewed combination
   when the target branch moved. It used to complete the tasks, rebase,
   compare the patch and re-run the configured commands, then merge with a
