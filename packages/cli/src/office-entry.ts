@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 
 import { collectOfficeBuilding, type OfficeBuilding } from "../../../runtime/src/office/collect.js";
-import { claimOffice, createOfficeServer, ensureOffice, legacyOfficeHome, officeRecordPath, readLiveOffice, officeUrl, releaseOffice, userOfficeHome, type OfficeHome } from "../../../runtime/src/office/server.js";
+import { claimOffice, createOfficeServer, ensureOffice, legacyOfficeHome, officeRecordPath, readLiveOffice, readOfficeRecord, officeUrl, userOfficeHome, type OfficeHome } from "../../../runtime/src/office/server.js";
 import { registerOfficeRepo } from "../../../runtime/src/office/repos.js";
 import { recordOfficeSession, recordOfficeSessionPhase, type OfficeSessionEvent } from "../../../runtime/src/office/sessions.js";
 import { resolveCheckouts } from "../../../runtime/src/parallel/service.js";
@@ -268,7 +268,6 @@ export async function serveOffice(cwd: string, onUrl: (url: string) => void = ()
   }, 15_000);
   await idle;
   clearInterval(timer);
-  await releaseOffice(home, record);
   await office.close();
 }
 
@@ -281,10 +280,13 @@ export async function ensureBackgroundOffice(cwd: string, launchd = new LaunchdC
   await retireLegacyOffice(mainRoot, commonDir, launchd).catch(() => undefined);
   const live = await readLiveOffice(home);
   if (live !== null) return officeUrl(live);
+  let previousUrl: string | null = null;
   let started = false;
   const args = [entry, mainRoot];
   if (!launchd.supported) {
     const url = await ensureOffice(home, async () => {
+      const previous = await readOfficeRecord(home);
+      previousUrl = previous === null ? null : officeUrl(previous);
       started = true;
       await new Promise<void>((resolve, reject) => {
         const child = spawn(process.execPath, args, {cwd: mainRoot, detached: true, stdio: "ignore", windowsHide: true});
@@ -292,7 +294,7 @@ export async function ensureBackgroundOffice(cwd: string, launchd = new LaunchdC
         child.once("spawn", () => {child.unref(); resolve();});
       });
     });
-    if (started && openBrowser !== undefined) void openBrowser(url).catch(() => undefined);
+    if (started && url !== previousUrl && openBrowser !== undefined) void openBrowser(url).catch(() => undefined);
     return url;
   }
   const privateDirectory = join(home.dir, "launchd");
@@ -302,6 +304,8 @@ export async function ensureBackgroundOffice(cwd: string, launchd = new LaunchdC
     cwd: mainRoot, pathEnvironment: process.env.PATH
   });
   const url = await ensureOffice(home, async () => {
+    const previous = await readOfficeRecord(home);
+    previousUrl = previous === null ? null : officeUrl(previous);
     started = true;
     // The descriptor write anchors on this directory, so it must exist first.
     await ensurePrivateDirectory(privateDirectory, home.anchor);
@@ -310,7 +314,7 @@ export async function ensureBackgroundOffice(cwd: string, launchd = new LaunchdC
     await launchd.bootout(descriptor).catch(() => {});
     await launchd.bootstrap(descriptor);
   });
-  if (started && openBrowser !== undefined) void openBrowser(url).catch(() => undefined);
+  if (started && url !== previousUrl && openBrowser !== undefined) void openBrowser(url).catch(() => undefined);
   return url;
 }
 

@@ -45,8 +45,8 @@ export interface OfficeServerOptions {
 
 export interface OfficeServer {
   readonly server: Server;
-  readonly token: string;
-  listen(): Promise<number>;
+  token: string;
+  listen(preferredPort?: number): Promise<number>;
   /** Re-reads the building; calls onIdle once no run has been active for idleMs. */
   tick(): Promise<void>;
   close(): Promise<void>;
@@ -65,7 +65,7 @@ function send(res: ServerResponse, status: number, type: string, body: string, h
 
 /** Loopback-only, token-gated, GET-only view of the building. */
 export function createOfficeServer(options: OfficeServerOptions): OfficeServer {
-  const token = options.token ?? randomBytes(24).toString("base64url");
+  let token = options.token ?? randomBytes(24).toString("base64url");
   const now = options.now ?? Date.now;
   const idleMs = options.idleMs ?? OFFICE_IDLE_MS;
   let lastActive = now();
@@ -77,6 +77,7 @@ export function createOfficeServer(options: OfficeServerOptions): OfficeServer {
     if (req.method !== "GET") return send(res, 405, "text/plain", "Method not allowed\n", {Allow: "GET"});
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
     if (!same(url.searchParams.get("token") ?? "", token)) return send(res, 403, "text/plain", "Forbidden\n");
+    if (url.pathname === "/health") return send(res, 200, "text/plain", "ok\n");
     if (url.pathname === "/") {
       const nonce = randomBytes(16).toString("base64");
       return send(res, 200, "text/html; charset=utf-8", officePage(nonce), {"Content-Security-Policy":
@@ -88,16 +89,25 @@ export function createOfficeServer(options: OfficeServerOptions): OfficeServer {
   const server = createServer((req, res) => {
     handle(req, res).catch(() => {if (!res.headersSent) send(res, 500, "text/plain", "Snapshot unavailable\n"); else res.end();});
   });
+  const bind = (candidate: number): Promise<number> => new Promise<number>((resolve, reject) => {
+    const onError = (error: Error): void => { server.removeListener("listening", onListening); reject(error); };
+    const onListening = (): void => {
+      server.removeListener("error", onError);
+      const address = server.address();
+      port = typeof address === "object" && address !== null ? address.port : 0;
+      resolve(port);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(candidate, "127.0.0.1");
+  });
   return {
-    server, token,
-    listen: async () => await new Promise<number>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => {
-        const address = server.address();
-        port = typeof address === "object" && address !== null ? address.port : 0;
-        resolve(port);
-      });
-    }),
+    server,
+    get token(): string { return token; },
+    set token(value: string) { token = value; },
+    listen: async (preferredPort = 0) => preferredPort > 0
+      ? await bind(preferredPort).catch(async () => await bind(0))
+      : await bind(0),
     tick: async () => {
       const snapshot = await options.snapshot().catch(() => null);
       const sessionIsPresent = snapshot?.lobby.some(desk =>
@@ -115,14 +125,25 @@ function alive(pid: number): boolean {
   catch (error) {return (error as {code?: string}).code === "EPERM";}
 }
 
-/** A recorded server counts only if its process lives and it answers with its own token. */
-export async function readLiveOffice(home: OfficeHome): Promise<OfficeRecord | null> {
+export async function readOfficeRecord(home: OfficeHome): Promise<OfficeRecord | null> {
   const source = await readPrivateFile(officeRecordPath(home), home.anchor).catch(() => null);
   if (source === null) return null;
   try {
     const record = JSON.parse(source) as OfficeRecord;
-    if (!Number.isSafeInteger(record.pid) || !Number.isSafeInteger(record.port) || typeof record.token !== "string" || !alive(record.pid)) return null;
-    const response = await fetch(`http://127.0.0.1:${record.port}/snapshot.json?token=${encodeURIComponent(record.token)}`,
+    return Number.isSafeInteger(record.pid) && Number.isSafeInteger(record.port) &&
+      record.port > 0 && record.port <= 65535 &&
+      typeof record.token === "string" && record.token.length > 0
+      ? record
+      : null;
+  } catch {return null;}
+}
+
+/** A recorded server counts only if its process lives and it answers with its own token. */
+export async function readLiveOffice(home: OfficeHome): Promise<OfficeRecord | null> {
+  const record = await readOfficeRecord(home);
+  if (record === null || !alive(record.pid)) return null;
+  try {
+    const response = await fetch(`http://127.0.0.1:${record.port}/health?token=${encodeURIComponent(record.token)}`,
       {signal: AbortSignal.timeout(2000)});
     await response.body?.cancel();
     return response.status === 200 ? record : null;
@@ -136,7 +157,9 @@ export async function readLiveOffice(home: OfficeHome): Promise<OfficeRecord | n
 export async function claimOffice(home: OfficeHome, office: OfficeServer, pid = process.pid): Promise<OfficeRecord | null> {
   return await withPrivateFileLock(officeRecordPath(home), home.anchor, async () => {
     if (await readLiveOffice(home) !== null) return null;
-    const record: OfficeRecord = {pid, port: await office.listen(), token: office.token, startedAt: new Date().toISOString()};
+    const previous = await readOfficeRecord(home);
+    if (previous !== null) office.token = previous.token;
+    const record: OfficeRecord = {pid, port: await office.listen(previous?.port), token: office.token, startedAt: new Date().toISOString()};
     await writePrivateFile(officeRecordPath(home), JSON.stringify(record) + "\n", home.anchor);
     return record;
   });

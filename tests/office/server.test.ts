@@ -38,6 +38,10 @@ test("the server answers only GET, with the token, on the loopback Host", async 
     assert.ok(nonce !== undefined);
     assert.ok(page.body.includes(`<script nonce="${nonce}">`));
     assert.equal(page.headers["referrer-policy"], "no-referrer");
+    const health = await call(port, "/health?token=secret-token");
+    assert.equal(health.status, 200);
+    assert.equal(health.body, "ok\n");
+    assert.equal((await call(port, "/health")).status, 403);
     const snapshot = await call(port, "/snapshot.json?token=secret-token");
     assert.equal(snapshot.status, 200);
     assert.equal(JSON.parse(snapshot.body).runs[0].runId, "run-a");
@@ -163,21 +167,35 @@ test("concurrent startup claims one server before any caller opens a page", asyn
   }
 });
 
-test("a stale record is not reused and a fresh server is started", async () => {
+test("a stale record is reused on revival and falls back when its port is occupied", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-office-"));
   const home = userOfficeHome(commonDir);
   const office = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
   try {
     const record = await claimOffice(home, office);
+    assert.ok(record !== null);
     await office.close();
     assert.equal(await readLiveOffice(home), null, "a closed server does not answer");
     const next = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
     try {
       const url = await ensureOffice(home, async () => { await claimOffice(home, next); }, {pollMs: 10});
-      assert.notEqual(url, `http://127.0.0.1:${record!.port}/?token=${office.token}`);
-      assert.ok(url.endsWith(next.token));
+      assert.equal(url, `http://127.0.0.1:${record.port}/?token=${record.token}`);
+      assert.equal(next.token, record.token);
     } finally {
       await next.close();
+    }
+    const occupier = createOfficeServer({snapshot: async () => empty, token: "foreign-token", onIdle: () => {}});
+    const fallback = createOfficeServer({snapshot: async () => empty, onIdle: () => {}});
+    try {
+      assert.equal(await occupier.listen(record.port), record.port);
+      assert.equal(await readLiveOffice(home), null, "a foreign token on the remembered port is not live");
+      const rebound = await claimOffice(home, fallback);
+      assert.ok(rebound !== null);
+      assert.notEqual(rebound.port, record.port);
+      assert.equal(rebound.token, record.token);
+    } finally {
+      await fallback.close();
+      await occupier.close();
     }
   } finally {
     await rm(commonDir, {recursive: true, force: true});

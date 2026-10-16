@@ -105,6 +105,7 @@ test("a running Office closes when the Preview choice is disabled", async t => {
     assert.equal(await officeEnabled(root), false);
   } finally {
     t.mock.timers.reset();
+    await rm(officeHome().dir, {recursive: true, force: true});
     await rm(root, {recursive: true, force: true});
   }
 });
@@ -159,6 +160,11 @@ test("background startup opens one injected browser page for one shared server",
     assert.equal(bootstraps, 1);
     assert.equal(pages.length, 1);
     assert.equal(pages[0], left);
+    await closeServer?.();
+    const revived = await ensureBackgroundOffice(root, launchd, open);
+    assert.equal(revived, left);
+    assert.equal(bootstraps, 2);
+    assert.equal(pages.length, 1);
   } finally {
     await closeServer?.();
     await rm(root, {recursive: true, force: true});
