@@ -6,6 +6,7 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {recoveryChecks} from '../debug/recovery-checks.mjs';
 import {officePhaseChecks} from '../office/phase-checks.mjs';
+import {officeReviveChecks} from '../office/revive-checks.mjs';
 import {peerOriginChecks} from '../debug/peer-origin-checks.mjs';
 import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
@@ -56,6 +57,7 @@ async function fixture(check) {
 const checks = {
   ...recoveryChecks,
   ...officePhaseChecks,
+  ...officeReviveChecks,
   ...peerOriginChecks,
   ...authorizationChecks,
   ...surfaceChecks,
