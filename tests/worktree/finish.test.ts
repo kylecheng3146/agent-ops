@@ -12,11 +12,6 @@ import { FileTaskStore } from "../../runtime/src/task/store.js";
 import { collectBaseChangePaths } from "../../runtime/src/verify/change-surface.js";
 import { buildVerificationEvidence, FileEvidenceStore } from "../../runtime/src/verify/evidence.js";
 import { calculateSourceFingerprint } from "../../runtime/src/verify/source-fingerprint.js";
-import type {
-  ProcessCompletion,
-  RunningVerificationProcess,
-  VerificationProcessRunner
-} from "../../runtime/src/verify/spawn.js";
 import {
   finishWorktree,
   WorktreeConflictError,
@@ -32,26 +27,9 @@ import { CONFIG, deps, gateFor, git, gitRunner, loadConfig as loadFixtureConfig,
 
 const SESSION = "session-one";
 
-class ExitRunner implements VerificationProcessRunner {
-  calls = 0;
-  constructor(readonly exitCode: number) {}
-  start(): RunningVerificationProcess {
-    this.calls += 1;
-    const completion: ProcessCompletion = { exitCode: this.exitCode, signal: null };
-    return {
-      pid: 1,
-      stdout: (async function* () { /* no output */ })(),
-      stderr: (async function* () { /* no output */ })(),
-      completion: Promise.resolve(completion),
-      terminateTree: async () => undefined
-    };
-  }
-}
-
-function finishDeps(options: { readonly exitCode?: number; readonly sleep?: (ms: number) => Promise<void>; readonly lockWaitMs?: number } = {}) {
+function finishDeps(options: { readonly sleep?: (ms: number) => Promise<void>; readonly lockWaitMs?: number } = {}) {
   const base = deps();
-  const processRunner = new ExitRunner(options.exitCode ?? 0);
-  const result: FinishDependencies & { granted: string[]; revoked: string[]; processRunner: ExitRunner } = {
+  const result: FinishDependencies & { granted: string[]; revoked: string[] } = {
     ...base,
     tasks: (root, completionBase) => new TaskService(
       new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root),
@@ -59,7 +37,6 @@ function finishDeps(options: { readonly exitCode?: number; readonly sleep?: (ms:
         root, gitRunner: gitRunner(root), base: completionBase, loadConfig: async () => loadFixtureConfig(root)
       } }
     ),
-    processRunner,
     ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
     ...(options.lockWaitMs === undefined ? {} : { lockWaitMs: options.lockWaitMs })
   };
@@ -117,6 +94,8 @@ async function reviewedTask(record: WorktreeRecord, options: {
   readonly parentTaskId?: string;
   readonly reviewBase?: boolean;
   readonly reviewed?: boolean;
+  /** Records fresh evidence on this existing task instead of creating one. */
+  readonly taskId?: string;
 }): Promise<string> {
   const runner = gitRunner(record.path);
   const tasks = new TaskService(new FileTaskStore(join(record.path, ".agent-ops", "tasks", "state.json"), record.path));
@@ -124,7 +103,7 @@ async function reviewedTask(record: WorktreeRecord, options: {
     mode: "base", baseRef: options.base, resolvedBase: options.base,
     changedFiles: await collectBaseChangePaths(runner, options.base)
   }, runner);
-  const task = await tasks.create({
+  const task = options.taskId !== undefined ? await tasks.status({ taskId: options.taskId }) : await tasks.create({
     title: options.title,
     criteria: [
       { id: "behavior", description: `${options.title} holds`, verifierIds: ["node-test"] },
@@ -186,7 +165,6 @@ test("finish fast-forwards, records the task in notes and retires the worktree",
 
     const result = await finishWorktree(d, { cwd: root, name: "alpha" });
 
-    assert.equal(result.rebased, false);
     assert.equal(result.mergedHead, head);
     assert.deepEqual(result.warnings, []);
     assert.equal(await git(root, "rev-parse", "main"), head);
@@ -564,24 +542,39 @@ test("finish refuses to move a target that another worktree has checked out", as
   }
 });
 
-test("a moved target is rebased, re-verified and fast-forwarded", async () => {
+test("a moved target is rebased and stops; fresh evidence over the new base then fast-forwards", async () => {
   const root = await repository();
   try {
-    await numbered(root);
     const d = finishDeps();
     const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
-    await completeWork(record, "source.txt", "alpha work\n");
+    await write(record.path, "source.txt", "alpha work\n");
+    await git(record.path, "add", "source.txt");
+    await git(record.path, "commit", "-qm", "alpha work");
+    const taskId = await reviewedTask(record, { title: "Alpha", base: record.base, reviewBase: true });
     await write(root, "other.txt", "landed first\n");
     await git(root, "add", "other.txt");
     await git(root, "commit", "-qm", "another task landed");
+    const target = await git(root, "rev-parse", "HEAD");
 
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), (error: unknown) =>
+      rejectsWith("WORKTREE_REBASED")(error) && (error as Error).message.includes(`--base ${target}`));
+    assert.equal(await git(root, "rev-parse", "main"), target);
+    assert.equal(await git(record.path, "rev-parse", "HEAD~1"), target);
+    assert.equal(await readFile(join(record.path, "source.txt"), "utf8"), "alpha work\n");
+    const tasks = new TaskService(new FileTaskStore(join(record.path, ".agent-ops", "tasks", "state.json"), record.path));
+    assert.equal((await tasks.status({ taskId })).status, "active");
+
+    await reviewedTask(record, { title: "Alpha", base: target, reviewBase: true, taskId });
+    const candidate = await git(record.path, "rev-parse", "HEAD");
     const result = await finishWorktree(d, { cwd: root, name: "alpha" });
 
-    assert.equal(result.rebased, true);
-    assert.equal(d.processRunner.calls, 1);
-    assert.equal(await readFile(join(root, "source.txt"), "utf8"), "alpha work\n");
-    assert.equal(await readFile(join(root, "other.txt"), "utf8"), "landed first\n");
-    assert.equal(await git(root, "rev-list", "--count", "HEAD"), "4");
+    assert.equal(result.mergedHead, candidate);
+    assert.equal(await git(root, "rev-parse", "main"), candidate);
+    assert.deepEqual(result.warnings, []);
+    assert.ok(result.receipt);
+    const receipt = JSON.parse(await readFile(result.receipt, "utf8")) as { candidateHead: string; targetCommit: string };
+    assert.equal(receipt.candidateHead, result.mergedHead);
+    assert.equal(receipt.targetCommit, target);
     // main moved after the session began, so its baseline never equalled the
     // pre-merge fingerprint; finish must still leave the session clear to stop.
     assert.equal((await gateFor(root, CONFIG).handle(stopEvent(SESSION)))?.code, "COMPLETION_GATE_ALLOWED");
@@ -614,39 +607,34 @@ test("a finished session with a stale baseline stops on its note; others and dir
   }
 });
 
-test("a failing re-verification or a changed patch resets the branch", async () => {
-  const failing = await repository();
-  const changed = await repository();
+test("a completed task on a moved target gets a follow-up task remedy that then finishes", async () => {
+  const root = await repository();
   try {
-    await numbered(failing);
-    const bad = finishDeps({ exitCode: 1 });
-    const one = await addWorktree(bad, { cwd: failing, name: "alpha", sessionId: SESSION });
-    await completeWork(one.record, "source.txt", "alpha work\n");
-    const head = await git(one.record.path, "rev-parse", "HEAD");
-    await write(failing, "other.txt", "landed first\n");
-    await git(failing, "add", "other.txt");
-    await git(failing, "commit", "-qm", "another task landed");
-    const mainHead = await git(failing, "rev-parse", "HEAD");
-    await assert.rejects(finishWorktree(bad, { cwd: failing, name: "alpha" }), rejectsWith("WORKTREE_REVERIFY_FAILED"));
-    assert.equal(await git(one.record.path, "rev-parse", "HEAD"), head);
-    assert.equal(await git(failing, "rev-parse", "HEAD"), mainHead);
-
-    // The target edits line 7 and the work line 5: no conflict, but the
-    // work's own diff now carries different context than was reviewed.
-    await numbered(changed);
+    await numbered(root);
     const d = finishDeps();
-    const two = await addWorktree(d, { cwd: changed, name: "alpha", sessionId: SESSION });
-    const lines = await readFile(join(changed, "lines.txt"), "utf8");
-    await completeWork(two.record, "lines.txt", replaceLine(lines, 5, "work five"));
-    const workHead = await git(two.record.path, "rev-parse", "HEAD");
-    await write(changed, "lines.txt", replaceLine(lines, 7, "target seven"));
-    await git(changed, "commit", "-qam", "target edits nearby");
-    await assert.rejects(finishWorktree(d, { cwd: changed, name: "alpha" }), rejectsWith("WORKTREE_REBASE_CHANGED"));
-    assert.equal(await git(two.record.path, "rev-parse", "HEAD"), workHead);
-    assert.equal(d.processRunner.calls, 0);
+    const { record } = await addWorktree(d, { cwd: root, name: "alpha", sessionId: SESSION });
+    const lines = await readFile(join(root, "lines.txt"), "utf8");
+    // The work edits line 5 and the target line 7: no conflict, but the
+    // completed task's evidence covered the old base only.
+    const done = await completeWork(record, "lines.txt", replaceLine(lines, 5, "work five"));
+    await write(root, "lines.txt", replaceLine(lines, 7, "target seven"));
+    await git(root, "commit", "-qam", "target edits nearby");
+    const target = await git(root, "rev-parse", "HEAD");
+
+    await assert.rejects(finishWorktree(d, { cwd: root, name: "alpha" }), (error: unknown) =>
+      rejectsWith("WORKTREE_REBASED")(error) && (error as Error).message.includes(done) &&
+      /follow-up task/u.test((error as Error).message) && (error as Error).message.includes(`--base ${target}`));
+    assert.equal(await git(root, "rev-parse", "main"), target);
+    assert.equal(await git(record.path, "rev-parse", "HEAD~1"), target);
+
+    const followUp = await reviewedTask(record, { title: "Rebased work", base: target, reviewBase: true });
+    const result = await finishWorktree(d, { cwd: root, name: "alpha" });
+
+    assert.deepEqual(new Set(result.taskIds), new Set([done, followUp]));
+    assert.equal(await git(root, "rev-parse", "main"), result.mergedHead);
+    assert.match(await readFile(join(root, "lines.txt"), "utf8"), /work five[\s\S]*target seven/u);
   } finally {
-    await rm(failing, { recursive: true, force: true });
-    await rm(changed, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   }
 });
 

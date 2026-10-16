@@ -109,7 +109,7 @@ The current registration matrix is intentionally asymmetric:
 | office-presence (Preview) | degraded | degraded | supported | degraded |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
-| completion-gate | supported | unsupported | unsupported | unsupported |
+| completion-gate | supported | unsupported | supported | unsupported |
 | optional-stop-verify | degraded | unsupported | supported | degraded |
 
 For runtime-failure handling, only `command-policy` is fail-closed. Claude

@@ -332,9 +332,10 @@ voiding each other's verification and review. Run it from the main checkout.
                before Git runs; see agent-ops worktree list.
   finish <name>
                Once its task is complete, fast-forward the main checkout's
-               branch to the worktree's (after a clean rebase and
-               re-verification if the branch moved), record the task in
-               git notes, and remove the worktree. One finish runs at a time.
+               branch to the worktree's, record the task in git notes, and
+               remove the worktree. If the branch moved, it rebases the
+               worktree and stops: verify and review again with the printed
+               --base, then finish again. One finish runs at a time.
   commit       Stage every change in the current worktree and commit it with
                --message. Refuses the main checkout and a worktree another
                session owns, and needs no Git in the shell.

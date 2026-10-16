@@ -61,7 +61,7 @@ function addText(result: WorktreeAddResult): string {
 function finishText(result: FinishResult): string {
   const { record } = result;
   return [
-    `Merged ${record.branch} into ${record.targetBranch} at ${result.mergedHead}${result.rebased ? " after a clean rebase and re-verification" : ""}.`,
+    `Merged ${record.branch} into ${record.targetBranch} at ${result.mergedHead}.`,
     `Completed and recorded in git notes (refs/notes/agent-ops): ${result.taskIds.join(", ")}.`,
     `Removed ${record.path}.`,
     ...(result.receipt === undefined ? [] : [`Receipt: ${result.receipt}`]),
