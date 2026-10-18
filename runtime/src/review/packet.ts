@@ -43,14 +43,25 @@ const MAX_PACKET_BYTES = 64 * 1024;
 export function reviewPacketData(packet: ReviewPacket) {
   const artifacts = packet.contractArtifacts?.map(({path, digest}) => ({path, digest}));
   let indexed = false;
-  if (packet.contractManifest !== undefined && artifacts !== undefined) {
+  let sealedSurface = false;
+  const manifest = packet.contractManifest;
+  const reference = manifest === undefined ? undefined : {path: manifest.path, digest: manifest.digest};
+  if (manifest !== undefined && Buffer.byteLength(manifest.content, "utf8") <= 512 * 1024 &&
+      sha256(manifest.content) === manifest.digest &&
+      manifest.path === ".agent-ops/tasks/review-contracts/" + manifest.digest + ".json") {
     try {
-      const manifest = JSON.parse(packet.contractManifest.content) as {artifacts?: unknown} | null;
-      indexed = JSON.stringify(manifest?.artifacts) === JSON.stringify(artifacts);
-    } catch { /* Legacy manifests keep inline artifact metadata. */ }
+      const content = JSON.parse(manifest.content) as {artifacts?: unknown; surface?: unknown} | null;
+      indexed = artifacts !== undefined && JSON.stringify(content?.artifacts) === JSON.stringify(artifacts);
+      sealedSurface = packet.surface !== undefined &&
+        JSON.stringify(safeDeep(content?.surface)) === JSON.stringify(packet.surface);
+    } catch { /* Legacy manifests keep inline metadata. */ }
   }
-  return {...packet, contractArtifacts: indexed ? undefined : artifacts,
-    contractManifest: packet.contractManifest === undefined ? undefined : {path: packet.contractManifest.path, digest: packet.contractManifest.digest}};
+  const data = {...packet, contractArtifacts: indexed ? undefined : artifacts, contractManifest: reference};
+  // Preserve small packets; large audits remain complete in the validated snapshot manifest.
+  if (sealedSurface && reference !== undefined && Buffer.byteLength(JSON.stringify(data), "utf8") > MAX_PACKET_BYTES) {
+    return {...data, surface: {manifest: reference, field: "surface", digest: sha256(JSON.stringify(packet.surface))}};
+  }
+  return data;
 }
 
 function safe(value: string): string {

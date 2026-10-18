@@ -12,6 +12,8 @@ English source version: 2026-09-30. Revalidate: when the English specification c
 - Positive: `Packet 包含已記錄的 task 意圖、條件、檔案與證據要求。`
 - Negative: `轉送完整 session transcript 與環境。`
 
+大型 surface audit（含完整修訂歷史、discovery 與 post-block exclusions）可使用 digest-bound reference，指向已驗證 snapshot 契約 manifest 中正規化後完全相符的資料。兩輪審查都必須讀取完整 manifest surface。64 KiB inline packet 與 512 KiB manifest 上限仍有效；小型及舊版 packet 保留 inline 資料。
+
 ## REVIEW-RESULT-001
 
 審查結果 MUST 保留 PASS、FAIL 或 NOT_RUN，且 MUST NOT 把 NOT_RUN 轉成 PASS。
