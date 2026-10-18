@@ -441,6 +441,34 @@ const raw = {
     assert.deepEqual(history[1].change, {added: {excluded: [{glob: 'docs/more.md', reason}]}});
     assert.deepEqual(history[2].change.removed.excluded.map(row => row.glob), ['docs/unrelated-0.md']);
     assert.ok(JSON.stringify(history).length < 4_000, 'history size follows the edits');
+
+    // Rewriting every existing behavior retains both rows in history, as in a 211-path P1 audit.
+    const expanded = {...surfaces[3], included: [...surfaces[3].included,
+      ...Array.from({length: 207}, (_, i) => ({id: `review-${i}`, path: `docs/review-${i}.md`,
+        behavior: 'Review the complete dependency behavior and preserve all existing flows. '.repeat(2)}))]};
+    const rewritten = {...expanded, included: expanded.included.map(row => ({...row,
+      behavior: `Review dependencies; preserve existing flows: ${row.id}.`}))};
+    for (const surface of [expanded, rewritten])
+      task = await tasks.revise(task.task.id, {expectedContractHash: taskContractHash(task.task), surface, reason: 'Clarify all dependency behaviors.'});
+    await verified(task.task.id);
+    let complete;
+    const reviewed = await review(task.task.id, async request => {complete = request; return passing(request, report(request.invocation.packet.criteria));});
+    assert.equal(reviewed.data.result.status, 'PASS', JSON.stringify(reviewed.data.result));
+    const packet = complete.invocation.packet;
+    assert.ok(Buffer.byteLength(JSON.stringify(packet.surface)) > 65_536, 'the complete audit and history exceed the inline limit');
+    assert.deepEqual(packet.surface.audit.included, rewritten.included);
+    assert.equal(packet.surface.history.length, 5);
+    const last = packet.surface.history.at(-1).change;
+    assert.deepEqual(last.removed.included, expanded.included);
+    assert.deepEqual(last.added.included, rewritten.included);
+    assert.deepEqual(JSON.parse(packet.contractManifest.content).surface, packet.surface);
+    const {buildReviewPrompt, buildAdversarialPrompt} = await load('runtime/src/review/runner.js');
+    for (const prompt of [buildReviewPrompt(complete.invocation), buildAdversarialPrompt(complete.invocation, report(packet.criteria))]) {
+      const data = JSON.parse(prompt.split('BEGIN_TASK_DATA\n')[1].split('\n')[0]);
+      assert.equal(data.surface.field, 'surface');
+      assert.equal(data.surface.manifest.path, packet.contractManifest.path);
+      assert.match(prompt, /complete surface audit.*revision history/u);
+    }
   }),
 
   'surface-review-packet': () => reviewFixture(async ({tasks, verified, review, policyConfigHash, taskContractHash}) => {

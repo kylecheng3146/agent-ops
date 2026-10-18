@@ -5,7 +5,7 @@ import {
   aggregateReviewResults,
   type ReviewCriterionResult
 } from "../../runtime/src/review/result.js";
-import { buildReviewPacket } from "../../runtime/src/review/packet.js";
+import { buildReviewPacket, reviewPacketData } from "../../runtime/src/review/packet.js";
 import { sha256 } from "../../runtime/src/fs/hash.js";
 import { buildReviewPrompt, buildAdversarialPrompt, type ReviewInvocation } from "../../runtime/src/review/runner.js";
 import { reportFor } from "./report-fixture.js";
@@ -60,6 +60,45 @@ test("a complete sealed manifest index avoids duplicate metadata without hiding 
     contractArtifacts: [{...artifacts[0]!, digest: "0".repeat(64)}]}), /artifact is invalid/);
   const legacy = buildReviewPacket({...input, contractArtifacts: artifacts.slice(0, 1), contractManifest: manifest("{}")});
   assert.ok(buildReviewPrompt({...invocation, packet: legacy}).includes(artifacts[0]!.path));
+});
+
+
+test("large surfaces and complete history are referenced only through an exact sealed manifest", () => {
+  const included = Array.from({length: 211}, (_, i) => ({id: `path-${i}`, path: `src/dependency-${i}.ts`,
+    behavior: "Preserve dependency behavior and every existing flow. ".repeat(6)}));
+  const input = {request: "Review full P1.", criteria: [{id: "surface-coverage", description: "Review every dependency."}],
+    artifactRefs: [], evidenceRequirements: []};
+  const manifest = (content: string) => {
+    const digest = sha256(content);
+    return {content, digest, path: `.agent-ops/tasks/review-contracts/${digest}.json`};
+  };
+  for (const history of [[], [{at: "2026-10-18", reason: "Clarify every behavior.",
+    change: {removed: {included}, added: {included: included.map(row => ({...row, behavior: "Preserve every flow."}))}}}]]) {
+    const surface = {audit: {included}, history, discovery: {}, postBlockExclusions: []};
+    assert.ok(Buffer.byteLength(JSON.stringify(surface)) > 65_536);
+    const contractManifest = manifest(JSON.stringify({surface}));
+    const packet = buildReviewPacket({...input, surface, contractManifest});
+    assert.deepEqual(packet.surface, surface);
+    assert.deepEqual(JSON.parse(packet.contractManifest!.content).surface, surface);
+    assert.ok(Buffer.byteLength(JSON.stringify(reviewPacketData(packet))) < 65_536);
+    const invocation: ReviewInvocation = {harness: "codex", model: "configured-model", effort: "medium", packet};
+    for (const prompt of [buildReviewPrompt(invocation), buildAdversarialPrompt(invocation, reportFor(packet.criteria))]) {
+      const data = JSON.parse(prompt.split("BEGIN_TASK_DATA\n")[1]!.split("\n")[0]!);
+      assert.deepEqual(data.surface, {manifest: {path: contractManifest.path, digest: contractManifest.digest},
+        field: "surface", digest: sha256(JSON.stringify(surface))});
+      assert.match(prompt, /complete surface audit.*revision history/u);
+    }
+    for (const content of ["not JSON", "{}", JSON.stringify({surface: {...surface, discovery: {changed: true}}}),
+      JSON.stringify({surface: {...surface, audit: {included: included.slice(1)}}})]) {
+      assert.throws(() => buildReviewPacket({...input, surface, contractManifest: manifest(content)}), /64 KiB/);
+    }
+    assert.throws(() => buildReviewPacket({...input, surface}), /64 KiB/);
+    assert.throws(() => buildReviewPacket({...input, surface, contractManifest: {...contractManifest, digest: "0".repeat(64)}}), /manifest is invalid/);
+    assert.throws(() => buildReviewPacket({...input, surface, contractManifest: {...contractManifest, path: "../surface.json"}}), /manifest is invalid/);
+  }
+  const surface = {audit: {included: []}, history: [], discovery: {}, postBlockExclusions: []};
+  const small = buildReviewPacket({...input, surface, contractManifest: manifest(JSON.stringify({surface}))});
+  assert.deepEqual(reviewPacketData(small).surface, surface);
 });
 
 function result(
