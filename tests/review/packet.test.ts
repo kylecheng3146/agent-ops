@@ -95,6 +95,11 @@ test("large surfaces and complete history are referenced only through an exact s
     assert.throws(() => buildReviewPacket({...input, surface}), /64 KiB/);
     assert.throws(() => buildReviewPacket({...input, surface, contractManifest: {...contractManifest, digest: "0".repeat(64)}}), /manifest is invalid/);
     assert.throws(() => buildReviewPacket({...input, surface, contractManifest: {...contractManifest, path: "../surface.json"}}), /manifest is invalid/);
+    const oversized = manifest(JSON.stringify({surface, padding: "x".repeat(512 * 1024)}));
+    assert.throws(() => buildReviewPacket({...input, surface, contractManifest: oversized}), /512 KiB/);
+    const sensitiveSurface = {...surface, discovery: {credential: ["gh", "p_", "a".repeat(24)].join("")}};
+    assert.throws(() => buildReviewPacket({...input, surface: sensitiveSurface,
+      contractManifest: manifest(JSON.stringify({surface: sensitiveSurface}))}), {code: "REVIEW_SENSITIVE_INPUT"});
   }
   const surface = {audit: {included: []}, history: [], discovery: {}, postBlockExclusions: []};
   const small = buildReviewPacket({...input, surface, contractManifest: manifest(JSON.stringify({surface}))});

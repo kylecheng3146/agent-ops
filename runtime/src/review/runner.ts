@@ -310,6 +310,8 @@ function taskDataBlock(invocation: ReviewInvocation): readonly string[] {
     "BEGIN_TASK_DATA",
     JSON.stringify(data),
     ...(invocation.packet.contractManifest === undefined ? [] : ["Read the complete contract manifest at " + invocation.packet.contractManifest.path + ". Assess coverage and every revision against its immutable original goal. Review whether verifier materials actually test the requirement and load product implementation rather than replacement helpers. Review-only and UNKNOWN are not mechanical proof."]),
+    ...(invocation.packet.surface !== undefined && invocation.packet.contractManifest !== undefined ?
+      ["Read the complete surface audit and revision history, including discovery and post-block exclusions, from the manifest surface field when task data references it."] : []),
     ...(data.contractArtifacts === undefined && invocation.packet.contractArtifacts !== undefined ?
       ["The complete evidence artifact path/digest index is in that manifest; inspect supporting evidence via those paths."] : []),
     "END_TASK_DATA"

@@ -443,21 +443,21 @@ const raw = {
     assert.ok(JSON.stringify(history).length < 4_000, 'history size follows the edits');
 
     // Rewriting every existing behavior retains both rows in history, as in a 211-path P1 audit.
-    const expanded = {...surfaces[3], included: [...surfaces[3].included,
+    const expanded = {...audit({included}), included: [...audit({included}).included,
       ...Array.from({length: 207}, (_, i) => ({id: `review-${i}`, path: `docs/review-${i}.md`,
         behavior: 'Review the complete dependency behavior and preserve all existing flows. '.repeat(2)}))]};
     const rewritten = {...expanded, included: expanded.included.map(row => ({...row,
       behavior: `Review dependencies; preserve existing flows: ${row.id}.`}))};
-    for (const surface of [expanded, rewritten])
-      task = await tasks.revise(task.task.id, {expectedContractHash: taskContractHash(task.task), surface, reason: 'Clarify all dependency behaviors.'});
-    await verified(task.task.id);
+    let broad = await tasks.create({title: 'Review all dependency behaviors', criteria: CRITERIA, policyConfigHash, requireSurface: true, surface: expanded});
+    broad = await tasks.revise(broad.task.id, {expectedContractHash: taskContractHash(broad.task), surface: rewritten, reason: 'Clarify all dependency behaviors.'});
+    await verified(broad.task.id);
     let complete;
-    const reviewed = await review(task.task.id, async request => {complete = request; return passing(request, report(request.invocation.packet.criteria));});
+    const reviewed = await review(broad.task.id, async request => {complete = request; return passing(request, report(request.invocation.packet.criteria));});
     assert.equal(reviewed.data.result.status, 'PASS', JSON.stringify(reviewed.data.result));
     const packet = complete.invocation.packet;
     assert.ok(Buffer.byteLength(JSON.stringify(packet.surface)) > 65_536, 'the complete audit and history exceed the inline limit');
     assert.deepEqual(packet.surface.audit.included, rewritten.included);
-    assert.equal(packet.surface.history.length, 5);
+    assert.equal(packet.surface.history.length, 1);
     const last = packet.surface.history.at(-1).change;
     assert.deepEqual(last.removed.included, expanded.included);
     assert.deepEqual(last.added.included, rewritten.included);

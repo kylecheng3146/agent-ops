@@ -10,6 +10,8 @@ An independent reviewer MUST receive a minimal packet containing the request, cr
 - Positive: `Packet contains recorded task intent, criteria, files, and evidence requirements.`
 - Negative: `Forward the complete session transcript and environment.`
 
+Large surface audits, including complete revision history, discovery and post-block exclusions, may use a digest-bound reference to an exact normalized match in the validated snapshot contract manifest. Both review rounds must read the complete manifest surface. The 64 KiB inline packet and 512 KiB manifest bounds remain enforced; small and legacy packets retain inline data.
+
 ## REVIEW-RESULT-001
 
 A review result MUST preserve PASS, FAIL, or NOT_RUN and MUST NOT convert NOT_RUN into PASS.
