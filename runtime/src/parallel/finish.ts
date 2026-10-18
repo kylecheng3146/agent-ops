@@ -529,7 +529,7 @@ export async function finishWorktree(
       try {
         await step();
       } catch (error) {
-        const message = `${label}: ${error instanceof Error ? error.message : String(error)}`;
+        const message = `${label}: ${error instanceof AgentOpsError ? error.code + ": " : ""}${error instanceof Error ? error.message : String(error)}`;
         if (options.finalProof !== undefined) {
           throw finishError("WORKTREE_FINISH_PARTIAL", `Code merged at ${mergedHead} with receipt ${receipt?.path}; ${message}`);
         }

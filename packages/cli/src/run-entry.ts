@@ -47,6 +47,14 @@ const plain = (value: unknown): value is Record<string, unknown> => typeof value
 const active = (worker: RunWorkerRecord) => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status);
 const cli = fileURLToPath(new URL("./bin.js", import.meta.url));
 
+/** Retain the structured child failure instead of hiding it behind recovery text. */
+export function runStepError(result: Record<string, unknown>, fallback: string): AgentOpsError {
+  const details = Array.isArray(result.errors) ? result.errors.filter(plain)
+    .map(error => typeof error.message === "string" ? error.message : "").filter(Boolean).join("; ") : "";
+  return new AgentOpsError(typeof result.code === "string" ? result.code : "RUN_INTEGRATION_RECOVERY_REQUIRED",
+    `${fallback}${details.length === 0 ? "" : ": " + details.slice(0, 4096)}`);
+}
+
 /** Recheck after confirmed death and after verification, before publishing the frozen SHA. */
 export async function assertRunDeliverySnapshot(root: string, taskId: string, head: string, contract: string, tasks: TaskService): Promise<void> {
   const runner = gitRunner(root);
@@ -264,8 +272,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       catch (cause) {if ((cause as NodeJS.ErrnoException).code === "ENOENT") absent = true; else throw cause;}
       if (absent) return (await recoverRunIntegrationAfterCleanup(commonDir, runId, deps.git)).receiptPath;
       const result = await advance(saved);
-      if (result.status !== "ok" || !plain(result.data) || typeof result.data.receipt !== "string")
-        throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recover the sealed transaction before allowing any writer to resume.");
+      if (result.status !== "ok")
+        throw runStepError(result, "Recover the sealed transaction before allowing any writer to resume");
+      if (!plain(result.data) || typeof result.data.receipt !== "string")
+        throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recovery did not return the sealed receipt.");
       return result.data.receipt;
     }
     async function step(cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
@@ -793,7 +803,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               await stopAll("stop", false);
               await recordRunPhase(repository, runId, worker.workerId, "verifying");
               const result = await advance(current);
-              if (result.status !== "ok") throw new AgentOpsError(result.code, "Final proof failed; inspect saved verifier and fresh review reports before repair.");
+              if (result.status !== "ok") throw runStepError(result, "Final proof failed; inspect saved verifier and fresh review reports before repair");
               const data = result.data;
               if (!plain(data) || typeof data.receipt !== "string") throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Finalization requires the receipt returned by the existing finish gate.");
               await acceptReceipt(current, data.receipt);
@@ -834,7 +844,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       }
     } catch (cause) {
       await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_SUPERVISOR_FAILED",
-        workerId: null, taskId: null, detail: "Supervisor stopped; worktree and proof artifacts are preserved."});
+        workerId: null, taskId: null, detail: cause instanceof AgentOpsError ? cause.message : "Supervisor stopped; worktree and proof artifacts are preserved."});
       try {await stopAll("crash");}
       finally {
         await repository.mutate(runId, current => ({...current, status: current.status === "complete" ? "complete" : "blocked", disableRestart: true}));

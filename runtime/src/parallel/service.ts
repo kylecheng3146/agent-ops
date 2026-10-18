@@ -11,7 +11,7 @@ import { parseInstallManifest } from "../fs/manifest.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { CompletionGateService } from "../hooks/completion-gate.js";
 import { writeSessionMarker } from "../hooks/codex-loop.js";
-import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
+import { cleanupWorktreeHeartbeats, readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
 
 /**
  * One Git worktree per writing session, so parallel sessions stop sharing the
@@ -387,6 +387,12 @@ export async function bindSession(
 export async function removeCheckout(
   deps: WorktreeDependencies, record: WorktreeRecord, force: boolean, expectedHead?: string
 ): Promise<void> {
+  if (!force) {
+    const untracked = await git(deps, record.path,
+      ["ls-files", "--others", "--exclude-standard", "-z", "--", ".claude/", ".codex/"],
+      "WORKTREE_REMOVE_FAILED", "Git could not inspect runtime heartbeat paths.");
+    await cleanupWorktreeHeartbeats(record.path, untracked.split("\0").filter(Boolean));
+  }
   await git(deps, record.mainRoot,
     ["worktree", "remove", ...(force ? ["--force"] : []), record.path],
     "WORKTREE_REMOVE_FAILED", `Git could not remove ${record.path}.`);
