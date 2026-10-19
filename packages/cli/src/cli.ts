@@ -125,10 +125,13 @@ The URL carries an access token; do not share it.
   run: `Usage: agent-ops run [start] "<goal>" --host <claude|codex> [--jobs <1|2>] [--time-budget <60m>] [--wait] [--json]
        agent-ops run [start] --goal-file <path> --host <claude|codex>
        agent-ops run <status|logs|resume|stop> <run-id> [--json]
+       agent-ops run resume <run-id> [--retry-approval <auth-event-id>]... [--json]
        agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
 
 Native goal state is observational. Completion requires current verification,
 two fresh reviews, task completion and a target-bound integration receipt.
+--retry-approval explicitly retries an intact Codex approval-review usage-limit
+failure. Original denials remain recorded; every command needs fresh approval.
 `,
   init: `Usage: agent-ops init [options]
 

@@ -155,7 +155,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<CliEnve
       const events = await options.service.logs(runId);
       return okEnvelope("RUN_LOGS", { ...stateData(action, state, `Read ${events.length} event(s) for run ${runId}.`), events });
     }
-    if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId)));
+    if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId, options.args.retryApprovalIds)));
     if (action === "stop") return okEnvelope("RUN_STOP_REQUESTED", data(action, await options.service.stop(runId, options.args.answer ?? "user requested stop")));
     const questionId = options.args.questionId;
     if (questionId === undefined || questionId.trim() === "") throw new AgentOpsError("RUN_QUESTION_REQUIRED", "Run respond requires --question-id.");

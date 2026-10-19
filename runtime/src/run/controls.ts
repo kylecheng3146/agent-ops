@@ -1,6 +1,7 @@
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
-import {canonicalJson} from "../config/hash.js";
+import {canonicalJson, calculateConfigHash} from "../config/hash.js";
+import {readRunPolicy} from "./policy.js";
 import {join} from "node:path";
 import {readPrivateFile, writePrivateFile} from "../security/permissions.js";
 import {redactSecrets} from "../security/redact.js";
@@ -35,6 +36,74 @@ export interface RunControlRequest {
 }
 
 const MAX_REASON_LENGTH = 4_096;
+
+const RETRY_APPROVAL = "retry-approval:";
+const AUTH_ID = /^auth-[a-f0-9]{64}$/u;
+const DENIAL_DIAGNOSTIC = "Native authorization could not be accepted; no alternate permission path is allowed.";
+
+/** An explicit retry acknowledges a failed reviewer, never a command permission. */
+export async function approvalRetryEvents(state: RunState, requested: readonly string[]): Promise<ReadonlySet<string>> {
+  const fail = (): never => {throw error("RUN_NOT_RESUMABLE", "Approval retry requires the original, intact Codex usage-limit review failure.");};
+  if (!Array.isArray(requested) || requested.some(id => typeof id !== "string" || !AUTH_ID.test(id)) || new Set(requested).size !== requested.length) fail();
+  const prior = new Set<string>();
+  for (const control of state.controls) {
+    if (control.action !== "resume" || control.actor !== "user" || !control.reason?.startsWith(RETRY_APPROVAL)) continue;
+    let ids: unknown;
+    try {ids = JSON.parse(control.reason.slice(RETRY_APPROVAL.length));} catch {return fail();}
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== "string" || !AUTH_ID.test(id))) fail();
+    for (const id of ids as string[]) prior.add(id);
+  }
+  const ignored = new Set<string>();
+  for (const id of new Set([...prior, ...requested])) {
+    const index = state.events.findIndex(e => e.id === id);
+    const event = state.events[index];
+    if (event?.type !== "control" || event.code !== "RUN_COMMAND_DENIED") fail();
+    const path = join(state.commonDir, "agent-ops/runs", state.runId, "authorizations", id + ".json");
+    let ref: {artifact?: unknown; digest?: unknown; result?: unknown; source?: unknown};
+    let authorization: RunCommandAuthorization & {runId: string};
+    try {
+      ref = JSON.parse(event.detail!);
+      const source = await readPrivateFile(path, state.commonDir);
+      if (ref.artifact !== path || ref.result !== "denied" || ref.source !== "codex-auto-review" || source === null ||
+        Buffer.byteLength(source) > 128 * 1024 || sha256(source) !== ref.digest) fail();
+      authorization = JSON.parse(source!);
+    } catch {return fail();}
+    const a = authorization;
+    if (a === null || typeof a !== "object") fail();
+    const worker = state.workers.find(w => w.workerId === event.workerId);
+    if (a.runId !== state.runId || a.workerId !== event.workerId || worker === undefined || event.taskId !== worker.taskId ||
+      !Number.isSafeInteger(a.generation) || a.generation < 1 || a.generation > worker.generation ||
+      (!prior.has(id) && (a.generation !== worker.generation || a.nativeSessionId !== worker.nativeSessionId)) ||
+      a.source !== "codex-auto-review" || a.result !== "denied" || a.operation !== "command" ||
+      typeof a.reason !== "string" || !/^Automatic approval review failed: You[’']ve hit your usage limit(?:[.!]|$)/u.test(a.reason) ||
+      typeof a.command !== "string" || typeof a.resource !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(a.commandDigest) || !/^[a-f0-9]{64}$/u.test(a.resourceDigest) ||
+      typeof a.authorizationId !== "string" || a.authorizationId.length === 0 || a.authorizationId.length > 256 ||
+      !(a.nativeSessionId === null || typeof a.nativeSessionId === "string") ||
+      id !== "auth-" + sha256(canonicalJson({runId: state.runId, workerId: a.workerId, generation: a.generation,
+        nativeSessionId: a.nativeSessionId, source: a.source, id: a.authorizationId}))) fail();
+    // Command/resource strings were redacted when saved; their original digests cannot be recomputed.
+    let binding = state.policyBinding;
+    let matched = false;
+    for (let depth = 0; binding !== undefined && depth < 128; depth++) {
+      const policy = await readRunPolicy({...state, policyBinding: binding}, binding.runtimeHash, Date.now(), true);
+      if (binding.artifactDigest === a.policyArtifactDigest) {
+        matched = binding.configHash === a.policyConfigHash && binding.runtimeHash === a.runtimeHash && binding.expiresAt === a.expiresAt;
+        break;
+      }
+      if (policy?.previousDigest == null) break;
+      const source = await readPrivateFile(join(state.commonDir, "agent-ops/runs", state.runId, "policies", policy.previousDigest + ".json"), state.commonDir);
+      if (source === null || sha256(source) !== policy.previousDigest) fail();
+      const previous = JSON.parse(source!);
+      binding = {artifactDigest: policy.previousDigest, configHash: calculateConfigHash(previous.config), runtimeHash: previous.runtimeHash, expiresAt: previous.expiresAt};
+    }
+    if (!matched) fail();
+    ignored.add(id);
+    const next = state.events.slice(index + 1).find(e => e.workerId === event.workerId && e.code === "RUN_COMMAND_DENIED");
+    if (next?.type === "diagnostic" && next.taskId === null && next.detail === DENIAL_DIAGNOSTIC) ignored.add(next.id);
+  }
+  return ignored;
+}
 
 function error(code: string, message: string): AgentOpsError {
   return new AgentOpsError(code, message);

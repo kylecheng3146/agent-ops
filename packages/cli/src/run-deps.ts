@@ -194,7 +194,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       throw cause;
     }
   };
-  const resume: RunCommandService["resume"] = async runId => {
+  const resume: RunCommandService["resume"] = async (runId, retryApprovalIds) => {
     const before = await service.status(runId);
     const runtimeHash = await runRuntimeHash();
     const policy = await readRunPolicy(before, before.policyBinding?.runtimeHash ?? runtimeHash, Date.now(), true);
@@ -217,7 +217,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       if (exists === null || (await collectChangeSurface(gitRunner(worker.worktree!))).paths.length > 0)
         throw new AgentOpsError("RUN_RECOVERY_DIRTY", "Commit or preserve every writer checkout before explicit resume.");
     }
-    const result = await service.resume(runId);
+    const result = await service.resume(runId, retryApprovalIds);
     try {
     if (pending !== null) await renewPendingRunPolicy(repository, runId, pending);
     if (policy !== null && pending === null) await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash, resumeRuntime: true,

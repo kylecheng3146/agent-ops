@@ -7,6 +7,7 @@ import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
 import {budgetExpired} from "./scheduler.js";
+import {approvalRetryEvents} from "./controls.js";
 
 /** Hosts with a writer transport in the first run release. */
 export type RunHost = "claude" | "codex";
@@ -638,12 +639,13 @@ export class RunService {
     return { state, message: `Run ${runId} is paused.` };
   }
 
-  async resume(runId: string): Promise<RunLifecycleResult> {
-    const state = await this.#repository.mutate(runId, (current) => {
+  async resume(runId: string, retryApprovalIds: readonly string[] = []): Promise<RunLifecycleResult> {
+    const state = await this.#repository.mutate(runId, async (current) => {
+      const acknowledged = await approvalRetryEvents(current, retryApprovalIds);
       const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
         "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
-      const blocker = [...current.events].reverse().find(e => recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
-      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
+      const blocker = [...current.events].reverse().find(e => !acknowledged.has(e.id) && (recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code)));
+      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED" && !acknowledged.has(e.id)) ||
         current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
       if (current.status === "complete" || (current.integration?.proofDigest === undefined &&
           (terminalBlocker || (current.status === "blocked" && !recoverable.has(blocker?.code ?? ""))))) {
@@ -660,7 +662,7 @@ export class RunService {
         awaitingResume: false,
         disableRestart: false,
         controls: [...current.controls, {
-          action: "resume", actor: "user", reason: null, requestedAt: this.#now(), expiresAt: null, appliedAt: null
+          action: "resume", actor: "user", reason: retryApprovalIds.length === 0 ? null : "retry-approval:" + JSON.stringify(retryApprovalIds), requestedAt: this.#now(), expiresAt: null, appliedAt: null
         }]
       };
     });

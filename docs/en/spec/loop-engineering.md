@@ -46,6 +46,13 @@
   Explicit resume renews expired authorization from the remaining budget and
   reconciles immutable renewal lineage before policy synchronization. An answer
   uses the same recovery checks; neither action can revive an explicit denial.
+  `run resume <id> --retry-approval <auth-event-id>` MAY explicitly retry a
+  Codex automatic approval review that failed with its usage-limit wrapper.
+  Each selected failure MUST retain its original private artifact, digest,
+  worker identity and policy lineage; unrelated or genuine denials still block.
+  Repeat the flag for multiple failures. Successful acknowledgements are audited
+  and revalidated on later resumes. This grants no command permission: native
+  approval runs again. Existing writer-death, checkout, trust and budget checks apply.
 - Convergence compares actual per-check statuses and outstanding finding pins.
   Source fingerprints, timing and diagnostics alone cannot establish progress.
 

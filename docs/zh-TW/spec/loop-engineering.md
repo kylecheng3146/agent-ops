@@ -20,6 +20,7 @@
 - Setup 與 native agent 發起的 local proof MUST 先登記 dormant process group 再執行；Stop 也要取消子程序。中斷的 setup 必須明確 resume，保留 checkout 與失敗 artifact。
 - Coordinator 只能在綁定原始 repository trust、可執行 runtime、剩餘預算的 run-scoped policy 下，評估新增固定且非危險的能力。不得繞過 native 或組織的明確拒絕。Policy 變更先停止所有 writer，保留固定交付，以 journal 記錄 contract 同步，再啟動新 generation；不授予永久 repository trust。Native decision 保存遮罩後的命令範圍與理由，provider 未提供的證據維持 UNKNOWN。
 - 明確 resume 從剩餘預算續期過期授權，並先核對不可變 renewal lineage，再同步 policy。回答問題也沿用相同恢復檢查；兩者皆不得復活已被明確拒絕的工作。
+- `run resume <id> --retry-approval <auth-event-id>` MAY 明確重試以額度不足 wrapper 失敗的 Codex 自動審批。每筆指定失敗 MUST 保有原始 private artifact、digest、worker identity 與 policy lineage；真正或未指定的拒絕仍阻擋。多筆失敗可重複旗標。成功確認會留存並在後續 resume 重新驗證；此操作不授予命令權限，原生審批必須重跑，既有 writer 死亡、checkout、trust 與預算檢查仍適用。
 - 收斂判斷比較實際 per-check 狀態及未解除的 finding pins；source fingerprint、時間或診斷文字本身不能算進展。
 
 English source version: 2026-07-23. Revalidate: when the English specification changes.

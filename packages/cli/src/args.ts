@@ -67,6 +67,7 @@ export interface ParsedArgs {
   command: CliCommand;
   runAction?: RunAction;
   runId?: string;
+  retryApprovalIds?: readonly string[];
   goal?: string;
   goalFile?: string;
   host?: "claude" | "codex";
@@ -1204,14 +1205,17 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
       if (positional !== undefined) throw new CliArgumentError("CLI_UNEXPECTED_ARGUMENT", "Quote the goal as one argument; control actions take one run ID.");
       positional = token; continue;
     }
-    if (seen.has(token)) duplicate(token);
+    if (seen.has(token) && token !== "--retry-approval") duplicate(token);
     seen.add(token);
     if (token === "--json") {args.json = true; continue;}
     if (token === "--wait") {args.wait = true; continue;}
-    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file"].includes(token))
+    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file", "--retry-approval"].includes(token))
       throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown run option: ${token}`, token);
     const value = readOptionValue(argv, i++, token);
     switch (token) {
+      case "--retry-approval":
+        if (!/^auth-[a-f0-9]{64}$/u.test(value) || args.retryApprovalIds?.includes(value)) invalidValue(token, value);
+        args.retryApprovalIds = [...(args.retryApprovalIds ?? []), value]; break;
       case "--host":
         if (value !== "claude" && value !== "codex") invalidValue(token, value);
         args.host = value as "claude" | "codex"; break;
@@ -1231,6 +1235,7 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
       }
     }
   }
+  if (args.retryApprovalIds !== undefined && action !== "resume") throw new CliArgumentError("CLI_INVALID_OPTION", "--retry-approval requires run resume.");
   if (action === "start") {
     args.goal = positional;
     if ((args.goal === undefined) === (args.goalFile === undefined)) throw new CliArgumentError("RUN_GOAL_REQUIRED", "Provide exactly one quoted goal or --goal-file.");
