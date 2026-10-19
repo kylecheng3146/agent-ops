@@ -45,7 +45,7 @@ export const resumeAuthorizationChecks = {
     const before = await f.repository.read(f.state.runId), original = await readFile(f.ref.artifact, 'utf8');
     await assert.rejects(f.service.resume(f.state.runId), {code: 'RUN_NOT_RESUMABLE'}, 'An ordinary resume cannot acknowledge a denied review');
     let result;
-    try {result = await f.service.resume(f.state.runId, f.denied.id);}
+    try {result = await f.service.resume(f.state.runId, [f.denied.id]);}
     catch (error) {assert.fail(`Explicit retry of a proven failed approval review must resume the original run: ${error.code}`);}
     assert.equal(result.state.status, 'active');
     assert.equal(result.state.runId, before.runId);
@@ -53,7 +53,7 @@ export const resumeAuthorizationChecks = {
     assert.deepEqual(result.state.budget, before.budget);
     assert.deepEqual(result.state.events, before.events, 'Original denial evidence cannot be rewritten');
     assert.equal(await readFile(f.ref.artifact, 'utf8'), original);
-    assert.equal(result.state.controls.at(-1).reason, `retry-approval:${f.denied.id}`);
+    assert.equal(result.state.controls.at(-1).reason, `retry-approval:${JSON.stringify([f.denied.id])}`);
     assert.equal(result.state.workers[0].status, 'stopped', 'Resume is not permission to execute a denied command');
     assert.ok(result.state.events.every(e => e.code !== 'RUN_COMMAND_AUTO_APPROVED'));
     const {parseArgs} = await mod('packages/cli/src/args.js');
@@ -64,23 +64,28 @@ export const resumeAuthorizationChecks = {
     assert.equal(command.code, 'RUN_RESUMED', 'CLI must forward the targeted retry to the real service');
     assert.throws(() => parseArgs(['run', 'status', before.runId, '--retry-approval', f.denied.id]));
     assert.throws(() => parseArgs(['run', 'resume', before.runId, '--retry-approval', '../foreign']));
-    await assert.rejects(f.service.resume(before.runId), {code: 'RUN_NOT_RESUMABLE'}, 'Acknowledgement never becomes a permanent permission grant');
+    assert.equal((await f.service.resume(before.runId)).state.status, 'active', 'Prior acknowledgement is revalidated for recovery, without approving commands');
+    await f.repository.appendEvent(before.runId, {type: 'diagnostic', code: 'RUN_COMMAND_DENIED', workerId: 'writer', taskId: 'task', detail: 'A new genuine denial'});
+    await assert.rejects(f.service.resume(before.runId), {code: 'RUN_NOT_RESUMABLE'}, 'Old acknowledgement cannot erase a new denial');
   }),
   'run-approval-denial-boundary': async () => {
     for (const [reason, source] of [['Organization policy denied this command', 'codex-auto-review'],
       ['Quota mentioned by a policy reviewer, but this operation is denied', 'codex-auto-review'],
       [quota, 'claude-auto-mode'], [quota, 'user']]) await fixture(async f => {
-      await assert.rejects(f.service.resume(f.state.runId, f.denied.id));
+      await assert.rejects(f.service.resume(f.state.runId, [f.denied.id]));
       assert.equal((await f.repository.read(f.state.runId)).disableRestart, true);
     }, reason, source);
-    for (const mode of ['missing', 'tamper', 'path', 'digest', 'foreign-run', 'future-generation', 'session', 'extra-denial', 'unpaired', 'budget', 'no-progress']) await fixture(async f => {
+    for (const mode of ['missing', 'tamper', 'path', 'digest', 'foreign-run', 'future-generation', 'session', 'runtime', 'expiry', 'authorization-id', 'extra-denial', 'unpaired', 'budget', 'no-progress']) await fixture(async f => {
       if (mode === 'missing') await rm(f.ref.artifact);
       if (mode === 'tamper') await writeFile(f.ref.artifact, '{}');
-      if (['foreign-run', 'future-generation', 'session'].includes(mode)) {
+      if (['foreign-run', 'future-generation', 'session', 'runtime', 'expiry', 'authorization-id'].includes(mode)) {
         const a = JSON.parse(await readFile(f.ref.artifact, 'utf8'));
         if (mode === 'foreign-run') a.runId = 'run-foreign';
         if (mode === 'future-generation') a.generation = 2;
         if (mode === 'session') a.nativeSessionId = 'foreign';
+        if (mode === 'runtime') a.runtimeHash = 'c'.repeat(64);
+        if (mode === 'expiry') a.expiresAt = '2099-01-01T00:00:00.000Z';
+        if (mode === 'authorization-id') a.authorizationId = 'foreign';
         const content = JSON.stringify(a); await writeFile(f.ref.artifact, content);
         await f.repository.mutate(f.state.runId, s => ({...s, events: s.events.map(e => e.id === f.denied.id
           ? {...e, detail: JSON.stringify({...f.ref, digest: f.sha256(content)})} : e)}));
@@ -94,7 +99,7 @@ export const resumeAuthorizationChecks = {
       if (mode === 'no-progress') await f.repository.mutate(f.state.runId, s => ({...s, coordinatorId: s.coordinatorId,
         workers: [...s.workers, {...s.workers[0], workerId: s.coordinatorId, status: 'blocked', lastFailure: {id: 'failure', checkId: null,
           pinId: null, failureClass: 'assertion', fingerprint: null, diagnosticDigest: null, round: 2, observedAt: s.updatedAt, usefulProgress: false}}]}));
-      await assert.rejects(f.service.resume(f.state.runId, f.denied.id), `Unsafe ${mode} recovery must fail closed`);
+      await assert.rejects(f.service.resume(f.state.runId, [f.denied.id]), `Unsafe ${mode} recovery must fail closed`);
       assert.equal((await f.repository.read(f.state.runId)).disableRestart, true);
     });
   }
