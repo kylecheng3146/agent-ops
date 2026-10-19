@@ -252,7 +252,7 @@ export class DebugService {
     if (action === null) return;
     const attached=await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.status !== "active") fail("TASK_DEBUG_CONTROL_INVALID","Human control must belong to the active attached original issue.");
-    if ((action === "resume" || action === "repair") && debugRemainingMs(root.debug) === 0) {
+    if (action === "unlimited" || ((action === "resume" || action === "repair") && debugRemainingMs(root.debug) === 0)) {
       try {await this.extend(taskId,sessionId,event.id,home);} catch (error) {
         if (!(error instanceof AgentOpsError) || !["TASK_DEBUG_GRANT_INVALID","TASK_DEBUG_GRANT_UNSUPPORTED"].includes(error.code)) throw error;
       }
@@ -491,6 +491,9 @@ export class DebugService {
     if (root.debug.grants.some(g=>g.eventId === event.id)) return;
     const otherCause=debugStopCause({...root.debug,consumedMs:0,foreground:null,operation:null,budgetMs:86_400_000,
       ...(root.debug.control === undefined ? {} : {control:{...root.debug.control,paused:false}})});
+    const unlimited=debugUserControl(event.text) === "unlimited";
+    if (unlimited && (root.status !== "active" || event.timestamp < Date.parse(root.createdAt)))
+      fail("TASK_DEBUG_GRANT_INVALID","Only a current native human event can waive the active original issue time limit.");
     const foregroundActive=root.debug.foreground !== undefined && root.debug.foreground !== null;
     const remainingAtEvent=debugRemainingMs(root.debug,event.timestamp);
     const sealedAtCandidates=[Date.parse(root.updatedAt),root.debug.receipts.at(-1)?.finishedAt ?? Number.NaN].filter(Number.isFinite);
@@ -498,8 +501,8 @@ export class DebugService {
     const exhaustedAtEvent=foregroundActive
       ? remainingAtEvent === 0
       : debugRemainingMs(root.debug) === 0 && event.timestamp > lastSealedAt;
-    if (!exhaustedAtEvent || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !["resume","repair"].includes(debugUserControl(event.text) ?? ""))
+    if ((!unlimited && !exhaustedAtEvent) || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !["resume","repair","unlimited"].includes(debugUserControl(event.text) ?? ""))
       fail("TASK_DEBUG_GRANT_INVALID","Only a contemporaneous human continue event extends exhausted time; other blockers remain authoritative.");
-    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS,spentAtGrantMs:debugSpentMs(root.debug,event.timestamp)}],checkpoint:null});
+    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:unlimited ? null : DEBUG_EXTENSION_MS,spentAtGrantMs:debugSpentMs(root.debug,event.timestamp)}],checkpoint:null});
   }
 }

@@ -6,8 +6,9 @@ import {sha256} from "../fs/hash.js";
 import {AgentOpsError} from "../fs/paths.js";
 
 export interface DebugUserEvent {id:string;sourceDigest:string;text:string;timestamp:number;}
-export function debugUserControl(text: string): "pause" | "diagnose" | "resume" | "repair" | null {
+export function debugUserControl(text: string): "pause" | "diagnose" | "resume" | "repair" | "unlimited" | null {
   const value=text.trim();
+  if (/^(?:不要給預算時間(?:\s+直接完整驗證與review)?|取消時間限制|no time limit)[。.!！]?$/iu.test(value)) return "unlimited";
   if (/^(?:暫停|暂停|先暫停|先暂停|停止|stop|pause)[。.!！]?$/iu.test(value)) return "pause";
   if (/^(?:先)?只診斷(?:，等我補失敗時證據)?[。.!！]?$/u.test(value) || /^(?:先)?只诊断[。.!！]?$/u.test(value) || /^diagnos(?:e|is)[ -]only[.!]?$/iu.test(value)) return "diagnose";
   if (/^(?:繼續|继续|continue|resume)[。.!！]?$/iu.test(value)) return "resume";

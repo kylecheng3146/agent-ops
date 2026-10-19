@@ -122,3 +122,9 @@ persists foreground progress, and does not promise
 execution after the native conversation closes. Native transcripts are trusted
 host evidence, not protection against an attacker with the same filesystem
 authority.
+
+An explicit native human `no time limit` / `取消時間限制` instruction removes the
+original issue time cap via the same native-only `extend --event-id latest`
+authority. The grant records `grantedMs: null` and the spent snapshot; original
+budget, consumption, prior grants, iteration limits and evidence gates remain.
+Ordinary command and review stall timeouts remain in force.

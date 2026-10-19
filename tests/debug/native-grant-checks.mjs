@@ -43,6 +43,17 @@ const raw={
    await debug.extend(id,session,'latest',home);assert.equal((await debug.root(id)).debug.grants.length,1,'the same native event is never spent twice');
    const legacy={...after,foreground:null,consumedMs:0,grants:after.grants.map(({spentAtGrantMs,...grant})=>grant)};assert.ok(validDebugState(legacy));assert.equal(debugRemainingMs(legacy),legacy.budgetMs+20*60000,'legacy grant records remain readable');
   }finally{await f.close();}
+ },
+ 'native-budget-unlimited':async()=>{
+  const m=await mod('runtime/src/task/debug-state.js');const expired=m.createDebugState('isolated','a'.repeat(40));expired.consumedMs=expired.budgetMs+60000;expired.grants=[{eventId:'a'.repeat(64),sessionId:session,sourceDigest:'b'.repeat(64),grantedMs:null,spentAtGrantMs:expired.consumedMs}];assert.equal(m.debugRemainingMs(expired),Infinity,'a human unlimited grant must remove the task time cap');assert.ok(m.validDebugState(expired));
+  const f=await fixture();try{
+   const id=f.record.task.id;await f.tasks.attach(session,id);await f.store.mutate(state=>{const r=state.tasks.find(x=>x.task.id===id);r.debug.consumedMs=r.debug.budgetMs+60000;});
+   const {home,path}=await nativeFile(f,[meta(f.root),user('不要給預算時間 直接完整驗證與review')]);const debug=f.tasks.debugService(),before=structuredClone((await debug.root(id)).debug);await debug.extend(id,session,'latest',home);const after=(await debug.root(id)).debug;assert.equal(after.grants.length,1);assert.equal(after.grants[0].grantedMs,null);assert.equal(after.budgetMs,before.budgetMs);assert.equal(after.consumedMs,before.consumedMs);assert.deepEqual(after.receipts,before.receipts);assert.equal(m.debugRemainingMs(after),Infinity);await debug.extend(id,session,'latest',home);assert.equal((await debug.root(id)).debug.grants.length,1);
+   await f.candidate();assert.equal((await f.verify()).status,'PASS','unlimited task timing retains normal finite verifier timeout behavior');
+   assert.equal(m.debugStopCause({...after,control:{mode:'full',paused:true,sessionId:session,eventId:'a'.repeat(64),sourceDigest:'b'.repeat(64),timestamp:Date.now()}}),'user-pause');
+   const {debugUserControl}=await mod('runtime/src/task/debug-user-event.js');assert.equal(debugUserControl('The user said no time limit'),null);assert.equal(debugUserControl('取消時間限制'),'unlimited');
+   await writeFile(path,JSON.stringify(meta(f.root))+'\n'+JSON.stringify(user('取消時間限制','agents_md.instructions'))+'\n');await assert.rejects(debug.extend(id,session,'latest',home));
+  }finally{await f.close();}
  }
 };
 export const nativeGrantChecks=Object.fromEntries(Object.entries(raw).map(([id,check])=>[id,async()=>{try{await check();}catch(e){if(!['TASK_DEBUG_GRANT_UNSUPPORTED','TASK_DEBUG_GRANT_INVALID'].includes(e?.code))throw e;throw new assert.AssertionError({message:`${id}: ${e?.code ?? ''} ${e?.message ?? e}`});}}]));

@@ -68,7 +68,7 @@ export interface DebugState {
   hypotheses: DebugHypothesis[];
   receipts: DebugReceipt[];
   strategy: {from: string; to: string; reason: string; references: string[]; afterRound: number} | null;
-  grants: {eventId: string; sessionId: string; sourceDigest: string; grantedMs: number; spentAtGrantMs?: number}[];
+  grants: {eventId: string; sessionId: string; sourceDigest: string; grantedMs: number | null; spentAtGrantMs?: number}[];
   /** Omitted by legacy state; the default is the full repair loop. */
   control?: DebugControl;
   /** A native host turn currently being measured. Omitted by legacy state. */
@@ -115,7 +115,7 @@ export function validDebugState(v: unknown): v is DebugState {
       ![r.contractHash,r.configHash,r.sourceFingerprint,r.productDigest].every(hash) || !integer(r.durationMs) || !integer(r.finishedAt) || typeof r.round !== "boolean" ||
       !strings(r.progress) || !strings(r.references) || !["PASS","FAIL","UNKNOWN"].includes(String(r.outcome)) || ![null,"environment","permission"].includes(r.cause as null)) return false;
   if (new Set(v.receipts.map(r => r.id)).size !== v.receipts.length || v.receipts.filter(r => r.round).length > (v.maxRounds as number)) return false;
-  for (const g of v.grants) if (!(exact(g,["eventId","sessionId","sourceDigest","grantedMs"]) || (exact(g,["eventId","sessionId","sourceDigest","grantedMs","spentAtGrantMs"]) && integer(g.spentAtGrantMs))) || !text(g.eventId) || !text(g.sessionId) || !hash(g.sourceDigest) || g.grantedMs !== DEBUG_EXTENSION_MS) return false;
+  for (const g of v.grants) if (!(exact(g,["eventId","sessionId","sourceDigest","grantedMs"]) || (exact(g,["eventId","sessionId","sourceDigest","grantedMs","spentAtGrantMs"]) && integer(g.spentAtGrantMs))) || !text(g.eventId) || !text(g.sessionId) || !hash(g.sourceDigest) || (g.grantedMs !== DEBUG_EXTENSION_MS && g.grantedMs !== null)) return false;
   if (new Set(v.grants.map(g => g.eventId)).size !== v.grants.length) return false;
   if (v.strategy !== null && (!exact(v.strategy,["from","to","reason","references","afterRound"]) ||
       ![v.strategy.from,v.strategy.to,v.strategy.reason].every(text) || v.strategy.from === v.strategy.to ||
@@ -144,7 +144,8 @@ export function debugSpentMs(state: DebugState, now = Date.now()): number {
   return state.consumedMs + active;
 }
 export function debugRemainingMs(state: DebugState, now = Date.now()): number {
-  const limit=state.grants.reduce((n,g)=>Math.max(n,g.spentAtGrantMs ?? n)+g.grantedMs,state.budgetMs);
+  if (state.grants.some(g=>g.grantedMs === null)) return Number.POSITIVE_INFINITY;
+  const limit=state.grants.reduce((n,g)=>Math.max(n,g.spentAtGrantMs ?? n)+(g.grantedMs ?? 0),state.budgetMs);
   return Math.max(0,limit-debugSpentMs(state,now));
 }
 export function debugStopCause(state: DebugState, now = Date.now()): DebugCause | null {

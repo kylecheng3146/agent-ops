@@ -74,3 +74,8 @@ Codex 的一般 completion gate 仍 unsupported；DEBUG 專用 Stop 以原生
 只承諾前景對話與持久化進度，不承諾對話關閉後繼續，也不宣稱抵擋同檔案權限攻擊。
 
 完整命令及細節見英文 [Task DEBUG](../../en/guides/task-debug.md)。
+
+原生人類明確要求「取消時間限制」或 `no time limit` 時，可透過同一個
+`extend --event-id latest` 原生授權入口取消原任務總時限。grant 記錄
+`grantedMs: null` 與已用時間快照；原預算、消耗、舊 grant、回合限制及
+驗證與 review 關卡均保留。個別命令與 review 的防卡死逾時仍有效。
