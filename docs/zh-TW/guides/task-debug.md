@@ -61,8 +61,8 @@ verify 並重新記錄已確認的假設；沒有它時 finish 以 `ESCAPE_ORIGI
 
 checkpoint 保存 task/session/source/contract/config/cause；resume 只接受同一
 擁有者 worktree 的匹配 checkpoint，保留 dirty 內容及預算。失配需要人類確認。
-時間耗盡後明確「繼續」可透過 `extend --event-id latest` 讀取原生人類事件，
-一次增加 20 分鐘；沒有可信事件来源則回報 unsupported，其他阻礙不被解除。
+時間耗盡後明確「繼續」或「繼續修復」可透過 `extend --event-id latest` 讀取原生人類事件，
+從該事件取得完整 20 分鐘，並以 grant 快照保留既有消耗與超時；沒有可信事件來源則回報 unsupported，其他阻礙不被解除。
 
 Claude / agy / 原生 Codex 的 Stop 都會檢查無 Git 差異的 active DEBUG task，不論是否安裝 completion gate。
 DEBUG gate 故障先針對 task/config 重新載入一次；仍失敗則明確回報 `UNKNOWN／未完成`

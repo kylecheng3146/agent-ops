@@ -258,3 +258,17 @@ Before committing, use the default worktree scope for verify, review and complet
 This enforces the toolkit's completion command, not a host's natural-language completion claim. It does not prevent a process with the same filesystem authority from editing task/evidence files directly, and it does not lock Git or external source writers.
 
 Project init/update installs `.agent-ops/.gitignore` for `/tasks/` and `/reviews/` on every harness and profile. An existing user-owned `.agent-ops/.gitignore` blocks init/update with `UNMANAGED_INSTALL_PATH`: first back it up outside that path and move its custom rules to the root `.gitignore` (prefix them with `/.agent-ops/`), then retry. Git collection fails with `CHANGE_SURFACE_TRACKED_RUNTIME` if these directories contain indexed files (even clean tracked files), or staged runtime removals. Move any real source files out of the runtime directories, install ignore rules, then use `git rm -r --cached --ignore-unmatch -- .agent-ops/tasks/ .agent-ops/reviews/` to keep local files while removing them from the index. Commit any staged removals before producing fresh verification/review evidence. The active completion Stop gate also blocks this condition with `COMPLETION_GATE_TRACKED_RUNTIME` and the recovery message. Run verify/review from the Git repository root; nested project roots are not supported by the current path/fingerprint collector. Uninstall removes the managed ignore file but preserves runtime output.
+
+## EVIDENCE-DEBUG-GRANT-001
+
+A verified native human continue or resume-repair event grants a full twenty-minute
+window from that event after the original DEBUG time is exhausted. Original
+budget, consumed time, elapsed overrun, receipts and round limits remain intact.
+New grants record an additive `spentAtGrantMs` snapshot; legacy grants retain
+their additive duration semantics. An event can be used only once, and other
+non-time blockers remain authoritative.
+
+Codex transcripts are streamed with bounded row memory, preserving original raw
+line hashes and indexes. Cross-project launch directories are accepted only for
+the current native thread and its validated owned human worktree; session IDs,
+native human provenance, regular-file and path checks remain mandatory.

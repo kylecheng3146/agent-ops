@@ -1,4 +1,5 @@
-import {lstat,readFile,readdir,realpath} from "node:fs/promises";
+import {constants} from "node:fs";
+import {lstat,open,readdir,realpath} from "node:fs/promises";
 import {homedir} from "node:os";
 import {isAbsolute,join,relative,sep} from "node:path";
 import {sha256} from "../fs/hash.js";
@@ -30,6 +31,40 @@ function codexUserText(row: any): string | undefined {
   } catch { /* An ambiguous reply cannot authorize a control change. */ }
   return undefined;
 }
+/** Bound each row, not the transcript: assistant/tool output must not hide later human input. */
+async function* nativeLines(path: string): AsyncGenerator<{line: string; index: number}> {
+  const file=await open(path,constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    if (!(await file.stat()).isFile()) return;
+    let pending=Buffer.alloc(0), oversized=false,index=0;
+    const started=Date.now();
+    for await (const chunk of file.createReadStream({autoClose:false})) {
+      if (Date.now()-started>10_000) throw new Error("Native transcript read timed out");
+      const bytes=chunk as Buffer;
+      let start=0;
+      while (start<bytes.length) {
+        const end=bytes.indexOf(10,start),stop=end<0 ? bytes.length : end;
+        if (!oversized) {
+          if (pending.length+stop-start>1024*1024) {pending=Buffer.alloc(0);oversized=true;}
+          else pending=Buffer.concat([pending,bytes.subarray(start,stop)]);
+        }
+        if (end<0) break;
+        if (!oversized) yield {line:pending.toString("utf8"),index};
+        index++;pending=Buffer.alloc(0);oversized=false;start=end+1;
+      }
+    }
+    if (!oversized && pending.length>0) yield {line:pending.toString("utf8"),index};
+  } finally {await file.close();}
+}
+async function ownedNativeSession(root: string,worktreeRoot: string | undefined,sessionId: string): Promise<boolean> {
+  if (process.env.CODEX_THREAD_ID !== sessionId || worktreeRoot === undefined) return false;
+  const {readWorktreeRecord}=await import("../parallel/service.js");
+  const record=await readWorktreeRecord(worktreeRoot);
+  if (record === null || record.sessionId !== sessionId || record.agentId !== undefined || record.runId !== undefined) return false;
+  const [main,worktree,recordMain,recordPath]=await Promise.all([root,worktreeRoot,record.mainRoot,record.path].map(path=>realpath(path)));
+  const inside=relative(join(main!,".worktrees"),worktree!);
+  return main === recordMain && worktree === recordPath && inside.length>0 && !inside.startsWith("..") && !isAbsolute(inside);
+}
 /** Host transcripts are the user-event authority; CLI actor/text fields are never accepted. */
 /** `worktreeRoot` is the session's owned worktree: Claude stamps each row with the shell's cwd, which moves there after `cd`. */
 export async function readDebugUserEvent(root:string,sessionId:string,home=homedir(),kind: "latest" | "control" = "latest",worktreeRoot?:string):Promise<DebugUserEvent> {
@@ -45,26 +80,31 @@ export async function readDebugUserEvent(root:string,sessionId:string,home=homed
     }} catch { /* The host need not be installed. */ }
   }
   await visit(codex,3);
+  const owned=await ownedNativeSession(root,worktreeRoot,sessionId).catch(()=>false);
   for (const path of paths) {
     try {
       const stat=await lstat(path),canonical=await realpath(path);
       const fromHome=relative(canonicalHome,canonical);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size>16*1024*1024 || fromHome.startsWith("..") || isAbsolute(fromHome)) continue;
-      const lines=(await readFile(path,"utf8")).split("\n");
-      const rows=lines.map(line=>{try{return JSON.parse(line);}catch{return null;}});
       const codexSource=path.startsWith(codex+sep);
-      if (codexSource && !rows.some(row=>row?.type === "session_meta" && row.payload?.id === sessionId && row.payload?.cwd === root)) continue;
-      for(let index=rows.length-1;index>=0;index--) {
-        const row=rows[index];
+      if (!stat.isFile() || stat.isSymbolicLink() || (!codexSource && stat.size>16*1024*1024) || fromHome.startsWith("..") || isAbsolute(fromHome)) continue;
+      let matchedSession=false,event: DebugUserEvent | undefined;
+      for await (const {line,index} of nativeLines(path)) {
+        let row;
+        try {row=JSON.parse(line);} catch {continue;}
+        if (codexSource && row?.type === "session_meta") {
+          if (row.payload?.id !== sessionId || (row.payload?.cwd !== root && !owned)) {event=undefined;matchedSession=false;break;}
+          matchedSession=true;
+        }
         const text=codexSource ? codexUserText(row) :
           row?.type === "user" && row.sessionId === sessionId && (row.cwd === root || (worktreeRoot !== undefined && row.cwd === worktreeRoot)) && row.message?.role === "user" &&
           row.isMeta !== true && (row.origin === undefined || row.origin?.kind === "human") ? row.message.content : undefined;
         if (typeof text !== "string" || text.length > 64*1024 || (kind === "control" && debugUserControl(text) === null)) continue;
         const timestamp=Date.parse(row.timestamp);
-        if (!Number.isFinite(timestamp)) break;
-        const sourceDigest=sha256(lines[index]!);
-        return {id:sha256(relative(home,path)+":"+index+":"+sourceDigest),sourceDigest,text,timestamp};
+        if (!Number.isFinite(timestamp)) {event=undefined;continue;}
+        const sourceDigest=sha256(line);
+        event={id:sha256(relative(home,path)+":"+index+":"+sourceDigest),sourceDigest,text,timestamp};
       }
+      if (event !== undefined && (!codexSource || matchedSession)) return event;
     } catch { /* An unavailable native source cannot grant time. */ }
   }
   throw new AgentOpsError("TASK_DEBUG_GRANT_UNSUPPORTED","No current native human event can authorize this extension. Request explicit host approval; this CLI cannot self-grant it.");

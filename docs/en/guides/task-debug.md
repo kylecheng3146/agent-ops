@@ -73,8 +73,9 @@ Use `task debug --task <id> --debug-action <action>`:
 - `resume --session <id>` recovers a matching owned worktree checkpoint. Mismatches
   require human confirmation and remain preserved; this command cannot waive them.
 - `extend --session <native-id> --event-id latest` reads the current native human
-  continue event. It grants exactly twenty additional minutes once, only after
-  time exhaustion and without waiving any other blocker. No actor/text flag can
+  continue or resume-repair event. After time exhaustion it grants a full twenty
+  minutes from that event, retaining consumed time and overrun in the grant snapshot
+  without waiving any other blocker. No actor/text flag can
   authorize a grant. Missing native transcripts fail closed as unsupported.
 
 Limits belong to the original root across revisions, children and sessions.

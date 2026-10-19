@@ -32,6 +32,8 @@ const raw={
   }finally{if(previous===undefined)delete process.env.CODEX_THREAD_ID;else process.env.CODEX_THREAD_ID=previous;await f.close();}
  },
  'native-grant-renews-window':async()=>{
+  const {createDebugState,debugRemainingMs}=await mod('runtime/src/task/debug-state.js');
+  const expired=createDebugState('isolated','a'.repeat(40));expired.consumedMs=12*60*60*1000;expired.grants=[{eventId:'a'.repeat(64),sessionId:session,sourceDigest:'b'.repeat(64),grantedMs:20*60000,spentAtGrantMs:expired.consumedMs}];assert.equal(debugRemainingMs(expired),20*60000,'prior overrun must not consume a newly authorized window');
   const f=await fixture();try{
    const id=f.record.task.id;await f.tasks.attach(session,id);const {home}=await nativeFile(f,[meta(f.root),user('繼續修復')]);
    await f.store.mutate(state=>{const r=state.tasks.find(x=>x.task.id===id);r.debug.consumedMs=12345;r.debug.foreground={sessionId:session,startedAt:Date.now()-12*60*60*1000};});
@@ -43,4 +45,4 @@ const raw={
   }finally{await f.close();}
  }
 };
-export const nativeGrantChecks=Object.fromEntries(Object.entries(raw).map(([id,check])=>[id,async()=>{try{await check();}catch(e){if(e?.code==='ERR_ASSERTION')throw e;throw new assert.AssertionError({message:`${id}: ${e?.code ?? ''} ${e?.message ?? e}`});}}]));
+export const nativeGrantChecks=Object.fromEntries(Object.entries(raw).map(([id,check])=>[id,async()=>{try{await check();}catch(e){if(!['TASK_DEBUG_GRANT_UNSUPPORTED','TASK_DEBUG_GRANT_INVALID'].includes(e?.code))throw e;throw new assert.AssertionError({message:`${id}: ${e?.code ?? ''} ${e?.message ?? e}`});}}]));

@@ -15,7 +15,7 @@ import {resolveReviewScope} from "../review/scope.js";
 import {runVerificationCommand} from "../verify/spawn.js";
 import {checkTaskVerificationEvidence} from "./completion.js";
 import {taskContractHash,criterionContractHash} from "./contract.js";
-import {DEBUG_EXTENSION_MS, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
+import {DEBUG_EXTENSION_MS, debugSpentMs, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
 import {FileTaskStore, type TaskStore, type StoredTaskRecord} from "./store.js";
 import type {VerificationReport} from "../verify/service.js";
 import type {TaskService} from "./service.js";
@@ -252,8 +252,8 @@ export class DebugService {
     if (action === null) return;
     const attached=await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.status !== "active") fail("TASK_DEBUG_CONTROL_INVALID","Human control must belong to the active attached original issue.");
-    if (action === "resume" && debugRemainingMs(root.debug) === 0) {
-      try {await this.extend(taskId,sessionId,event.id);} catch (error) {
+    if ((action === "resume" || action === "repair") && debugRemainingMs(root.debug) === 0) {
+      try {await this.extend(taskId,sessionId,event.id,home);} catch (error) {
         if (!(error instanceof AgentOpsError) || !["TASK_DEBUG_GRANT_INVALID","TASK_DEBUG_GRANT_UNSUPPORTED"].includes(error.code)) throw error;
       }
       root=await this.root(taskId);
@@ -483,13 +483,13 @@ export class DebugService {
       fail("TASK_DEBUG_RECOVERY_CONFIRMATION_REQUIRED","Owned debug checkpoint/path/source/contract/config mismatch. Preserve the checkout and obtain user confirmation before recovery.");
     await this.options.tasks.attach(sessionId,root.task.id);
   }
-  async extend(taskId:string,sessionId:string,eventId:string):Promise<void> {
+  async extend(taskId:string,sessionId:string,eventId:string,home?:string):Promise<void> {
     const root=await this.root(taskId),attached=await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.debug.operation !== null) fail("TASK_DEBUG_GRANT_INVALID","Extension belongs to the original issue and its native session; a running operation cannot be extended.");
-    const event=await this.#userEvent(sessionId);
+    const event=await this.#userEvent(sessionId,home);
     if (eventId !== "latest" && eventId !== event.id) fail("TASK_DEBUG_GRANT_INVALID","The requested event is not the current native human event.");
     if (root.debug.grants.some(g=>g.eventId === event.id)) return;
-    const otherCause=debugStopCause({...root.debug,consumedMs:0,budgetMs:86_400_000,
+    const otherCause=debugStopCause({...root.debug,consumedMs:0,foreground:null,operation:null,budgetMs:86_400_000,
       ...(root.debug.control === undefined ? {} : {control:{...root.debug.control,paused:false}})});
     const foregroundActive=root.debug.foreground !== undefined && root.debug.foreground !== null;
     const remainingAtEvent=debugRemainingMs(root.debug,event.timestamp);
@@ -498,8 +498,8 @@ export class DebugService {
     const exhaustedAtEvent=foregroundActive
       ? remainingAtEvent === 0
       : debugRemainingMs(root.debug) === 0 && event.timestamp > lastSealedAt;
-    if (!exhaustedAtEvent || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()))
+    if (!exhaustedAtEvent || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !["resume","repair"].includes(debugUserControl(event.text) ?? ""))
       fail("TASK_DEBUG_GRANT_INVALID","Only a contemporaneous human continue event extends exhausted time; other blockers remain authoritative.");
-    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS}],checkpoint:null});
+    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS,spentAtGrantMs:debugSpentMs(root.debug,event.timestamp)}],checkpoint:null});
   }
 }
