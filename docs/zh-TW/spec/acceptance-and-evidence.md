@@ -207,14 +207,3 @@ Commit 前，verify、review、complete 使用預設 worktree scope。Commit 後
 這項機制強制的是 toolkit 的完成命令，無法阻止 host 直接用自然語言宣稱完成，也無法阻止具有相同檔案權限的 process 直接改寫 task／evidence 檔案；它不會鎖住 Git 或其他來源檔案寫入者。
 
 Project init/update 在所有 harness 與 profile 安裝 `.agent-ops/.gitignore`，忽略 `/tasks/` 與 `/reviews/`；若已有使用者自建的 `.agent-ops/.gitignore`，init/update 會回傳 `UNMANAGED_INSTALL_PATH`：先將原檔備份到其他位置，並將自訂規則移到根目錄 `.gitignore`（加上 `/.agent-ops/` 前綴），再重試。這些目錄若包含 index 中的檔案（即使 tracked 且未修改）或 staged 的 runtime 刪除，Git 範圍收集會回傳 `CHANGE_SURFACE_TRACKED_RUNTIME`。請先移出真正的程式來源、安裝 ignore 規則，再執行 `git rm -r --cached --ignore-unmatch -- .agent-ops/tasks/ .agent-ops/reviews/`，保留本機檔案並解除追蹤。若有 staged 刪除，先提交清理 commit，再重新產生 verify/review 證據。啟用的 completion Stop gate 也會以 `COMPLETION_GATE_TRACKED_RUNTIME` 阻擋此狀況並提供修復訊息。請從 Git repository 根目錄執行 verify/review；目前路徑與指紋收集不支援巢狀 project root。Uninstall 會移除 managed ignore 檔，但保留 runtime 輸出。
-
-## EVIDENCE-DEBUG-GRANT-001
-
-原始 DEBUG 時間耗盡後，可驗證的原生人類「繼續」或「繼續修復」事件，
-從該事件起授予完整二十分鐘。原預算、消耗、超時、receipt 與回合限制均保留。
-新 grant 加記 `spentAtGrantMs` 消耗快照；舊 grant 維持累加時數語意。
-同一事件只能使用一次，其他非時間阻擋仍有效。
-
-Codex 紀錄以逐行記憶體上限串流讀取，保留原始行雜湊與行號。
-跨專案啟動目錄僅在目前原生 thread 與已驗證自有的人類 worktree 相符時接受；
-session、原生人類來源、一般檔案與路徑檢查仍為必要條件。
