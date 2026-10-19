@@ -41,7 +41,7 @@ async function fixture(check, reason = quota, source = 'codex-auto-review') {
 }
 
 export const resumeAuthorizationChecks = {
-  'run-approval-quota-resume': () => fixture(async f => {
+  'run-approval-quota-resume': async () => {await fixture(async f => {
     const before = await f.repository.read(f.state.runId), original = await readFile(f.ref.artifact, 'utf8');
     await assert.rejects(f.service.resume(f.state.runId), {code: 'RUN_NOT_RESUMABLE'}, 'An ordinary resume cannot acknowledge a denied review');
     let result;
@@ -75,7 +75,22 @@ export const resumeAuthorizationChecks = {
     assert.equal((await f.service.resume(before.runId)).state.status, 'active', 'Acknowledged history survives a new native generation');
     await f.repository.appendEvent(before.runId, {type: 'diagnostic', code: 'RUN_COMMAND_DENIED', workerId: 'writer', taskId: 'task', detail: 'A new genuine denial'});
     await assert.rejects(f.service.resume(before.runId), {code: 'RUN_NOT_RESUMABLE'}, 'Old acknowledgement cannot erase a new denial');
-  }),
+  });
+    await fixture(async f => {
+      const {RunControlService} = await mod('runtime/src/run/controls.js');
+      const authorization = JSON.parse(await readFile(f.ref.artifact, 'utf8'));
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'active', disableRestart: false}));
+      await assert.rejects(new RunControlService(f.repository).recordAuthorization(f.state.runId, {...authorization, authorizationId: 'second-review'}), {code: 'RUN_COMMAND_DENIED'});
+      const second = (await f.repository.read(f.state.runId)).events.at(-1);
+      await f.repository.appendEvent(f.state.runId, {type: 'diagnostic', code: 'RUN_COMMAND_DENIED', workerId: 'writer', taskId: null, detail: diagnostic});
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'budget-limited', disableRestart: true}));
+      await assert.rejects(f.service.resume(f.state.runId, [f.denied.id]), {code: 'RUN_NOT_RESUMABLE'});
+      assert.equal((await f.repository.read(f.state.runId)).controls.length, 0, 'Partial retry must not persist any acknowledgement');
+      assert.equal((await f.service.resume(f.state.runId, [f.denied.id, second.id])).state.status, 'active');
+      const {parseArgs} = await mod('packages/cli/src/args.js');
+      assert.deepEqual(parseArgs(['run', 'resume', f.state.runId, '--retry-approval', f.denied.id, '--retry-approval', second.id]).retryApprovalIds, [f.denied.id, second.id]);
+    });
+  },
   'run-approval-denial-boundary': async () => {
     for (const [reason, source] of [['Organization policy denied this command', 'codex-auto-review'],
       ['Quota mentioned by a policy reviewer, but this operation is denied', 'codex-auto-review'],
@@ -111,19 +126,6 @@ export const resumeAuthorizationChecks = {
       await assert.rejects(f.service.resume(f.state.runId, [f.denied.id]), `Unsafe ${mode} recovery must fail closed`);
       assert.equal((await f.repository.read(f.state.runId)).disableRestart, true);
     });
-    await fixture(async f => {
-      const {RunControlService} = await mod('runtime/src/run/controls.js');
-      const authorization = JSON.parse(await readFile(f.ref.artifact, 'utf8'));
-      await f.repository.mutate(f.state.runId, s => ({...s, status: 'active', disableRestart: false}));
-      await assert.rejects(new RunControlService(f.repository).recordAuthorization(f.state.runId, {...authorization, authorizationId: 'second-review'}), {code: 'RUN_COMMAND_DENIED'});
-      const second = (await f.repository.read(f.state.runId)).events.at(-1);
-      await f.repository.appendEvent(f.state.runId, {type: 'diagnostic', code: 'RUN_COMMAND_DENIED', workerId: 'writer', taskId: null, detail: diagnostic});
-      await f.repository.mutate(f.state.runId, s => ({...s, status: 'budget-limited', disableRestart: true}));
-      await assert.rejects(f.service.resume(f.state.runId, [f.denied.id]), {code: 'RUN_NOT_RESUMABLE'});
-      assert.equal((await f.repository.read(f.state.runId)).controls.length, 0, 'Partial retry must not persist any acknowledgement');
-      assert.equal((await f.service.resume(f.state.runId, [f.denied.id, second.id])).state.status, 'active');
-      const {parseArgs} = await mod('packages/cli/src/args.js');
-      assert.deepEqual(parseArgs(['run', 'resume', f.state.runId, '--retry-approval', f.denied.id, '--retry-approval', second.id]).retryApprovalIds, [f.denied.id, second.id]);
-    });
+
   }
 };
