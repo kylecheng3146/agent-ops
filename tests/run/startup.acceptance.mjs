@@ -16,6 +16,7 @@ import {timeoutChecks} from '../verify/timeout-checks.mjs';
 import {syncChecks} from '../worktree/sync-checks.mjs';
 import {nativeGrantChecks} from '../debug/native-grant-checks.mjs';
 import {heartbeatCleanupChecks} from '../worktree/heartbeat-cleanup-checks.mjs';
+import {resumeAuthorizationChecks} from './resume-authorization-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -57,6 +58,7 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...resumeAuthorizationChecks,
   ...recoveryChecks,
   ...officePhaseChecks,
   ...officeReviveChecks,
