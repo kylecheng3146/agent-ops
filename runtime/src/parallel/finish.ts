@@ -1,5 +1,5 @@
 import { withActivity } from "../office/activity.js";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import { join } from "node:path";
 
@@ -10,10 +10,12 @@ import { collectChangeSurface, type GitRunner } from "../verify/change-surface.j
 import { prepareFinishReceipt } from "./receipt.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
-import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration} from "../run/integration.js";
+import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration, validateRunIntegrationCleanup, recoverRunIntegrationAfterCleanup} from "../run/integration.js";
+import {FileRunRepository} from "../run/service.js";
+import {sha256} from "../fs/hash.js";
+import {redactSecrets} from "../security/redact.js";
 import type {IntegrationReceiptBinding} from "../run/integration.js";
 import {canonicalJson} from "../config/hash.js";
-import { listWorktrees } from "./manage.js";
 import {withPrivateFileLock} from "../security/permissions.js";
 import { markOfficeSessionCompleted } from "../office/sessions.js";
 import type { IntegratedChild } from "./integrate.js";
@@ -81,6 +83,93 @@ export interface FinalCandidateProof {
 export interface TargetIntent {
   readonly commit: string;
   readonly note: string;
+}
+
+/** Resume only the uncompleted cleanup steps of an already receipt-bound transaction. */
+async function finishRunCleanup(deps: FinishDependencies, commonDir: string, record: WorktreeRecord,
+  proof: FinalCandidateProof, children: readonly WorktreeRecord[]): Promise<FinishResult> {
+  const sealed = await readRunIntegrationProof(commonDir, record);
+  const {recovery: _recovery, ...requested} = proof;
+  if (sealed === null || canonicalJson(sealed) !== canonicalJson(requested))
+    throw finishError("RUN_INTEGRATION_PROOF_CHANGED", "Cleanup requires the exact sealed final candidate.");
+  const {state, integration, receipt, noteBound} = await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, true);
+  if (state.events.some(event => event.code === "RUN_COMMAND_DENIED"))
+    throw finishError("RUN_COMMAND_DENIED", "Cleanup cannot erase an explicit native or organization denial.");
+  const expectedChildren = new Map(proof.children.map(child => [child.name, child]));
+  if (children.some(child => !expectedChildren.has(child.name)) || proof.children.some(child =>
+      !children.some(actual => actual.name === child.name) && !integration.completedSteps.includes("child:" + child.name)))
+    throw finishError("WORKTREE_CHILDREN_CHANGED", "Cleanup requires the sealed child set or recorded completed child cleanup.");
+  for (const child of [record, ...children]) {
+    const expected = child === record ? proof.head : expectedChildren.get(child.name)!.commit;
+    if (await git(deps, child.path, ["rev-parse", "HEAD"], "WORKTREE_SOURCE_MOVED", "Cannot read cleanup checkout.") !== expected ||
+        (child !== record && (child.runId !== record.runId || child.ownerSessionId !== record.ownerSessionId ||
+          child.workerId !== expectedChildren.get(child.name)!.workerId ||
+          child.workerGeneration !== expectedChildren.get(child.name)!.workerGeneration)))
+      throw finishError("WORKTREE_CHILDREN_CHANGED", "The cleanup checkout owner or candidate changed; preserve it.");
+  }
+  // This key suppresses identical removal retries, never authorizes cleanup or reuses proof.
+  const inputs = [];
+  for (const child of [record, ...children]) {
+    const status = await git(deps, child.path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], "WORKTREE_LOG_FAILED", "Cannot inspect cleanup inputs.");
+    const untracked = await deps.git(child.path, ["ls-files", "--others", "--exclude-standard", "-z"]);
+    if (untracked.exitCode !== 0) throw finishError("WORKTREE_LOG_FAILED", "Cannot inspect cleanup files.");
+    const files = [];
+    for (const path of untracked.stdout.split("\0").filter(Boolean)) {
+      const info = await lstat(join(child.path, path));
+      const pid = /(?:^|\/)\.agent-ops-process-(\d+)-/u.exec(path)?.[1];
+      files.push([path, info.size, info.mtimeMs, info.ctimeMs, info.mode, pid === undefined ? null : alive(Number(pid))]);
+    }
+    inputs.push({path: child.path, status, files});
+  }
+  const inputDigest = sha256(canonicalJson({transaction: integration, inputs}));
+  const previous = [...state.events].reverse().find(event => event.code === "RUN_CLEANUP_BLOCKED");
+  if (previous?.detail !== null && previous?.detail !== undefined) {
+    let saved: {inputDigest?: string} = {};
+    try {saved = JSON.parse(previous.detail) as typeof saved;} catch { /* Old diagnostics cannot suppress a new attempt. */ }
+    if (saved.inputDigest === inputDigest)
+      throw finishError("RUN_CLEANUP_UNCHANGED", "Cleanup inputs match the saved failure; resolve its original blocker before retrying. See run status/logs.");
+  }
+  const repository = new FileRunRepository(join(commonDir, "agent-ops/runs"), commonDir);
+  const step = async (name: string, action: () => Promise<unknown>) => {
+    if (integration.completedSteps.includes(name)) return;
+    await readRunIntegrationProof(commonDir, record);
+    await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, name === "note");
+    await action();
+    await markRunIntegration(commonDir, record, "receipt-written", name);
+  };
+  try {
+    await step("note", async () => {
+      if (!noteBound) await git(deps, record.mainRoot, ["notes", `--ref=${NOTES_REF}`, "add", "-m",
+        `${noteText(record, (receipt.tasks ?? []).map(task => ({task, depth: 0})))}\nreceipt: ${integration.receiptPath}\nreceipt-sha256: ${integration.receiptDigest}`,
+        proof.head], "WORKTREE_NOTE_FAILED", "Cannot bind the sealed receipt to its candidate.");
+    });
+    const config = await deps.loadConfig(record.mainRoot);
+    await step("gate", async () => {
+      if (!config.features.completionGate.enabled) return;
+      const gate = await deps.gate(record.mainRoot, config);
+      const fingerprint = await currentGateFingerprint(record.mainRoot, runner(deps, record.mainRoot));
+      for (const child of [record, ...children]) await gate.afterFinish(record.sessionId, child.path, fingerprint);
+    });
+    await step("trust", async () => await deps.trust.revoke(record.path, await deps.loadConfig(record.path)));
+    for (const child of children) await step("child:" + child.name, async () => {
+      if ((await collectChangeSurface(runner(deps, child.path))).paths.length > 0)
+        throw finishError("WORKTREE_CHILDREN_CHANGED", "The child changed after integration; preserve it.");
+      await deps.trust.revoke(child.path, await deps.loadConfig(child.path));
+      await removeCheckout(deps, child, false, expectedChildren.get(child.name)!.commit);
+    });
+    await step("coordinator", async () => await removeCheckout(deps, record, false, proof.head));
+  } catch (cause) {
+    // Completed steps change the retry key; preserve the latest boundary with the original cause.
+    const latest = (await repository.read(record.runId!))!;
+    const digest = sha256(canonicalJson({transaction: latest.integration, inputs}));
+    await repository.appendEvent(record.runId!, {type: "diagnostic", code: "RUN_CLEANUP_BLOCKED", workerId: record.workerId!, taskId: state.rootTaskId,
+      detail: JSON.stringify({inputDigest: digest, code: cause instanceof AgentOpsError ? cause.code : "WORKTREE_REMOVE_FAILED",
+        message: redactSecrets(cause instanceof Error ? cause.message : "Cleanup failed; preserve the owned checkout.").slice(0, 4096)})});
+    throw cause;
+  }
+  await recoverRunIntegrationAfterCleanup(commonDir, record.runId!, deps.git);
+  return {record, mergedHead: proof.head, taskIds: (receipt.tasks ?? []).map(item => item.task.id), warnings: [],
+    receipt: integration.receiptPath!, residualRisks: receipt.residualRisks ?? []};
 }
 
 /**
@@ -288,10 +377,16 @@ export async function finishWorktree(
   }
   // Display only: the integrator is at work while the finish runs.
   return await withActivity(commonDir, {kind: "finish", root: record.path, sessionId: record.sessionId, worktree: name}, async () => await withFinishLock(deps, commonDir, async () => {
-    const sessionChildren = (await listWorktrees(deps, mainRoot))
-      .map(({ record: child }) => child)
-      .filter((child) => child.path !== record.path && child.sessionId === record.sessionId &&
+    const listing = await git(deps, mainRoot, ["worktree", "list", "--porcelain"], "WORKTREE_LIST_FAILED", "Cannot list cleanup worktrees.");
+    const records = await Promise.all(parseWorktreeListPorcelain(listing).map(child => readWorktreeRecord(child.path)));
+    const sessionChildren = records
+      .filter((child): child is WorktreeRecord => child !== null && child.path !== record.path && child.sessionId === record.sessionId &&
         (child.agentId !== undefined || (record.runId !== undefined && child.runId === record.runId)));
+    if (options.finalProof?.recovery === true && record.runId !== undefined) {
+      const saved = await new FileRunRepository(join(commonDir, "agent-ops/runs"), commonDir).read(record.runId);
+      if (["receipt-written", "cleaned"].includes(saved?.integration?.status ?? ""))
+        return await finishRunCleanup(deps, commonDir, record, options.finalProof, sessionChildren);
+    }
     if (options.finalProof === undefined && sessionChildren.length > 0) {
       throw finishError("WORKTREE_CHILDREN_REQUIRE_ADVANCE", "This session has child worktrees; run task advance for integrated final evidence before finish.");
     }
@@ -557,9 +652,11 @@ export async function finishWorktree(
         }
       });
     }
+    if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "gate");
     // Office is display-only: its room closing never fails or partially fails a finish.
     await markOfficeSessionCompleted(commonDir, record.sessionId).catch(() => undefined);
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));
+    if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "trust");
     if (options.finalProof !== undefined) {
       for (const child of sessionChildren) {
         await attempt(`child ${child.name}`, async () => {

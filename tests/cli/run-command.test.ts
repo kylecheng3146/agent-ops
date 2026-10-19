@@ -58,3 +58,21 @@ test("run command rejects conflicting goal and answer sources", async () => {
   });
   assert.equal(respond.code, "RUN_ANSWER_CONFLICT");
 });
+
+test("run status reports recovery without treating a recorded proof as validated authority", async () => {
+  const initial = createRunState({root: "/repo", commonDir: "/repo/.git", targetBranch: "main", goal: "Recover safely",
+    host: "codex", ownerSessionId: "owner"});
+  const state: RunState = {...initial, status: "blocked", phase: "integrating", events: [{id: "denial", at: initial.createdAt,
+    type: "diagnostic", code: "RUN_COMMAND_DENIED", workerId: null, taskId: null, detail: "Explicit organization denial"}],
+    integration: {transactionId: "sealed", status: "receipt-written", expectedTarget: "a".repeat(40), candidate: "b".repeat(40),
+      completedSteps: ["target", "tasks", "receipt", "note"], childDeliveries: [], receiptPath: "/receipt", receiptDigest: "d".repeat(64),
+      proofDigest: "e".repeat(64), updatedAt: initial.updatedAt}};
+  const result = await runRunCommand({args: args({runAction: "status", runId: state.runId}), service: service(state),
+    root: state.root, commonDir: state.commonDir, targetBranch: state.targetBranch, ownerSessionId: state.ownerSessionId});
+  assert.equal(result.data?.recovery.phase, "integrating");
+  assert.equal(result.data?.recovery.cause?.code, "RUN_COMMAND_DENIED");
+  assert.equal(result.data?.recovery.sealedProof, "recorded-unchecked");
+  assert.equal(result.data?.recovery.cleanup, "pending");
+  assert.equal(result.data?.recovery.resumable, false);
+  assert.match(result.data?.text ?? "", /genuine new authorization/u);
+});

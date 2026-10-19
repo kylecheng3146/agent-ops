@@ -5,7 +5,8 @@ import {sha256} from "../fs/hash.js";
 import {AgentOpsError} from "../fs/paths.js";
 import {readPrivateFile, writePrivateFile} from "../security/permissions.js";
 import type {FinalCandidateProof} from "../parallel/finish.js";
-import type {WorktreeRecord} from "../parallel/service.js";
+import {parseWorktreeListPorcelain, readWorktreeRecord, type WorktreeRecord} from "../parallel/service.js";
+import type {FinishReceipt} from "../parallel/receipt.js";
 import {FileRunRepository, type RunIntegrationState} from "./service.js";
 
 function ledger(commonDir: string) {return new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);}
@@ -116,6 +117,11 @@ export async function readRunIntegrationProof(commonDir: string, record: Worktre
   if (state?.integration == null) return null;
   if (state.ownerSessionId !== record.sessionId || state.coordinatorId !== record.workerId)
     throw new AgentOpsError("RUN_INTEGRATION_OWNERSHIP", "Recovery coordinator does not match the sealed transaction.");
+  const coordinator = state.workers.find(w => w.workerId === state.coordinatorId);
+  if (record.mainRoot !== state.root || record.ownerSessionId !== state.ownerSessionId ||
+      (state.workers.length > 0 && (coordinator === undefined || coordinator.worktree !== record.path ||
+        coordinator.generation !== record.workerGeneration || coordinator.ownerSessionId !== record.ownerSessionId)))
+    throw new AgentOpsError("RUN_INTEGRATION_OWNERSHIP", "Recovery requires the current coordinator worktree owner and generation.");
   return await readSealedProof(commonDir, record.runId, state.integration);
 }
 
@@ -182,16 +188,13 @@ interface RecoveryReceipt {
   readonly integrationJournal?: unknown;
 }
 
-/**
- * Finish bookkeeping after a coordinator checkout vanished. This only verifies
- * sealed artifacts and advances the ledger; it never recreates a checkout or
- * starts a native writer.
- */
-export async function recoverRunIntegrationAfterCleanup(
+/** Validate the sealed transaction before any remaining cleanup or final bookkeeping. */
+export async function validateRunIntegrationCleanup(
   commonDir: string,
   runId: string,
-  git: IntegrationGit
-): Promise<{ readonly transactionId: string; readonly receiptPath: string; readonly receiptDigest: string }> {
+  git: IntegrationGit,
+  allowMissingNote = false
+) {
   const repository = ledger(commonDir);
   const state = await repository.read(runId);
   if (state === null || state.integration === null)
@@ -202,7 +205,7 @@ export async function recoverRunIntegrationAfterCleanup(
   await readSealedProof(commonDir, runId, integration);
   if (integration.status !== "cleaned" &&
       (integration.status !== "receipt-written" || !integration.completedSteps.includes("receipt") ||
-       !integration.completedSteps.includes("note"))) {
+       !integration.completedSteps.includes("target") || !integration.completedSteps.includes("tasks"))) {
     throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recovery requires a recorded receipt and Git note before cleanup can be completed.");
   }
   if (integration.receiptPath === null || integration.receiptDigest === null)
@@ -222,9 +225,10 @@ export async function recoverRunIntegrationAfterCleanup(
   validateRunIntegrationReceipt(integration, receipt);
   const note = await git(state.root, ["notes", "--ref=agent-ops", "show", integration.candidate]);
   const noteText = note.stdout;
-  if (note.exitCode !== 0 || !noteText.includes(`session: ${state.ownerSessionId}`) ||
-      !noteText.includes(`receipt: ${integration.receiptPath}`) ||
-      !noteText.includes(`receipt-sha256: ${integration.receiptDigest}`)) {
+  const noteBound = note.exitCode === 0 && noteText.split("\n").includes(`session: ${state.ownerSessionId}`) &&
+    noteText.split("\n").includes(`receipt: ${integration.receiptPath}`) &&
+    noteText.split("\n").includes(`receipt-sha256: ${integration.receiptDigest}`);
+  if (!noteBound && !(allowMissingNote && !integration.completedSteps.includes("note") && note.exitCode === 1)) {
     throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "The sealed receipt is not bound by the Git note for the candidate.");
   }
   const target = await git(state.root, ["rev-parse", state.targetBranch + "^{commit}"]);
@@ -234,15 +238,35 @@ export async function recoverRunIntegrationAfterCleanup(
     (await git(state.root, ["merge-base", "--is-ancestor", integration.candidate, target.stdout.trim()])).exitCode === 0;
   if (!exact && !historic)
     throw new AgentOpsError("RUN_INTEGRATION_TARGET_CHANGED", "The target is inconsistent with the sealed, receipt-bound integration history.");
-  await repository.mutate(runId, current => {
-    if (current.integration === null || current.integration.transactionId !== integration.transactionId ||
-        current.integration.candidate !== integration.candidate || current.integration.expectedTarget !== integration.expectedTarget)
+  return {state, integration, receipt: receipt as FinishReceipt, noteBound, observedTarget: target.stdout.trim()};
+}
+
+/** After owned checkouts vanish, advance bookkeeping without executing product proof or native writers. */
+export async function recoverRunIntegrationAfterCleanup(
+  commonDir: string,
+  runId: string,
+  git: IntegrationGit
+): Promise<{ readonly transactionId: string; readonly receiptPath: string; readonly receiptDigest: string }> {
+  const {state, integration, observedTarget} = await validateRunIntegrationCleanup(commonDir, runId, git);
+  const listing = await git(state.root, ["worktree", "list", "--porcelain"]);
+  if (listing.exitCode !== 0) throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Cannot confirm that integration checkouts were cleaned.");
+  for (const checkout of parseWorktreeListPorcelain(listing.stdout)) {
+    const record = await readWorktreeRecord(checkout.path);
+    if (record?.runId === runId || state.workers.some(worker => worker.worktree === checkout.path))
+      throw new AgentOpsError("RUN_INTEGRATION_CLEANUP_PENDING", "An owned integration checkout still exists; finish its missing cleanup steps before marking the run cleaned.");
+  }
+  const repository = ledger(commonDir);
+  await repository.mutate(runId, async current => {
+    const target = await git(state.root, ["rev-parse", state.targetBranch + "^{commit}"]);
+    if (current.revision !== state.revision || canonicalJson(current.integration) !== canonicalJson(integration) ||
+        target.exitCode !== 0 || target.stdout.trim() !== observedTarget)
       throw new AgentOpsError("RUN_INTEGRATION_STALE", "The integration changed during recovery.");
+    if (current.integration === null) throw new AgentOpsError("RUN_INTEGRATION_REQUIRED", "The integration disappeared during recovery.");
     if (current.integration.status === "cleaned") return current;
     if (current.integration.status !== "receipt-written")
       throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "The integration is not at the cleanup recovery boundary.");
     return {...current, integration: {...current.integration, status: "cleaned",
       completedSteps: [...new Set([...current.integration.completedSteps, "coordinator"])], updatedAt: new Date().toISOString()}};
   });
-  return {transactionId: integration.transactionId, receiptPath: integration.receiptPath, receiptDigest: integration.receiptDigest};
+  return {transactionId: integration.transactionId, receiptPath: integration.receiptPath!, receiptDigest: integration.receiptDigest!};
 }

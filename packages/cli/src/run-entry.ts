@@ -815,9 +815,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             const stopped = latest.workers.find(w => w.workerId === worker.workerId);
             if (request.action === "finalize" && latest.integration !== null && (latest.integration.status !== "prepared" ||
               (await deps.git(root, ["rev-parse", latest.targetBranch + "^{commit}"])).stdout.trim() === latest.integration.candidate)) {
-              const recovered = await recoverIntegration(latest);
-              await acceptReceipt(latest, recovered);
-              response = {requestId: request.requestId, code: "RUN_COMPLETE", receipt: recovered};
+              // Preserve the failed step; a manual resume reconciles the sealed transaction after remediation.
+              throw cause;
             } else if (request.action === "policy" && await discoverPendingPolicyTransition(repository, runId) !== null) {
               await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_POLICY_RECOVERY_REQUIRED", workerId: worker.workerId, taskId: worker.taskId,
                 detail: "Policy transition is preserved; explicit resume must reconcile the pending journal before any writer starts."});
