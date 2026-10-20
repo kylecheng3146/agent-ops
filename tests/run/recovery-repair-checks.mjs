@@ -94,7 +94,7 @@ export const recoveryRepairChecks = {
   'run-cleanup-proof': async () => {
     const {runAdvanceCommand} = await load('packages/cli/src/commands/advance.js');
     const {recoverRunIntegrationAfterCleanup} = await load('runtime/src/run/integration.js');
-    for (const mode of ['valid', 'missing-note', 'later-target', 'receipt', 'proof', 'note', 'target', 'owner', 'generation', 'writer', 'dirty']) await fixture(async f => {
+    for (const mode of ['valid', 'missing-note', 'later-target', 'receipt', 'proof', 'note', 'target', 'owner', 'generation', 'writer', 'paused', 'stopping', 'disabled', 'dirty']) await fixture(async f => {
       const s = await sealed(f);
       const deps = {git: f.git, loadConfig: async () => config,
         tasks: () => assert.fail('Cleanup must not recompute task/proof state'),
@@ -118,6 +118,8 @@ export const recoveryRepairChecks = {
         await writeWorktreeRecord({...s.record, ...(mode === 'owner' ? {workerId: 'foreign'} : {workerGeneration: 2})});
       }
       if (mode === 'writer') await f.repository.mutate(f.state.runId, state => ({...state, workers: state.workers.map(w => ({...w, status: 'running'}))}));
+      if (mode === 'paused' || mode === 'stopping') await f.repository.mutate(f.state.runId, state => ({...state, status: mode}));
+      if (mode === 'disabled') await f.repository.mutate(f.state.runId, state => ({...state, disableRestart: true}));
       if (mode === 'dirty') await writeFile(join(s.record.path, 'user.txt'), 'preserve');
       const advance = () => runAdvanceCommand({cwd: f.root, sessionId: session, parentTaskId: 'root-task', deps,
         step: () => assert.fail('Cleanup cannot execute verify/review')});
@@ -137,7 +139,8 @@ export const recoveryRepairChecks = {
         const code = {receipt: 'RUN_INTEGRATION_RECEIPT_INVALID', proof: 'RUN_INTEGRATION_PROOF_CHANGED',
           note: 'RUN_INTEGRATION_RECOVERY_REQUIRED', target: 'RUN_INTEGRATION_RECOVERY_REQUIRED',
           owner: 'RUN_INTEGRATION_OWNERSHIP', generation: 'RUN_INTEGRATION_OWNERSHIP',
-          writer: 'RUN_INTEGRATION_RECOVERY_REQUIRED', dirty: 'WORKTREE_REMOVE_FAILED'}[mode];
+          writer: 'RUN_INTEGRATION_RECOVERY_REQUIRED', paused: 'RUN_RESUME_DISABLED', stopping: 'RUN_RESUME_DISABLED',
+          disabled: 'RUN_RESUME_DISABLED', dirty: 'WORKTREE_REMOVE_FAILED'}[mode];
         await assert.rejects(advance(), {code});
         await access(s.record.path);
         assert.equal((await f.repository.read(f.state.runId)).integration.status, 'receipt-written');

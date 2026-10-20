@@ -93,6 +93,8 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
   if (sealed === null || canonicalJson(sealed) !== canonicalJson(requested))
     throw finishError("RUN_INTEGRATION_PROOF_CHANGED", "Cleanup requires the exact sealed final candidate.");
   const {state, integration, receipt, noteBound} = await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, true);
+  if (state.status !== "active" || state.disableRestart || state.awaitingResume)
+    throw finishError("RUN_RESUME_DISABLED", "Manual resume is required before executing pending cleanup steps.");
   if (state.events.some(event => event.code === "RUN_COMMAND_DENIED"))
     throw finishError("RUN_COMMAND_DENIED", "Cleanup cannot erase an explicit native or organization denial.");
   const expectedChildren = new Map(proof.children.map(child => [child.name, child]));
@@ -133,14 +135,16 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
   const step = async (name: string, action: () => Promise<unknown>) => {
     if (integration.completedSteps.includes(name)) return;
     await readRunIntegrationProof(commonDir, record);
-    await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, name === "note");
+    const {state: current} = await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, name === "note");
+    if (current.status !== "active" || current.disableRestart || current.awaitingResume)
+      throw finishError("RUN_RESUME_DISABLED", "The run was paused or stopped before the pending cleanup step.");
     await action();
     await markRunIntegration(commonDir, record, "receipt-written", name);
   };
   try {
     await step("note", async () => {
       if (!noteBound) await git(deps, record.mainRoot, ["notes", `--ref=${NOTES_REF}`, "add", "-m",
-        `${noteText(record, (receipt.tasks ?? []).map(task => ({task, depth: 0})))}\nreceipt: ${integration.receiptPath}\nreceipt-sha256: ${integration.receiptDigest}`,
+        `${noteText(record, taskTree(receipt.tasks ?? []))}\nreceipt: ${integration.receiptPath}\nreceipt-sha256: ${integration.receiptDigest}`,
         proof.head], "WORKTREE_NOTE_FAILED", "Cannot bind the sealed receipt to its candidate.");
     });
     const config = await deps.loadConfig(record.mainRoot);
@@ -163,7 +167,7 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
     const latest = (await repository.read(record.runId!))!;
     const digest = sha256(canonicalJson({transaction: latest.integration, inputs}));
     await repository.appendEvent(record.runId!, {type: "diagnostic", code: "RUN_CLEANUP_BLOCKED", workerId: record.workerId!, taskId: state.rootTaskId,
-      detail: JSON.stringify({inputDigest: digest, code: cause instanceof AgentOpsError ? cause.code : "WORKTREE_REMOVE_FAILED",
+      detail: JSON.stringify({inputDigest: digest, code: cause instanceof AgentOpsError ? cause.code : "RUN_CLEANUP_FAILED",
         message: redactSecrets(cause instanceof Error ? cause.message : "Cleanup failed; preserve the owned checkout.").slice(0, 4096)})});
     throw cause;
   }

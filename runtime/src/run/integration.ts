@@ -175,6 +175,8 @@ export async function markRunIntegration(commonDir: string, record: WorktreeReco
   await ledger(commonDir).mutate(record.runId, current => {
     if (current.integration === null || current.ownerSessionId !== record.sessionId || current.coordinatorId !== record.workerId)
       throw new AgentOpsError("RUN_INTEGRATION_OWNERSHIP", "The integration transaction is missing or belongs to another coordinator.");
+    if (current.status !== "active" || current.disableRestart || current.awaitingResume)
+      throw new AgentOpsError("RUN_RESUME_DISABLED", "A paused, stopped or disabled run cannot advance integration steps.");
     return {...current, integration: {...current.integration, status, updatedAt: new Date().toISOString(),
       completedSteps: [...new Set([...current.integration.completedSteps, step])],
       ...(receipt === undefined ? {} : {receiptPath: receipt.path, receiptDigest: receipt.digest})}};
