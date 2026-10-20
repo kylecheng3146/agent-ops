@@ -113,7 +113,14 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await blockStartup("RUN_RESTART_STORM");
       return;
     }
-    const manualResumeAt = nativeResumeTime(state);
+    let manualResumeAt: string | undefined;
+    await repository.mutate(runId, current => {
+      manualResumeAt = nativeResumeTime(current);
+      if (manualResumeAt === undefined) return current;
+      // Consume the latest control durably; bounded event history is not a one-shot fence.
+      return {...current, controls: current.controls.map((control, index) => index === current.controls.length - 1
+        ? {...control, appliedAt: new Date().toISOString()} : control)};
+    });
     await repository.appendEvent(runId, {type: "status", code: "RUN_SUPERVISOR_START", workerId: null, taskId: null, detail: null});
     let version: string;
     try {

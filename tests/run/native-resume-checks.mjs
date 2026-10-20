@@ -54,6 +54,7 @@ async function replay(f, mode, manual = true) {
   await f.service.resume(f.state.runId);
   const state = await f.repository.read(f.state.runId);
   const cutoff = manual ? (controls.nativeResumeTime ? controls.nativeResumeTime(state, Date.parse(now)) : requestedAt) : undefined;
+  if (cutoff !== undefined) await new controls.RunControlService(f.repository, () => now).markApplied(f.state.runId,'resume',cutoff);
   let limits = 0, seen;
   const limitWrites = [];
   const host = new CodexGoalHost({command:process.execPath,args:['-e',server,JSON.stringify(mode)],now:() => new Date(mode.clock ?? now),requestTimeoutMs:2000});
@@ -93,6 +94,8 @@ export const nativeResumeChecks = {
     assert.deepEqual(result.saved.budget,before.budget);
     assert.deepEqual(result.saved.events,before.events);
     assert.equal(result.seen.threadId,'thread-one');
+    const {nativeResumeTime} = await mod('runtime/src/run/controls.js');
+    assert.equal(nativeResumeTime?.({...result.saved,events:[]},Date.parse(now)),undefined,'Applied manual recovery cannot revive when bounded event history rolls over');
   });
     await fixture(async f => {
       const result = await replay(f,{updatedAt:old,fresh:true});

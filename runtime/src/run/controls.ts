@@ -44,7 +44,7 @@ const DENIAL_DIAGNOSTIC = "Native authorization could not be accepted; no altern
 /** A manual resume covers initial recovery once, never a subsequent supervisor restart. */
 export function nativeResumeTime(state: RunState, now = Date.now()): string | undefined {
   const control = state.controls.at(-1);
-  if (control?.action !== "resume" || control.actor !== "user") return undefined;
+  if (control?.action !== "resume" || control.actor !== "user" || control.appliedAt !== null) return undefined;
   const time = Date.parse(control.requestedAt);
   if (!Number.isFinite(time) || !Number.isFinite(now) || time > now ||
       state.events.some(e => e.code === "RUN_SUPERVISOR_START" && (!Number.isFinite(Date.parse(e.at)) || Date.parse(e.at) >= time))) return undefined;
