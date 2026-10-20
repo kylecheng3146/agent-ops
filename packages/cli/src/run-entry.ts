@@ -1,4 +1,4 @@
-import {stat} from "node:fs/promises";
+import {rm, stat} from "node:fs/promises";
 import {recoverRunIntegrationAfterCleanup, validateRunIntegrationReceipt} from "../../../runtime/src/run/integration.js";
 import {pendingFindingPins} from "../../../runtime/src/run/ratchet.js";
 import {resolveReviewScope} from "../../../runtime/src/review/scope.js";
@@ -279,7 +279,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       return result.data.receipt;
     }
     async function step(cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
-      const remaining = saved.budget.limitMs - activeWallTimeMs(saved.budget.activeIntervals, Date.now());
+      const remaining = saved.budget.limitMs === 0 ? 60 * 60 * 1_000 : saved.budget.limitMs - activeWallTimeMs(saved.budget.activeIntervals, Date.now());
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
       return await new Promise((resolve, reject) => {
         const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_HOST: saved.host,
@@ -614,7 +614,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           return;
         }
         const elapsed = activeWallTimeMs(state.budget.activeIntervals, Date.now());
-        if (elapsed >= state.budget.limitMs) {
+        if (state.budget.limitMs > 0 && elapsed >= state.budget.limitMs) {
           await repository.mutate(runId, current => ({...current, status: "budget-limited", disableRestart: true}));
           await launchd.disableRestart(runDescriptor(state), "active run time budget exhausted");
           await stopAll("budget"); return;
@@ -623,7 +623,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           accumulatedMs: activeWallTimeMs(current.budget.activeIntervals, Date.now()), lastObservedAt: new Date().toISOString()}}));
         await schedule();
         state = (await repository.read(runId))!;
-        for (const worker of state.workers.filter(w => ["running", "idle"].includes(w.status))) {
+        for (const candidateWorker of state.workers.filter(w => ["running", "idle"].includes(w.status))) {
+          const freshState = (await repository.read(runId))!;
+          const worker = freshState.workers.find(w => w.workerId === candidateWorker.workerId);
+          if (worker === undefined || !["running", "idle"].includes(worker.status)) continue;
           await supervisor.heartbeat(runId, worker.workerId, worker.generation);
           const observation = await supervisor.observeWorker(runId, worker.workerId, worker.generation);
           if (!observation.processAlive) {
@@ -661,12 +664,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           if (!plain(request) || typeof request.requestId !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(request.requestId)) {
             await rejectRequest("RUN_REQUEST_INVALID"); continue;
           }
-          if (request.workerId !== worker.workerId || request.generation !== worker.generation) {
-            await rejectRequest("RUN_REQUEST_STALE"); continue;
-          }
           const donePath = join(directory, runId, "requests", sha256(request.requestId) + ".json");
           const requestDigest = sha256(canonicalJson(request));
-          const completed = await readPrivateFile(donePath, commonDir);
+          const completed = request.workerId === worker.workerId ? await readPrivateFile(donePath, commonDir) : null;
           if (completed !== null) {
             const cached: unknown = JSON.parse(completed);
             const response = plain(cached) && cached.requestDigest === requestDigest ? cached.response :
@@ -675,6 +675,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             if (observation.nativeGoalState === "complete") await repair(worker, "RUN_NATIVE_COMPLETION_UNPROVEN",
               "The previous request response is available, but current delivery or final proof is still missing. Continue the assigned goal and submit a new request.");
             continue;
+          }
+          if (request.workerId !== worker.workerId || request.generation !== worker.generation) {
+            await rejectRequest("RUN_REQUEST_STALE"); continue;
           }
           const current = (await repository.read(runId))!;
           let response: unknown;

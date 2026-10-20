@@ -165,7 +165,7 @@ export async function bindRunPolicy(repository: RunRepository, runId: string, in
   if (!validateConfig(config).ok || !/^[a-f0-9]{64}$/u.test(input.runtimeHash) ||
     (previous === null && input.baseTrustBinding.configHash !== calculateConfigHash(config)))
     fail("RUN_POLICY_INVALID", "Run policy or runtime identity is invalid.");
-  const remaining = state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, now);
+  const remaining = state.budget.limitMs === 0 ? 30 * 24 * 60 * 60 * 1_000 : state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, now);
   if (remaining <= 0) fail("RUN_BUDGET_EXHAUSTED", "No active execution budget remains.");
   const artifact: RunPolicyArtifact = {schemaVersion: 1, runId, config, baseConfig: previous?.baseConfig ?? config,
     baseTrustBinding: previous?.baseTrustBinding ?? input.baseTrustBinding, runtimeHash: input.runtimeHash,

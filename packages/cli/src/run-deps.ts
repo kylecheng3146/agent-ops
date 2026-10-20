@@ -53,7 +53,7 @@ export async function runWorktreeDependencies(deps: FinishDependencies, state: R
         command, resource, commandDigest: sha256(command), resourceDigest: sha256(resource), reason: approved?.reason ?? "The original user trust authorizes this fixed repository setup capability in an isolated checkout.",
         result: "auto-approved", source: approved === null ? "repo-trust" : "coordinator-policy-review", policyArtifactDigest: current.policyBinding!.artifactDigest,
         policyConfigHash: current.policyBinding!.configHash, runtimeHash: current.policyBinding!.runtimeHash, expiresAt: current.policyBinding!.expiresAt});
-      const remaining = current.budget.limitMs - activeWallTimeMs(current.budget.activeIntervals, Date.now());
+      const remaining = current.budget.limitMs === 0 ? 60 * 60 * 1_000 : current.budget.limitMs - activeWallTimeMs(current.budget.activeIntervals, Date.now());
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for setup.");
       const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)),
         fileURLToPath(new URL("./run-setup-entry.js", import.meta.url)), state.commonDir, state.runId, root, String(index), state.policyBinding!.artifactDigest],
@@ -194,7 +194,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       throw cause;
     }
   };
-  const resume: RunCommandService["resume"] = async runId => {
+  const resume: RunCommandService["resume"] = async (runId, resumeOptions) => {
     const before = await service.status(runId);
     const runtimeHash = await runRuntimeHash();
     const policy = await readRunPolicy(before, before.policyBinding?.runtimeHash ?? runtimeHash, Date.now(), true);
@@ -217,7 +217,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       if (exists === null || (await collectChangeSurface(gitRunner(worker.worktree!))).paths.length > 0)
         throw new AgentOpsError("RUN_RECOVERY_DIRTY", "Commit or preserve every writer checkout before explicit resume.");
     }
-    const result = await service.resume(runId);
+    const result = await service.resume(runId, resumeOptions);
     try {
     if (pending !== null) await renewPendingRunPolicy(repository, runId, pending);
     if (policy !== null && pending === null) await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash, resumeRuntime: true,

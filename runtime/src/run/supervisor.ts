@@ -134,6 +134,15 @@ function activeWorker(worker: RunWorkerRecord): boolean {
   return ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status);
 }
 
+function slotConsumer(state: RunState, worker: RunWorkerRecord): boolean {
+  if (!activeWorker(worker)) return false;
+  if (state.jobs === 1 && state.rootTaskId !== null && worker.workerId === state.coordinatorId &&
+      state.tasks.some((task) => task.taskId !== state.rootTaskId && !["delivered", "complete"].includes(task.status))) {
+    return false;
+  }
+  return true;
+}
+
 function replaceWorker(state: RunState, worker: RunWorkerRecord): RunState {
   const index = state.workers.findIndex((candidate) => candidate.workerId === worker.workerId);
   if (index < 0) throw error("RUN_WORKER_NOT_FOUND", `Worker not found: ${worker.workerId}`);
@@ -193,7 +202,7 @@ export class RunSupervisor {
       if (current.status !== "active" && current.status !== "awaiting-input") {
         throw error("RUN_NOT_ACTIVE", `Run ${runId} cannot register a worker while ${current.status}.`);
       }
-      const running = current.workers.filter(activeWorker).length;
+      const running = current.workers.filter((worker) => slotConsumer(current, worker)).length;
       if (running >= Math.min(current.jobs, MAX_ACTIVE_WORKERS)) {
         throw error("RUN_WORKER_LIMIT", `Run ${runId} already has ${running} active worker(s).`);
       }
@@ -347,8 +356,8 @@ export class RunSupervisor {
       const saved = current.workers.find(w => w.workerId === workerId);
       if (current.status !== "active" || current.disableRestart || saved?.generation !== generation || saved.status !== worker.status)
         throw error("RUN_WORKER_STALE", "The run changed while confirming process death.");
-      const active = current.workers.filter(w => w.workerId !== workerId && activeWorker(w)).length;
-      if (active >= current.jobs) throw error("RUN_WORKER_LIMIT", "No writer slot is available for recovery.");
+      const active = current.workers.filter(w => w.workerId !== workerId && slotConsumer(current, w)).length;
+      if (slotConsumer(current, { ...saved, status: "running" }) && active >= current.jobs) throw error("RUN_WORKER_LIMIT", "No writer slot is available for recovery.");
       return replaceWorker(current, {...saved, generation: saved.generation + 1, status: "assigned", processId: null,
         processIdentity: null, leaseExpiresAt: null, heartbeatAt: this.#now(), stopIntent: null, nativeGoalState: "inactive",
         ...(saved.host === "codex" && saved.nativeJobId === null && saved.nativeGoalState === "inactive" ? {nativeSessionId: null} : {})});

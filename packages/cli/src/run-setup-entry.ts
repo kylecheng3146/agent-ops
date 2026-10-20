@@ -19,7 +19,7 @@ if (state === null || state.status !== "active" || state.disableRestart || state
 const policy = await readRunPolicy(state, await runRuntimeHash());
 const step = /^(?:0|[1-9][0-9]*)$/u.test(index!) ? policy?.config.worktree?.setup?.[Number(index)] : undefined;
 if (step === undefined) throw new Error("Setup must select an authorized fixed policy command.");
-const remaining = state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, Date.now());
+const remaining = state.budget.limitMs === 0 ? 60 * 60 * 1_000 : state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, Date.now());
 if (remaining <= 0) throw new Error("Run budget is exhausted.");
 const result = await runVerificationCommand({id: "run-setup", ...step, cwd: ".", required: true,
   timeoutMs: Math.min(step.timeoutMs ?? 600000, remaining), evidence: {kind: "exit-code"}}, {

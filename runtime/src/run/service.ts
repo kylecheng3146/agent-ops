@@ -341,7 +341,7 @@ export function assertRunState(value: unknown): asserts value is RunState {
       state.budget.activeIntervals.some(interval => !plain(interval))) return invalid("Run state contains malformed nested records.");
   if (!RUN_ID.test(state.runId) || !SHA.test(state.goalHash) || state.goal.length > MAX_GOAL_LENGTH ||
       sha256(state.goal) !== state.goalHash || !Number.isSafeInteger(state.budget.limitMs) ||
-      state.budget.limitMs <= 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS ||
+      state.budget.limitMs < 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS ||
       !Number.isSafeInteger(state.budget.accumulatedMs) || state.budget.accumulatedMs < 0 ||
       !Array.isArray(state.budget.activeIntervals) || state.budget.activeIntervals.some((interval) =>
         !Number.isSafeInteger(interval.startMs) || interval.startMs < 0 ||
@@ -412,8 +412,8 @@ export function createRunState(input: {
     throw new AgentOpsError("RUN_JOBS_INVALID", "A run supports one or two implementation workers.");
   }
   const limitMs = input.timeBudgetMs ?? 60 * 60 * 1_000;
-  if (!Number.isSafeInteger(limitMs) || limitMs <= 0 || limitMs > MAX_TIME_BUDGET_MS) {
-    throw new AgentOpsError("RUN_BUDGET_INVALID", "Run time budget must be a positive value no greater than 24 hours.");
+  if (!Number.isSafeInteger(limitMs) || limitMs < 0 || limitMs > MAX_TIME_BUDGET_MS) {
+    throw new AgentOpsError("RUN_BUDGET_INVALID", "Run time budget must be 0 (unlimited) or a positive value no greater than 24 hours.");
   }
   const runId = input.runId ?? `run-${randomUUID().replaceAll("-", "").slice(0, 16)}`;
   if (!RUN_ID.test(runId)) throw new AgentOpsError("RUN_ID_INVALID", "Run id must contain 8-64 lowercase letters, digits, and hyphens.");
@@ -638,23 +638,31 @@ export class RunService {
     return { state, message: `Run ${runId} is paused.` };
   }
 
-  async resume(runId: string): Promise<RunLifecycleResult> {
+  async resume(runId: string, options?: { readonly timeBudgetMs?: number }): Promise<RunLifecycleResult> {
+    if (options?.timeBudgetMs !== undefined && (!Number.isSafeInteger(options.timeBudgetMs) || options.timeBudgetMs < 0 || options.timeBudgetMs > MAX_TIME_BUDGET_MS)) {
+      throw new AgentOpsError("RUN_BUDGET_INVALID", "Run time budget must be 0 (unlimited) or a positive value no greater than 24 hours.");
+    }
     const state = await this.#repository.mutate(runId, (current) => {
       const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
-        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
+        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED",
+        "RUN_NATIVE_START_FAILED", "RUN_WORKER_STALE", "RUN_IDENTITY_INVALID", "RUN_TIME_BUDGET_EXCEEDED"]);
       const blocker = [...current.events].reverse().find(e => recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
-      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
-        current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
+      const noProgressCoordinator = current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" &&
+        (w.stopIntent?.reason === "no-progress" || (w.lastFailure !== null && w.lastFailure.failureClass !== "native-start" && !recoverable.has(blocker?.code ?? ""))));
+      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED") || noProgressCoordinator;
       if (current.status === "complete" || (current.integration?.proofDigest === undefined &&
           (terminalBlocker || (current.status === "blocked" && !recoverable.has(blocker?.code ?? ""))))) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
-      if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
+      const nextLimitMs = options?.timeBudgetMs ?? (blocker?.code === "RUN_TIME_BUDGET_EXCEEDED" || current.status === "budget-limited" ? 0 : current.budget.limitMs);
+      const nextBudget = { ...current.budget, limitMs: nextLimitMs };
+      if (current.integration?.proofDigest === undefined && budgetExpired({ ...current, budget: nextBudget }, Date.parse(this.#now())))
         throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
-      const recover = ["blocked", "paused"].includes(current.status) && recoverable.has(blocker?.code ?? "");
+      const recover = ["blocked", "paused", "budget-limited"].includes(current.status) && recoverable.has(blocker?.code ?? "");
       return {
         ...current,
-        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") ? {...w, status: "stopped" as const} : w),
+        budget: nextBudget,
+        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && w.stopIntent?.reason !== "no-progress" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start" || recoverable.has(blocker?.code ?? "")) ? {...w, status: "stopped" as const} : w),
           tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",
         awaitingResume: false,

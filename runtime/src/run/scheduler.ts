@@ -75,11 +75,14 @@ export function planSchedule(state: RunState): SchedulePlan {
   const running = state.tasks.filter((task) => task.status === "running" || task.status === "awaiting-delivery");
   const blocked = state.tasks.filter((task) => task.status === "blocked");
   const ready = state.tasks.filter((task) => ["planned", "ready"].includes(task.status) && dependencyState(state.tasks, task) === "ready");
+  const coordinatorWaitingForChild = state.jobs === 1 && state.rootTaskId !== null &&
+    state.tasks.some((task) => task.taskId !== state.rootTaskId && !["delivered", "complete"].includes(task.status));
+  const slotConsumers = coordinatorWaitingForChild ? running.filter((task) => task.taskId !== state.rootTaskId) : running;
   return {
     ready,
     running,
     blocked,
-    availableSlots: Math.max(0, Math.min(state.jobs, MAX_ACTIVE_WORKERS) - running.length)
+    availableSlots: Math.max(0, Math.min(state.jobs, MAX_ACTIVE_WORKERS) - slotConsumers.length)
   };
 }
 
@@ -117,7 +120,7 @@ export function activeWallTimeMs(
 }
 
 export function budgetExpired(state: RunState, now = Date.now()): boolean {
-  return activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
+  return state.budget.limitMs > 0 && activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
 }
 
 /** Two consecutive identical failure rounds without a useful change stop one child. */
@@ -266,7 +269,7 @@ export class RunScheduler {
     if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw error("RUN_CLOCK_INVALID", "Budget clock is invalid.");
     return await this.#repository.mutate(runId, (current) => {
       const accumulatedMs = activeWallTimeMs(current.budget.activeIntervals, nowMs);
-      const expired = accumulatedMs >= current.budget.limitMs;
+      const expired = current.budget.limitMs > 0 && accumulatedMs >= current.budget.limitMs;
       return {
         ...current,
         status: expired && ["active", "awaiting-input"].includes(current.status) ? "budget-limited" : current.status,

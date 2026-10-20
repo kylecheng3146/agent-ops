@@ -75,15 +75,63 @@ function runIdOf(args: RunParsedArgs): string {
   return runId;
 }
 
+const RECOVERABLE_RUN_BLOCKERS = new Set([
+  "RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
+  "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED",
+  "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED", "RUN_WORKER_STALE", "RUN_IDENTITY_INVALID",
+  "RUN_TIME_BUDGET_EXCEEDED"
+]);
+
+function diagnosticLines(state: RunState): string[] {
+  const lines: string[] = [];
+  if (state.integration !== null) {
+    const cleanupPending = state.events.some((e) => e.code === "RUN_CLEANUP_PENDING") && state.integration.status !== "cleaned";
+    lines.push(`Integration: ${state.integration.status}${state.integration.proofDigest !== undefined ? " (proof-sealed)" : ""}${cleanupPending ? " (cleanup-pending)" : ""}`);
+  }
+  const blocker = [...state.events].reverse().find((e) =>
+    RECOVERABLE_RUN_BLOCKERS.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED", "RUN_CLEANUP_PENDING"].includes(e.code)
+  ) ?? (state.status === "blocked" ? [...state.events].reverse().find((e) => e.type === "diagnostic" || e.type === "budget" || e.type === "integration") : undefined);
+  if (blocker !== undefined && state.status !== "active") {
+    lines.push(`Blocker: ${blocker.code}${blocker.detail !== null ? ` (${blocker.detail})` : ""}`);
+  }
+  if (["blocked", "paused", "budget-limited"].includes(state.status) || (state.integration?.proofDigest !== undefined && state.integration.status !== "cleaned")) {
+    const noProgressCoordinator = state.workers.some((w) => w.workerId === state.coordinatorId && w.status === "blocked" &&
+      (w.stopIntent?.reason === "no-progress" || (w.lastFailure !== null && w.lastFailure.failureClass !== "native-start" && !RECOVERABLE_RUN_BLOCKERS.has(blocker?.code ?? ""))));
+    const terminalBlocker = state.events.some((e) => e.code === "RUN_COMMAND_DENIED") || noProgressCoordinator;
+    const resumable = state.status !== "complete" && (state.integration?.proofDigest !== undefined ||
+      (!terminalBlocker && (state.status !== "blocked" || RECOVERABLE_RUN_BLOCKERS.has(blocker?.code ?? ""))));
+    lines.push(`Resumable: ${resumable ? "yes" : "no"}`);
+    if (state.integration?.proofDigest !== undefined && state.integration.status !== "cleaned") {
+      lines.push(`Remediation: Integration proof is sealed; clean any dirty main checkout files and run \`agent-ops run resume ${state.runId}\` to finish cleanup.`);
+    } else if (blocker?.code === "RUN_RECOVERY_DIRTY") {
+      lines.push(`Remediation: Commit or clean dirty writer worktree changes, then run \`agent-ops run resume ${state.runId}\`.`);
+    } else if (blocker?.code === "RUN_REPO_UNTRUSTED") {
+      lines.push(`Remediation: Run \`agent-ops update\` in the main checkout to restore trust, then run \`agent-ops run resume ${state.runId}\`.`);
+    } else if (resumable) {
+      lines.push(`Remediation: Run \`agent-ops run resume ${state.runId}\` to continue the original run in place.`);
+    } else if (state.events.some((e) => e.code === "RUN_COMMAND_DENIED")) {
+      lines.push("Remediation: Blocked by a denied command; grant explicit user trust or revise the command before starting a new run.");
+    } else {
+      lines.push(`Remediation: Blocked by non-resumable failure (${blocker?.code ?? "RUN_NO_PROGRESS_REPEAT"}); inspect \`agent-ops run logs ${state.runId}\`.`);
+    }
+  }
+  return lines;
+}
+
 function textFor(action: RunAction, state: RunState, message: string): string {
   const active = state.workers.filter((worker) => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status)).length;
+  const budgetLine = state.budget.limitMs === 0
+    ? `Budget: ${state.budget.accumulatedMs}ms used (unlimited)`
+    : `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining`;
   return [
     message,
     `Status: ${state.status}`,
+    `Phase: ${state.phase ?? "unknown"}`,
     `Host: ${state.host}`,
     `Workers: ${active}/${state.jobs}`,
-    `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining`,
+    budgetLine,
     `Usage: ${state.budget.usage.tokens ?? "unknown"} tokens; ${state.budget.usage.usd === null ? "unknown" : "$" + state.budget.usage.usd} cost (${state.budget.usage.completeness})`,
+    ...diagnosticLines(state),
     action === "logs" ? "" : "Native goal completion is not final proof; verify, review, task state, and receipt are still required."
   ].filter((line) => line.length > 0).join("\n");
 }
@@ -140,7 +188,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<CliEnve
         host: options.args.host ?? "codex",
         ownerSessionId: options.ownerSessionId,
         jobs: options.args.jobs,
-        timeBudgetMs: options.args.timeBudgetMs
+        timeBudgetMs: options.args.timeBudgetMs ?? 0
       });
       const state = options.args.wait === true && options.waitForCompletion !== undefined
         ? await options.waitForCompletion(result.state.runId)
@@ -155,7 +203,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<CliEnve
       const events = await options.service.logs(runId);
       return okEnvelope("RUN_LOGS", { ...stateData(action, state, `Read ${events.length} event(s) for run ${runId}.`), events });
     }
-    if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId)));
+    if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId, options.args.timeBudgetMs === undefined ? undefined : { timeBudgetMs: options.args.timeBudgetMs })));
     if (action === "stop") return okEnvelope("RUN_STOP_REQUESTED", data(action, await options.service.stop(runId, options.args.answer ?? "user requested stop")));
     const questionId = options.args.questionId;
     if (questionId === undefined || questionId.trim() === "") throw new AgentOpsError("RUN_QUESTION_REQUIRED", "Run respond requires --question-id.");

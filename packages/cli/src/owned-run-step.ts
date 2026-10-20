@@ -20,7 +20,7 @@ export async function runOwnedLocalProof(argv: readonly string[]): Promise<numbe
     const existing = await transport.inspect({nativeSessionId: "worker-proof", nativeJobId: null, ...worker.proofProcess, instance: state.nativeInstance});
     if (existing.processAlive) throw new AgentOpsError("RUN_WORKER_PROOF_ACTIVE", "A registered proof command is already running for this worker.");
   }
-  const remaining = state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, Date.now());
+  const remaining = state.budget.limitMs === 0 ? 60 * 60 * 1_000 : state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, Date.now());
   if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active run time remains for local proof.");
   const cli = fileURLToPath(new URL("./bin.js", import.meta.url));
   const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)), cli, ...argv],

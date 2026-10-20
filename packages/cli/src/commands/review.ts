@@ -1032,6 +1032,7 @@ export async function runReviewCommand(
       }
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
         executionPolicy: options.config,
+        ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
         artifacts: contractArtifacts.map(({path, digest}) => ({path, digest})),
         tasks: await Promise.all(context.records.map(async r => ({task: r.task, revisions: r.revisions ?? [],
           ...(r.task.debug === undefined ? {} : {debugProof:await loadDebugProof(options.root!,r.task.debug.rootTaskId)})}))),
