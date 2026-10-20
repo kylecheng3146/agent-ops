@@ -1,0 +1,12 @@
+worktree: session-01a154bd (agent-ops/session-01a154bd)
+session: 01a154bd-d9ef-7752-a021-224e00d5c626
+agent-ops task task-c8aa071f-7171-4372-847c-987d8fb59156: Deliver agent-ops 1.10.1 integration
+intent: Deliver the reconciled 1.10.1 candidate from checkpointed DEBUG task task-b39eb5ae-6cbc-4166-85d9-8287edbfea91 under the same five criteria, including the DEBUG deadlock fixes and compact review manifests.
+criteria:
+- manual-native-resume: A current explicit manual resume recovers the original run from older owned native-goal limit snapshots and derivative inactive-policy task blocks, preserving goal, IDs, counters and denial history.
+- fresh-native-boundary: Automatic recovery, unknown or current timestamps, fresh native limits, command denials, stale identities, product failure and stop cannot gain recovery authority from historical manual controls.
+- large-review-packet: Integrate session-01a143ba validated fix: reviews with audits above 64 KiB retain complete digest-bound scope and revision history without loosening integrity or legacy behavior. Contract manifests are compact JSON within the unchanged 512 KiB bound.
+- agy-silence: An agy reviewer remains running beyond 240 seconds without output in both initial and resumed rounds; configured per-round timeout, caller cancellation, transport errors and strict two-round reporting remain effective.
+- release-integration: All seven named worktrees are reconciled into version 1.10.1, including P0-A, P0-B and unfinished prototype intent. Original-run cleanup retains sealed proof, history and denials; new runs have no total cap, legacy upgrades occur only on manual resume, equal-authority grants renew safely, and jobs=1 never executes coordinator and child together. Preserve IDs, accounting and backups; do not replace later Escape Loop fixes with old drafts. DEBUG strategy switches may cite the issue's own sealed regression history after a scope revision, and an unchanged candidate may be re-verified at the round limit without a new round.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/b45b1b87579633ee0696518747cd3526c3a1227c1f72b32ae0a8eca31288b9e4-502a0ab04515ec64e69b2bda4b6f5b3848cbc553.json
+receipt-sha256: 1654325a0db1f0fb19a435482c0a4adde0c694771de68f40a9ca9b429a3e6947
