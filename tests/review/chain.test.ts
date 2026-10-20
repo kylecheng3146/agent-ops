@@ -33,6 +33,7 @@ interface Scripted {
   readonly errorCode?: string;
   /** Never settles, so the executor's timeout fires. */
   readonly hang?: true;
+  readonly beforeComplete?: () => Promise<void>;
   /**
    * Emit this many signs of life, one every `beatMs`, then complete normally.
    * `beatVia` picks which channel: the target's own log file, named by its
@@ -131,13 +132,13 @@ function fakeRunner(script: readonly Scripted[]): {
         ? new Promise<{ exitCode: number | null; signal: string | null }>(
             (resolve) => { finish = resolve; }
           )
-        : Promise.resolve({
+        : Promise.resolve(step.beforeComplete?.()).then(() => ({
             exitCode: step.exitCode ?? 0,
             signal: null,
             ...(step.errorCode === undefined
               ? {}
               : { errorCode: step.errorCode })
-          });
+          }));
       const beats = step.beats ?? 0;
       const beatMs = step.beatMs ?? 10;
       const logPath = logFileArgument(request.args);
@@ -887,11 +888,35 @@ test("the stall window is ninety seconds by default", () => {
   assert.equal(DEFAULT_STALL_IDLE_MS, 90_000);
 });
 
-test("agy gets a longer stall window than the default", () => {
-  // agy is silent on every channel while one generation streams; its own
-  // logs show normal generations quiet for up to ~177s.
-  assert.equal(AGY_STALL_IDLE_MS, 240_000);
-  assert.ok(AGY_STALL_IDLE_MS > DEFAULT_STALL_IDLE_MS);
+test("silent agy generations survive the former 240-second cutoff in both rounds and nudges", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setInterval"] });
+  const silent = async (): Promise<void> => {
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(5_000);
+    // Let the log stat settle before advancing beyond the old idle window.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    t.mock.timers.tick(245_000);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  };
+  try {
+    const pair = await run(["agy"], [
+      { stdout: passing(), beforeComplete: silent },
+      { stdout: passing(), beforeComplete: silent }
+    ]);
+    assert.equal(pair.result.status, "PASS");
+    assert.equal(pair.attempts.length, 2);
+    const report = (JSON.parse(passing()) as { structured_output: unknown }).structured_output;
+    const nudge = await run(["agy"], [
+      { stdout: lostTurnInConversation },
+      { stdout: answeredInResponse(JSON.stringify(report)), beforeComplete: silent },
+      { stdout: passing() }
+    ]);
+    assert.equal(nudge.result.status, "PASS");
+    assert.equal(nudge.attempts.length, 3);
+    assert.equal(AGY_STALL_IDLE_MS, Number.POSITIVE_INFINITY);
+  } finally {
+    t.mock.timers.reset();
+  }
 });
 
 const networkDrop = {

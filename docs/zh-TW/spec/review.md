@@ -60,6 +60,9 @@ tree，不 fallback、不寫 attestation；timeout 保留獨立 NOT_RUN reason�
 
 ## REVIEW-CHAIN-001
 
+agy 在生成期間可能完全沒有輸出。review 與接續回答 MUST NOT 僅因沒有輸出而
+被取消；設定的單輪 timeout 與呼叫者取消仍然有效。
+
 兩個規劃的 session MUST 依序為必要 reviewer 與 adversarial 複審。第一個
 session 遇到 FAIL 或 NOT_RUN MUST 立即停止；不會在該結果後 fallback。
 

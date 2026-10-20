@@ -4,6 +4,17 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-20
+
+- Manual run resume recovers proven historical native goal limit snapshots
+  without reusing old resume authority or suppressing fresh limits, denials,
+  stale identities or stop requests. Existing task IDs and accounting remain.
+- agy reviews and resumed answers no longer stop after 240 seconds without
+  output. Configured round timeouts and caller cancellation still apply.
+- Large review surface audits and revision histories are carried intact in
+  the digest-validated contract manifest instead of overflowing the 64 KiB
+  inline packet. Small and legacy packets retain their existing behavior.
+
 ## [0.10.1] - 2026-10-16
 
 - `agent-ops worktree finish` no longer delivers an unreviewed combination

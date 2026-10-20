@@ -64,7 +64,7 @@ export interface ReviewTargetPreflightOutcome {
  * claude both exceeded it on this repository, and a timeout costs the whole
  * review while looking like an unavailable target. Fifteen minutes was not
  * enough either: agy rounds took 450-900 s and timed out at 900 s; the stall
- * guards still stop a reviewer that goes quiet.
+ * guards still stop reviewers whose transports expose progress.
  */
 export const DEFAULT_REVIEW_TIMEOUT_MS = 1_800_000;
 
@@ -81,9 +81,10 @@ export const DEFAULT_STALL_IDLE_MS = 90_000;
 /**
  * agy writes nothing to stdout, stderr or its log while one generation
  * streams, so a long think is indistinguishable from a wedge. Its own logs
- * show normal generations silent for up to ~177s; 90s cut real reviews off.
+ * cannot distinguish a long generation from a wedge. Only the configured
+ * round timeout or caller cancellation may stop a silent agy review.
  */
-export const AGY_STALL_IDLE_MS = 240_000;
+export const AGY_STALL_IDLE_MS = Number.POSITIVE_INFINITY;
 
 /**
  * A call the service dropped before answering. It produced no verdict, so
@@ -353,10 +354,10 @@ function watchForStall(
       controller.abort("stalled");
     }
   };
-  const timer = setInterval(() => {
+  const timer = Number.isFinite(idleMs) ? setInterval(() => {
     void check();
-  }, pollMs);
-  timer.unref();
+  }, pollMs) : undefined;
+  timer?.unref();
   return {
     signal: parent === undefined
       ? controller.signal
@@ -364,7 +365,7 @@ function watchForStall(
     stalled: () => stalled,
     beat,
     stop: () => {
-      clearInterval(timer);
+      if (timer !== undefined) clearInterval(timer);
     }
   };
 }

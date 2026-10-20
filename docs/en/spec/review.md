@@ -59,6 +59,10 @@ Raw reviewer output remains bounded and unstreamed. SIGINT or SIGTERM aborts
 the active process tree without fallback or attestation; timeout remains a
 distinct NOT_RUN reason rather than being flattened to `missing-cli`.
 
+agy may remain silent throughout a generation. Its review and resumed answer
+MUST NOT be cancelled solely for missing output; the configured round timeout
+and caller cancellation remain effective.
+
 ## REVIEW-CHAIN-001
 
 The two planned sessions MUST be ordered as a necessary review followed by an
