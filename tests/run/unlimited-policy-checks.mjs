@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {mkdtemp, realpath, rm} from 'node:fs/promises';
+import {mkdtemp, realpath, rm, mkdir, writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -105,5 +106,37 @@ export const unlimitedPolicyChecks = {
     assert.equal(stopped.disableRestart, true);
     assert.equal(stopped.policyBinding.artifactDigest, after, 'Stop wins a concurrent renewal');
     await assert.rejects(renew({now: expiry + RUN_POLICY_TTL_MS}), {code: 'RUN_POLICY_DISABLED'});
+
+    // Exercise the production config/trust reader, rather than only an injected authority.
+    const originalHome = process.env.AGENT_OPS_HOME;
+    process.env.AGENT_OPS_HOME = join(root, 'home');
+    try {
+      await mkdir(process.env.AGENT_OPS_HOME);
+      execFileSync('git', ['init', '-q', root]);
+      await mkdir(join(root, '.agent-ops'), {recursive: true});
+      await writeFile(join(root, '.agent-ops/config.json'), JSON.stringify(config));
+      const {ensureRunPolicy, loadEffectiveConfig, repositoryTrustBinding} = await mod('packages/cli/src/context.js');
+      const {CLI_VERSION} = await mod('packages/cli/src/version.js');
+      const {createRunState} = await mod('runtime/src/run/service.js');
+      const {localStatePaths} = await mod('runtime/src/security/permissions.js');
+      const {FileTrustStore} = await mod('runtime/src/security/trust.js');
+      const effective = (await loadEffectiveConfig(root, 'project', config)).config;
+      const binding = await repositoryTrustBinding(root, effective, CLI_VERSION);
+      const paths = localStatePaths(process.env.AGENT_OPS_HOME);
+      const store = new FileTrustStore(paths.trustStore, paths.anchorDirectory);
+      const now = Date.now() - RUN_POLICY_TTL_MS - 1000;
+      const real = createRunState({root, commonDir: root, targetBranch: 'main', goal: 'Real renewal authority',
+        host: 'codex', ownerSessionId: 'owner', now: new Date(now).toISOString()});
+      await repository.create(real);
+      const old = await bindRunPolicy(repository, real.runId, {config: effective, runtimeHash: await policyApi.runRuntimeHash(), baseTrustBinding: binding, now});
+      await assert.rejects(ensureRunPolicy(repository, old), {code: 'RUN_POLICY_AUTHORITY_CHANGED'}, 'Revoked real trust cannot renew');
+      await store.grant(binding);
+      const renewed = await ensureRunPolicy(repository, old);
+      assert.notEqual(renewed.policyBinding.artifactDigest, old.policyBinding.artifactDigest);
+      assert.equal(renewed.workers.length, 0, 'Grant renewal does not launch agents');
+      assert.equal((await store.status(binding)).status, 'TRUSTED', 'Renewal does not rewrite permanent trust');
+    } finally {
+      if (originalHome === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = originalHome;
+    }
   })
 };
