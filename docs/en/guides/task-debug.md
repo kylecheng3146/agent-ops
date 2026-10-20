@@ -98,6 +98,9 @@ rounds. Test/fixture edits do not. New paired original-regression outcomes or
 new discriminating hypothesis outcomes count as progress; renaming a task or
 hypothesis does not. Two stagnant rounds require the strategy switch; two more
 stop, subject to the global round/time ceilings.
+The switch may cite this issue's own sealed regression evidence from an earlier
+contract revision, because a scope revision stales current evidence while
+verification stays stopped; hypotheses and delivery still need fresh evidence.
 
 Success requires baseline assertion red and candidate green for the original
 regression, required related checks, a supported confirmed hypothesis, and two

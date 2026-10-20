@@ -100,6 +100,23 @@ const checks={
   await f.candidate(1);await assert.rejects(f.verify(),stop);
  }finally{await f.close();}
 },
+'debug-strategy-after-revision':async()=>withFixture(async f=>{
+ const {debugStopCause}=await mod('runtime/src/task/debug-state.js');const {taskContractHash}=await mod('runtime/src/task/contract.js');
+ const d=f.tasks.debugService(),id=f.record.task.id,cause=async()=>debugStopCause((await d.root(id)).debug);
+ await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
+ await f.candidate(3);const report=await f.verify();assert.equal(report.status,'FAIL');
+ assert.equal(await cause(),'strategy-required');
+ const sealed=report.acceptance.find(r=>r.criterionId==='issue' && r.phase==='candidate').reference;
+ const before=await d.root(id);
+ await f.tasks.revise(id,{expectedContractHash:taskContractHash(before.task),criteria:before.task.criteria.map(c=>c.id==='related'?{...c,description:'Related invariant after scope update'}:c),reason:'Update scope after two stagnant repair rounds'});
+ await assert.rejects(f.verify(),e=>e.code==='TASK_DEBUG_STOP_REQUIRED');
+ const strategy={from:'Change the exported constant directly',to:'Trace the value through its importer before editing',reason:'Two direct constant edits left the original regression red',reference:sealed};
+ await assert.rejects(d.strategy(id,{...strategy,reference:'missing.json'}));
+ await d.strategy(id,strategy);assert.equal(await cause(),null);
+ assert.deepEqual((await d.root(id)).debug.receipts.length,before.debug.receipts.length);
+ await f.candidate(1);assert.equal((await f.verify()).status,'PASS');
+ await assert.rejects(d.hypothesis(id,{...hypothesis,reference:sealed}),e=>e.code==='TASK_DEBUG_EVIDENCE_STALE');
+}),
 'debug-hypothesis-lifecycle':async()=>withFixture(async f=>{
  const d=f.tasks.debugService(), id=f.record.task.id;
  await f.candidate();

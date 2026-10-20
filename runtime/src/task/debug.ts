@@ -130,7 +130,13 @@ export class DebugService {
     await this.#mutate(root,next);
     return await this.root(root.task.id);
   }
-  async #evidence(taskId: string, reference: string): Promise<VerificationEvidence> {
+  /**
+   * `sealed` admits a strategy switch's citation of this issue's own sealed
+   * regression history: a scope revision stales every current reference while
+   * verification stays stopped until the switch is recorded. Hypotheses and
+   * delivery still need evidence for the current contract and candidate.
+   */
+  async #evidence(taskId: string, reference: string, sealed = false): Promise<VerificationEvidence> {
     const {task,config,sourceFingerprint} = await this.#scope(taskId);
     const store = new FileEvidenceStore(this.options.root,this.options.root);
     const checked = validateEvidence(await store.load(reference));
@@ -139,9 +145,16 @@ export class DebugService {
     const root = await this.root(taskId);
     const head=await this.options.gitRunner.run(["rev-parse","HEAD"]);
     const candidate=new TextDecoder().decode(head.stdout).trim();
-    if (head.exitCode !== 0 || e.taskId !== taskId || e.taskContractHash !== taskContractHash(task.task) || e.configHash !== calculateConfigHash(config) ||
-        e.sourceFingerprint !== sourceFingerprint || p === undefined || p.pairedCommit !== (p.phase === "baseline" ? candidate : root.debug.baselineCommit) || p.commit !== (p.phase === "baseline" ? root.debug.baselineCommit : candidate) ||
-        !task.task.criteria.some(c=>c.id === e.criterionId && p.criterionContractHash === criterionContractHash(c) && c.acceptance?.bindings.some(b=>b.runnerId === e.commandId && sha256(canonicalJson({runnerId:b.runnerId,materials:b.materials})) === p.bindingHash) && c.acceptance?.mode === "behavioral" && c.acceptance.baselineCommit === root.debug.baselineCommit))
+    const current = p !== undefined && e.taskContractHash === taskContractHash(task.task) && e.configHash === calculateConfigHash(config) &&
+      e.sourceFingerprint === sourceFingerprint && p.pairedCommit === (p.phase === "baseline" ? candidate : root.debug.baselineCommit) &&
+      p.commit === (p.phase === "baseline" ? root.debug.baselineCommit : candidate);
+    const historical = sealed && p !== undefined && (p.phase === "baseline" ? p.commit : p.pairedCommit) === root.debug.baselineCommit &&
+      root.debug.receipts.some(r=>r.kind === "verify" && r.taskId === taskId && r.references.includes(reference));
+    if (head.exitCode !== 0 || e.taskId !== taskId || p === undefined || !(current || historical) ||
+        !task.task.criteria.some(c=>c.id === e.criterionId && c.acceptance?.mode === "behavioral" && c.acceptance.baselineCommit === root.debug.baselineCommit &&
+          (current
+            ? p.criterionContractHash === criterionContractHash(c) && c.acceptance.bindings.some(b=>b.runnerId === e.commandId && sha256(canonicalJson({runnerId:b.runnerId,materials:b.materials})) === p.bindingHash)
+            : c.acceptance.bindings.some(b=>b.runnerId === e.commandId))))
       return fail("TASK_DEBUG_EVIDENCE_STALE","Evidence must discriminate the original issue at its immutable baseline and current candidate.");
     const source = await readPrivateFile(join(this.options.root,p.executionArtifact),this.options.root);
     if (source === null || p.executionArtifact !== ".agent-ops/tasks/acceptance/"+sha256(source)+".json") return fail("TASK_DEBUG_EVIDENCE_INVALID","Execution artifact is missing or modified.");
@@ -212,7 +225,7 @@ export class DebugService {
       fail("TASK_DEBUG_STRATEGY_INVALID","Document a substantive different verification method and evidence-backed reason.");
     if (debugStopCause(root.debug) !== "strategy-required" || root.debug.strategy !== null || root.debug.operation !== null)
       fail("TASK_DEBUG_STRATEGY_NOT_ALLOWED","Exactly one strategy switch is allowed after two stagnant repair rounds.");
-    await this.#evidence(taskId,input.reference);
+    await this.#evidence(taskId,input.reference,true);
     await this.#mutate(root,{...root.debug,strategy:{from:input.from,to:input.to,reason:input.reason,references:[input.reference],afterRound:debugRounds(root.debug)},checkpoint:null});
   }
   /** Escape Loop: where the confirmed cause came from, bound into the contract before review. */

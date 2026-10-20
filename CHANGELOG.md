@@ -23,6 +23,10 @@ All notable changes to the project are documented here.
 - With `jobs=1`, the coordinator yields its native process before children
   start and resumes after their deliveries. Registration, recovery and native
   start enforce the same single-agent limit.
+- A DEBUG strategy switch after a scope revision may cite the issue's own
+  sealed regression evidence instead of deadlocking on stale references.
+  Hypotheses and delivery still require fresh evidence, two-round review and
+  the existing round and time accounting.
 
 ## [0.10.1] - 2026-10-16
 

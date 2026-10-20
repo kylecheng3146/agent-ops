@@ -48,6 +48,7 @@ Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromp
 中斷且沒有封存結果的操作，必須等持久化 process identity 證實程序已死亡後，
 才封存 UNKNOWN environment receipt；這段經過時間仍會保留，不會退還不明時間。
 測試材料修改不算修復輪；兩輪停滯需要一次實質策略切換，再兩輪停滯停止。
+範圍改版會讓現有證據失效、而驗證在登記策略切換前仍停止，因此策略切換可引用同一原始任務已封存的歷史回歸證據；假設確認與最終交付仍需新版契約的新證據。
 
 假設確認後以 `origin --payload-file <json>` 宣告 bug 來源：`{"kind": "escape-of",
 "commit": "<commit>", "label": "<最早關卡>"}`（可選 `"receipt"`），或 `{"kind":
