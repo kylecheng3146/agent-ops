@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { AgentOpsError, resolveContainedPath } from "../../../../runtime/src/fs/paths.js";
 import {
+  describeRunRecovery,
   type RunHost,
   type RunLifecycleResult,
   type RunService,
@@ -56,6 +57,7 @@ export interface RunCommandData {
   readonly message: string;
   readonly text: string;
   readonly officeUrl?: string;
+  readonly recovery: ReturnType<typeof describeRunRecovery>;
 }
 
 function dynamic(args: RunParsedArgs): Record<string, unknown> {
@@ -76,13 +78,18 @@ function runIdOf(args: RunParsedArgs): string {
 }
 
 function textFor(action: RunAction, state: RunState, message: string): string {
+  const recovery = describeRunRecovery(state);
   const active = state.workers.filter((worker) => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status)).length;
   return [
     message,
     `Status: ${state.status}`,
+    `Phase: ${recovery.phase}`,
+    `Cause: ${recovery.cause === null ? "none recorded" : recovery.cause.code + ": " + recovery.cause.detail}`,
+    `Sealed proof: ${recovery.sealedProof}; cleanup: ${recovery.cleanup}; resumable: ${recovery.resumable ? "yes, after reconciliation" : "no"}`,
+    `Remediation: ${recovery.remediation}`,
     `Host: ${state.host}`,
     `Workers: ${active}/${state.jobs}`,
-    `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining`,
+    state.budget.limitMs === null ? `Budget: unlimited; ${state.budget.accumulatedMs}ms active time recorded` : `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining (legacy; manual resume upgrades)`,
     `Usage: ${state.budget.usage.tokens ?? "unknown"} tokens; ${state.budget.usage.usd === null ? "unknown" : "$" + state.budget.usage.usd} cost (${state.budget.usage.completeness})`,
     action === "logs" ? "" : "Native goal completion is not final proof; verify, review, task state, and receipt are still required."
   ].filter((line) => line.length > 0).join("\n");
@@ -93,13 +100,14 @@ function data(action: RunAction, result: RunLifecycleResult): RunCommandData {
     action,
     runId: result.state.runId,
     state: result.state,
+    recovery: describeRunRecovery(result.state),
     message: result.message,
     text: textFor(action, result.state, result.message)
   };
 }
 
 function stateData(action: RunAction, state: RunState, message: string): RunCommandData {
-  return { action, runId: state.runId, state, message, text: textFor(action, state, message) };
+  return { action, runId: state.runId, state, recovery: describeRunRecovery(state), message, text: textFor(action, state, message) };
 }
 
 async function goalFromArgs(args: RunParsedArgs, root: string): Promise<string> {

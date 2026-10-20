@@ -33,7 +33,7 @@ test("run state persists a fixed goal and whole-run budget", async () => {
     const service = new RunService(fixture.repository, () => "2026-10-04T00:00:01.000Z");
     const started = await service.status(fixture.state.runId);
     assert.equal(started.goalHash.length, 64);
-    assert.equal(started.budget.limitMs, 60 * 60 * 1_000);
+    assert.equal(started.budget.limitMs, null);
     assert.equal(started.jobs, 2);
     await assert.rejects(
       service.start({

@@ -1227,11 +1227,7 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
         if (value !== "1" && value !== "2") invalidValue(token, value);
         args.jobs = Number(value); break;
       case "--time-budget": {
-        const match = value.match(/^([1-9][0-9]*)(s|m|h)$/u);
-        if (match === null) invalidValue(token, value);
-        const ms = Number(match![1]) * ({s: 1000, m: 60000, h: 3600000}[match![2] as "s" | "m" | "h"]);
-        if (!Number.isSafeInteger(ms) || ms > 86400000) invalidValue(token, value);
-        args.timeBudgetMs = ms; break;
+        throw new CliArgumentError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Command and review timeouts remain effective.", token);
       }
     }
   }

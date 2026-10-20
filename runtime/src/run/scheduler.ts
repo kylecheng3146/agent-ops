@@ -85,7 +85,7 @@ export function planSchedule(state: RunState): SchedulePlan {
 
 /**
  * Compute whole-run active wall time as the union of intervals. This prevents
- * two parallel writers from doubling the 60-minute run budget.
+ * two parallel writers from doubling measured consumption.
  */
 export function activeWallTimeMs(
   intervals: readonly { readonly startMs: number; readonly endMs: number | null }[],
@@ -117,7 +117,12 @@ export function activeWallTimeMs(
 }
 
 export function budgetExpired(state: RunState, now = Date.now()): boolean {
-  return activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
+  return state.budget.limitMs !== null && activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
+}
+
+/** Infinity is internal only: callers retain their finite command/review timeouts. */
+export function remainingRunTimeMs(state: RunState, now = Date.now()): number {
+  return state.budget.limitMs === null ? Infinity : state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, now);
 }
 
 /** Two consecutive identical failure rounds without a useful change stop one child. */
@@ -266,7 +271,7 @@ export class RunScheduler {
     if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw error("RUN_CLOCK_INVALID", "Budget clock is invalid.");
     return await this.#repository.mutate(runId, (current) => {
       const accumulatedMs = activeWallTimeMs(current.budget.activeIntervals, nowMs);
-      const expired = accumulatedMs >= current.budget.limitMs;
+      const expired = current.budget.limitMs !== null && accumulatedMs >= current.budget.limitMs;
       return {
         ...current,
         status: expired && ["active", "awaiting-input"].includes(current.status) ? "budget-limited" : current.status,

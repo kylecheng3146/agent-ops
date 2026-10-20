@@ -119,11 +119,11 @@ export const resumeAuthorizationChecks = {
           ...(mode === 'path' ? {artifact: join(f.root, 'foreign.json')} : {digest: 'f'.repeat(64)})})} : e)}));
       if (mode === 'extra-denial' || mode === 'unpaired') await f.repository.appendEvent(f.state.runId, {type: mode === 'extra-denial' ? 'control' : 'diagnostic',
         code: 'RUN_COMMAND_DENIED', workerId: 'writer', taskId: 'task', detail: 'Another explicit denial must remain blocking'});
-      if (mode === 'budget') await f.repository.mutate(f.state.runId, s => ({...s, budget: {...s.budget, activeIntervals: [{startMs: 0, endMs: s.budget.limitMs}]}}));
+      if (mode === 'budget') await f.repository.mutate(f.state.runId, s => ({...s, budget: {...s.budget, limitMs: 1000, activeIntervals: [{startMs: 0, endMs: 1000}]}}));
       if (mode === 'no-progress') await f.repository.mutate(f.state.runId, s => ({...s, coordinatorId: s.coordinatorId,
         workers: [...s.workers, {...s.workers[0], workerId: s.coordinatorId, status: 'blocked', lastFailure: {id: 'failure', checkId: null,
           pinId: null, failureClass: 'assertion', fingerprint: null, diagnosticDigest: null, round: 2, observedAt: s.updatedAt, usefulProgress: false}}]}));
-      await assert.rejects(f.service.resume(f.state.runId, [f.denied.id]), `Unsafe ${mode} recovery must fail closed`);
+      await assert.rejects(f.service.resume(f.state.runId, [f.denied.id], mode !== 'budget'), `Unsafe ${mode} recovery must fail closed`);
       assert.equal((await f.repository.read(f.state.runId)).disableRestart, true);
     });
 

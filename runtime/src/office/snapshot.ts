@@ -123,7 +123,7 @@ export interface OfficeRun {
   readonly criteria?: readonly OfficeCriterion[];
   readonly status: string;
   readonly phase: OfficePhase;
-  readonly budget: {readonly limitMs: number; readonly usedMs: number; readonly remainingMs: number};
+  readonly budget: {readonly limitMs: number | null; readonly usedMs: number; readonly remainingMs: number | null};
   readonly questions: readonly {readonly questionId: string; readonly prompt: string}[];
   readonly agents: readonly OfficeAgent[];
   readonly reviewers: readonly OfficeReviewSlot[];
@@ -219,7 +219,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(rootTaskId === null ? {} : {progress: rootTree?.progress ?? rootTask?.progress ?? null,
         ...(rootTree?.criteria === undefined ? {} : {criteria: rootTree.criteria})}),
       status: run.status, phase: run.phase ?? "unknown",
-      budget: {limitMs: run.budget.limitMs, usedMs, remainingMs: Math.max(0, run.budget.limitMs - usedMs)},
+      budget: {limitMs: run.budget.limitMs, usedMs, remainingMs: run.budget.limitMs === null ? null : Math.max(0, run.budget.limitMs - usedMs)},
       questions, agents, reviewers,
       ...(run.status === "complete" || run.status === "failed" ? {completedAt: run.updatedAt} : {}),
       commands: [`agent-ops run status ${run.runId}`, `agent-ops run logs ${run.runId}`,

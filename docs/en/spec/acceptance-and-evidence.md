@@ -18,6 +18,10 @@ Executable acceptance MUST bind the current contract to immutable replay evidenc
   build and test build. Tasks provide stable check IDs and explicit committed
   test/fixture/helper materials. Each checkout installs and builds its own version
   before candidate materials are overlaid. Tasks cannot override runner commands.
+- A generic runner must emit exactly the union of `checkIds` requested by criteria
+  sharing its runner, baseline and materials; unexpected rows are UNKNOWN. If a
+  runner always emits its full suite, bind the full emitted set while keeping
+  `redCheckIds` limited to the actual regression assertions.
 - Fixture, collection, build, timeout, cancellation, truncated output, missing or
   duplicate IDs, retries and skips MUST NOT establish red or green. Complete raw
   execution artifacts are digest-bound to the contract, materials and commits.
