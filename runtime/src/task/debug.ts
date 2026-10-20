@@ -322,13 +322,14 @@ export class DebugService {
     // EVIDENCE-SURFACE-001: intake may start without a surface, the first repair may not.
     if (kind === "verify" && task.task.surfaceRequired === true && task.task.surface === undefined && productDigest !== sha256(canonicalJson([])))
       fail("SURFACE_MISSING","Add the surface audit with task revise --surface-file before verifying the first repair.");
-    const previousCandidate = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
+    const previousVerify = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1);
+    const previousCandidate = previousVerify?.productDigest ?? sha256("[]");
     const cause = debugStopCause(root.debug);
     // Recovery reruns the original verifier; changed product content still needs fresh proof.
-    // At the round limit the unchanged candidate may be re-verified (not a new round) and reviewed,
-    // e.g. after an escape-ledger update moved the source fingerprint.
+    // At the round limit an unchanged PASS candidate may be re-verified (not a new round), e.g. after an
+    // escape-ledger update moved the source fingerprint; a FAIL cannot be re-run into proof at the cap.
     if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify")) &&
-        !(cause === "iterations" && (kind === "review" || kind === "verify") && productDigest === previousCandidate))
+        !(cause === "iterations" && productDigest === previousCandidate && (kind === "review" || (kind === "verify" && previousVerify?.outcome === "PASS"))))
       fail("TASK_DEBUG_STOP_REQUIRED",`Runtime stop predicate: ${cause}. Record a checkpoint; resume alone cannot reset it.`);
     const processIdentity = await nativeProcessIdentity(process.pid);
     if (processIdentity === null) fail("TASK_DEBUG_PROCESS_IDENTITY_REQUIRED","The host cannot prove the debug operation process identity; preserve the issue and report the unsupported environment.");

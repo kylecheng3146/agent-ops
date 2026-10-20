@@ -97,12 +97,20 @@ const checks={
  try{
   await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
   assert.equal(debugStopCause((await f.tasks.debugService().root(f.record.task.id)).debug),'iterations');
-  // Re-verifying the unchanged candidate (e.g. after an escape-ledger update) is not a new round.
-  await mkdir(join(f.root,'.agent-ops-escapes'),{recursive:true});await writeFile(join(f.root,'.agent-ops-escapes/note.json'),'{}\n');f.git('add','.');f.git('commit','-qm','ledger');
-  assert.equal((await f.verify()).status,'FAIL');
-  assert.equal((await f.tasks.debugService().root(f.record.task.id)).debug.receipts.filter(r=>r.round).length,1);
+  // A FAIL candidate at the cap cannot be re-verified, even with an unchanged product.
+  await assert.rejects(f.verify(),stop);
   await f.candidate(1);await assert.rejects(f.verify(),stop);
  }finally{await f.close();}
+ const passed=await fixture(true,1);
+ try{
+  await passed.candidate(1);assert.equal((await passed.verify()).status,'PASS');
+  assert.equal(debugStopCause((await passed.tasks.debugService().root(passed.record.task.id)).debug),'iterations');
+  // Re-verifying the unchanged PASS candidate (e.g. after an escape-ledger update) is not a new round.
+  await mkdir(join(passed.root,'.agent-ops-escapes'),{recursive:true});await writeFile(join(passed.root,'.agent-ops-escapes/note.json'),'{}\n');passed.git('add','.');passed.git('commit','-qm','ledger');
+  assert.equal((await passed.verify()).status,'PASS');
+  assert.equal((await passed.tasks.debugService().root(passed.record.task.id)).debug.receipts.filter(r=>r.round).length,1);
+  await passed.candidate(2);await assert.rejects(passed.verify(),stop);
+ }finally{await passed.close();}
 },
 'debug-strategy-after-revision':async()=>withFixture(async f=>{
  const {debugStopCause}=await mod('runtime/src/task/debug-state.js');const {taskContractHash}=await mod('runtime/src/task/contract.js');

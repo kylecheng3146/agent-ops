@@ -27,8 +27,9 @@ All notable changes to the project are documented here.
   sealed regression evidence instead of deadlocking on stale references.
   Hypotheses and delivery still require fresh evidence, two-round review and
   the existing round and time accounting.
-- At the DEBUG round limit an unchanged candidate may be re-verified, for
-  example after an escape-ledger update; it does not count as a new round.
+- At the DEBUG round limit an unchanged candidate whose last verification
+  passed may be re-verified, for example after an escape-ledger update; it
+  does not count as a new round, and a failing candidate stays stopped.
 - Review contract manifests are written as compact JSON, so long revision
   histories stay within the unchanged 512 KiB manifest bound.
 
