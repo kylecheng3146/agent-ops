@@ -101,6 +101,8 @@ stop, subject to the global round/time ceilings.
 The switch may cite this issue's own sealed regression evidence from an earlier
 contract revision, because a scope revision stales current evidence while
 verification stays stopped; hypotheses and delivery still need fresh evidence.
+At the round limit the unchanged candidate may still be re-verified and
+reviewed; only a changed product needs another round.
 
 Success requires baseline assertion red and candidate green for the original
 regression, required related checks, a supported confirmed hypothesis, and two

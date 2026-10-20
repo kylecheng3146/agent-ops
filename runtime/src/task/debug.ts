@@ -325,7 +325,10 @@ export class DebugService {
     const previousCandidate = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
     const cause = debugStopCause(root.debug);
     // Recovery reruns the original verifier; changed product content still needs fresh proof.
-    if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify")) && !(cause === "iterations" && kind === "review" && productDigest === previousCandidate))
+    // At the round limit the unchanged candidate may be re-verified (not a new round) and reviewed,
+    // e.g. after an escape-ledger update moved the source fingerprint.
+    if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify")) &&
+        !(cause === "iterations" && (kind === "review" || kind === "verify") && productDigest === previousCandidate))
       fail("TASK_DEBUG_STOP_REQUIRED",`Runtime stop predicate: ${cause}. Record a checkpoint; resume alone cannot reset it.`);
     const processIdentity = await nativeProcessIdentity(process.pid);
     if (processIdentity === null) fail("TASK_DEBUG_PROCESS_IDENTITY_REQUIRED","The host cannot prove the debug operation process identity; preserve the issue and report the unsupported environment.");

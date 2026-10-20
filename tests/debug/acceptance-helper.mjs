@@ -97,6 +97,10 @@ const checks={
  try{
   await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
   assert.equal(debugStopCause((await f.tasks.debugService().root(f.record.task.id)).debug),'iterations');
+  // Re-verifying the unchanged candidate (e.g. after an escape-ledger update) is not a new round.
+  await mkdir(join(f.root,'.agent-ops-escapes'),{recursive:true});await writeFile(join(f.root,'.agent-ops-escapes/note.json'),'{}\n');f.git('add','.');f.git('commit','-qm','ledger');
+  assert.equal((await f.verify()).status,'FAIL');
+  assert.equal((await f.tasks.debugService().root(f.record.task.id)).debug.receipts.filter(r=>r.round).length,1);
   await f.candidate(1);await assert.rejects(f.verify(),stop);
  }finally{await f.close();}
 },
