@@ -1,0 +1,9 @@
+worktree: session-01a154bd (agent-ops/session-01a154bd)
+session: 01a154bd-d9ef-7752-a021-224e00d5c626
+agent-ops task task-d91c16d7-9d8a-473f-a501-b0784724b192: agent-ops run resume run-40719b9f27704318
+intent: Investigate and fix the original issue through authoritative task debug evidence.
+criteria:
+- approval-quota-resume: A targeted explicit run-resume acknowledgement retries only the provenance-valid failed native approval review in the original run, preserving denial artifacts, original goal and accounting; every command still needs fresh native approval.
+- denial-boundary: Genuine, ambiguous, foreign, missing or tampered denials remain blocking; no-progress, budget, stop, writer identity and policy boundaries remain effective.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/b45b1b87579633ee0696518747cd3526c3a1227c1f72b32ae0a8eca31288b9e4-137779c057015589cd3e88306d4e8f851a88f4ab.json
+receipt-sha256: 37e1f92a292d928c7c4041d63c60d74a5ccf75503b9782d815def847d0c5fa49
