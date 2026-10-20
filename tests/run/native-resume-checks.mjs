@@ -55,13 +55,16 @@ async function replay(f, mode, manual = true) {
   const state = await f.repository.read(f.state.runId);
   const cutoff = manual ? (controls.nativeResumeTime ? controls.nativeResumeTime(state, Date.parse(now)) : requestedAt) : undefined;
   let limits = 0, seen;
+  const limitWrites = [];
   const host = new CodexGoalHost({command:process.execPath,args:['-e',server,JSON.stringify(mode)],now:() => new Date(mode.clock ?? now),requestTimeoutMs:2000});
   const open = host.resume.bind(host);
   host.resume = async (...args) => (seen = await open(...args));
   const bridge = new NativeRunTransport(host, f.repository, async event => {
     if (['budgetLimited','usageLimited'].includes(event.nativeStatus)) {
       limits++;
-      await f.repository.mutate(f.state.runId, s => ({...s,status:'budget-limited',disableRestart:true}));
+      const write = f.repository.mutate(f.state.runId, s => ({...s,status:'budget-limited',disableRestart:true}));
+      limitWrites.push(write);
+      await write;
     }
   }, async pid => {try {process.kill(pid,0); return 'owned:'+pid;} catch {return null;}});
   const supervisor = new RunSupervisor({repository:f.repository,host:bridge,now:() => now});
@@ -72,6 +75,7 @@ async function replay(f, mode, manual = true) {
     await bridge.activateRegistered(f.state.runId,running,'Keep original work');
   } catch (cause) {error = cause;}
   for (let i=0;i<10;i++) await delay(10);
+  await Promise.all(limitWrites);
   const saved = await f.repository.read(f.state.runId);
   try {return {saved,limits,error,seen};}
   finally {if (seen) await host.stop(seen,seen);}
