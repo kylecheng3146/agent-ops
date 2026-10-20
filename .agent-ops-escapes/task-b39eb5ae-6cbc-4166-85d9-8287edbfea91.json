@@ -10,11 +10,13 @@
   "missedPaths": [
     "CHANGELOG.md",
     "README.md",
+    "docs/en/guides/task-debug.md",
     "docs/en/spec/acceptance-and-evidence.md",
     "docs/en/spec/harness-adapters.md",
     "docs/en/spec/loop-engineering.md",
     "docs/en/spec/review.md",
     "docs/harness/worktree-integration-1.10.1.md",
+    "docs/zh-TW/guides/task-debug.md",
     "docs/zh-TW/spec/acceptance-and-evidence.md",
     "docs/zh-TW/spec/harness-adapters.md",
     "docs/zh-TW/spec/loop-engineering.md",
@@ -47,7 +49,8 @@
     "runtime/src/run/scheduler.ts",
     "runtime/src/run/service.ts",
     "runtime/src/run/supervisor.ts",
-    "runtime/src/run/transport.ts"
+    "runtime/src/run/transport.ts",
+    "runtime/src/task/debug.ts"
   ],
   "facts": [],
   "residualRisks": 0,
@@ -55,5 +58,5 @@
     "status": "lesson",
     "reason": "scenario: no mechanical replay exists for this gate; recorded as an unproven lesson."
   },
-  "declaredAt": "2026-10-20T15:05:55.872Z"
+  "declaredAt": "2026-10-20T16:14:56.564Z"
 }
