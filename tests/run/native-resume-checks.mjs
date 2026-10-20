@@ -17,7 +17,7 @@ const notify = (status, updatedAt) => send({...(mode.requestId ? {id:mode.reques
 readline.createInterface({input:process.stdin}).on('line', line => {
   const m = JSON.parse(line); if (m.id === undefined) return;
   let result = {};
-  if (m.method === 'thread/resume') {notify('budgetLimited', mode.updatedAt); result={thread:{id:'thread-one'}};}
+  if (m.method === 'thread/resume') {if (mode.failStart) process.exit(7); notify('budgetLimited', mode.updatedAt); result={thread:{id:'thread-one'}};}
   if (m.method === 'thread/goal/set') result={goal:goal(m.params.status === 'paused' ? 'paused' : (mode.ack ?? 'active'), mode.updatedAt)};
   if (m.method === 'turn/start') {
     if (mode.ack && mode.ack !== 'active') throw Error('An inactive goal must never start a turn');
@@ -71,14 +71,18 @@ async function replay(f, mode, manual = true) {
   const supervisor = new RunSupervisor({repository:f.repository,host:bridge,now:() => now});
   let error;
   try {
-    const assigned = await supervisor.reassignWorker(f.state.runId,f.worker.workerId,1);
-    const running = await supervisor.startWorker(f.state.runId,assigned.workerId,assigned.generation,'Keep original work',cutoff);
-    await bridge.activateRegistered(f.state.runId,running,'Keep original work');
-  } catch (cause) {error = cause;}
-  for (let i=0;i<10;i++) await delay(10);
-  await Promise.all(limitWrites);
-  const saved = await f.repository.read(f.state.runId);
-  try {return {saved,limits,error,seen};}
+    try {
+      const assigned = await supervisor.reassignWorker(f.state.runId,f.worker.workerId,1);
+      const running = await supervisor.startWorker(f.state.runId,assigned.workerId,assigned.generation,'Keep original work',cutoff);
+      await bridge.activateRegistered(f.state.runId,running,'Keep original work');
+    } catch (cause) {
+      if (!['RUN_START_DISABLED','RUN_WORKER_STALE','NATIVE_GOAL_NOT_ACTIVE'].includes(cause.code)) throw cause;
+      error = cause;
+    }
+    for (let i=0;i<10;i++) await delay(10);
+    await Promise.all(limitWrites);
+    return {saved:await f.repository.read(f.state.runId),limits,error,seen};
+  }
   finally {if (seen) await host.stop(seen,seen);}
 }
 
@@ -127,6 +131,9 @@ export const nativeResumeChecks = {
     assert.deepEqual(result.budget,before.budget);
   }),
   'native-resume-boundary': async () => {
+    await fixture(async f => {
+      await assert.rejects(replay(f,{failStart:true}),{code:'RUN_NATIVE_START_FAILED'},'Infrastructure failures must propagate, never become a product regression assertion');
+    });
     for (const [mode,manual] of [[{updatedAt:old},false],[{updatedAt:Date.parse(requestedAt)/1000},true],
       [{updatedAt:Date.parse(now)/1000},true],[{},true],[{updatedAt:'old'},true],
       [{updatedAt:old,clock:'2026-10-20T00:00:09.000Z'},true],[{updatedAt:old,fresh:true},false],
@@ -149,7 +156,7 @@ export const nativeResumeChecks = {
       for (const control of [{action:'pause',actor:'user',requestedAt},
         {action:'resume',actor:'supervisor',requestedAt},{action:'resume',actor:'user',requestedAt:'invalid'},
         {action:'resume',actor:'user',requestedAt:'2099-01-01T00:00:00Z'}])
-        assert.equal(nativeResumeTime({...current,controls:[control]},Date.parse(now)),undefined);
+        assert.equal(nativeResumeTime({...current,controls:[{...control,appliedAt:null}]},Date.parse(now)),undefined);
       assert.equal(nativeResumeTime(current,Date.parse(requestedAt)-1),undefined);
       assert.equal(nativeResumeTime({...current,events:[...current.events,{code:'RUN_SUPERVISOR_START',at:requestedAt}]},Date.parse(now)),undefined);
       assert.equal(nativeResumeTime({...current,events:[...current.events,{code:'RUN_SUPERVISOR_START',at:'invalid'}]},Date.parse(now)),undefined);
