@@ -27,6 +27,8 @@ All notable changes to the project are documented here.
   sealed regression evidence instead of deadlocking on stale references.
   Hypotheses and delivery still require fresh evidence, two-round review and
   the existing round and time accounting.
+- Review contract manifests are written as compact JSON, so long revision
+  histories stay within the unchanged 512 KiB manifest bound.
 
 ## [0.10.1] - 2026-10-16
 

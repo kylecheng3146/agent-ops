@@ -462,6 +462,8 @@ const raw = {
     assert.deepEqual(last.removed.included, expanded.included);
     assert.deepEqual(last.added.included, rewritten.included);
     assert.deepEqual(JSON.parse(packet.contractManifest.content).surface, packet.surface);
+    // Indentation alone inflated a 1.10.1 manifest from 494 KiB to 722 KiB, past the 512 KiB bound.
+    assert.equal(packet.contractManifest.content, JSON.stringify(JSON.parse(packet.contractManifest.content)), 'the manifest is compact JSON');
     const {buildReviewPrompt, buildAdversarialPrompt} = await load('runtime/src/review/runner.js');
     for (const prompt of [buildReviewPrompt(complete.invocation), buildAdversarialPrompt(complete.invocation, report(packet.criteria))]) {
       const data = JSON.parse(prompt.split('BEGIN_TASK_DATA\n')[1].split('\n')[0]);
