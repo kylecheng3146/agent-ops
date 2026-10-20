@@ -7,6 +7,7 @@ import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
 import {budgetExpired} from "./scheduler.js";
+import {redactSecrets} from "../security/redact.js";
 
 /** Hosts with a writer transport in the first run release. */
 export type RunHost = "claude" | "codex";
@@ -575,6 +576,52 @@ export interface RunLifecycleResult {
   readonly message: string;
 }
 
+const RECOVERABLE = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
+  "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
+
+function resumeBlocker(current: RunState): RunEvent | undefined {
+  return [...current.events].reverse().find(e => RECOVERABLE.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
+}
+
+function cannotResume(current: RunState): boolean {
+  return current.status === "complete" || current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
+    (current.integration?.proofDigest === undefined && (
+      current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start") ||
+      (current.status === "blocked" && !RECOVERABLE.has(resumeBlocker(current)?.code ?? ""))));
+}
+
+/** Observations are not proof validation; resume still reconciles every authority and sealed artifact. */
+export function describeRunRecovery(state: RunState, now = Date.now()) {
+  const diagnostics = [...state.events].reverse().filter(e => e.type === "diagnostic");
+  const event = diagnostics[0]?.code === "RUN_CLEANUP_UNCHANGED"
+    ? diagnostics.find(e => e.code === "RUN_CLEANUP_BLOCKED") ?? diagnostics[0] : diagnostics[0];
+  let cause = event === undefined ? null : {code: event.code, detail: redactSecrets(event.detail ?? "").slice(0, 4096)};
+  if (event?.code === "RUN_CLEANUP_BLOCKED") {
+    try {
+      const saved = JSON.parse(event.detail ?? "{}") as {code?: unknown; message?: unknown};
+      if (typeof saved.code === "string" && typeof saved.message === "string")
+        cause = {code: saved.code, detail: redactSecrets(saved.message).slice(0, 4096)};
+    } catch { /* Retain the recorded diagnostic when old metadata cannot be decoded. */ }
+  }
+  const sealedProof = state.integration?.proofDigest !== undefined;
+  const cleanup = state.integration?.status === "cleaned" ? "complete" :
+    state.integration?.status === "receipt-written" ? "pending" : "not-ready";
+  const resumable = !cannotResume(state) && (sealedProof || !budgetExpired(state, now));
+  const code = cause?.code ?? "";
+  const remediation = state.status === "complete" ? "No action: the completed run and its receipt are immutable." :
+    state.events.some(e => e.code === "RUN_COMMAND_DENIED") ? "Obtain genuine new authorization for the recorded denial; resume cannot erase it." :
+    /TRUST/u.test(code) ? "Restore repository trust through the supported authorization process, then manually resume; trust is revalidated." :
+    /IDENTITY|GENERATION|STALE/u.test(code) ? "Confirm the old writer is dead and reconcile its owned worktree, native identity and current generation; never replay an old request." :
+    /PROOF|RECEIPT|TARGET_CHANGED|OWNERSHIP/u.test(code) ? "Reconcile the sealed proof, receipt, target and owner mismatch; preserve the checkout and never replace sealed artifacts." :
+    /NO_PROGRESS/u.test(code) ? "Inspect the saved failure history; ordinary resume cannot reset no-progress counters." :
+    cleanup === "pending" ? "Resolve the recorded cleanup blocker, then manually resume the original run. Only missing steps run after proof, receipt, target and ownership validation; unchanged cleanup inputs are refused." :
+    RECOVERABLE.has(code) ? `Resolve ${code}, then manually resume the original run; runtime, policy, identity and worktree checks still apply.` :
+    state.status === "awaiting-input" ? "Answer the pending question with agent-ops run respond." :
+    !resumable ? "Inspect agent-ops run logs and repair the recorded blocker before requesting recovery; do not blindly resume." :
+    "Inspect agent-ops run logs before a manual resume; reconciliation precedes any writer restart.";
+  return {phase: state.phase ?? "unknown", cause, sealedProof: sealedProof ? "recorded-unchecked" : "none", cleanup, resumable, remediation};
+}
+
 /**
  * Small service facade used by the CLI and supervisor. Native host execution is
  * injected; this layer owns persistent run identity and never treats a host's
@@ -640,22 +687,17 @@ export class RunService {
 
   async resume(runId: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, (current) => {
-      const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
-        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
-      const blocker = [...current.events].reverse().find(e => recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
-      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
-        current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
-      if (current.status === "complete" || (current.integration?.proofDigest === undefined &&
-          (terminalBlocker || (current.status === "blocked" && !recoverable.has(blocker?.code ?? ""))))) {
+      const blocker = resumeBlocker(current);
+      if (cannotResume(current)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
       if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
         throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
-      const recover = ["blocked", "paused"].includes(current.status) && recoverable.has(blocker?.code ?? "");
+      const recover = ["blocked", "paused"].includes(current.status) && RECOVERABLE.has(blocker?.code ?? "");
       return {
         ...current,
         ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") ? {...w, status: "stopped" as const} : w),
-          tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
+          tasks: current.tasks.map(t => t.status === "blocked" && RECOVERABLE.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",
         awaitingResume: false,
         disableRestart: false,

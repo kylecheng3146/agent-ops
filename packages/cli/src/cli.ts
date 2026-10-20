@@ -129,6 +129,10 @@ The URL carries an access token; do not share it.
 
 Native goal state is observational. Completion requires current verification,
 two fresh reviews, task completion and a target-bound integration receipt.
+Status includes phase, original cause, recorded sealed proof, cleanup state,
+resumability and remediation. Resume revalidates authority and sealed artifacts;
+receipt-bound recovery executes only missing cleanup steps. Resolve the saved
+blocker before retrying: unchanged cleanup inputs are refused.
 `,
   init: `Usage: agent-ops init [options]
 
