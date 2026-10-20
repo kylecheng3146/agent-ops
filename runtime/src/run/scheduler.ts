@@ -75,11 +75,12 @@ export function planSchedule(state: RunState): SchedulePlan {
   const running = state.tasks.filter((task) => task.status === "running" || task.status === "awaiting-delivery");
   const blocked = state.tasks.filter((task) => task.status === "blocked");
   const ready = state.tasks.filter((task) => ["planned", "ready"].includes(task.status) && dependencyState(state.tasks, task) === "ready");
+  const slotConsumers = state.workers.filter(worker => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status));
   return {
-    ready,
+    ready: ready.filter(task => task.taskId !== state.rootTaskId),
     running,
     blocked,
-    availableSlots: Math.max(0, Math.min(state.jobs, MAX_ACTIVE_WORKERS) - running.length)
+    availableSlots: Math.max(0, Math.min(state.jobs, MAX_ACTIVE_WORKERS) - slotConsumers.length)
   };
 }
 

@@ -72,6 +72,11 @@
 - Convergence compares actual per-check statuses and outstanding finding pins.
   Source fingerprints, timing and diagnostics alone cannot establish progress.
 
+With `jobs=1`, child execution MUST wait for confirmed coordinator process death.
+The coordinator retains its task and native session identity, and resumes under a
+new generation after child deliveries. Native registration, recovery and start
+MUST enforce at most one active agent; changing task slot accounting alone is insufficient.
+
 This module defines the bounded loop used to plan, implement, verify, and hand off work.
 
 ## LOOP-START-001

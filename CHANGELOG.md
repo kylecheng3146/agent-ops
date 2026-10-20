@@ -14,6 +14,15 @@ All notable changes to the project are documented here.
 - Large review surface audits and revision histories are carried intact in
   the digest-validated contract manifest instead of overflowing the 64 KiB
   inline packet. Small and legacy packets retain their existing behavior.
+- Runs have no total time cap. Manual resume upgrades legacy finite runs
+  while retaining consumption, and finite policy grants renew only under
+  unchanged repository trust, configuration, runtime and scope.
+- Receipt-bound cleanup resumes only missing steps, retains the original
+  diagnostic and refuses an unchanged failed cleanup attempt. Genuine command
+  denials remain blocking even when integration proof is sealed.
+- With `jobs=1`, the coordinator yields its native process before children
+  start and resumes after their deliveries. Registration, recovery and native
+  start enforce the same single-agent limit.
 
 ## [0.10.1] - 2026-10-16
 

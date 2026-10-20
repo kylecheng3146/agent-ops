@@ -24,7 +24,7 @@ import {sha256} from "../../../runtime/src/fs/hash.js";
 import {calculateConfigHash, canonicalJson} from "../../../runtime/src/config/hash.js";
 import {ClaudeGoalHost} from "../../../runtime/src/run/hosts/claude.js";
 import {CodexGoalHost} from "../../../runtime/src/run/hosts/codex.js";
-import {FileRunRepository, type RunState, type RunWorkerRecord} from "../../../runtime/src/run/service.js";
+import {FileRunRepository, type RunRepository, type RunState, type RunWorkerRecord} from "../../../runtime/src/run/service.js";
 import {RunSupervisor} from "../../../runtime/src/run/supervisor.js";
 import {NativeRunTransport, nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {workerPlan, type RunWorkerPlan} from "../../../runtime/src/run/planning.js";
@@ -47,6 +47,24 @@ const exec = promisify(execFile);
 const plain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const active = (worker: RunWorkerRecord) => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status);
 const cli = fileURLToPath(new URL("./bin.js", import.meta.url));
+
+/** Release the sole native slot only after confirmed coordinator death. */
+export async function prepareSerialSchedule(repository: RunRepository, supervisor: RunSupervisor, runId: string): Promise<RunWorkerRecord | null> {
+  const current = await repository.read(runId);
+  if (current === null || current.jobs !== 1 || current.rootTaskId === null || current.status !== "active" || current.disableRestart || current.awaitingResume) return null;
+  const children = current.tasks.filter(task => task.taskId !== current.rootTaskId);
+  const coordinator = current.workers.find(worker => worker.workerId === current.coordinatorId);
+  if (children.length === 0 || coordinator === undefined) return null;
+  if (children.some(task => !["delivered", "complete", "blocked"].includes(task.status))) {
+    if (active(coordinator)) {
+      await supervisor.stopWorker(runId, coordinator.workerId, coordinator.generation, "handoff");
+      await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_COORDINATOR_YIELDED", workerId: coordinator.workerId,
+        taskId: coordinator.taskId, detail: "Coordinator process death confirmed before assigning the sole slot to children."});
+    }
+    return null;
+  }
+  return coordinator.status === "stopped" && !current.workers.some(worker => worker.workerId !== coordinator.workerId && active(worker)) ? coordinator : null;
+}
 
 /** Retain the structured child failure instead of hiding it behind recovery text. */
 export function runStepError(result: Record<string, unknown>, fallback: string): AgentOpsError {
@@ -214,12 +232,17 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       }
     }
     async function schedule(): Promise<void> {
+      const coordinator = await prepareSerialSchedule(repository, supervisor, runId);
+      if (coordinator !== null) {await start(coordinator); return;}
       const current = (await repository.read(runId))!;
       for (const node of await scheduler.next(runId)) {
         if (node.planDigest === undefined || node.taskId === current.rootTaskId) continue;
         const existing = current.workers.find(worker => worker.taskId === node.taskId);
         if (existing !== undefined && existing.worktree !== null &&
-            (await deps.tasks(existing.worktree).list()).some(r => r.task.id === node.taskId)) continue;
+            (await deps.tasks(existing.worktree).list()).some(r => r.task.id === node.taskId)) {
+          if (existing.status === "stopped") await start(existing);
+          continue;
+        }
         const planPath = join(directory, runId, "plans", node.taskId + ".json");
         const source = await readPrivateFile(planPath, commonDir);
         if (source === null || sha256(source) !== node.planDigest) throw new AgentOpsError("RUN_PLAN_CHANGED", "Deferred worker plan is missing or changed.");
@@ -587,9 +610,15 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       else if (state.policyBinding !== undefined) await synchronizePolicy();
       state = (await repository.read(runId))!;
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
+        if (state.jobs === 1 && state.rootTaskId !== null) {
+          const pending = state.tasks.filter(task => task.taskId !== state.rootTaskId && !["delivered", "complete", "blocked"].includes(task.status));
+          const node = pending.find(task => task.taskId === worker.taskId);
+          if (pending.length > 0 && (worker.workerId === state.coordinatorId || node === undefined ||
+              node.dependencies.some(id => !state.tasks.some(task => task.taskId === id && ["delivered", "complete"].includes(task.status))))) continue;
+        }
         if (worker.workerId !== state.coordinatorId && (worker.worktree === null ||
             !(await deps.tasks(worker.worktree).list()).some(r => r.task.id === worker.taskId))) continue;
-        try {await start(worker, undefined, manualResumeAt);}
+        try {await start(worker, undefined, manualResumeAt); if (state.jobs === 1) break;}
         catch (cause) {
           await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_RECOVERY_FAILED",
             workerId: worker.workerId, taskId: worker.taskId, detail: "Writer recovery refused; preserve its checkout until the prerequisite is corrected."});
@@ -633,7 +662,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           accumulatedMs: activeWallTimeMs(current.budget.activeIntervals, Date.now()), lastObservedAt: new Date().toISOString()}}));
         await schedule();
         state = (await repository.read(runId))!;
-        for (const worker of state.workers.filter(w => ["running", "idle"].includes(w.status))) {
+        for (const candidateWorker of state.workers.filter(w => ["running", "idle"].includes(w.status))) {
+          const freshState = (await repository.read(runId))!;
+          const currentWorker = freshState.workers.find(w => w.workerId === candidateWorker.workerId);
+          if (currentWorker === undefined || !["running", "idle"].includes(currentWorker.status)) continue;
+          const worker = currentWorker;
           await supervisor.heartbeat(runId, worker.workerId, worker.generation);
           const observation = await supervisor.observeWorker(runId, worker.workerId, worker.generation);
           if (!observation.processAlive) {

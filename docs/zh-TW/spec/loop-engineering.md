@@ -24,6 +24,10 @@
 - 當次人工 resume 的初始恢復 MAY 忽略啟用前收到、且 native 更新秒數嚴格早於該次 resume 的本執行緒 Codex 額度快照。自動重啟、未知／同秒／未來時間、時鐘倒退，以及啟用開始後收到的所有額度事件仍有效。Native 啟用 MUST 確認 goal 為 active，才能啟動或轉向 turn。人工 resume 可解除衍生的 `RUN_POLICY_DISABLED` task 阻擋，但保留 ID、耗用、歷史及其他產品失敗。
 - 收斂判斷比較實際 per-check 狀態及未解除的 finding pins；source fingerprint、時間或診斷文字本身不能算進展。
 
+`jobs=1` 時，child MUST 等 coordinator 程序確認死亡後才執行。coordinator 保留
+task 與 native session identity，在 child 交付後以新 generation 接續。native
+註冊、恢復與啟動 MUST 都限制最多一個 active agent；僅扣除 task slot 不足以符合。
+
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 
 ## LOOP-START-001

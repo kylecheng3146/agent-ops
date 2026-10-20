@@ -582,15 +582,15 @@ export interface RunLifecycleResult {
 const RECOVERABLE = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
   "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_POLICY_DISABLED", "NATIVE_GOAL_NOT_ACTIVE", "RUN_WORKER_STALE", "RUN_IDENTITY_INVALID", "RUN_TIME_BUDGET_EXCEEDED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
 
-function resumeBlocker(current: RunState): RunEvent | undefined {
-  return [...current.events].reverse().find(e => RECOVERABLE.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
+function resumeBlocker(current: RunState, acknowledged: ReadonlySet<string> = new Set()): RunEvent | undefined {
+  return [...current.events].reverse().find(e => !acknowledged.has(e.id) && (RECOVERABLE.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code)));
 }
 
-function cannotResume(current: RunState): boolean {
-  return current.status === "complete" || current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
+function cannotResume(current: RunState, acknowledged: ReadonlySet<string> = new Set()): boolean {
+  return current.status === "complete" || current.events.some(e => e.code === "RUN_COMMAND_DENIED" && !acknowledged.has(e.id)) ||
     (current.integration?.proofDigest === undefined && (
       current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start") ||
-      (current.status === "blocked" && !RECOVERABLE.has(resumeBlocker(current)?.code ?? ""))));
+      (current.status === "blocked" && !RECOVERABLE.has(resumeBlocker(current, acknowledged)?.code ?? ""))));
 }
 
 /** Observations are not proof validation; resume still reconciles every authority and sealed artifact. */
@@ -692,11 +692,8 @@ export class RunService {
     const state = await this.#repository.mutate(runId, async (current) => {
       const acknowledged = await approvalRetryEvents(current, retryApprovalIds);
       const recoverable = RECOVERABLE;
-      const blocker = [...current.events].reverse().find(e => !acknowledged.has(e.id) && (recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code)));
-      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED" && !acknowledged.has(e.id)) ||
-        current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
-      if (current.status === "complete" || (current.integration?.proofDigest === undefined &&
-          (terminalBlocker || (current.status === "blocked" && !recoverable.has(blocker?.code ?? ""))))) {
+      const blocker = resumeBlocker(current, acknowledged);
+      if (cannotResume(current, acknowledged)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
       if (current.integration?.proofDigest === undefined && !upgradeBudget && budgetExpired(current, Date.parse(this.#now())))

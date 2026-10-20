@@ -254,6 +254,8 @@ export class RunSupervisor {
       if (currentWorker === undefined || currentWorker.generation !== generation || currentWorker.status !== "assigned") {
         throw error("RUN_WORKER_STALE", `Worker ${workerId} changed before native start.`);
       }
+      if (current.workers.filter(candidate => candidate.workerId !== workerId && activeWorker(candidate)).length >= current.jobs)
+        throw error("RUN_WORKER_LIMIT", "No native execution slot is available.");
       return replaceWorker(replaceTask(current, currentWorker.taskId, { status: "running" }), {
         ...currentWorker,
         status: "starting",
