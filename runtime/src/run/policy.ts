@@ -26,6 +26,8 @@ export interface RunPolicyArtifact {
   readonly issuedAt?: string;
   readonly approvals: readonly RunPolicyApproval[];
   readonly previousDigest: string | null;
+  /** Skip TTL-only renewals when locating the original capability assessments. */
+  readonly assessmentDigest?: string;
 }
 export const RUN_POLICY_TTL_MS = 60 * 60 * 1000;
 function fail(code: string, message: string): never {throw new AgentOpsError(code, message);}
@@ -76,11 +78,12 @@ export async function runPolicyAssessment(state: RunState, policy: RunPolicyArti
   for (let depth = 0; depth < 128; depth++) {
     const assessment = current.approvals.find(a => a.capabilityId === capabilityId);
     if (assessment !== undefined && canonicalJson(capabilities(current.config).get(capabilityId) ?? null) === canonicalJson(definition)) return assessment;
-    if (current.previousDigest === null) break;
-    const source = await readPrivateFile(join(state.commonDir, "agent-ops/runs", state.runId, "policies", current.previousDigest + ".json"), state.commonDir);
-    if (source === null || sha256(source) !== current.previousDigest) fail("RUN_POLICY_CHANGED", "Historical capability assessment is missing or changed.");
+    const digest = current.assessmentDigest ?? current.previousDigest;
+    if (digest === null) break;
+    const source = await readPrivateFile(join(state.commonDir, "agent-ops/runs", state.runId, "policies", digest + ".json"), state.commonDir);
+    if (source === null || sha256(source) !== digest) fail("RUN_POLICY_CHANGED", "Historical capability assessment is missing or changed.");
     const previous = JSON.parse(source) as RunPolicyArtifact;
-    current = (await readRunPolicy({...state, policyBinding: {artifactDigest: current.previousDigest, configHash: calculateConfigHash(previous.config),
+    current = (await readRunPolicy({...state, policyBinding: {artifactDigest: digest, configHash: calculateConfigHash(previous.config),
       runtimeHash: previous.runtimeHash, expiresAt: previous.expiresAt}}, previous.runtimeHash, Date.now(), true))!;
   }
   return fail("RUN_POLICY_APPROVAL_REQUIRED", "The current capability lacks a matching historical run assessment.");
@@ -130,9 +133,10 @@ export async function readRunPolicy(state: RunState, runtimeHash: string, now = 
     fail("RUN_POLICY_CHANGED", "Run policy artifact is missing or changed.");
   let parsed: unknown;
   try {parsed = JSON.parse(source);} catch {return fail("RUN_POLICY_INVALID", "Run policy JSON is invalid.");}
-  if (!plain(parsed) || Object.keys(parsed).some(key => !["schemaVersion", "runId", "config", "baseConfig", "baseTrustBinding", "runtimeHash", "expiresAt", "issuedAt", "approvals", "previousDigest"].includes(key)) ||
+  if (!plain(parsed) || Object.keys(parsed).some(key => !["schemaVersion", "runId", "config", "baseConfig", "baseTrustBinding", "runtimeHash", "expiresAt", "issuedAt", "approvals", "previousDigest", "assessmentDigest"].includes(key)) ||
     !validBaseBinding(parsed.baseTrustBinding, state.root) || !validApprovals(parsed.approvals) ||
-    !(parsed.previousDigest === null || (typeof parsed.previousDigest === "string" && /^[a-f0-9]{64}$/u.test(parsed.previousDigest))))
+    !(parsed.previousDigest === null || (typeof parsed.previousDigest === "string" && /^[a-f0-9]{64}$/u.test(parsed.previousDigest))) ||
+    (parsed.assessmentDigest !== undefined && (typeof parsed.assessmentDigest !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.assessmentDigest))))
     fail("RUN_POLICY_INVALID", "Run policy artifact has an invalid structure or trust origin.");
   const artifact = parsed as unknown as RunPolicyArtifact;
   const expires = Date.parse(artifact.expiresAt), issued = Date.parse(artifact.issuedAt ?? state.createdAt);
@@ -216,6 +220,7 @@ export async function renewRunPolicy(repository: RunRepository, runId: string, i
   if (remainingRunTimeMs(state, now) <= 0) return fail("RUN_BUDGET_EXHAUSTED", "Legacy finite runs require manual resume before renewal.");
   const artifact: RunPolicyArtifact = {...previous, issuedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + Math.min(RUN_POLICY_TTL_MS, remainingRunTimeMs(state, now))).toISOString(),
+    assessmentDigest: previous.assessmentDigest ?? state.policyBinding!.artifactDigest,
     previousDigest: state.policyBinding!.artifactDigest};
   const content = canonicalJson(artifact), digest = sha256(content);
   await writePrivateFile(join(state.commonDir, "agent-ops", "runs", runId, "policies", digest + ".json"), content, state.commonDir);

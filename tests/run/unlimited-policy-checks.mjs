@@ -107,6 +107,21 @@ export const unlimitedPolicyChecks = {
     assert.equal(stopped.policyBinding.artifactDigest, after, 'Stop wins a concurrent renewal');
     await assert.rejects(renew({now: expiry + RUN_POLICY_TTL_MS}), {code: 'RUN_POLICY_DISABLED'});
 
+    const {createRunState} = await mod('runtime/src/run/service.js');
+    const assessed = createRunState({root, commonDir: root, targetBranch: 'main', goal: 'Retain inherited assessments',
+      host: 'codex', ownerSessionId: 'owner', now: new Date(clock).toISOString()});
+    await repository.create(assessed);
+    const expanded = {...config, verification: {commands: [{id: 'smoke', command: 'node', args: ['--version'],
+      cwd: '.', required: true, evidence: {kind: 'exit-code'}}]}};
+    const approval = {capabilityId: 'command:smoke', classification: 'non-dangerous', reason: 'Fixed local version probe.'};
+    let lineage = await bindRunPolicy(repository, assessed.runId, {config, runtimeHash: 'b'.repeat(64), baseTrustBinding: trust, now: clock});
+    for (const approvals of [[approval], []]) lineage = await bindRunPolicy(repository, assessed.runId, {
+      config: expanded, runtimeHash: 'b'.repeat(64), baseTrustBinding: trust, expectedDigest: lineage.policyBinding.artifactDigest, approvals, now: clock + 1});
+    for (let i = 1; i <= 130; i++) lineage = await renewRunPolicy(repository, assessed.runId, {authority, now: clock + i * RUN_POLICY_TTL_MS + 1});
+    const historical = await policyApi.runPolicyAssessment(lineage, await readRunPolicy(lineage, 'b'.repeat(64), clock + 130 * RUN_POLICY_TTL_MS + 1), 'command:smoke')
+      .catch(e => assert.fail(`Equal-authority renewals lost an inherited assessment: ${e.code}`));
+    assert.deepEqual(historical, approval);
+
     // Exercise the production config/trust reader, rather than only an injected authority.
     const originalHome = process.env.AGENT_OPS_HOME;
     process.env.AGENT_OPS_HOME = join(root, 'home');
