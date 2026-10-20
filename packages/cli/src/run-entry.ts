@@ -8,7 +8,7 @@ import {recordNativeRunAuthorization} from "../../../runtime/src/run/authorizati
 import {observeRunFailure} from "../../../runtime/src/run/verification.js";
 import {criteriaProgress, recordRunPhase} from "../../../runtime/src/run/phase.js";
 import {compareFailureObservations, type FailureObservation} from "../../../runtime/src/run/convergence.js";
-import {RunControlService} from "../../../runtime/src/run/controls.js";
+import {RunControlService, nativeResumeTime} from "../../../runtime/src/run/controls.js";
 import {beginPolicyTransition, markPolicyTransitionStage, completePolicyTransition, discoverPendingPolicyTransition,
   type PolicyTransitionJournal} from "../../../runtime/src/run/policy-transition.js";
 import {readReviewReportArtifact, type ReviewReportArtifact} from "../../../runtime/src/review/attestation.js";
@@ -113,6 +113,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await blockStartup("RUN_RESTART_STORM");
       return;
     }
+    const manualResumeAt = nativeResumeTime(state);
     await repository.appendEvent(runId, {type: "status", code: "RUN_SUPERVISOR_START", workerId: null, taskId: null, detail: null});
     let version: string;
     try {
@@ -174,7 +175,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await writePrivateFile(path, JSON.stringify(content, null, 2), worker.worktree!);
       return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child requests handoff after local green; the coordinator waits for all child deliveries, then requests finalization. Never substitute native goal completion for agent-ops evidence.";
     }
-    async function start(worker: RunWorkerRecord, diagnostic?: string): Promise<void> {
+    async function start(worker: RunWorkerRecord, diagnostic?: string, resumeAt?: string): Promise<void> {
       if (await discoverPendingPolicyTransition(repository, runId) !== null)
         throw new AgentOpsError("RUN_POLICY_TRANSITION_PENDING", "Finish policy synchronization before acquiring a new writer generation.");
       if (worker.worktree === null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Worker has no isolated checkout.");
@@ -196,7 +197,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         throw new AgentOpsError("RUN_WORKTREE_OWNERSHIP", "The worker checkout is not registered to this run.");
       await writeWorktreeRecord({...record, workerGeneration: worker.generation});
       const goal = await instructions(worker, diagnostic);
-      const running = await supervisor.startWorker(runId, worker.workerId, worker.generation, goal);
+      const running = await supervisor.startWorker(runId, worker.workerId, worker.generation, goal, resumeAt);
       await recordRunPhase(repository, runId, worker.workerId, (await repository.read(runId))!.rootTaskId === null ? "planning" : "implementing");
       try {await transport.activateRegistered(runId, running, goal);}
       catch (cause) {
@@ -580,7 +581,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
         if (worker.workerId !== state.coordinatorId && (worker.worktree === null ||
             !(await deps.tasks(worker.worktree).list()).some(r => r.task.id === worker.taskId))) continue;
-        try {await start(worker);}
+        try {await start(worker, undefined, manualResumeAt);}
         catch (cause) {
           await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_RECOVERY_FAILED",
             workerId: worker.workerId, taskId: worker.taskId, detail: "Writer recovery refused; preserve its checkout until the prerequisite is corrected."});

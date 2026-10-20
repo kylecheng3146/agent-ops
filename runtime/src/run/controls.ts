@@ -41,6 +41,16 @@ const RETRY_APPROVAL = "retry-approval:";
 const AUTH_ID = /^auth-[a-f0-9]{64}$/u;
 const DENIAL_DIAGNOSTIC = "Native authorization could not be accepted; no alternate permission path is allowed.";
 
+/** A manual resume covers initial recovery once, never a subsequent supervisor restart. */
+export function nativeResumeTime(state: RunState, now = Date.now()): string | undefined {
+  const control = state.controls.at(-1);
+  if (control?.action !== "resume" || control.actor !== "user") return undefined;
+  const time = Date.parse(control.requestedAt);
+  if (!Number.isFinite(time) || !Number.isFinite(now) || time > now ||
+      state.events.some(e => e.code === "RUN_SUPERVISOR_START" && (!Number.isFinite(Date.parse(e.at)) || Date.parse(e.at) >= time))) return undefined;
+  return control.requestedAt;
+}
+
 /** An explicit retry acknowledges a failed reviewer, never a command permission. */
 export async function approvalRetryEvents(state: RunState, requested: readonly string[]): Promise<ReadonlySet<string>> {
   const fail = (): never => {throw error("RUN_NOT_RESUMABLE", "Approval retry requires the original, intact Codex usage-limit review failure.");};

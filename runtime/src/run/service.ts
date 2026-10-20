@@ -643,7 +643,7 @@ export class RunService {
     const state = await this.#repository.mutate(runId, async (current) => {
       const acknowledged = await approvalRetryEvents(current, retryApprovalIds);
       const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
-        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
+        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_POLICY_DISABLED", "NATIVE_GOAL_NOT_ACTIVE", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
       const blocker = [...current.events].reverse().find(e => !acknowledged.has(e.id) && (recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code)));
       const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED" && !acknowledged.has(e.id)) ||
         current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
@@ -653,10 +653,11 @@ export class RunService {
       }
       if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
         throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
-      const recover = ["blocked", "paused"].includes(current.status) && recoverable.has(blocker?.code ?? "");
+      const recover = ["blocked", "paused", "budget-limited"].includes(current.status) && recoverable.has(blocker?.code ?? "");
       return {
         ...current,
-        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") ? {...w, status: "stopped" as const} : w),
+        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") &&
+          !current.tasks.some(t => t.taskId === w.taskId && t.status === "blocked" && !recoverable.has(t.blockedReason ?? "")) ? {...w, status: "stopped" as const} : w),
           tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",
         awaitingResume: false,

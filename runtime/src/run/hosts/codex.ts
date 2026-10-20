@@ -66,6 +66,7 @@ export class CodexGoalHost implements NativeGoalHost {
   readonly kind = "codex" as const;
   private readonly sessions = new WeakMap<NativeGoalHandle, JsonRpcSession>();
   private readonly turns = new WeakMap<NativeGoalHandle, string>();
+  private readonly activations = new WeakMap<NativeGoalHandle, {started: boolean}>();
   private readonly now: () => Date;
 
   constructor(private readonly options: NativeGoalHostOptions = {}) {
@@ -104,12 +105,14 @@ export class CodexGoalHost implements NativeGoalHost {
       throw new AgentOpsError("NATIVE_GOAL_INVALID", "Codex goal objective must be 1–4000 characters.");
     }
     const session = this.session(handle);
+    this.activations.get(handle)!.started = true;
     const goal = await session.request("thread/goal/set", {
       threadId: handle.threadId,
       objective,
       status: "active",
       tokenBudget
     });
+    this.assertActive(goal);
     const turn = await session.request("turn/start", {
       threadId: handle.threadId,
       input: [{ type: "text", text: objective }],
@@ -130,12 +133,14 @@ export class CodexGoalHost implements NativeGoalHost {
     assertContext(handle, update);
     assertProcessRunning(handle.process);
     const session = this.session(handle);
+    this.activations.get(handle)!.started = true;
     const goal = await session.request("thread/goal/set", {
       threadId: handle.threadId,
       objective: update.objective,
       status: "active",
       tokenBudget: update.tokenBudget ?? null
     });
+    this.assertActive(goal);
     const turnId = this.turns.get(handle);
     let turn: JsonRecord;
     if (turnId === undefined) {
@@ -232,7 +237,21 @@ export class CodexGoalHost implements NativeGoalHost {
   ): Promise<NativeGoalHandle> {
     const parts = commandParts(this.options, "codex", ["app-server", "--listen", "stdio://"]);
     const process = spawnNative(parts.command, parts.args, input.cwd, input.env, this.options);
-    const channel = new JsonRpcSession(process, input.timeoutMs ?? this.options.requestTimeoutMs ?? 30_000);
+    const activation = {started: false};
+    let ownedThreadId = threadId;
+    const resumeTime = Date.parse(input.manualResumeAt ?? "");
+    const channel = new JsonRpcSession(process, input.timeoutMs ?? this.options.requestTimeoutMs ?? 30_000, message => {
+      if (message.method !== "thread/goal/updated" && message.method !== "thread/goal/cleared") return true;
+      const payload = nestedRecord(message, "params");
+      const scopedThread = stringField(payload, "threadId");
+      if (ownedThreadId !== null && scopedThread !== null && scopedThread !== ownedThreadId) return false;
+      const goal = nestedRecord(payload, "goal");
+      const updatedAt = goal?.updatedAt;
+      // Classify at receipt: queued snapshots may be observed after activation starts.
+      return !(resume && !activation.started && scopedThread === ownedThreadId && scopedThread !== null &&
+        ["budgetLimited", "usageLimited"].includes(statusField(goal)) && Number.isFinite(resumeTime) && this.now().getTime() >= resumeTime &&
+        typeof updatedAt === "number" && Number.isSafeInteger(updatedAt) && updatedAt >= 0 && updatedAt < Math.floor(resumeTime / 1000));
+    });
     try {
     if (process.pid !== undefined) await input.registerProcess?.(process.pid);
     await this.sendInitialize(channel);
@@ -257,6 +276,7 @@ export class CodexGoalHost implements NativeGoalHost {
       });
       nativeThreadId = resultThreadId(result);
     }
+    ownedThreadId = nativeThreadId;
     const handle: NativeGoalHandle = {
       runId: input.runId,
       workerId: input.workerId,
@@ -273,6 +293,7 @@ export class CodexGoalHost implements NativeGoalHost {
       goalStatus: "unknown"
     };
     this.sessions.set(handle, channel);
+    this.activations.set(handle, activation);
     return handle;
     } catch (cause) {
       channel.close(cause);
@@ -301,6 +322,11 @@ export class CodexGoalHost implements NativeGoalHost {
       throw new AgentOpsError("NATIVE_SESSION_INVALID", "Unknown Codex native handle.");
     }
     return session;
+  }
+
+  private assertActive(result: JsonRecord): void {
+    if (statusField(nestedRecord(result, "goal") ?? result) !== "active")
+      throw new AgentOpsError("NATIVE_GOAL_NOT_ACTIVE", "Codex did not activate the goal; no turn was started or steered.");
   }
 
   private mapEvent(handle: NativeGoalHandle, message: JsonRecord): NativeGoalEvent {

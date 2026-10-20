@@ -53,6 +53,13 @@
   Repeat the flag for multiple failures. Successful acknowledgements are audited
   and revalidated on later resumes. This grants no command permission: native
   approval runs again. Existing writer-death, checkout, trust and budget checks apply.
+  Initial recovery after a current manual resume MAY ignore an owned Codex limit
+  snapshot received before activation whose native update second strictly predates
+  that resume. Automatic restarts, unknown/equal/future timestamps, clock rollback,
+  and every limit received after activation starts remain authoritative. Native
+  activation MUST acknowledge an active goal before starting or steering a turn.
+  Manual resume releases derivative `RUN_POLICY_DISABLED` task blocks while
+  preserving IDs, accounting, history and unrelated product failures.
 - Convergence compares actual per-check statuses and outstanding finding pins.
   Source fingerprints, timing and diagnostics alone cannot establish progress.
 

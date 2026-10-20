@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "taskId": "task-b39eb5ae-6cbc-4166-85d9-8287edbfea91",
+  "escapeOf": "8aa611fc1d2acdad2b897b7feabad65d4cc561ca",
+  "link": {
+    "state": "ungated"
+  },
+  "agentLabel": "scenario",
+  "label": "scenario",
+  "missedPaths": [
+    "docs/en/spec/loop-engineering.md",
+    "docs/zh-TW/spec/loop-engineering.md",
+    "packages/cli/src/run-entry.ts",
+    "runtime/src/run/controls.ts",
+    "runtime/src/run/hosts/codex.ts",
+    "runtime/src/run/hosts/protocol.ts",
+    "runtime/src/run/hosts/types.ts",
+    "runtime/src/run/service.ts",
+    "runtime/src/run/supervisor.ts",
+    "runtime/src/run/transport.ts"
+  ],
+  "facts": [],
+  "residualRisks": 0,
+  "proof": {
+    "status": "lesson",
+    "reason": "scenario: no mechanical replay exists for this gate; recorded as an unproven lesson."
+  },
+  "declaredAt": "2026-10-20T11:42:46.015Z"
+}

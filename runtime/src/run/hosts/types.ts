@@ -18,6 +18,7 @@ export interface NativeGoalRequestContext {
 }
 
 export interface NativeGoalStartInput extends NativeGoalRequestContext {
+  readonly manualResumeAt?: string;
   readonly cwd: string;
   readonly objective?: string;
   readonly tokenBudget?: number | null;
