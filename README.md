@@ -32,7 +32,7 @@ timeouts produce UNKNOWN. Review examines the checks themselves and every fallba
 On macOS, a trusted clean main checkout can start an isolated native goal run:
 
 ```sh
-agent-ops run "Implement the requested behavior" --host codex --time-budget 60m --jobs 2
+agent-ops run "Implement the requested behavior" --host codex --jobs 2
 agent-ops run status <run-id>
 agent-ops run logs <run-id>
 agent-ops run respond <run-id> --question-id <id> --answer "Clarification"
@@ -49,7 +49,8 @@ verification, two fresh reviews, completed tasks and a receipt bound to the targ
 Setup runs in the background under registered process groups. Stop cancels native
 writers, local verification and setup; interrupted setup requires explicit resume.
 The coordinator can assess additional non-dangerous fixed commands through a
-policy request. This authorization is bound to the run, runtime, lease and budget;
+policy request. New runs have no total time cap; manual resume upgrades legacy finite runs while keeping accounting.
+This finite authorization is bound to the run, runtime and lease;
 it creates no permanent repository trust. Policy transitions fence writers and
 journal delivery imports and contract synchronization before starting new leases.
 Native authorization decisions retain redacted command scope and rationale;

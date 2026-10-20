@@ -14,8 +14,12 @@
   goals. Same-host writers use isolated worktrees and current generation leases;
   the coordinator counts toward the maximum two writers. Dependencies become
   available only through frozen deliveries; child baselines follow those commits.
-- The default 60-minute budget counts the union of active intervals, including
-  setup, proof, review and integration. Resume keeps elapsed time and usage epochs.
+- New runs have no total time cap (`budget.limitMs: null`). Active interval unions
+  still measure setup, proof, review and integration. Legacy finite runs upgrade
+  only on manual resume, retaining the old limit, intervals, elapsed time, usage
+  epochs and blocker history. Reads and installation never upgrade or awaken runs.
+  Command/review timeouts, provider quotas, DEBUG budgets and no-progress/stop
+  controls remain independent and effective. Explicit --time-budget is rejected.
   Missing counters remain UNKNOWN; partial usage is not a complete cost estimate.
 - Questions pause work and require an explicit answer. Repair preserves the goal
   and records failures; two identical rounds without progress stop that worker
@@ -38,14 +42,19 @@
   setup requires explicit resume and retains its checkout and failure artifact.
 - A coordinator may assess additional fixed non-dangerous capabilities only under
   a run-scoped policy bound to the original repository trust, executable runtime
-  and remaining budget. Explicit native or organization denial cannot be bypassed.
+  and a finite one-hour authorization window. Explicit native or organization denial cannot be bypassed.
   Policy changes fence all writers, preserve frozen deliveries and journal contract
   synchronization before new generations acquire leases. This never grants global
   repository trust. Native decisions retain redacted command scope and rationale;
   absent provider evidence remains UNKNOWN.
-  Explicit resume renews expired authorization from the remaining budget and
-  reconciles immutable renewal lineage before policy synchronization. An answer
-  uses the same recovery checks; neither action can revive an explicit denial.
+  Active execution automatically renews an expired grant only when the original
+  repository trust, config, executable runtime and operation scope still match.
+  Renewal is digest-bound to its predecessor, preserves assessments, rejects
+  invalid/backward clocks, and loses to concurrent stop, denial or scope changes.
+  Changed/revoked authority requires genuine authorization through the existing
+  trust/resume process; renewal never grants permanent trust or clears denial.
+  Explicit resume reconciles immutable renewal lineage before policy synchronization.
+  An answer uses the same recovery checks; neither action can revive an explicit denial.
 - Convergence compares actual per-check statuses and outstanding finding pins.
   Source fingerprints, timing and diagnostics alone cannot establish progress.
 

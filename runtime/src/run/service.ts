@@ -69,8 +69,10 @@ export interface RunUsage {
 }
 
 export interface RunBudgetState {
-  /** Whole-run wall-clock budget in milliseconds. */
-  readonly limitMs: number;
+  /** Null means no total cap; finite legacy limits remain until manual resume. */
+  readonly limitMs: number | null;
+  readonly legacyLimitMs?: number;
+  readonly upgradedAt?: string;
   /** Union of active intervals. Overlapping workers count once. */
   readonly activeIntervals: readonly { readonly startMs: number; readonly endMs: number | null }[];
   readonly accumulatedMs: number;
@@ -251,7 +253,7 @@ const ID = /^[A-Za-z0-9._:/-]{1,256}$/u;
 const SHA = /^[a-f0-9]{40,64}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u;
-const MAX_EVENTS = 2_000;
+export const MAX_EVENTS = 2_000;
 const MAX_GOAL_LENGTH = 64_000;
 const MAX_TIME_BUDGET_MS = 24 * 60 * 60 * 1_000;
 
@@ -341,8 +343,10 @@ export function assertRunState(value: unknown): asserts value is RunState {
       state.events.some(event => !plain(event)) || !Array.isArray(state.budget.activeIntervals) ||
       state.budget.activeIntervals.some(interval => !plain(interval))) return invalid("Run state contains malformed nested records.");
   if (!RUN_ID.test(state.runId) || !SHA.test(state.goalHash) || state.goal.length > MAX_GOAL_LENGTH ||
-      sha256(state.goal) !== state.goalHash || !Number.isSafeInteger(state.budget.limitMs) ||
-      state.budget.limitMs <= 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS ||
+      sha256(state.goal) !== state.goalHash || (state.budget.limitMs !== null && (!Number.isSafeInteger(state.budget.limitMs) ||
+      state.budget.limitMs <= 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS)) ||
+      (state.budget.legacyLimitMs !== undefined && (!Number.isSafeInteger(state.budget.legacyLimitMs) || state.budget.legacyLimitMs <= 0 || state.budget.legacyLimitMs > MAX_TIME_BUDGET_MS)) ||
+      (state.budget.upgradedAt !== undefined && !Number.isFinite(Date.parse(state.budget.upgradedAt))) ||
       !Number.isSafeInteger(state.budget.accumulatedMs) || state.budget.accumulatedMs < 0 ||
       !Array.isArray(state.budget.activeIntervals) || state.budget.activeIntervals.some((interval) =>
         !Number.isSafeInteger(interval.startMs) || interval.startMs < 0 ||
@@ -412,10 +416,8 @@ export function createRunState(input: {
   if (input.jobs !== undefined && (!Number.isSafeInteger(input.jobs) || input.jobs < 1 || input.jobs > 2)) {
     throw new AgentOpsError("RUN_JOBS_INVALID", "A run supports one or two implementation workers.");
   }
-  const limitMs = input.timeBudgetMs ?? 60 * 60 * 1_000;
-  if (!Number.isSafeInteger(limitMs) || limitMs <= 0 || limitMs > MAX_TIME_BUDGET_MS) {
-    throw new AgentOpsError("RUN_BUDGET_INVALID", "Run time budget must be a positive value no greater than 24 hours.");
-  }
+  if (input.timeBudgetMs !== undefined)
+    throw new AgentOpsError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Command and review timeouts remain effective.");
   const runId = input.runId ?? `run-${randomUUID().replaceAll("-", "").slice(0, 16)}`;
   if (!RUN_ID.test(runId)) throw new AgentOpsError("RUN_ID_INVALID", "Run id must contain 8-64 lowercase letters, digits, and hyphens.");
   const usage: RunUsage = { tokens: null, usd: null, completeness: "unknown", source: null, epoch: 0, highWaterMark: 0 };
@@ -443,7 +445,7 @@ export function createRunState(input: {
     awaitingResume: false,
     disableRestart: false,
     budget: {
-      limitMs,
+      limitMs: null,
       activeIntervals: [],
       accumulatedMs: 0,
       startedAt: iso(now, "budget.startedAt"),
@@ -606,7 +608,7 @@ export function describeRunRecovery(state: RunState, now = Date.now()) {
   const sealedProof = state.integration?.proofDigest !== undefined;
   const cleanup = state.integration?.status === "cleaned" ? "complete" :
     state.integration?.status === "receipt-written" ? "pending" : "not-ready";
-  const resumable = !cannotResume(state) && (sealedProof || !budgetExpired(state, now));
+  const resumable = !cannotResume(state);
   const code = cause?.code ?? "";
   const remediation = state.status === "complete" ? "No action: the completed run and its receipt are immutable." :
     state.events.some(e => e.code === "RUN_COMMAND_DENIED") ? "Obtain genuine new authorization for the recorded denial; resume cannot erase it." :
@@ -685,17 +687,22 @@ export class RunService {
     return { state, message: `Run ${runId} is paused.` };
   }
 
-  async resume(runId: string): Promise<RunLifecycleResult> {
+  async resume(runId: string, upgradeBudget = true): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, (current) => {
       const blocker = resumeBlocker(current);
       if (cannotResume(current)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
-      if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
-        throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
+      if (!upgradeBudget && current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
+        throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Legacy finite runs upgrade only on explicit manual resume.");
       const recover = ["blocked", "paused"].includes(current.status) && RECOVERABLE.has(blocker?.code ?? "");
       return {
         ...current,
+        ...(current.budget.limitMs === null || !upgradeBudget ? {} : {
+          budget: {...current.budget, limitMs: null, legacyLimitMs: current.budget.limitMs, upgradedAt: this.#now()},
+          events: [...current.events, event({type: "diagnostic", code: "RUN_BUDGET_UPGRADED", workerId: null, taskId: null,
+            detail: `Manual resume removed legacy total cap ${current.budget.limitMs}ms; accounting and independent blockers remain.`}, this.#now())].slice(-MAX_EVENTS)
+        }),
         ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") ? {...w, status: "stopped" as const} : w),
           tasks: current.tasks.map(t => t.status === "blocked" && RECOVERABLE.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",

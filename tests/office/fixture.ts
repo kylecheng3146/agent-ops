@@ -5,7 +5,7 @@ export const NOW = Date.parse("2026-10-07T01:00:00.000Z");
 export function runFixture(): RunState {
   const base = createRunState({root: "/repo", commonDir: "/repo/.git", targetBranch: "main",
     goal: "# Goal: office view\n\nMore detail.", host: "claude", ownerSessionId: "owner", runId: "run-office-fixture",
-    now: "2026-10-07T00:00:00.000Z", timeBudgetMs: 60 * 60 * 1000});
+    now: "2026-10-07T00:00:00.000Z"});
   const worker = (id: string, task: string, path: string, status: "running" | "stopped", phase?: "implementing" | "verifying") => ({
     workerId: id, taskId: task, host: "claude" as const, ownerSessionId: "owner", nativeSessionId: null, nativeJobId: null,
     worktree: path, processId: null, processIdentity: null, generation: 1, status, leaseExpiresAt: null, heartbeatAt: null,

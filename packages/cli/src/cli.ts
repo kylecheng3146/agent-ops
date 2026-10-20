@@ -122,11 +122,13 @@ browser once; later sessions reuse it. It exits after 10 minutes without active
 runs or sessions. Recently completed rooms remain for at most 2 hours.
 The URL carries an access token; do not share it.
 `,
-  run: `Usage: agent-ops run [start] "<goal>" --host <claude|codex> [--jobs <1|2>] [--time-budget <60m>] [--wait] [--json]
+  run: `Usage: agent-ops run [start] "<goal>" --host <claude|codex> [--jobs <1|2>] [--wait] [--json]
        agent-ops run [start] --goal-file <path> --host <claude|codex>
        agent-ops run <status|logs|resume|stop> <run-id> [--json]
        agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
 
+New runs have no total time cap. Manual resume upgrades legacy finite runs and keeps accounting.
+Command/review timeouts, provider limits, DEBUG budgets and stop controls remain effective.
 Native goal state is observational. Completion requires current verification,
 two fresh reviews, task completion and a target-bound integration receipt.
 Status includes phase, original cause, recorded sealed proof, cleanup state,

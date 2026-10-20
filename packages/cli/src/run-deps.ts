@@ -19,9 +19,9 @@ import {NativeRunTransport} from "../../../runtime/src/run/transport.js";
 import {ClaudeGoalHost} from "../../../runtime/src/run/hosts/claude.js";
 import {CodexGoalHost} from "../../../runtime/src/run/hosts/codex.js";
 import {RunSupervisor} from "../../../runtime/src/run/supervisor.js";
-import {activeWallTimeMs} from "../../../runtime/src/run/scheduler.js";
+import {activeWallTimeMs, remainingRunTimeMs} from "../../../runtime/src/run/scheduler.js";
 import {bindRunPolicy, readRunPolicy, runRuntimeHash, runPolicyAssessment} from "../../../runtime/src/run/policy.js";
-import {repositoryTrustBinding} from "./context.js";
+import {repositoryTrustBinding, ensureRunPolicy} from "./context.js";
 import {CLI_VERSION} from "./version.js";
 import {calculateConfigHash, canonicalJson} from "../../../runtime/src/config/hash.js";
 import type {FinishDependencies} from "../../../runtime/src/parallel/finish.js";
@@ -34,6 +34,7 @@ import type {AdvancePhaseObserver} from "./commands/advance.js";
 
 /** Worktree construction happens before a native lease exists; it must never write global trust. */
 export async function runWorktreeDependencies(deps: FinishDependencies, state: RunState): Promise<FinishDependencies> {
+  state = await ensureRunPolicy(new FileRunRepository(join(state.commonDir, "agent-ops/runs"), state.commonDir), state);
   const policy = await readRunPolicy(state, await runRuntimeHash());
   if (policy === null || (await trustStore().status(policy.baseTrustBinding)).status !== "TRUSTED")
     throw new AgentOpsError("RUN_REPO_UNTRUSTED", "Run worktree setup requires the original trusted repository and current scoped policy.");
@@ -44,7 +45,9 @@ export async function runWorktreeDependencies(deps: FinishDependencies, state: R
       const index = (policy.config.worktree?.setup ?? []).findIndex(s => canonicalJson({...s, timeoutMs: s.timeoutMs ?? 600000}) === canonicalJson(step));
       if (index < 0) throw new AgentOpsError("RUN_SETUP_UNAUTHORIZED", "Setup must select an exact fixed policy capability.");
       const repository = new FileRunRepository(join(state.commonDir, "agent-ops/runs"), state.commonDir);
-      const current = (await repository.read(state.runId))!;
+      const current = await ensureRunPolicy(repository, (await repository.read(state.runId))!);
+      if (current.policyBinding?.configHash !== state.policyBinding!.configHash)
+        throw new AgentOpsError("RUN_SETUP_STALE", "Policy capability changed after setup was selected.");
       const coordinator = current.workers.find(w => w.workerId === current.coordinatorId)!;
       const command = canonicalJson(step), resource = canonicalJson({checkout: root, capabilityId: "setup:" + index});
       const approved = await runPolicyAssessment(current, policy, "setup:" + index);
@@ -53,10 +56,10 @@ export async function runWorktreeDependencies(deps: FinishDependencies, state: R
         command, resource, commandDigest: sha256(command), resourceDigest: sha256(resource), reason: approved?.reason ?? "The original user trust authorizes this fixed repository setup capability in an isolated checkout.",
         result: "auto-approved", source: approved === null ? "repo-trust" : "coordinator-policy-review", policyArtifactDigest: current.policyBinding!.artifactDigest,
         policyConfigHash: current.policyBinding!.configHash, runtimeHash: current.policyBinding!.runtimeHash, expiresAt: current.policyBinding!.expiresAt});
-      const remaining = current.budget.limitMs - activeWallTimeMs(current.budget.activeIntervals, Date.now());
+      const remaining = remainingRunTimeMs(current);
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for setup.");
       const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)),
-        fileURLToPath(new URL("./run-setup-entry.js", import.meta.url)), state.commonDir, state.runId, root, String(index), state.policyBinding!.artifactDigest],
+        fileURLToPath(new URL("./run-setup-entry.js", import.meta.url)), state.commonDir, state.runId, root, String(index), current.policyBinding!.artifactDigest],
         {cwd: root, env: process.env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"]});
       let output = "";
       const completion = new Promise<number | null>((resolve, reject) => {child.once("error", reject); child.once("close", resolve);});
@@ -68,7 +71,7 @@ export async function runWorktreeDependencies(deps: FinishDependencies, state: R
         const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
         if (identity === null) throw new AgentOpsError("RUN_PROCESS_IDENTITY_REQUIRED", "Cannot register setup process identity.");
         await repository.mutate(state.runId, saved => {
-          if (saved.status !== "active" || saved.disableRestart || saved.proofProcess != null || saved.policyBinding?.artifactDigest !== state.policyBinding!.artifactDigest)
+          if (saved.status !== "active" || saved.disableRestart || saved.proofProcess != null || saved.policyBinding?.artifactDigest !== current.policyBinding!.artifactDigest)
             throw new AgentOpsError("RUN_SETUP_STALE", "Stop or another proof process raced setup registration.");
           return {...saved, proofProcess: {processId: child.pid!, processIdentity: identity}};
         });
@@ -194,7 +197,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       throw cause;
     }
   };
-  const resume: RunCommandService["resume"] = async runId => {
+  const resume = async (runId: string, upgradeBudget = true) => {
     const before = await service.status(runId);
     const runtimeHash = await runRuntimeHash();
     const policy = await readRunPolicy(before, before.policyBinding?.runtimeHash ?? runtimeHash, Date.now(), true);
@@ -217,7 +220,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       if (exists === null || (await collectChangeSurface(gitRunner(worker.worktree!))).paths.length > 0)
         throw new AgentOpsError("RUN_RECOVERY_DIRTY", "Commit or preserve every writer checkout before explicit resume.");
     }
-    const result = await service.resume(runId);
+    const result = await service.resume(runId, upgradeBudget);
     try {
     if (pending !== null) await renewPendingRunPolicy(repository, runId, pending);
     if (policy !== null && pending === null) await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash, resumeRuntime: true,
@@ -278,7 +281,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       JSON.stringify({questionId, answer: answer.trim()}), state.commonDir);
     const result = await service.respond(runId, questionId, answer);
     try {
-      const resumed = await resume(runId);
+      const resumed = await resume(runId, false);
       return {...result, state: resumed.state};
     } catch (cause) {
       await repository.mutate(runId, saved => ({...saved, status: "paused", awaitingResume: true, disableRestart: true}));

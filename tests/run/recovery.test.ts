@@ -29,8 +29,8 @@ test("explicit recovery keeps budget and stop lineage and never revives denied o
     await service.stop(state.runId);
     await assert.rejects(service.resume(state.runId), {code: "RUN_NOT_RESUMABLE"}, "Stop cannot turn an explicit denial into resumable permission");
     await repository.mutate(state.runId, s => ({...s, events: s.events.filter(e => e.code !== "RUN_COMMAND_DENIED")}));
-    await repository.mutate(state.runId, s => ({...s, status: "paused", budget: {...s.budget, activeIntervals: [{startMs: 0, endMs: s.budget.limitMs}]}}));
-    await assert.rejects(service.resume(state.runId), {code: "RUN_BUDGET_EXHAUSTED"});
+    await repository.mutate(state.runId, s => ({...s, status: "paused", budget: {...s.budget, activeIntervals: [{startMs: 0, endMs: 1000}]}}));
+    assert.equal((await service.resume(state.runId)).state.budget.limitMs, null);
     const supervisor = new RunSupervisor({repository, host: {host: "codex", start: async () => {throw new Error("Must not start");},
       inspect: async () => ({processAlive: false, processIdentity: null, nativeGoalState: "inactive", stateDigest: null}), resume: async () => {}, send: async () => {}, stop: async () => {}}});
     for (const status of ["blocked", "delivered"] as const) {

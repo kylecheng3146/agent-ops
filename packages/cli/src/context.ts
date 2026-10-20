@@ -17,8 +17,9 @@ import {
 } from "../../../runtime/src/config/merge.js";
 import { AgentOpsError } from "../../../runtime/src/fs/paths.js";
 import { localStatePaths, readPrivateFile } from "../../../runtime/src/security/permissions.js";
-import {FileRunRepository} from "../../../runtime/src/run/service.js";
-import {readRunPolicy, runRuntimeHash} from "../../../runtime/src/run/policy.js";
+import {FileRunRepository, type RunRepository, type RunState} from "../../../runtime/src/run/service.js";
+import {readRunPolicy, renewRunPolicy, runRuntimeHash} from "../../../runtime/src/run/policy.js";
+import {CLI_VERSION} from "./version.js";
 import {
   calculateTrustBinding,
   FileTrustStore
@@ -112,6 +113,11 @@ export async function loadEffectiveConfig(
       config: run.policy.config
     }]);
   }
+  return await loadRepositoryConfig(root, scope, projectOverride);
+}
+
+/** Read the real config layers when checking renewal, without consulting the run overlay. */
+async function loadRepositoryConfig(root: string, scope: InstallScope, projectOverride?: AgentOpsConfig): Promise<MergedConfig> {
   const home = process.env.AGENT_OPS_HOME ?? homedir();
   const userPath = join(home, ".agent-ops", "config.json");
   const projectPath = join(
@@ -255,7 +261,7 @@ export async function repositoryTrust(
 }
 
 /** A run-private capability is usable only by its registered checkout or proof group. */
-export async function runPolicyContext(root: string) {
+export async function runPolicyContext(root: string, renew = false) {
   let common: string;
   try {common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"],
     {cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim();} catch {return null;}
@@ -284,9 +290,22 @@ export async function runPolicyContext(root: string) {
     throw new AgentOpsError("RUN_WORKER_STALE", "Run policy requires the current registered worker generation or proof process.");
   if (saved.status !== "active" || saved.disableRestart || saved.awaitingResume)
     throw new AgentOpsError("RUN_POLICY_DISABLED", "Run execution policy is inactive; explicit resume is required.");
-  const policy = await readRunPolicy(saved, await runRuntimeHash());
+  const state = renew ? await ensureRunPolicy(repository, saved) : saved;
+  const policy = await readRunPolicy(state, await runRuntimeHash());
   if (policy === null) return null;
-  return {repository, state: saved, policy, worker};
+  return {repository, state, policy, worker};
+}
+
+/** Only active execution paths call this; status, installation and recovery reads never renew. */
+export async function ensureRunPolicy(repository: RunRepository, state: RunState): Promise<RunState> {
+  if (state.policyBinding === undefined || Date.parse(state.policyBinding.expiresAt) > Date.now()) return state;
+  return await renewRunPolicy(repository, state.runId, {authority: async () => {
+    const config = (await loadRepositoryConfig(state.root, "project")).config;
+    const baseTrustBinding = await repositoryTrustBinding(state.root, config, CLI_VERSION);
+    const paths = localStatePaths(process.env.AGENT_OPS_HOME ?? homedir());
+    const trusted = (await new FileTrustStore(paths.trustStore, paths.anchorDirectory).status(baseTrustBinding)).status === "TRUSTED";
+    return {config, baseTrustBinding, trusted, runtimeHash: await runRuntimeHash()};
+  }});
 }
 
 export async function repositoryTrustBinding(

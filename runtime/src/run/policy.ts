@@ -11,8 +11,8 @@ import {validateConfig} from "../schema/validate.js";
 import {readPrivateFile, writePrivateFile} from "../security/permissions.js";
 import type {TrustBinding} from "../security/trust.js";
 import {redactSecrets} from "../security/redact.js";
-import {activeWallTimeMs} from "./scheduler.js";
-import type {RunRepository, RunState} from "./service.js";
+import {remainingRunTimeMs} from "./scheduler.js";
+import {MAX_EVENTS, type RunRepository, type RunState} from "./service.js";
 
 export interface RunPolicyApproval {readonly capabilityId: string; readonly classification: "non-dangerous"; readonly reason: string;}
 export interface RunPolicyArtifact {
@@ -23,9 +23,11 @@ export interface RunPolicyArtifact {
   readonly baseTrustBinding: TrustBinding;
   readonly runtimeHash: string;
   readonly expiresAt: string;
+  readonly issuedAt?: string;
   readonly approvals: readonly RunPolicyApproval[];
   readonly previousDigest: string | null;
 }
+export const RUN_POLICY_TTL_MS = 60 * 60 * 1000;
 function fail(code: string, message: string): never {throw new AgentOpsError(code, message);}
 const plain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 function validApprovals(value: unknown): value is readonly RunPolicyApproval[] {
@@ -118,6 +120,8 @@ export function validateRunPolicyChange(previous: AgentOpsConfig, candidate: Age
 }
 
 export async function readRunPolicy(state: RunState, runtimeHash: string, now = Date.now(), allowExpired = false): Promise<RunPolicyArtifact | null> {
+  if (!Number.isSafeInteger(now) || now < 0 || now > 8.64e15 - RUN_POLICY_TTL_MS)
+    fail("RUN_CLOCK_INVALID", "Policy clock must be a valid nonnegative timestamp with room for a finite grant.");
   const binding = state.policyBinding;
   if (binding === undefined) return null;
   const path = join(state.commonDir, "agent-ops", "runs", state.runId, "policies", binding.artifactDigest + ".json");
@@ -126,11 +130,17 @@ export async function readRunPolicy(state: RunState, runtimeHash: string, now = 
     fail("RUN_POLICY_CHANGED", "Run policy artifact is missing or changed.");
   let parsed: unknown;
   try {parsed = JSON.parse(source);} catch {return fail("RUN_POLICY_INVALID", "Run policy JSON is invalid.");}
-  if (!plain(parsed) || Object.keys(parsed).some(key => !["schemaVersion", "runId", "config", "baseConfig", "baseTrustBinding", "runtimeHash", "expiresAt", "approvals", "previousDigest"].includes(key)) ||
+  if (!plain(parsed) || Object.keys(parsed).some(key => !["schemaVersion", "runId", "config", "baseConfig", "baseTrustBinding", "runtimeHash", "expiresAt", "issuedAt", "approvals", "previousDigest"].includes(key)) ||
     !validBaseBinding(parsed.baseTrustBinding, state.root) || !validApprovals(parsed.approvals) ||
     !(parsed.previousDigest === null || (typeof parsed.previousDigest === "string" && /^[a-f0-9]{64}$/u.test(parsed.previousDigest))))
     fail("RUN_POLICY_INVALID", "Run policy artifact has an invalid structure or trust origin.");
   const artifact = parsed as unknown as RunPolicyArtifact;
+  const expires = Date.parse(artifact.expiresAt), issued = Date.parse(artifact.issuedAt ?? state.createdAt);
+  if (typeof artifact.expiresAt !== "string" || (artifact.issuedAt !== undefined && typeof artifact.issuedAt !== "string") ||
+    !Number.isFinite(expires) || !Number.isFinite(issued) || expires <= issued ||
+    (artifact.issuedAt !== undefined && expires - issued > RUN_POLICY_TTL_MS))
+    fail("RUN_POLICY_INVALID", "Policy requires a valid finite authorization window.");
+  if (now < issued) fail("RUN_CLOCK_INVALID", "Policy clock moved behind its issuance; manual reconciliation is required.");
   if (artifact.schemaVersion !== 1 || artifact.runId !== state.runId || !validateConfig(artifact.config).ok ||
     !validateConfig(artifact.baseConfig).ok || calculateConfigHash(artifact.config) !== binding.configHash ||
     artifact.runtimeHash !== binding.runtimeHash || artifact.expiresAt !== binding.expiresAt ||
@@ -149,7 +159,7 @@ export async function bindRunPolicy(repository: RunRepository, runId: string, in
   const state = await repository.read(runId);
   if (state === null) return fail("RUN_NOT_FOUND", "Run does not exist.");
   const now = input.now ?? Date.now();
-  if (!Number.isFinite(now) || !validBaseBinding(input.baseTrustBinding, state.root))
+  if (!Number.isSafeInteger(now) || now < 0 || !validBaseBinding(input.baseTrustBinding, state.root))
     fail("RUN_POLICY_INVALID", "Policy requires the original canonical repository trust binding and a valid clock.");
   const previous = await readRunPolicy(state, input.resumeRuntime === true ? state.policyBinding?.runtimeHash ?? input.runtimeHash : input.runtimeHash, now, true);
   if ((state.policyBinding?.artifactDigest ?? undefined) !== input.expectedDigest)
@@ -165,11 +175,12 @@ export async function bindRunPolicy(repository: RunRepository, runId: string, in
   if (!validateConfig(config).ok || !/^[a-f0-9]{64}$/u.test(input.runtimeHash) ||
     (previous === null && input.baseTrustBinding.configHash !== calculateConfigHash(config)))
     fail("RUN_POLICY_INVALID", "Run policy or runtime identity is invalid.");
-  const remaining = state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, now);
+  const remaining = remainingRunTimeMs(state, now);
   if (remaining <= 0) fail("RUN_BUDGET_EXHAUSTED", "No active execution budget remains.");
   const artifact: RunPolicyArtifact = {schemaVersion: 1, runId, config, baseConfig: previous?.baseConfig ?? config,
     baseTrustBinding: previous?.baseTrustBinding ?? input.baseTrustBinding, runtimeHash: input.runtimeHash,
-    expiresAt: new Date(now + remaining).toISOString(), approvals: (input.approvals ?? []).map(a => ({...a, reason: redactSecrets(a.reason)})), previousDigest: previous === null ? null : state.policyBinding!.artifactDigest};
+    issuedAt: new Date(now).toISOString(), expiresAt: new Date(now + Math.min(remaining, RUN_POLICY_TTL_MS)).toISOString(),
+    approvals: (input.approvals ?? []).map(a => ({...a, reason: redactSecrets(a.reason)})), previousDigest: previous === null ? null : state.policyBinding!.artifactDigest};
   const content = canonicalJson(artifact), digest = sha256(content);
   await writePrivateFile(join(state.commonDir, "agent-ops", "runs", runId, "policies", digest + ".json"), content, state.commonDir);
   return await repository.mutate(runId, current => {
@@ -177,5 +188,44 @@ export async function bindRunPolicy(repository: RunRepository, runId: string, in
       return fail("RUN_POLICY_STALE", "The run stopped or its policy changed during assessment.");
     return {...current, policyBinding: {configHash: calculateConfigHash(config), runtimeHash: input.runtimeHash,
       artifactDigest: digest, expiresAt: artifact.expiresAt}};
+  });
+}
+
+/** Renew the same finite grant without changing native identities, scope or trust. Reads never renew. */
+export async function renewRunPolicy(repository: RunRepository, runId: string, input: {
+  readonly now?: number;
+  readonly authority: () => Promise<{config: AgentOpsConfig; baseTrustBinding: TrustBinding; runtimeHash: string; trusted: boolean}>;
+}): Promise<RunState> {
+  const state = await repository.read(runId);
+  if (state === null) return fail("RUN_NOT_FOUND", "Run does not exist.");
+  if (state.status !== "active" || state.disableRestart || state.awaitingResume || state.events.some(e => e.code === "RUN_COMMAND_DENIED"))
+    return fail("RUN_POLICY_DISABLED", "Renewal cannot awaken a stopped run or erase a denial.");
+  const now = input.now ?? Date.now();
+  if (now < Date.parse(state.budget.lastObservedAt)) return fail("RUN_CLOCK_INVALID", "Policy clock moved behind the last observed accounting time.");
+  const authority = await input.authority();
+  const previous = await readRunPolicy(state, authority.runtimeHash, now, true);
+  if (previous === null) return fail("RUN_POLICY_INVALID", "Renewal requires an existing bound authorization.");
+  const assertAuthority = (current: Awaited<ReturnType<typeof input.authority>>): void => {
+    if (!current.trusted || current.runtimeHash !== previous.runtimeHash ||
+      canonicalJson(current.baseTrustBinding) !== canonicalJson(previous.baseTrustBinding) ||
+      calculateConfigHash(current.config) !== calculateConfigHash(previous.baseConfig))
+      fail("RUN_POLICY_AUTHORITY_CHANGED", "Original trust, repository configuration or executable runtime changed; obtain genuine authorization before resume.");
+  };
+  assertAuthority(authority);
+  if (Date.parse(previous.expiresAt) > now) return state;
+  if (remainingRunTimeMs(state, now) <= 0) return fail("RUN_BUDGET_EXHAUSTED", "Legacy finite runs require manual resume before renewal.");
+  const artifact: RunPolicyArtifact = {...previous, issuedAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + Math.min(RUN_POLICY_TTL_MS, remainingRunTimeMs(state, now))).toISOString(),
+    previousDigest: state.policyBinding!.artifactDigest};
+  const content = canonicalJson(artifact), digest = sha256(content);
+  await writePrivateFile(join(state.commonDir, "agent-ops", "runs", runId, "policies", digest + ".json"), content, state.commonDir);
+  assertAuthority(await input.authority());
+  return await repository.mutate(runId, current => {
+    if (current.revision !== state.revision || current.status !== "active" || current.disableRestart || current.awaitingResume ||
+      current.policyBinding?.artifactDigest !== state.policyBinding!.artifactDigest || current.events.some(e => e.code === "RUN_COMMAND_DENIED"))
+      return fail("RUN_POLICY_STALE", "Run stop, denial or scope changed during renewal.");
+    return {...current, policyBinding: {...state.policyBinding!, artifactDigest: digest, expiresAt: artifact.expiresAt},
+      events: [...current.events, {id: `renewal-${digest.slice(0, 32)}`, at: artifact.issuedAt!, type: "diagnostic" as const,
+        code: "RUN_POLICY_RENEWED", workerId: null, taskId: null, detail: `Same-authority finite grant renewed from ${state.policyBinding!.artifactDigest}.`}].slice(-MAX_EVENTS)};
   });
 }

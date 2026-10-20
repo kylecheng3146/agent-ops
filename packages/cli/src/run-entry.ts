@@ -18,6 +18,7 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {setTimeout as delay} from "node:timers/promises";
 import {AgentOpsError, resolveContainedPath} from "../../../runtime/src/fs/paths.js";
+import {ensureRunPolicy} from "./context.js";
 import {bindRunPolicy, readRunPolicy, runRuntimeHash, validateRunPolicyChange, type RunPolicyApproval} from "../../../runtime/src/run/policy.js";
 import {sha256} from "../../../runtime/src/fs/hash.js";
 import {calculateConfigHash, canonicalJson} from "../../../runtime/src/config/hash.js";
@@ -28,7 +29,7 @@ import {RunSupervisor} from "../../../runtime/src/run/supervisor.js";
 import {NativeRunTransport, nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {workerPlan, type RunWorkerPlan} from "../../../runtime/src/run/planning.js";
 import {RunScheduler} from "../../../runtime/src/run/scheduler.js";
-import {activeWallTimeMs} from "../../../runtime/src/run/scheduler.js";
+import {activeWallTimeMs, remainingRunTimeMs} from "../../../runtime/src/run/scheduler.js";
 import {readBootIdentity, readGuiLoginIdentity, LaunchdController} from "../../../runtime/src/run/macOS.js";
 import {readPrivateFile, writePrivateFile, withPrivateFileLock} from "../../../runtime/src/security/permissions.js";
 import {TaskService} from "../../../runtime/src/task/service.js";
@@ -279,7 +280,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       return result.data.receipt;
     }
     async function step(cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
-      const remaining = saved.budget.limitMs - activeWallTimeMs(saved.budget.activeIntervals, Date.now());
+      const remaining = remainingRunTimeMs(saved);
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
       return await new Promise((resolve, reject) => {
         const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_HOST: saved.host,
@@ -302,7 +303,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             if (!closed) try {process.kill(process.platform === "win32" ? child.pid! : -child.pid!, "SIGKILL");} catch {}
           }, 3000);
         };
-        const timeout = setTimeout(terminate, remaining);
+        const timeout = Number.isFinite(remaining) ? setTimeout(terminate, remaining) : undefined;
         const registration = (async () => {
           const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
           if (identity === null || closed) {terminate(); return;}
@@ -613,8 +614,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           await stopAll(state.status === "budget-limited" ? "budget" : "stop");
           return;
         }
+        state = await ensureRunPolicy(repository, state);
         const elapsed = activeWallTimeMs(state.budget.activeIntervals, Date.now());
-        if (elapsed >= state.budget.limitMs) {
+        if (state.budget.limitMs !== null && elapsed >= state.budget.limitMs) {
           await repository.mutate(runId, current => ({...current, status: "budget-limited", disableRestart: true}));
           await launchd.disableRestart(runDescriptor(state), "active run time budget exhausted");
           await stopAll("budget"); return;
