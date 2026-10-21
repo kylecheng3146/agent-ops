@@ -285,6 +285,18 @@ async function ensureProcessHeartbeat(
   }
 }
 
+async function fileIdentity(path: string): Promise<{dev: bigint; ino: bigint} | undefined> {
+  try {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const {dev, ino} = await handle.stat({bigint: true});
+      return {dev, ino};
+    } finally {await handle.close();}
+  } catch {
+    return undefined;
+  }
+}
+
 /** Retire authenticated runtime markers without weakening Git's dirty-file guard. */
 export async function cleanupWorktreeHeartbeats(root: string, paths: readonly string[]): Promise<void> {
   const candidates: {path: string; relative: string; pid: number; own: boolean; dev: bigint; ino: bigint}[] = [];
@@ -317,7 +329,10 @@ export async function cleanupWorktreeHeartbeats(root: string, paths: readonly st
   // Validate the complete set before removing anything; foreign owners fail closed.
   for (const candidate of candidates) {
     const status = await lstat(candidate.path, {bigint: true});
-    if (!status.isFile() || status.isSymbolicLink() || status.dev !== candidate.dev || status.ino !== candidate.ino)
+    // Identity is compared handle to handle, as it was captured: on Windows, Node 22.14.0
+    // reports different dev/ino for lstat and fstat of the same file.
+    const identity = await fileIdentity(candidate.path);
+    if (!status.isFile() || status.isSymbolicLink() || identity === undefined || identity.dev !== candidate.dev || identity.ino !== candidate.ino)
       throw new AgentOpsError("WORKTREE_HEARTBEAT_UNSAFE", `Heartbeat changed before cleanup: ${candidate.relative}.`);
     if (!candidate.own && isProcessActive(candidate.pid))
       throw new AgentOpsError("WORKTREE_HEARTBEAT_ACTIVE", `Preserve heartbeat ${candidate.relative}: PID ${candidate.pid} is active or its death cannot be confirmed.`);

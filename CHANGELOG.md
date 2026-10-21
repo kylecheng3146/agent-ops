@@ -34,6 +34,8 @@ All notable changes to the project are documented here.
   histories stay within the unchanged 512 KiB manifest bound.
 - The source and package secret scans no longer mistake task IDs
   (`task-<uuid>`) for API keys.
+- Heartbeat cleanup compares file identity handle to handle, so Windows on
+  Node 22.14.0 no longer reports an unchanged heartbeat as changed.
 
 ## [0.10.1] - 2026-10-16
 
