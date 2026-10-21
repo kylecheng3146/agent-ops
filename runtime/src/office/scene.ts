@@ -235,7 +235,7 @@ export function sceneModel(snapshot: OfficeSnapshot): SceneModel {
     return {key, sourceIndex: index, kind: "run", title: titled(repo, run.title), top: 0, props, actors, phaseAreas: makeAreas(), questions, criteria,
       activities: activitiesOf(optional(run).activities),
       board: boardFor(rootProgress, run.status, taskId, questions.length), papers, books: {lit: rootProgress?.passed ?? 0, total: rootProgress?.total ?? 0},
-      clock: run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 0, phase: run.phase, status: run.status,
+      clock: run.budget.limitMs !== null && run.budget.remainingMs !== null && run.budget.limitMs > 0 ? run.budget.remainingMs / run.budget.limitMs : 1, phase: run.phase, status: run.status,
       completedAt, repo, overview: {x: 0, y: 0, width: 0, height: 0}};
   };
   const activitiesOf = (value: unknown): SceneActivity[] => (Array.isArray(value) ? value : []).map(raw => {

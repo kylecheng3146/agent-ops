@@ -25,6 +25,7 @@ export interface NativeGoalHost {
     readonly generation: number;
     readonly worktree: string | null;
     readonly contractHash: string | null;
+    readonly manualResumeAt?: string;
   }): Promise<NativeSessionIdentity>;
   inspect(input: NativeSessionIdentity): Promise<NativeSessionObservation>;
   resume(input: NativeSessionIdentity & { readonly goal: string; readonly generation: number; readonly contractHash: string | null }): Promise<void>;
@@ -229,11 +230,15 @@ export class RunSupervisor {
     return { workerId, taskId: input.taskId, ownerSessionId: input.ownerSessionId, generation: worker.generation, worktree: worker.worktree };
   }
 
-  async startWorker(runId: string, workerId: string, generation: number, goal: string): Promise<RunWorkerRecord> {
+  async startWorker(runId: string, workerId: string, generation: number, goal: string, manualResumeAt?: string): Promise<RunWorkerRecord> {
     assertId(workerId, "workerId");
     if (!Number.isSafeInteger(generation) || generation < 1) throw error("RUN_GENERATION_INVALID", "Worker generation is invalid.");
     const before = await this.#repository.read(runId);
     if (before === null) throw error("RUN_NOT_FOUND", `Run not found: ${runId}`);
+    const control = before.controls.at(-1);
+    if (manualResumeAt !== undefined && (control?.actor !== "user" || control.action !== "resume" ||
+        control.requestedAt !== manualResumeAt || !Number.isFinite(Date.parse(manualResumeAt)) || Date.parse(manualResumeAt) > Date.parse(this.#now())))
+      throw error("RUN_WORKER_STALE", "Native recovery requires the current explicit manual resume.");
     if (before.host !== this.#host.host) throw error("RUN_HOST_MISMATCH", `Run ${runId} is assigned to ${before.host}, not ${this.#host.host}.`);
     const worker = before.workers.find((candidate) => candidate.workerId === workerId);
     if (worker === undefined) throw error("RUN_WORKER_NOT_FOUND", `Worker not found: ${workerId}`);
@@ -241,12 +246,16 @@ export class RunSupervisor {
     const starting = await this.#repository.mutate(runId, (current) => {
       if (current.status !== "active" || current.disableRestart || current.awaitingResume)
         throw error("RUN_START_DISABLED", "Run state no longer permits starting a writer.");
+      if (manualResumeAt !== undefined && current.controls.at(-1)?.requestedAt !== manualResumeAt)
+        throw error("RUN_WORKER_STALE", "Manual recovery changed before native start.");
       if (budgetExpired(current, Date.parse(this.#now())))
         throw error("RUN_BUDGET_EXHAUSTED", "The cumulative run budget cannot be reset by starting another worker.");
       const currentWorker = current.workers.find((candidate) => candidate.workerId === workerId);
       if (currentWorker === undefined || currentWorker.generation !== generation || currentWorker.status !== "assigned") {
         throw error("RUN_WORKER_STALE", `Worker ${workerId} changed before native start.`);
       }
+      if (current.workers.filter(candidate => candidate.workerId !== workerId && activeWorker(candidate)).length >= current.jobs)
+        throw error("RUN_WORKER_LIMIT", "No native execution slot is available.");
       return replaceWorker(replaceTask(current, currentWorker.taskId, { status: "running" }), {
         ...currentWorker,
         status: "starting",
@@ -265,7 +274,8 @@ export class RunSupervisor {
         ownerSessionId: startingWorker.ownerSessionId,
         generation,
         worktree: startingWorker.worktree,
-        contractHash: before.currentContractHash
+        contractHash: before.currentContractHash,
+        ...(manualResumeAt === undefined ? {} : {manualResumeAt})
       });
     } catch (cause) {
       await this.#repository.mutate(runId, (current) => {

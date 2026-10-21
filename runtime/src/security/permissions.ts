@@ -93,6 +93,7 @@ const execFile = promisify(execFileCallback);
 const lockQueues = new Map<string, Promise<void>>();
 const heartbeatFailures = new Map<string, unknown>();
 const heartbeatPaths = new Set<string>();
+const heartbeatReleases = new Map<string, () => Promise<void>>();
 // A heartbeat lives as long as the process. Its handle is held here, not only
 // by the interval below, so a reset or mocked timer can never let garbage
 // collection close it (an uncaught error since Node 26).
@@ -264,6 +265,14 @@ async function ensureProcessHeartbeat(
         });
       });
     }, HEARTBEAT_INTERVAL_MS);
+    heartbeatReleases.set(heartbeatPath, async () => {
+      clearInterval(timer);
+      await handle.close();
+      heartbeatHandles.delete(handle);
+      heartbeatPaths.delete(heartbeatPath);
+      processHeartbeats.delete(cacheKey);
+      heartbeatReleases.delete(heartbeatPath);
+    });
     timer.unref();
     return heartbeat;
   })();
@@ -273,6 +282,67 @@ async function ensureProcessHeartbeat(
   } catch (error) {
     processHeartbeats.delete(cacheKey);
     throw error;
+  }
+}
+
+async function fileIdentity(path: string): Promise<{dev: bigint; ino: bigint} | undefined> {
+  try {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const {dev, ino} = await handle.stat({bigint: true});
+      return {dev, ino};
+    } finally {await handle.close();}
+  } catch {
+    return undefined;
+  }
+}
+
+/** Retire authenticated runtime markers without weakening Git's dirty-file guard. */
+export async function cleanupWorktreeHeartbeats(root: string, paths: readonly string[]): Promise<void> {
+  const candidates: {path: string; relative: string; pid: number; own: boolean; dev: bigint; ino: bigint}[] = [];
+  for (const relativePath of paths) {
+    const match = /^\.(?:claude|codex)\/\.agent-ops-process-([1-9]\d*)-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/u.exec(relativePath);
+    if (match === null) continue;
+    const path = join(root, relativePath), pid = Number(match[1]);
+    const unsafe = () => new AgentOpsError("WORKTREE_HEARTBEAT_UNSAFE", `Preserve unverified heartbeat ${relativePath} (PID ${pid}).`);
+    const blocked = () => new AgentOpsError("WORKTREE_HEARTBEAT_ACTIVE", `Preserve heartbeat ${relativePath}: PID ${pid} is active or its death cannot be confirmed.`);
+    if (!Number.isSafeInteger(pid) || pid > 2147483647) throw unsafe();
+    const parent = await lstat(dirname(path));
+    if (parent.isSymbolicLink() || !parent.isDirectory()) throw unsafe();
+    let handle;
+    try {
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const status = await handle.stat({bigint: true});
+      if (!status.isFile() || status.nlink !== 1n || status.size > 128n ||
+          await handle.readFile("utf8") !== `runtime:${match[2]}\n`) throw unsafe();
+      const own = pid === process.pid && match[2] === PROCESS_INSTANCE_TOKEN && heartbeatReleases.has(path);
+      if (own) {
+        if ([...lockQueues.keys()].some(key => key.startsWith(`${resolve(root)}\0`))) throw blocked();
+      } else if (isProcessActive(pid)) throw blocked();
+      candidates.push({path, relative: relativePath, pid, own, dev: status.dev, ino: status.ino});
+    } catch (error) {
+      if (isMissing(error)) continue;
+      if (error instanceof AgentOpsError) throw error;
+      throw unsafe();
+    } finally {await handle?.close();}
+  }
+  // Validate the complete set before removing anything; foreign owners fail closed.
+  for (const candidate of candidates) {
+    const status = await lstat(candidate.path, {bigint: true});
+    // Identity is compared handle to handle, as it was captured: on Windows, Node 22.14.0
+    // reports different dev/ino for lstat and fstat of the same file.
+    const identity = await fileIdentity(candidate.path);
+    if (!status.isFile() || status.isSymbolicLink() || identity === undefined || identity.dev !== candidate.dev || identity.ino !== candidate.ino)
+      throw new AgentOpsError("WORKTREE_HEARTBEAT_UNSAFE", `Heartbeat changed before cleanup: ${candidate.relative}.`);
+    if (!candidate.own && isProcessActive(candidate.pid))
+      throw new AgentOpsError("WORKTREE_HEARTBEAT_ACTIVE", `Preserve heartbeat ${candidate.relative}: PID ${candidate.pid} is active or its death cannot be confirmed.`);
+    if (candidate.own) {
+      const release = heartbeatReleases.get(candidate.path);
+      if (release === undefined || [...lockQueues.keys()].some(key => key.startsWith(`${resolve(root)}\0`)))
+        throw new AgentOpsError("WORKTREE_HEARTBEAT_ACTIVE", `Current-process locks still protect ${candidate.relative} (PID ${candidate.pid}).`);
+      await release();
+    }
+    await rm(candidate.path);
   }
 }
 

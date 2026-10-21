@@ -40,7 +40,7 @@ test("snapshot aggregates runs, run worktrees and lobby desks; review slots make
   assert.equal(run!.title, "run-office-fixture");
   assert.equal(run!.phase, "verifying");
   assert.equal(old!.phase, "unknown");
-  assert.deepEqual(run!.budget, {limitMs: 3600000, usedMs: 1200000, remainingMs: 2400000});
+  assert.deepEqual(run!.budget, {limitMs: null, usedMs: 1200000, remainingMs: null});
   assert.deepEqual(run!.agents.map(a => [a.id, a.role, a.phase, a.worktree, a.narration]), [
     ["coordinator-run-office-fixture", "coordinator", "verifying", "coord", "writing tests"],
     ["w1", "worker", "unknown", "child", "writing docs"]]);

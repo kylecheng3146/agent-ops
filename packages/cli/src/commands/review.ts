@@ -1030,12 +1030,14 @@ export async function runReviewCommand(
           if (execution !== null) contractArtifacts.push({path: executionPath, digest: sha256(execution), content: execution});
         }
       }
+      // Compact: indentation alone pushed a 494 KiB 0.10.2 manifest past the 512 KiB bound.
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
         executionPolicy: options.config,
+        ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
         artifacts: contractArtifacts.map(({path, digest}) => ({path, digest})),
         tasks: await Promise.all(context.records.map(async r => ({task: r.task, revisions: r.revisions ?? [],
           ...(r.task.debug === undefined ? {} : {debugProof:await loadDebugProof(options.root!,r.task.debug.rootTaskId)})}))),
-        superseded: context.historyRecords ?? []}, null, 2));
+        superseded: context.historyRecords ?? []}));
       const digest = sha256(content);
       const path = ".agent-ops/tasks/review-contracts/" + digest + ".json";
       contractManifest = {path, digest, content};

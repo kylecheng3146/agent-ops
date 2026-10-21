@@ -75,17 +75,18 @@ export function planSchedule(state: RunState): SchedulePlan {
   const running = state.tasks.filter((task) => task.status === "running" || task.status === "awaiting-delivery");
   const blocked = state.tasks.filter((task) => task.status === "blocked");
   const ready = state.tasks.filter((task) => ["planned", "ready"].includes(task.status) && dependencyState(state.tasks, task) === "ready");
+  const slotConsumers = state.workers.filter(worker => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status));
   return {
-    ready,
+    ready: ready.filter(task => task.taskId !== state.rootTaskId),
     running,
     blocked,
-    availableSlots: Math.max(0, Math.min(state.jobs, MAX_ACTIVE_WORKERS) - running.length)
+    availableSlots: Math.max(0, Math.min(state.jobs, MAX_ACTIVE_WORKERS) - slotConsumers.length)
   };
 }
 
 /**
  * Compute whole-run active wall time as the union of intervals. This prevents
- * two parallel writers from doubling the 60-minute run budget.
+ * two parallel writers from doubling measured consumption.
  */
 export function activeWallTimeMs(
   intervals: readonly { readonly startMs: number; readonly endMs: number | null }[],
@@ -117,7 +118,12 @@ export function activeWallTimeMs(
 }
 
 export function budgetExpired(state: RunState, now = Date.now()): boolean {
-  return activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
+  return state.budget.limitMs !== null && activeWallTimeMs(state.budget.activeIntervals, now) >= state.budget.limitMs;
+}
+
+/** Infinity is internal only: callers retain their finite command/review timeouts. */
+export function remainingRunTimeMs(state: RunState, now = Date.now()): number {
+  return state.budget.limitMs === null ? Infinity : state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, now);
 }
 
 /** Two consecutive identical failure rounds without a useful change stop one child. */
@@ -266,7 +272,7 @@ export class RunScheduler {
     if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw error("RUN_CLOCK_INVALID", "Budget clock is invalid.");
     return await this.#repository.mutate(runId, (current) => {
       const accumulatedMs = activeWallTimeMs(current.budget.activeIntervals, nowMs);
-      const expired = accumulatedMs >= current.budget.limitMs;
+      const expired = current.budget.limitMs !== null && accumulatedMs >= current.budget.limitMs;
       return {
         ...current,
         status: expired && ["active", "awaiting-input"].includes(current.status) ? "budget-limited" : current.status,

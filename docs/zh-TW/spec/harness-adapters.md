@@ -93,7 +93,7 @@ script，也不得改變一般 permission request。
 | office-presence (Preview) | degraded | degraded | supported | degraded |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
-| completion-gate | supported | unsupported | unsupported | unsupported |
+| completion-gate | supported | unsupported | supported | unsupported |
 | optional-stop-verify | degraded | unsupported | supported | degraded |
 
 Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安裝的 config
@@ -163,6 +163,26 @@ byte-identical。Update MUST 保留此 profile，除非提供 `--auto-run on|off
   test 涵蓋解析後的 profile、未變更的 rules、新增的 entry，以及唯一豁免的路徑。
 - Positive: `啟用 run profile 的 Claude Code session 在 main checkout 寫入 .agent-ops/state/run-goal.md，並在 background 啟動 agent-ops run --host claude --wait。`
 - Negative: `run profile 啟用時仍將八項 criteria 的變更拆成 subtask、在 GEMINI.md 加入 auto-run 文字，或未經使用者即 resume blocked run。`
+
+`run status` 的 JSON 提供 `recovery`，文字輸出也呈現相同資訊：phase（舊紀錄為
+unknown）、有界且遮蔽敏感資料的原始診斷、sealed proof（`recorded-unchecked`
+僅表示紀錄存在，不代表驗證通過）、cleanup 狀態、能否 resume 與具體修復方式。
+相同 cleanup blocker 保留原始 cause。Trust、native identity、generation 與 denial
+仍 fail-closed；sealed proof 不得抹除 native 或組織的明確拒絕。
+
+人工 resume 已寫入 receipt 的 integration，必須先驗證原 sealed proof、receipt
+digest 與 transaction、owner/generation、candidate/target ancestry 及 Git note。
+只執行尚缺的 note、gate、trust 與 checkout cleanup，保留原 receipt bytes 與已完成的
+task/proof。尚未記錄完成且缺失的 note 可補寫；已記錄完成的 note 缺失或變更則阻擋。
+確認所屬 checkout 已移除後才可標記 cleaned，不再次移動 target。Target 若已前進，
+僅在它是 receipt-bound candidate 的後代且有原整合歷史時接受。
+
+Cleanup 保存有界且遮蔽敏感資料的原始錯誤，以及 transaction boundary、checkout
+status、untracked file metadata 與 heartbeat liveness 的 retry-input digest。
+相同輸入回 `RUN_CLEANUP_UNCHANGED`，不重複 cleanup；修復條件改變後仍須重新通過所有
+安全檢查，才可嘗試一次。此 digest 僅防止盲重試，不是 proof reuse 或新授權。
+Finalization 失敗不立即重跑同一 integration，保留原 cause 供人工恢復。
+Live/unknown/偽造/symlink heartbeat 與無關使用者檔案仍受既有 non-force removal 保護。
 
 ## HARNESS-ADAPTER-008
 

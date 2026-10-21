@@ -73,8 +73,9 @@ Use `task debug --task <id> --debug-action <action>`:
 - `resume --session <id>` recovers a matching owned worktree checkpoint. Mismatches
   require human confirmation and remain preserved; this command cannot waive them.
 - `extend --session <native-id> --event-id latest` reads the current native human
-  continue event. It grants exactly twenty additional minutes once, only after
-  time exhaustion and without waiving any other blocker. No actor/text flag can
+  continue or resume-repair event. After time exhaustion it grants a full twenty
+  minutes from that event, retaining consumed time and overrun in the grant snapshot
+  without waiving any other blocker. No actor/text flag can
   authorize a grant. Missing native transcripts fail closed as unsupported.
 
 Limits belong to the original root across revisions, children and sessions.
@@ -97,6 +98,11 @@ rounds. Test/fixture edits do not. New paired original-regression outcomes or
 new discriminating hypothesis outcomes count as progress; renaming a task or
 hypothesis does not. Two stagnant rounds require the strategy switch; two more
 stop, subject to the global round/time ceilings.
+The switch may cite this issue's own sealed regression evidence from an earlier
+contract revision, because a scope revision stales current evidence while
+verification stays stopped; hypotheses and delivery still need fresh evidence.
+At the round limit an unchanged candidate may still be reviewed, and re-verified
+when its last verification passed; a failing or changed candidate stays stopped.
 
 Success requires baseline assertion red and candidate green for the original
 regression, required related checks, a supported confirmed hypothesis, and two
@@ -121,3 +127,9 @@ persists foreground progress, and does not promise
 execution after the native conversation closes. Native transcripts are trusted
 host evidence, not protection against an attacker with the same filesystem
 authority.
+
+An explicit native human `no time limit` / `取消時間限制` instruction removes the
+original issue time cap via the same native-only `extend --event-id latest`
+authority. The grant records `grantedMs: null` and the spent snapshot; original
+budget, consumption, prior grants, iteration limits and evidence gates remain.
+Ordinary command and review stall timeouts remain in force.

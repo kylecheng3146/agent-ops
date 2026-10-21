@@ -12,7 +12,7 @@ import { readOfficeSessions, recordOfficeSession } from "../../runtime/src/offic
 import { DEFAULT_CONFIG } from "../../packages/cli/src/context.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { LaunchdController } from "../../runtime/src/run/macOS.js";
-import { claimOffice, createOfficeServer } from "../../runtime/src/office/server.js";
+import { claimOffice, createOfficeServer, officeRecordPath } from "../../runtime/src/office/server.js";
 
 // The user's one Office lives under AGENT_OPS_HOME; keep it out of the real home.
 let home = "";
@@ -105,6 +105,7 @@ test("a running Office closes when the Preview choice is disabled", async t => {
     assert.equal(await officeEnabled(root), false);
   } finally {
     t.mock.timers.reset();
+    await rm(officeRecordPath(officeHome()), {force: true});
     await rm(root, {recursive: true, force: true});
   }
 });
@@ -159,6 +160,11 @@ test("background startup opens one injected browser page for one shared server",
     assert.equal(bootstraps, 1);
     assert.equal(pages.length, 1);
     assert.equal(pages[0], left);
+    await closeServer?.();
+    const revived = await ensureBackgroundOffice(root, launchd, open);
+    assert.equal(revived, left);
+    assert.equal(bootstraps, 2);
+    assert.equal(pages.length, 1);
   } finally {
     await closeServer?.();
     await rm(root, {recursive: true, force: true});

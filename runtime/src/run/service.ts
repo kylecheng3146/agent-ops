@@ -7,6 +7,8 @@ import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { readPrivateFile, withPrivateFileLock, writePrivateFile } from "../security/permissions.js";
 import {budgetExpired} from "./scheduler.js";
+import {approvalRetryEvents} from "./controls.js";
+import {redactSecrets} from "../security/redact.js";
 
 /** Hosts with a writer transport in the first run release. */
 export type RunHost = "claude" | "codex";
@@ -68,8 +70,10 @@ export interface RunUsage {
 }
 
 export interface RunBudgetState {
-  /** Whole-run wall-clock budget in milliseconds. */
-  readonly limitMs: number;
+  /** Null means no total cap; finite legacy limits remain until manual resume. */
+  readonly limitMs: number | null;
+  readonly legacyLimitMs?: number;
+  readonly upgradedAt?: string;
   /** Union of active intervals. Overlapping workers count once. */
   readonly activeIntervals: readonly { readonly startMs: number; readonly endMs: number | null }[];
   readonly accumulatedMs: number;
@@ -250,7 +254,7 @@ const ID = /^[A-Za-z0-9._:/-]{1,256}$/u;
 const SHA = /^[a-f0-9]{40,64}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u;
-const MAX_EVENTS = 2_000;
+export const MAX_EVENTS = 2_000;
 const MAX_GOAL_LENGTH = 64_000;
 const MAX_TIME_BUDGET_MS = 24 * 60 * 60 * 1_000;
 
@@ -340,8 +344,10 @@ export function assertRunState(value: unknown): asserts value is RunState {
       state.events.some(event => !plain(event)) || !Array.isArray(state.budget.activeIntervals) ||
       state.budget.activeIntervals.some(interval => !plain(interval))) return invalid("Run state contains malformed nested records.");
   if (!RUN_ID.test(state.runId) || !SHA.test(state.goalHash) || state.goal.length > MAX_GOAL_LENGTH ||
-      sha256(state.goal) !== state.goalHash || !Number.isSafeInteger(state.budget.limitMs) ||
-      state.budget.limitMs <= 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS ||
+      sha256(state.goal) !== state.goalHash || (state.budget.limitMs !== null && (!Number.isSafeInteger(state.budget.limitMs) ||
+      state.budget.limitMs <= 0 || state.budget.limitMs > MAX_TIME_BUDGET_MS)) ||
+      (state.budget.legacyLimitMs !== undefined && (!Number.isSafeInteger(state.budget.legacyLimitMs) || state.budget.legacyLimitMs <= 0 || state.budget.legacyLimitMs > MAX_TIME_BUDGET_MS)) ||
+      (state.budget.upgradedAt !== undefined && !Number.isFinite(Date.parse(state.budget.upgradedAt))) ||
       !Number.isSafeInteger(state.budget.accumulatedMs) || state.budget.accumulatedMs < 0 ||
       !Array.isArray(state.budget.activeIntervals) || state.budget.activeIntervals.some((interval) =>
         !Number.isSafeInteger(interval.startMs) || interval.startMs < 0 ||
@@ -411,10 +417,8 @@ export function createRunState(input: {
   if (input.jobs !== undefined && (!Number.isSafeInteger(input.jobs) || input.jobs < 1 || input.jobs > 2)) {
     throw new AgentOpsError("RUN_JOBS_INVALID", "A run supports one or two implementation workers.");
   }
-  const limitMs = input.timeBudgetMs ?? 60 * 60 * 1_000;
-  if (!Number.isSafeInteger(limitMs) || limitMs <= 0 || limitMs > MAX_TIME_BUDGET_MS) {
-    throw new AgentOpsError("RUN_BUDGET_INVALID", "Run time budget must be a positive value no greater than 24 hours.");
-  }
+  if (input.timeBudgetMs !== undefined)
+    throw new AgentOpsError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Command and review timeouts remain effective.");
   const runId = input.runId ?? `run-${randomUUID().replaceAll("-", "").slice(0, 16)}`;
   if (!RUN_ID.test(runId)) throw new AgentOpsError("RUN_ID_INVALID", "Run id must contain 8-64 lowercase letters, digits, and hyphens.");
   const usage: RunUsage = { tokens: null, usd: null, completeness: "unknown", source: null, epoch: 0, highWaterMark: 0 };
@@ -442,7 +446,7 @@ export function createRunState(input: {
     awaitingResume: false,
     disableRestart: false,
     budget: {
-      limitMs,
+      limitMs: null,
       activeIntervals: [],
       accumulatedMs: 0,
       startedAt: iso(now, "budget.startedAt"),
@@ -575,6 +579,52 @@ export interface RunLifecycleResult {
   readonly message: string;
 }
 
+const RECOVERABLE = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
+  "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_POLICY_DISABLED", "NATIVE_GOAL_NOT_ACTIVE", "RUN_WORKER_STALE", "RUN_IDENTITY_INVALID", "RUN_TIME_BUDGET_EXCEEDED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
+
+function resumeBlocker(current: RunState, acknowledged: ReadonlySet<string> = new Set()): RunEvent | undefined {
+  return [...current.events].reverse().find(e => !acknowledged.has(e.id) && (RECOVERABLE.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code)));
+}
+
+function cannotResume(current: RunState, acknowledged: ReadonlySet<string> = new Set()): boolean {
+  return current.status === "complete" || current.events.some(e => e.code === "RUN_COMMAND_DENIED" && !acknowledged.has(e.id)) ||
+    (current.integration?.proofDigest === undefined && (
+      current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start") ||
+      (current.status === "blocked" && !RECOVERABLE.has(resumeBlocker(current, acknowledged)?.code ?? ""))));
+}
+
+/** Observations are not proof validation; resume still reconciles every authority and sealed artifact. */
+export function describeRunRecovery(state: RunState, now = Date.now()) {
+  const diagnostics = [...state.events].reverse().filter(e => e.type === "diagnostic");
+  const event = diagnostics[0]?.code === "RUN_CLEANUP_UNCHANGED"
+    ? diagnostics.find(e => e.code === "RUN_CLEANUP_BLOCKED") ?? diagnostics[0] : diagnostics[0];
+  let cause = event === undefined ? null : {code: event.code, detail: redactSecrets(event.detail ?? "").slice(0, 4096)};
+  if (event?.code === "RUN_CLEANUP_BLOCKED") {
+    try {
+      const saved = JSON.parse(event.detail ?? "{}") as {code?: unknown; message?: unknown};
+      if (typeof saved.code === "string" && typeof saved.message === "string")
+        cause = {code: saved.code, detail: redactSecrets(saved.message).slice(0, 4096)};
+    } catch { /* Retain the recorded diagnostic when old metadata cannot be decoded. */ }
+  }
+  const sealedProof = state.integration?.proofDigest !== undefined;
+  const cleanup = state.integration?.status === "cleaned" ? "complete" :
+    state.integration?.status === "receipt-written" ? "pending" : "not-ready";
+  const resumable = !cannotResume(state);
+  const code = cause?.code ?? "";
+  const remediation = state.status === "complete" ? "No action: the completed run and its receipt are immutable." :
+    state.events.some(e => e.code === "RUN_COMMAND_DENIED") ? "Obtain genuine new authorization for the recorded denial; resume cannot erase it." :
+    /TRUST/u.test(code) ? "Restore repository trust through the supported authorization process, then manually resume; trust is revalidated." :
+    /IDENTITY|GENERATION|STALE/u.test(code) ? "Confirm the old writer is dead and reconcile its owned worktree, native identity and current generation; never replay an old request." :
+    /PROOF|RECEIPT|TARGET_CHANGED|OWNERSHIP/u.test(code) ? "Reconcile the sealed proof, receipt, target and owner mismatch; preserve the checkout and never replace sealed artifacts." :
+    /NO_PROGRESS/u.test(code) ? "Inspect the saved failure history; ordinary resume cannot reset no-progress counters." :
+    cleanup === "pending" ? "Resolve the recorded cleanup blocker, then manually resume the original run. Only missing steps run after proof, receipt, target and ownership validation; unchanged cleanup inputs are refused." :
+    RECOVERABLE.has(code) ? `Resolve ${code}, then manually resume the original run; runtime, policy, identity and worktree checks still apply.` :
+    state.status === "awaiting-input" ? "Answer the pending question with agent-ops run respond." :
+    !resumable ? "Inspect agent-ops run logs and repair the recorded blocker before requesting recovery; do not blindly resume." :
+    "Inspect agent-ops run logs before a manual resume; reconciliation precedes any writer restart.";
+  return {phase: state.phase ?? "unknown", cause, sealedProof: sealedProof ? "recorded-unchecked" : "none", cleanup, resumable, remediation};
+}
+
 /**
  * Small service facade used by the CLI and supervisor. Native host execution is
  * injected; this layer owns persistent run identity and never treats a host's
@@ -638,29 +688,32 @@ export class RunService {
     return { state, message: `Run ${runId} is paused.` };
   }
 
-  async resume(runId: string): Promise<RunLifecycleResult> {
-    const state = await this.#repository.mutate(runId, (current) => {
-      const recoverable = new Set(["RUN_RECOVERY_DIRTY", "RUN_NATIVE_VERSION_CHANGED", "RUN_RUNTIME_CHANGED", "RUN_REPO_UNTRUSTED",
-        "RUN_NATIVE_UNAVAILABLE", "RUN_RESTART_STORM", "RUN_POLICY_RECOVERY_REQUIRED", "RUN_POLICY_EXPIRED", "RUN_SETUP_RECOVERY_REQUIRED", "RUN_NATIVE_START_FAILED"]);
-      const blocker = [...current.events].reverse().find(e => recoverable.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code));
-      const terminalBlocker = current.events.some(e => e.code === "RUN_COMMAND_DENIED") ||
-        current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start");
-      if (current.status === "complete" || (current.integration?.proofDigest === undefined &&
-          (terminalBlocker || (current.status === "blocked" && !recoverable.has(blocker?.code ?? ""))))) {
+  async resume(runId: string, retryApprovalIds: readonly string[] = [], upgradeBudget = true): Promise<RunLifecycleResult> {
+    const state = await this.#repository.mutate(runId, async (current) => {
+      const acknowledged = await approvalRetryEvents(current, retryApprovalIds);
+      const recoverable = RECOVERABLE;
+      const blocker = resumeBlocker(current, acknowledged);
+      if (cannotResume(current, acknowledged)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
-      if (current.integration?.proofDigest === undefined && budgetExpired(current, Date.parse(this.#now())))
+      if (current.integration?.proofDigest === undefined && !upgradeBudget && budgetExpired(current, Date.parse(this.#now())))
         throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
-      const recover = ["blocked", "paused"].includes(current.status) && recoverable.has(blocker?.code ?? "");
+      const recover = ["blocked", "paused", "budget-limited"].includes(current.status) && recoverable.has(blocker?.code ?? "");
       return {
         ...current,
-        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") ? {...w, status: "stopped" as const} : w),
+        ...(upgradeBudget && current.budget.limitMs !== null ? {
+          budget: {...current.budget, limitMs: null, legacyLimitMs: current.budget.limitMs, upgradedAt: this.#now()},
+          events: [...current.events, event({type: "diagnostic", code: "RUN_BUDGET_UPGRADED", workerId: null, taskId: null,
+            detail: `Manual resume removed legacy total cap ${current.budget.limitMs}ms; accounting and independent blockers remain.`}, this.#now())].slice(-MAX_EVENTS)
+        } : {}),
+        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") &&
+          !current.tasks.some(t => t.taskId === w.taskId && t.status === "blocked" && !recoverable.has(t.blockedReason ?? "")) ? {...w, status: "stopped" as const} : w),
           tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
         status: "active",
         awaitingResume: false,
         disableRestart: false,
         controls: [...current.controls, {
-          action: "resume", actor: "user", reason: null, requestedAt: this.#now(), expiresAt: null, appliedAt: null
+          action: "resume", actor: "user", reason: retryApprovalIds.length === 0 ? null : "retry-approval:" + JSON.stringify(retryApprovalIds), requestedAt: this.#now(), expiresAt: null, appliedAt: null
         }]
       };
     });

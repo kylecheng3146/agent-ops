@@ -47,7 +47,8 @@ export class JsonRpcSession {
 
   constructor(
     readonly child: ChildProcessWithoutNullStreams,
-    readonly requestTimeoutMs = 30_000
+    readonly requestTimeoutMs = 30_000,
+    private readonly acceptNotification: (message: JsonRecord) => boolean = () => true
   ) {
     this.lines = createInterface({ input: child.stdout });
     this.lines.on("line", (line) => this.receive(line, "stdout"));
@@ -164,7 +165,7 @@ export class JsonRpcSession {
       }
       return;
     }
-    this.enqueue(message);
+    if (id !== undefined || this.acceptNotification(message)) this.enqueue(message);
   }
 
   private write(message: JsonRecord): void {

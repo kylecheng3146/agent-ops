@@ -48,6 +48,8 @@ Claude、Codex 與 agy 都使用可信 native session lifecycle，在 `UserPromp
 中斷且沒有封存結果的操作，必須等持久化 process identity 證實程序已死亡後，
 才封存 UNKNOWN environment receipt；這段經過時間仍會保留，不會退還不明時間。
 測試材料修改不算修復輪；兩輪停滯需要一次實質策略切換，再兩輪停滯停止。
+範圍改版會讓現有證據失效、而驗證在登記策略切換前仍停止，因此策略切換可引用同一原始任務已封存的歷史回歸證據；假設確認與最終交付仍需新版契約的新證據。
+達到回合上限後，未變更的候選仍可審查；上次驗證通過時也可重新驗證（例如只更新 escape ledger），不計為新回合。驗證失敗或產品內容變更的候選仍維持停止。
 
 假設確認後以 `origin --payload-file <json>` 宣告 bug 來源：`{"kind": "escape-of",
 "commit": "<commit>", "label": "<最早關卡>"}`（可選 `"receipt"`），或 `{"kind":
@@ -61,8 +63,8 @@ verify 並重新記錄已確認的假設；沒有它時 finish 以 `ESCAPE_ORIGI
 
 checkpoint 保存 task/session/source/contract/config/cause；resume 只接受同一
 擁有者 worktree 的匹配 checkpoint，保留 dirty 內容及預算。失配需要人類確認。
-時間耗盡後明確「繼續」可透過 `extend --event-id latest` 讀取原生人類事件，
-一次增加 20 分鐘；沒有可信事件来源則回報 unsupported，其他阻礙不被解除。
+時間耗盡後明確「繼續」或「繼續修復」可透過 `extend --event-id latest` 讀取原生人類事件，
+從該事件取得完整 20 分鐘，並以 grant 快照保留既有消耗與超時；沒有可信事件來源則回報 unsupported，其他阻礙不被解除。
 
 Claude / agy / 原生 Codex 的 Stop 都會檢查無 Git 差異的 active DEBUG task，不論是否安裝 completion gate。
 DEBUG gate 故障先針對 task/config 重新載入一次；仍失敗則明確回報 `UNKNOWN／未完成`
@@ -74,3 +76,8 @@ Codex 的一般 completion gate 仍 unsupported；DEBUG 專用 Stop 以原生
 只承諾前景對話與持久化進度，不承諾對話關閉後繼續，也不宣稱抵擋同檔案權限攻擊。
 
 完整命令及細節見英文 [Task DEBUG](../../en/guides/task-debug.md)。
+
+原生人類明確要求「取消時間限制」或 `no time limit` 時，可透過同一個
+`extend --event-id latest` 原生授權入口取消原任務總時限。grant 記錄
+`grantedMs: null` 與已用時間快照；原預算、消耗、舊 grant、回合限制及
+驗證與 review 關卡均保留。個別命令與 review 的防卡死逾時仍有效。

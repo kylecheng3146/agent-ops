@@ -13,7 +13,8 @@ const patterns = [
   /(?:frontend-wixgo|agent-ops-build|(?:^|[./])wixtar\.com)\b/iu,
   /gh[pousr]_[A-Za-z0-9]{20,}/u,
   /github_pat_[A-Za-z0-9_]{20,}/u,
-  /sk-[A-Za-z0-9_-]{20,}/u,
+  // ponytail: boundary keeps task IDs ("task-<uuid>") from matching; a real key starts its token.
+  /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/u,
   /(?:xox[baprs]|AIza|AKIA|npm)_[A-Za-z0-9_-]{16,}/u,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/u
 ];

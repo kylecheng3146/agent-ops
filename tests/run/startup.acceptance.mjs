@@ -6,6 +6,7 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {recoveryChecks} from '../debug/recovery-checks.mjs';
 import {officePhaseChecks} from '../office/phase-checks.mjs';
+import {officeReviveChecks} from '../office/revive-checks.mjs';
 import {peerOriginChecks} from '../debug/peer-origin-checks.mjs';
 import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
@@ -13,6 +14,13 @@ import {escapeChecks} from '../escape/escape-checks.mjs';
 import {ruleChecks} from '../escape/rule-checks.mjs';
 import {timeoutChecks} from '../verify/timeout-checks.mjs';
 import {syncChecks} from '../worktree/sync-checks.mjs';
+import {nativeGrantChecks} from '../debug/native-grant-checks.mjs';
+import {heartbeatCleanupChecks} from '../worktree/heartbeat-cleanup-checks.mjs';
+import {resumeAuthorizationChecks} from './resume-authorization-checks.mjs';
+import {nativeResumeChecks} from './native-resume-checks.mjs';
+import {recoveryRepairChecks} from './recovery-repair-checks.mjs';
+import {unlimitedPolicyChecks} from './unlimited-policy-checks.mjs';
+import {serialWorkerChecks} from './serial-workers-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -54,8 +62,11 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...nativeResumeChecks,
+  ...resumeAuthorizationChecks,
   ...recoveryChecks,
   ...officePhaseChecks,
+  ...officeReviveChecks,
   ...peerOriginChecks,
   ...authorizationChecks,
   ...surfaceChecks,
@@ -63,6 +74,11 @@ const checks = {
   ...ruleChecks,
   ...timeoutChecks,
   ...syncChecks,
+  ...nativeGrantChecks,
+  ...heartbeatCleanupChecks,
+  ...recoveryRepairChecks,
+  ...unlimitedPolicyChecks,
+  ...serialWorkerChecks,
   'live-worktree-heartbeats': () => fixture(async ({root, runner, gate}) => {
     const deps = {git: async (cwd, args) => {
       try {return {exitCode: 0, stdout: execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}), stderr: ''};}

@@ -1,6 +1,6 @@
 import {FileRunRepository} from "../../../runtime/src/run/service.js";
 import {readRunPolicy, runRuntimeHash} from "../../../runtime/src/run/policy.js";
-import {activeWallTimeMs} from "../../../runtime/src/run/scheduler.js";
+import {remainingRunTimeMs} from "../../../runtime/src/run/scheduler.js";
 import {runVerificationCommand, NodeVerificationProcessRunner} from "../../../runtime/src/verify/spawn.js";
 import {redactSecrets} from "../../../runtime/src/security/redact.js";
 import {join} from "node:path";
@@ -19,7 +19,7 @@ if (state === null || state.status !== "active" || state.disableRestart || state
 const policy = await readRunPolicy(state, await runRuntimeHash());
 const step = /^(?:0|[1-9][0-9]*)$/u.test(index!) ? policy?.config.worktree?.setup?.[Number(index)] : undefined;
 if (step === undefined) throw new Error("Setup must select an authorized fixed policy command.");
-const remaining = state.budget.limitMs - activeWallTimeMs(state.budget.activeIntervals, Date.now());
+const remaining = remainingRunTimeMs(state);
 if (remaining <= 0) throw new Error("Run budget is exhausted.");
 const result = await runVerificationCommand({id: "run-setup", ...step, cwd: ".", required: true,
   timeoutMs: Math.min(step.timeoutMs ?? 600000, remaining), evidence: {kind: "exit-code"}}, {

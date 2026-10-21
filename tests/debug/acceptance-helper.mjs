@@ -97,9 +97,38 @@ const checks={
  try{
   await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
   assert.equal(debugStopCause((await f.tasks.debugService().root(f.record.task.id)).debug),'iterations');
+  // A FAIL candidate at the cap cannot be re-verified, even with an unchanged product.
+  await assert.rejects(f.verify(),stop);
   await f.candidate(1);await assert.rejects(f.verify(),stop);
  }finally{await f.close();}
+ const passed=await fixture(true,1);
+ try{
+  await passed.candidate(1);assert.equal((await passed.verify()).status,'PASS');
+  assert.equal(debugStopCause((await passed.tasks.debugService().root(passed.record.task.id)).debug),'iterations');
+  // Re-verifying the unchanged PASS candidate (e.g. after an escape-ledger update) is not a new round.
+  await mkdir(join(passed.root,'.agent-ops-escapes'),{recursive:true});await writeFile(join(passed.root,'.agent-ops-escapes/note.json'),'{}\n');passed.git('add','.');passed.git('commit','-qm','ledger');
+  assert.equal((await passed.verify()).status,'PASS');
+  assert.equal((await passed.tasks.debugService().root(passed.record.task.id)).debug.receipts.filter(r=>r.round).length,1);
+  await passed.candidate(2);await assert.rejects(passed.verify(),stop);
+ }finally{await passed.close();}
 },
+'debug-strategy-after-revision':async()=>withFixture(async f=>{
+ const {debugStopCause}=await mod('runtime/src/task/debug-state.js');const {taskContractHash}=await mod('runtime/src/task/contract.js');
+ const d=f.tasks.debugService(),id=f.record.task.id,cause=async()=>debugStopCause((await d.root(id)).debug);
+ await f.candidate(2);assert.equal((await f.verify()).status,'FAIL');
+ await f.candidate(3);const report=await f.verify();assert.equal(report.status,'FAIL');
+ assert.equal(await cause(),'strategy-required');
+ const sealed=report.acceptance.find(r=>r.criterionId==='issue' && r.phase==='candidate').reference;
+ const before=await d.root(id);
+ await f.tasks.revise(id,{expectedContractHash:taskContractHash(before.task),criteria:before.task.criteria.map(c=>c.id==='related'?{...c,description:'Related invariant after scope update'}:c),reason:'Update scope after two stagnant repair rounds'});
+ await assert.rejects(f.verify(),e=>e.code==='TASK_DEBUG_STOP_REQUIRED');
+ const strategy={from:'Change the exported constant directly',to:'Trace the value through its importer before editing',reason:'Two direct constant edits left the original regression red',reference:sealed};
+ await assert.rejects(d.strategy(id,{...strategy,reference:'missing.json'}));
+ await d.strategy(id,strategy);assert.equal(await cause(),null);
+ assert.deepEqual((await d.root(id)).debug.receipts.length,before.debug.receipts.length);
+ await f.candidate(1);assert.equal((await f.verify()).status,'PASS');
+ await assert.rejects(d.hypothesis(id,{...hypothesis,reference:sealed}),e=>e.code==='TASK_DEBUG_EVIDENCE_STALE');
+}),
 'debug-hypothesis-lifecycle':async()=>withFixture(async f=>{
  const d=f.tasks.debugService(), id=f.record.task.id;
  await f.candidate();

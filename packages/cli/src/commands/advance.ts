@@ -117,7 +117,8 @@ export async function runAdvanceCommand(options: {
     throw new AgentOpsError("ADVANCE_WORKTREE_MISSING", `No coordinator worktree for session ${options.sessionId}.`);
   }
   const savedProof = await readRunIntegrationProof(commonDir, record);
-  if (savedProof !== null && await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]) === savedProof.head) {
+  if (savedProof !== null && (await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]) === savedProof.head ||
+      (await deps.git(mainRoot, ["merge-base", "--is-ancestor", savedProof.head, record.targetBranch])).exitCode === 0)) {
     const finished = await finishWorktree(deps, {cwd: mainRoot, name, finalProof: {...savedProof, recovery: true}});
     return okEnvelope("TASK_ADVANCED", { ...finished, text: "Recovered the sealed integration without moving the target again." });
   }

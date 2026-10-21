@@ -12,6 +12,8 @@ English source version: 2026-09-30. Revalidate: when the English specification c
 - Positive: `Packet 包含已記錄的 task 意圖、條件、檔案與證據要求。`
 - Negative: `轉送完整 session transcript 與環境。`
 
+大型 surface audit（含完整修訂歷史、discovery 與 post-block exclusions）可使用 digest-bound reference，指向已驗證 snapshot 契約 manifest 中正規化後完全相符的資料。兩輪審查都必須讀取完整 manifest surface。64 KiB inline packet 與 512 KiB manifest 上限仍有效；小型及舊版 packet 保留 inline 資料。
+
 ## REVIEW-RESULT-001
 
 審查結果 MUST 保留 PASS、FAIL 或 NOT_RUN，且 MUST NOT 把 NOT_RUN 轉成 PASS。
@@ -57,6 +59,9 @@ tree，不 fallback、不寫 attestation；timeout 保留獨立 NOT_RUN reason�
 扁平化為 `missing-cli`。
 
 ## REVIEW-CHAIN-001
+
+agy 在生成期間可能完全沒有輸出。review 與接續回答 MUST NOT 僅因沒有輸出而
+被取消；設定的單輪 timeout 與呼叫者取消仍然有效。
 
 兩個規劃的 session MUST 依序為必要 reviewer 與 adversarial 複審。第一個
 session 遇到 FAIL 或 NOT_RUN MUST 立即停止；不會在該結果後 fallback。

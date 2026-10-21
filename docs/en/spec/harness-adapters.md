@@ -109,7 +109,7 @@ The current registration matrix is intentionally asymmetric:
 | office-presence (Preview) | degraded | degraded | supported | degraded |
 | lifecycle-summary | degraded | supported | supported | degraded |
 | command-policy | supported | unknown | supported | supported |
-| completion-gate | supported | unsupported | unsupported | unsupported |
+| completion-gate | supported | unsupported | supported | unsupported |
 | optional-stop-verify | degraded | unsupported | supported | degraded |
 
 For runtime-failure handling, only `command-policy` is fail-closed. Claude
@@ -190,6 +190,31 @@ removes only `run` and keeps `loop`.
   the single exempt path.
 - Positive: `A Claude Code session with the run profile writes .agent-ops/state/run-goal.md in the main checkout and starts agent-ops run --host claude --wait in the background.`
 - Negative: `Split an eight-criteria change into subtasks while the run profile is active, add auto-run text to GEMINI.md, or resume a blocked run without the user.`
+
+`run status` includes `recovery` in JSON and the same guidance in text: phase
+(unknown for legacy records), original bounded redacted diagnostic, sealed proof
+(`recorded-unchecked` is an observation, not validation), cleanup state,
+resumability and concrete remediation. An unchanged cleanup failure retains its
+original cause. Trust, native identity, generation and denial failures remain
+fail-closed; a sealed proof never erases a native or organization denial.
+
+Manual resume of a receipt-bound integration validates the exact sealed proof,
+receipt digest and transaction, owner/generation, candidate/target ancestry and
+Git note before cleanup. It executes only missing note, gate, trust and checkout
+cleanup steps; it preserves existing receipt bytes and completed task/proof work.
+A missing unrecorded note may be bound to the sealed receipt; a missing or changed
+recorded note blocks. Completed cleanup requires the owned checkouts to be gone.
+The target is never moved again. A changed target is accepted only as a descendant
+of the receipt-bound candidate with recorded integration history.
+
+Cleanup records a bounded redacted original failure and a retry-input digest of
+the transaction boundary, checkout status, untracked file metadata and heartbeat
+liveness. Identical inputs return `RUN_CLEANUP_UNCHANGED` before repeating cleanup;
+a remediation delta permits a fresh attempt after all safety checks. This digest
+is a retry guard, not verification reuse or new authority. Finalization failure
+does not immediately replay the failed integration: it preserves the original
+cause for manual recovery. Live/unknown/forged/symlink heartbeats and unrelated
+user files retain the existing non-force removal protections.
 
 ## HARNESS-ADAPTER-008
 

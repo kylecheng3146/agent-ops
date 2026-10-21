@@ -31,6 +31,7 @@ export class NativeRunTransport implements NativeGoalHost {
     const saved = (await this.repository.read(input.runId))?.workers.find(w => w.workerId === input.workerId);
     const request = {runId: input.runId, workerId: input.workerId, generation: input.generation,
       contractHash: input.contractHash, cwd: input.worktree,
+      ...(input.manualResumeAt === undefined ? {} : {manualResumeAt: input.manualResumeAt}),
       env: {AGENT_OPS_SESSION_ID: input.ownerSessionId, AGENT_OPS_HOST: this.host,
         CODEX_THREAD_ID: undefined, AGENT_OPS_AGENT_ID: undefined,
         AGENT_OPS_RUN_ID: input.runId, AGENT_OPS_WORKER_ID: input.workerId,

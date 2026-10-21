@@ -275,7 +275,7 @@ evidence. Give each editing conversation its own worktree instead:
   (Claude Code refuses it inside an isolated worktree session). `agent-ops
   worktree finish <name>` completes every non-archived task in the worktree,
   subtasks before their parents, each against the base its PASS review
-  recorded (the worktree's base when none was recorded), before any rebase.
+  recorded (the worktree's base when none was recorded), before merging.
   If one cannot complete, nothing merges and the error names the task.
   Creating a subtask keeps the session attached to the top of its tree, and
   each task keeps its own review record, so a parent and a subtask reviewed
@@ -295,9 +295,13 @@ evidence. Give each editing conversation its own worktree instead:
   its files, so uncommitted changes there block it. When the main checkout is
   on another branch or detached, only the target's ref moves: the checkout, its
   files and its uncommitted changes are left alone. A target checked out in
-  another worktree is refused, naming that path. If the target moved, it rebases; a clean rebase whose own patch
-  is unchanged is re-verified before merging, and a conflict is reported with
-  the `refs/notes/agent-ops` intent of the work that landed first. The note
+  another worktree is refused, naming that path. If the target moved, it rebases the worktree and
+  stops with `WORKTREE_REBASED` before completing any task: earlier evidence
+  covered the old base, not the combination that would merge. Verify and
+  review again with the printed `--base`, then finish again; a task that was
+  already complete cannot take new evidence, so cover the rebased change with
+  a follow-up task. A conflict is reset and reported with the
+  `refs/notes/agent-ops` intent of the work that landed first. The note
   records every task of the worktree, subtasks indented under their parent,
   and a `session: <id>` line naming the session that finished it. Finish
   also resets that session's gate baseline to the merged source, so the

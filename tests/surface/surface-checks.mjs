@@ -441,6 +441,36 @@ const raw = {
     assert.deepEqual(history[1].change, {added: {excluded: [{glob: 'docs/more.md', reason}]}});
     assert.deepEqual(history[2].change.removed.excluded.map(row => row.glob), ['docs/unrelated-0.md']);
     assert.ok(JSON.stringify(history).length < 4_000, 'history size follows the edits');
+
+    // Rewriting every existing behavior retains both rows in history, as in a 211-path P1 audit.
+    const expanded = {...audit({included}), included: [...audit({included}).included,
+      ...Array.from({length: 207}, (_, i) => ({id: `review-${i}`, path: `docs/review-${i}.md`,
+        behavior: 'Review the complete dependency behavior and preserve all existing flows. '.repeat(2)}))]};
+    const rewritten = {...expanded, included: expanded.included.map(row => ({...row,
+      behavior: `Review dependencies; preserve existing flows: ${row.id}.`}))};
+    let broad = await tasks.create({title: 'Review all dependency behaviors', criteria: CRITERIA, policyConfigHash, requireSurface: true, surface: expanded});
+    broad = await tasks.revise(broad.task.id, {expectedContractHash: taskContractHash(broad.task), surface: rewritten, reason: 'Clarify all dependency behaviors.'});
+    await verified(broad.task.id);
+    let complete;
+    const reviewed = await review(broad.task.id, async request => {complete = request; return passing(request, report(request.invocation.packet.criteria));});
+    assert.equal(reviewed.data.result.status, 'PASS', JSON.stringify(reviewed.data.result));
+    const packet = complete.invocation.packet;
+    assert.ok(Buffer.byteLength(JSON.stringify(packet.surface)) > 65_536, 'the complete audit and history exceed the inline limit');
+    assert.deepEqual(packet.surface.audit.included, rewritten.included);
+    assert.equal(packet.surface.history.length, 1);
+    const last = packet.surface.history.at(-1).change;
+    assert.deepEqual(last.removed.included, expanded.included);
+    assert.deepEqual(last.added.included, rewritten.included);
+    assert.deepEqual(JSON.parse(packet.contractManifest.content).surface, packet.surface);
+    // Indentation alone inflated a 0.10.2 manifest from 494 KiB to 722 KiB, past the 512 KiB bound.
+    assert.equal(packet.contractManifest.content, JSON.stringify(JSON.parse(packet.contractManifest.content)), 'the manifest is compact JSON');
+    const {buildReviewPrompt, buildAdversarialPrompt} = await load('runtime/src/review/runner.js');
+    for (const prompt of [buildReviewPrompt(complete.invocation), buildAdversarialPrompt(complete.invocation, report(packet.criteria))]) {
+      const data = JSON.parse(prompt.split('BEGIN_TASK_DATA\n')[1].split('\n')[0]);
+      assert.equal(data.surface.field, 'surface');
+      assert.equal(data.surface.manifest.path, packet.contractManifest.path);
+      assert.match(prompt, /complete surface audit.*revision history/u);
+    }
   }),
 
   'surface-review-packet': () => reviewFixture(async ({tasks, verified, review, policyConfigHash, taskContractHash}) => {

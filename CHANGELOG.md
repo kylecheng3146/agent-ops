@@ -4,6 +4,53 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-10-21
+
+- Manual run resume recovers proven historical native goal limit snapshots
+  without reusing old resume authority or suppressing fresh limits, denials,
+  stale identities or stop requests. Existing task IDs and accounting remain.
+- agy reviews and resumed answers no longer stop after 240 seconds without
+  output. Configured round timeouts and caller cancellation still apply.
+- Large review surface audits and revision histories are carried intact in
+  the digest-validated contract manifest instead of overflowing the 64 KiB
+  inline packet. Small and legacy packets retain their existing behavior.
+- Runs have no total time cap. Manual resume upgrades legacy finite runs
+  while retaining consumption, and finite policy grants renew only under
+  unchanged repository trust, configuration, runtime and scope.
+- Receipt-bound cleanup resumes only missing steps, retains the original
+  diagnostic and refuses an unchanged failed cleanup attempt. Genuine command
+  denials remain blocking even when integration proof is sealed.
+- With `jobs=1`, the coordinator yields its native process before children
+  start and resumes after their deliveries. Registration, recovery and native
+  start enforce the same single-agent limit.
+- A DEBUG strategy switch after a scope revision may cite the issue's own
+  sealed regression evidence instead of deadlocking on stale references.
+  Hypotheses and delivery still require fresh evidence, two-round review and
+  the existing round and time accounting.
+- At the DEBUG round limit an unchanged candidate whose last verification
+  passed may be re-verified, for example after an escape-ledger update; it
+  does not count as a new round, and a failing candidate stays stopped.
+- Review contract manifests are written as compact JSON, so long revision
+  histories stay within the unchanged 512 KiB manifest bound.
+- The source and package secret scans no longer mistake task IDs
+  (`task-<uuid>`) for API keys.
+- Heartbeat cleanup compares file identity handle to handle, so Windows on
+  Node 22.14.0 no longer reports an unchanged heartbeat as changed.
+
+## [0.10.1] - 2026-10-16
+
+- `agent-ops worktree finish` no longer delivers an unreviewed combination
+  when the target branch moved. It used to complete the tasks, rebase,
+  compare the patch and re-run the configured commands, then merge with a
+  receipt bound to the pre-rebase commit. It now rebases the worktree and
+  stops with `WORKTREE_REBASED` before completing anything; verify and
+  review again with the printed `--base`, then finish again, so the receipt
+  always names the merged commit. A task that was already complete gets a
+  follow-up-task remedy. `WORKTREE_REVERIFY_FAILED`,
+  `WORKTREE_REBASE_CHANGED` and the `rebased` finish result are gone.
+- The harness adapter registration matrix now lists the Claude Code
+  completion gate as supported, matching the registered Stop hook.
+
 ## [0.10.0] - 2026-10-14
 
 - Verify and review no longer crash when their temporary directory cannot

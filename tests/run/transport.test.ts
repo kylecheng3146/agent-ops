@@ -22,9 +22,10 @@ test("native process identity is stable for a live process and rejects invalid o
 });
 
 test("run parser separates native start options from persistent control actions", () => {
-  const args = parseArgs(["run", "Goal", "--host", "claude", "--time-budget", "60m", "--jobs", "2", "--wait"]);
+  const args = parseArgs(["run", "Goal", "--host", "claude", "--jobs", "2", "--wait"]);
   assert.equal(args.command, "run"); assert.equal(args.host, "claude");
-  assert.equal(args.timeBudgetMs, 3600000); assert.equal(args.wait, true);
+  assert.equal(args.timeBudgetMs, undefined); assert.equal(args.wait, true);
+  assert.throws(() => parseArgs(["run", "Goal", "--host", "claude", "--time-budget", "60m"]), {code: "RUN_TIME_BUDGET_UNSUPPORTED"});
   assert.equal(parseArgs(["run", "stop", "run-12345678"]).runAction, "stop");
   assert.equal(parseArgs(["run", "respond", "run-12345678", "--question-id", "q1", "--answer", "yes"]).answer, "yes");
   for (const invalid of [["Goal"], ["Goal", "--host", "agy"], ["Goal", "--host", "codex", "--jobs", "3"],

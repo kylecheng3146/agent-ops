@@ -1,26 +1,21 @@
 import { withActivity } from "../office/activity.js";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import { join } from "node:path";
 
-import type { AgentOpsConfig } from "../contracts.js";
-import { sha256 } from "../fs/hash.js";
-import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
+import { AgentOpsError } from "../fs/paths.js";
 import { currentGateFingerprint } from "../hooks/completion-gate.js";
 import type { TaskService } from "../task/service.js";
 import { collectChangeSurface, type GitRunner } from "../verify/change-surface.js";
-import {
-  aggregateVerificationStatus,
-  executeConfiguredCommand
-} from "../verify/command-executor.js";
-import type { VerificationProcessRunner } from "../verify/spawn.js";
 import { prepareFinishReceipt } from "./receipt.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
-import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration} from "../run/integration.js";
+import {readRunIntegrationProof, readRunIntegrationReceiptBinding, markRunIntegration, validateRunIntegrationCleanup, recoverRunIntegrationAfterCleanup} from "../run/integration.js";
+import {FileRunRepository} from "../run/service.js";
+import {sha256} from "../fs/hash.js";
+import {redactSecrets} from "../security/redact.js";
 import type {IntegrationReceiptBinding} from "../run/integration.js";
 import {canonicalJson} from "../config/hash.js";
-import { listWorktrees } from "./manage.js";
 import {withPrivateFileLock} from "../security/permissions.js";
 import { markOfficeSessionCompleted } from "../office/sessions.js";
 import type { IntegratedChild } from "./integrate.js";
@@ -49,7 +44,6 @@ export interface FinishDependencies extends WorktreeDependencies {
   /** With `completionBase`, a service that can complete tasks over that range. */
   /** `noChangePaths` is the explicit source material for a verified no-change proof. */
   readonly tasks: (root: string, completionBase?: string, noChangePaths?: readonly string[]) => TaskService;
-  readonly processRunner?: VerificationProcessRunner;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly lockWaitMs?: number;
 }
@@ -57,7 +51,6 @@ export interface FinishDependencies extends WorktreeDependencies {
 export interface FinishResult {
   readonly record: WorktreeRecord;
   readonly mergedHead: string;
-  readonly rebased: boolean;
   /** Every task the merge carries, top of each tree first. */
   readonly taskIds: readonly string[];
   readonly warnings: readonly string[];
@@ -90,6 +83,97 @@ export interface FinalCandidateProof {
 export interface TargetIntent {
   readonly commit: string;
   readonly note: string;
+}
+
+/** Resume only the uncompleted cleanup steps of an already receipt-bound transaction. */
+async function finishRunCleanup(deps: FinishDependencies, commonDir: string, record: WorktreeRecord,
+  proof: FinalCandidateProof, children: readonly WorktreeRecord[]): Promise<FinishResult> {
+  const sealed = await readRunIntegrationProof(commonDir, record);
+  const {recovery: _recovery, ...requested} = proof;
+  if (sealed === null || canonicalJson(sealed) !== canonicalJson(requested))
+    throw finishError("RUN_INTEGRATION_PROOF_CHANGED", "Cleanup requires the exact sealed final candidate.");
+  const {state, integration, receipt, noteBound} = await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, true);
+  if (state.status !== "active" || state.disableRestart || state.awaitingResume)
+    throw finishError("RUN_RESUME_DISABLED", "Manual resume is required before executing pending cleanup steps.");
+  if (state.events.some(event => event.code === "RUN_COMMAND_DENIED"))
+    throw finishError("RUN_COMMAND_DENIED", "Cleanup cannot erase an explicit native or organization denial.");
+  const expectedChildren = new Map(proof.children.map(child => [child.name, child]));
+  if (children.some(child => !expectedChildren.has(child.name)) || proof.children.some(child =>
+      !children.some(actual => actual.name === child.name) && !integration.completedSteps.includes("child:" + child.name)))
+    throw finishError("WORKTREE_CHILDREN_CHANGED", "Cleanup requires the sealed child set or recorded completed child cleanup.");
+  for (const child of [record, ...children]) {
+    const expected = child === record ? proof.head : expectedChildren.get(child.name)!.commit;
+    if (await git(deps, child.path, ["rev-parse", "HEAD"], "WORKTREE_SOURCE_MOVED", "Cannot read cleanup checkout.") !== expected ||
+        (child !== record && (child.runId !== record.runId || child.ownerSessionId !== record.ownerSessionId ||
+          child.workerId !== expectedChildren.get(child.name)!.workerId ||
+          child.workerGeneration !== expectedChildren.get(child.name)!.workerGeneration)))
+      throw finishError("WORKTREE_CHILDREN_CHANGED", "The cleanup checkout owner or candidate changed; preserve it.");
+  }
+  // This key suppresses identical removal retries, never authorizes cleanup or reuses proof.
+  const inputs = [];
+  for (const child of [record, ...children]) {
+    const status = await git(deps, child.path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], "WORKTREE_LOG_FAILED", "Cannot inspect cleanup inputs.");
+    const untracked = await deps.git(child.path, ["ls-files", "--others", "--exclude-standard", "-z"]);
+    if (untracked.exitCode !== 0) throw finishError("WORKTREE_LOG_FAILED", "Cannot inspect cleanup files.");
+    const files = [];
+    for (const path of untracked.stdout.split("\0").filter(Boolean)) {
+      const info = await lstat(join(child.path, path));
+      const pid = /(?:^|\/)\.agent-ops-process-(\d+)-/u.exec(path)?.[1];
+      files.push([path, info.size, info.mtimeMs, info.ctimeMs, info.mode, pid === undefined ? null : alive(Number(pid))]);
+    }
+    inputs.push({path: child.path, status, files});
+  }
+  const inputDigest = sha256(canonicalJson({transaction: integration, inputs}));
+  const previous = [...state.events].reverse().find(event => event.code === "RUN_CLEANUP_BLOCKED");
+  if (previous?.detail !== null && previous?.detail !== undefined) {
+    let saved: {inputDigest?: string} = {};
+    try {saved = JSON.parse(previous.detail) as typeof saved;} catch { /* Old diagnostics cannot suppress a new attempt. */ }
+    if (saved.inputDigest === inputDigest)
+      throw finishError("RUN_CLEANUP_UNCHANGED", "Cleanup inputs match the saved failure; resolve its original blocker before retrying. See run status/logs.");
+  }
+  const repository = new FileRunRepository(join(commonDir, "agent-ops/runs"), commonDir);
+  const step = async (name: string, action: () => Promise<unknown>) => {
+    if (integration.completedSteps.includes(name)) return;
+    await readRunIntegrationProof(commonDir, record);
+    const {state: current} = await validateRunIntegrationCleanup(commonDir, record.runId!, deps.git, name === "note");
+    if (current.status !== "active" || current.disableRestart || current.awaitingResume)
+      throw finishError("RUN_RESUME_DISABLED", "The run was paused or stopped before the pending cleanup step.");
+    await action();
+    await markRunIntegration(commonDir, record, "receipt-written", name);
+  };
+  try {
+    await step("note", async () => {
+      if (!noteBound) await git(deps, record.mainRoot, ["notes", `--ref=${NOTES_REF}`, "add", "-m",
+        `${noteText(record, taskTree(receipt.tasks ?? []))}\nreceipt: ${integration.receiptPath}\nreceipt-sha256: ${integration.receiptDigest}`,
+        proof.head], "WORKTREE_NOTE_FAILED", "Cannot bind the sealed receipt to its candidate.");
+    });
+    const config = await deps.loadConfig(record.mainRoot);
+    await step("gate", async () => {
+      if (!config.features.completionGate.enabled) return;
+      const gate = await deps.gate(record.mainRoot, config);
+      const fingerprint = await currentGateFingerprint(record.mainRoot, runner(deps, record.mainRoot));
+      for (const child of [record, ...children]) await gate.afterFinish(record.sessionId, child.path, fingerprint);
+    });
+    await step("trust", async () => await deps.trust.revoke(record.path, await deps.loadConfig(record.path)));
+    for (const child of children) await step("child:" + child.name, async () => {
+      if ((await collectChangeSurface(runner(deps, child.path))).paths.length > 0)
+        throw finishError("WORKTREE_CHILDREN_CHANGED", "The child changed after integration; preserve it.");
+      await deps.trust.revoke(child.path, await deps.loadConfig(child.path));
+      await removeCheckout(deps, child, false, expectedChildren.get(child.name)!.commit);
+    });
+    await step("coordinator", async () => await removeCheckout(deps, record, false, proof.head));
+  } catch (cause) {
+    // Completed steps change the retry key; preserve the latest boundary with the original cause.
+    const latest = (await repository.read(record.runId!))!;
+    const digest = sha256(canonicalJson({transaction: latest.integration, inputs}));
+    await repository.appendEvent(record.runId!, {type: "diagnostic", code: "RUN_CLEANUP_BLOCKED", workerId: record.workerId!, taskId: state.rootTaskId,
+      detail: JSON.stringify({inputDigest: digest, code: cause instanceof AgentOpsError ? cause.code : "RUN_CLEANUP_FAILED",
+        message: redactSecrets(cause instanceof Error ? cause.message : "Cleanup failed; preserve the owned checkout.").slice(0, 4096)})});
+    throw cause;
+  }
+  await recoverRunIntegrationAfterCleanup(commonDir, record.runId!, deps.git);
+  return {record, mergedHead: proof.head, taskIds: (receipt.tasks ?? []).map(item => item.task.id), warnings: [],
+    receipt: integration.receiptPath!, residualRisks: receipt.residualRisks ?? []};
 }
 
 /**
@@ -225,38 +309,6 @@ export async function withFinishLock<T>(
   }
 }
 
-/**
- * The branch's own change, independent of where it is based: hunk positions
- * and blob ids move with a rebase, the change itself does not.
- */
-async function patchHash(deps: WorktreeDependencies, cwd: string, target: string): Promise<string> {
-  const diff = await git(deps, cwd,
-    ["diff", "--no-color", "--no-ext-diff", "--no-textconv", `${target}...HEAD`],
-    "WORKTREE_DIFF_FAILED", "Git could not diff the branch.");
-  return sha256(diff.split("\n")
-    .filter((line) => !line.startsWith("index "))
-    .map((line) => line.startsWith("@@") ? "@@" : line)
-    .join("\n"));
-}
-
-async function reverify(
-  deps: FinishDependencies,
-  root: string,
-  config: AgentOpsConfig
-): Promise<readonly string[]> {
-  const results = [];
-  for (const command of config.verification.commands) {
-    results.push(await executeConfiguredCommand(command, {
-      cwd: command.cwd === "." ? root : await resolveContainedPath(root, command.cwd),
-      trusted: true,
-      ...(deps.processRunner === undefined ? {} : { runner: deps.processRunner })
-    }));
-  }
-  return aggregateVerificationStatus(results) === "PASS"
-    ? []
-    : results.filter((result) => result.required && result.status !== "PASS").map(({ commandId }) => commandId);
-}
-
 async function targetIntents(deps: WorktreeDependencies, cwd: string, target: string): Promise<TargetIntent[]> {
   const commits = (await git(deps, cwd, ["log", "--format=%H", `HEAD..${target}`],
     "WORKTREE_LOG_FAILED", "Git could not list the target-side commits.")).split("\n").filter(Boolean);
@@ -329,10 +381,16 @@ export async function finishWorktree(
   }
   // Display only: the integrator is at work while the finish runs.
   return await withActivity(commonDir, {kind: "finish", root: record.path, sessionId: record.sessionId, worktree: name}, async () => await withFinishLock(deps, commonDir, async () => {
-    const sessionChildren = (await listWorktrees(deps, mainRoot))
-      .map(({ record: child }) => child)
-      .filter((child) => child.path !== record.path && child.sessionId === record.sessionId &&
+    const listing = await git(deps, mainRoot, ["worktree", "list", "--porcelain"], "WORKTREE_LIST_FAILED", "Cannot list cleanup worktrees.");
+    const records = await Promise.all(parseWorktreeListPorcelain(listing).map(child => readWorktreeRecord(child.path)));
+    const sessionChildren = records
+      .filter((child): child is WorktreeRecord => child !== null && child.path !== record.path && child.sessionId === record.sessionId &&
         (child.agentId !== undefined || (record.runId !== undefined && child.runId === record.runId)));
+    if (options.finalProof?.recovery === true && record.runId !== undefined) {
+      const saved = await new FileRunRepository(join(commonDir, "agent-ops/runs"), commonDir).read(record.runId);
+      if (["receipt-written", "cleaned"].includes(saved?.integration?.status ?? ""))
+        return await finishRunCleanup(deps, commonDir, record, options.finalProof, sessionChildren);
+    }
     if (options.finalProof === undefined && sessionChildren.length > 0) {
       throw finishError("WORKTREE_CHILDREN_REQUIRE_ADVANCE", "This session has child worktrees; run task advance for integrated final evidence before finish.");
     }
@@ -442,6 +500,26 @@ export async function finishWorktree(
           `The worktree's task is not ready to merge (${problem.code}). ${problem.remedy ?? ""}`.trim());
       }
     };
+    // A final proof already refused a moved target above. A plain finish
+    // rebases for the caller but never delivers the rebased combination: its
+    // evidence and review covered the old base, not what would merge.
+    if (options.finalProof === undefined &&
+        (await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode !== 0) {
+      const rebase = await deps.git(record.path, ["rebase", "--no-autostash", target]);
+      if (rebase.exitCode !== 0) {
+        const files = (await deps.git(record.path, ["diff", "--name-only", "--diff-filter=U"])).stdout
+          .split("\n").map((line) => line.trim()).filter(Boolean);
+        await deps.git(record.path, ["rebase", "--abort"]);
+        await deps.git(record.path, ["reset", "--hard", headBeforeCompletion]);
+        throw new WorktreeConflictError(record, target, headBeforeCompletion, files, await targetIntents(deps, record.path, target));
+      }
+      const completed = tree.filter(({ task }) => task.status === "complete").map(({ task }) => task.task.id);
+      throw finishError("WORKTREE_REBASED",
+        `${record.targetBranch} moved, so ${record.branch} was rebased onto ${target}; its earlier verification and review do not cover the result. ` +
+        (completed.length === 0
+          ? `Verify and review again with --base ${target}, then finish again.`
+          : `Completed task(s) ${completed.join(", ")} cannot take new evidence: create a follow-up task in this worktree covering the rebased change, verify and review it with --base ${target}, then finish again.`));
+    }
     let plainReceipt: Awaited<ReturnType<typeof prepareFinishReceipt>> | undefined;
     let plainReceiptWarning: string | undefined;
     if (options.finalProof === undefined) {
@@ -461,39 +539,7 @@ export async function finishWorktree(
       }
     }
 
-    const head = await git(deps, record.path, ["rev-parse", "HEAD"], "WORKTREE_LOG_FAILED", "Git could not read HEAD.");
-    const fastForward = (await deps.git(record.path, ["merge-base", "--is-ancestor", target, "HEAD"])).exitCode === 0;
-    if (options.finalProof !== undefined && !fastForward) {
-      throw finishError("WORKTREE_TARGET_MOVED", "The target branch moved after final review.");
-    }
-    if (!fastForward) {
-      const before = await patchHash(deps, record.path, target);
-      const rebase = await deps.git(record.path, ["rebase", "--no-autostash", target]);
-      if (rebase.exitCode !== 0) {
-        const files = (await deps.git(record.path, ["diff", "--name-only", "--diff-filter=U"])).stdout
-          .split("\n").map((line) => line.trim()).filter(Boolean);
-        await deps.git(record.path, ["rebase", "--abort"]);
-        await deps.git(record.path, ["reset", "--hard", head]);
-        throw new WorktreeConflictError(record, target, head, files, await targetIntents(deps, record.path, target));
-      }
-      const reset = async () => { await deps.git(record.path, ["reset", "--hard", head]); };
-      if (await patchHash(deps, record.path, target) !== before) {
-        await reset();
-        throw finishError("WORKTREE_REBASE_CHANGED",
-          `Rebasing onto ${target} changed the branch's own diff, so the review no longer covers it. The branch was reset; rebase it yourself and review the result as a new task.`);
-      }
-      if (await deps.trust.status(record.path, worktreeConfig) !== "TRUSTED") {
-        await reset();
-        throw finishError("WORKTREE_UNTRUSTED",
-          "Re-verifying the rebased branch runs repository commands; run agent-ops trust grant in the worktree.");
-      }
-      const failed = await reverify(deps, record.path, worktreeConfig);
-      if (failed.length > 0) {
-        await reset();
-        throw finishError("WORKTREE_REVERIFY_FAILED",
-          `After rebasing onto ${target}, verification failed: ${failed.join(", ")}. The branch was reset; fix it as a new task and finish again.`);
-      }
-    }
+    const head = headBeforeCompletion;
 
     const sealedIntegration = options.finalProof === undefined || record.runId === undefined
       ? null
@@ -582,7 +628,7 @@ export async function finishWorktree(
       try {
         await step();
       } catch (error) {
-        const message = `${label}: ${error instanceof Error ? error.message : String(error)}`;
+        const message = `${label}: ${error instanceof AgentOpsError ? error.code + ": " : ""}${error instanceof Error ? error.message : String(error)}`;
         if (options.finalProof !== undefined) {
           throw finishError("WORKTREE_FINISH_PARTIAL", `Code merged at ${mergedHead} with receipt ${receipt?.path}; ${message}`);
         }
@@ -610,9 +656,11 @@ export async function finishWorktree(
         }
       });
     }
+    if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "gate");
     // Office is display-only: its room closing never fails or partially fails a finish.
     await markOfficeSessionCompleted(commonDir, record.sessionId).catch(() => undefined);
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));
+    if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "trust");
     if (options.finalProof !== undefined) {
       for (const child of sessionChildren) {
         await attempt(`child ${child.name}`, async () => {
@@ -626,7 +674,7 @@ export async function finishWorktree(
     await attempt("remove", async () => await removeCheckout(deps, record,
       options.finalProof === undefined, options.finalProof?.head));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
-    return { record, mergedHead, rebased: !fastForward, taskIds: tree.map(({ task }) => task.task.id), warnings,
+    return { record, mergedHead, taskIds: tree.map(({ task }) => task.task.id), warnings,
       ...(receipt === undefined ? {} : { receipt: receipt.path, residualRisks: receipt.receipt.residualRisks }) };
   }));
 }

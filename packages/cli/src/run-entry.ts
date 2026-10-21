@@ -8,7 +8,7 @@ import {recordNativeRunAuthorization} from "../../../runtime/src/run/authorizati
 import {observeRunFailure} from "../../../runtime/src/run/verification.js";
 import {criteriaProgress, recordRunPhase} from "../../../runtime/src/run/phase.js";
 import {compareFailureObservations, type FailureObservation} from "../../../runtime/src/run/convergence.js";
-import {RunControlService} from "../../../runtime/src/run/controls.js";
+import {RunControlService, nativeResumeTime} from "../../../runtime/src/run/controls.js";
 import {beginPolicyTransition, markPolicyTransitionStage, completePolicyTransition, discoverPendingPolicyTransition,
   type PolicyTransitionJournal} from "../../../runtime/src/run/policy-transition.js";
 import {readReviewReportArtifact, type ReviewReportArtifact} from "../../../runtime/src/review/attestation.js";
@@ -18,17 +18,18 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {setTimeout as delay} from "node:timers/promises";
 import {AgentOpsError, resolveContainedPath} from "../../../runtime/src/fs/paths.js";
+import {ensureRunPolicy} from "./context.js";
 import {bindRunPolicy, readRunPolicy, runRuntimeHash, validateRunPolicyChange, type RunPolicyApproval} from "../../../runtime/src/run/policy.js";
 import {sha256} from "../../../runtime/src/fs/hash.js";
 import {calculateConfigHash, canonicalJson} from "../../../runtime/src/config/hash.js";
 import {ClaudeGoalHost} from "../../../runtime/src/run/hosts/claude.js";
 import {CodexGoalHost} from "../../../runtime/src/run/hosts/codex.js";
-import {FileRunRepository, type RunState, type RunWorkerRecord} from "../../../runtime/src/run/service.js";
+import {FileRunRepository, type RunRepository, type RunState, type RunWorkerRecord} from "../../../runtime/src/run/service.js";
 import {RunSupervisor} from "../../../runtime/src/run/supervisor.js";
 import {NativeRunTransport, nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {workerPlan, type RunWorkerPlan} from "../../../runtime/src/run/planning.js";
 import {RunScheduler} from "../../../runtime/src/run/scheduler.js";
-import {activeWallTimeMs} from "../../../runtime/src/run/scheduler.js";
+import {activeWallTimeMs, remainingRunTimeMs} from "../../../runtime/src/run/scheduler.js";
 import {readBootIdentity, readGuiLoginIdentity, LaunchdController} from "../../../runtime/src/run/macOS.js";
 import {readPrivateFile, writePrivateFile, withPrivateFileLock} from "../../../runtime/src/security/permissions.js";
 import {TaskService} from "../../../runtime/src/task/service.js";
@@ -46,6 +47,32 @@ const exec = promisify(execFile);
 const plain = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const active = (worker: RunWorkerRecord) => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status);
 const cli = fileURLToPath(new URL("./bin.js", import.meta.url));
+
+/** Release the sole native slot only after confirmed coordinator death. */
+export async function prepareSerialSchedule(repository: RunRepository, supervisor: RunSupervisor, runId: string): Promise<RunWorkerRecord | null> {
+  const current = await repository.read(runId);
+  if (current === null || current.jobs !== 1 || current.rootTaskId === null || current.status !== "active" || current.disableRestart || current.awaitingResume) return null;
+  const children = current.tasks.filter(task => task.taskId !== current.rootTaskId);
+  const coordinator = current.workers.find(worker => worker.workerId === current.coordinatorId);
+  if (children.length === 0 || coordinator === undefined) return null;
+  if (children.some(task => !["delivered", "complete", "blocked"].includes(task.status))) {
+    if (active(coordinator)) {
+      await supervisor.stopWorker(runId, coordinator.workerId, coordinator.generation, "handoff");
+      await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_COORDINATOR_YIELDED", workerId: coordinator.workerId,
+        taskId: coordinator.taskId, detail: "Coordinator process death confirmed before assigning the sole slot to children."});
+    }
+    return null;
+  }
+  return coordinator.status === "stopped" && !current.workers.some(worker => worker.workerId !== coordinator.workerId && active(worker)) ? coordinator : null;
+}
+
+/** Retain the structured child failure instead of hiding it behind recovery text. */
+export function runStepError(result: Record<string, unknown>, fallback: string): AgentOpsError {
+  const details = Array.isArray(result.errors) ? result.errors.filter(plain)
+    .map(error => typeof error.message === "string" ? error.message : "").filter(Boolean).join("; ") : "";
+  return new AgentOpsError(typeof result.code === "string" ? result.code : "RUN_INTEGRATION_RECOVERY_REQUIRED",
+    `${fallback}${details.length === 0 ? "" : ": " + details.slice(0, 4096)}`);
+}
 
 /** Recheck after confirmed death and after verification, before publishing the frozen SHA. */
 export async function assertRunDeliverySnapshot(root: string, taskId: string, head: string, contract: string, tasks: TaskService): Promise<void> {
@@ -105,6 +132,14 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await blockStartup("RUN_RESTART_STORM");
       return;
     }
+    let manualResumeAt: string | undefined;
+    await repository.mutate(runId, current => {
+      manualResumeAt = nativeResumeTime(current);
+      if (manualResumeAt === undefined) return current;
+      // Consume the latest control durably; bounded event history is not a one-shot fence.
+      return {...current, controls: current.controls.map((control, index) => index === current.controls.length - 1
+        ? {...control, appliedAt: new Date().toISOString()} : control)};
+    });
     await repository.appendEvent(runId, {type: "status", code: "RUN_SUPERVISOR_START", workerId: null, taskId: null, detail: null});
     let version: string;
     try {
@@ -166,7 +201,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await writePrivateFile(path, JSON.stringify(content, null, 2), worker.worktree!);
       return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child requests handoff after local green; the coordinator waits for all child deliveries, then requests finalization. Never substitute native goal completion for agent-ops evidence.";
     }
-    async function start(worker: RunWorkerRecord, diagnostic?: string): Promise<void> {
+    async function start(worker: RunWorkerRecord, diagnostic?: string, resumeAt?: string): Promise<void> {
       if (await discoverPendingPolicyTransition(repository, runId) !== null)
         throw new AgentOpsError("RUN_POLICY_TRANSITION_PENDING", "Finish policy synchronization before acquiring a new writer generation.");
       if (worker.worktree === null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Worker has no isolated checkout.");
@@ -188,7 +223,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         throw new AgentOpsError("RUN_WORKTREE_OWNERSHIP", "The worker checkout is not registered to this run.");
       await writeWorktreeRecord({...record, workerGeneration: worker.generation});
       const goal = await instructions(worker, diagnostic);
-      const running = await supervisor.startWorker(runId, worker.workerId, worker.generation, goal);
+      const running = await supervisor.startWorker(runId, worker.workerId, worker.generation, goal, resumeAt);
       await recordRunPhase(repository, runId, worker.workerId, (await repository.read(runId))!.rootTaskId === null ? "planning" : "implementing");
       try {await transport.activateRegistered(runId, running, goal);}
       catch (cause) {
@@ -197,12 +232,17 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       }
     }
     async function schedule(): Promise<void> {
+      const coordinator = await prepareSerialSchedule(repository, supervisor, runId);
+      if (coordinator !== null) {await start(coordinator); return;}
       const current = (await repository.read(runId))!;
       for (const node of await scheduler.next(runId)) {
         if (node.planDigest === undefined || node.taskId === current.rootTaskId) continue;
         const existing = current.workers.find(worker => worker.taskId === node.taskId);
         if (existing !== undefined && existing.worktree !== null &&
-            (await deps.tasks(existing.worktree).list()).some(r => r.task.id === node.taskId)) continue;
+            (await deps.tasks(existing.worktree).list()).some(r => r.task.id === node.taskId)) {
+          if (existing.status === "stopped") await start(existing);
+          continue;
+        }
         const planPath = join(directory, runId, "plans", node.taskId + ".json");
         const source = await readPrivateFile(planPath, commonDir);
         if (source === null || sha256(source) !== node.planDigest) throw new AgentOpsError("RUN_PLAN_CHANGED", "Deferred worker plan is missing or changed.");
@@ -264,12 +304,14 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       catch (cause) {if ((cause as NodeJS.ErrnoException).code === "ENOENT") absent = true; else throw cause;}
       if (absent) return (await recoverRunIntegrationAfterCleanup(commonDir, runId, deps.git)).receiptPath;
       const result = await advance(saved);
-      if (result.status !== "ok" || !plain(result.data) || typeof result.data.receipt !== "string")
-        throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recover the sealed transaction before allowing any writer to resume.");
+      if (result.status !== "ok")
+        throw runStepError(result, "Recover the sealed transaction before allowing any writer to resume");
+      if (!plain(result.data) || typeof result.data.receipt !== "string")
+        throw new AgentOpsError("RUN_INTEGRATION_RECOVERY_REQUIRED", "Recovery did not return the sealed receipt.");
       return result.data.receipt;
     }
     async function step(cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
-      const remaining = saved.budget.limitMs - activeWallTimeMs(saved.budget.activeIntervals, Date.now());
+      const remaining = remainingRunTimeMs(saved);
       if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
       return await new Promise((resolve, reject) => {
         const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_HOST: saved.host,
@@ -292,7 +334,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             if (!closed) try {process.kill(process.platform === "win32" ? child.pid! : -child.pid!, "SIGKILL");} catch {}
           }, 3000);
         };
-        const timeout = setTimeout(terminate, remaining);
+        const timeout = Number.isFinite(remaining) ? setTimeout(terminate, remaining) : undefined;
         const registration = (async () => {
           const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
           if (identity === null || closed) {terminate(); return;}
@@ -568,9 +610,15 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       else if (state.policyBinding !== undefined) await synchronizePolicy();
       state = (await repository.read(runId))!;
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
+        if (state.jobs === 1 && state.rootTaskId !== null) {
+          const pending = state.tasks.filter(task => task.taskId !== state.rootTaskId && !["delivered", "complete", "blocked"].includes(task.status));
+          const node = pending.find(task => task.taskId === worker.taskId);
+          if (pending.length > 0 && (worker.workerId === state.coordinatorId || node === undefined ||
+              node.dependencies.some(id => !state.tasks.some(task => task.taskId === id && ["delivered", "complete"].includes(task.status))))) continue;
+        }
         if (worker.workerId !== state.coordinatorId && (worker.worktree === null ||
             !(await deps.tasks(worker.worktree).list()).some(r => r.task.id === worker.taskId))) continue;
-        try {await start(worker);}
+        try {await start(worker, undefined, manualResumeAt); if (state.jobs === 1) break;}
         catch (cause) {
           await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_RECOVERY_FAILED",
             workerId: worker.workerId, taskId: worker.taskId, detail: "Writer recovery refused; preserve its checkout until the prerequisite is corrected."});
@@ -603,8 +651,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           await stopAll(state.status === "budget-limited" ? "budget" : "stop");
           return;
         }
+        state = await ensureRunPolicy(repository, state);
         const elapsed = activeWallTimeMs(state.budget.activeIntervals, Date.now());
-        if (elapsed >= state.budget.limitMs) {
+        if (state.budget.limitMs !== null && elapsed >= state.budget.limitMs) {
           await repository.mutate(runId, current => ({...current, status: "budget-limited", disableRestart: true}));
           await launchd.disableRestart(runDescriptor(state), "active run time budget exhausted");
           await stopAll("budget"); return;
@@ -613,7 +662,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           accumulatedMs: activeWallTimeMs(current.budget.activeIntervals, Date.now()), lastObservedAt: new Date().toISOString()}}));
         await schedule();
         state = (await repository.read(runId))!;
-        for (const worker of state.workers.filter(w => ["running", "idle"].includes(w.status))) {
+        for (const candidateWorker of state.workers.filter(w => ["running", "idle"].includes(w.status))) {
+          const freshState = (await repository.read(runId))!;
+          const currentWorker = freshState.workers.find(w => w.workerId === candidateWorker.workerId);
+          if (currentWorker === undefined || !["running", "idle"].includes(currentWorker.status)) continue;
+          const worker = currentWorker;
           await supervisor.heartbeat(runId, worker.workerId, worker.generation);
           const observation = await supervisor.observeWorker(runId, worker.workerId, worker.generation);
           if (!observation.processAlive) {
@@ -793,7 +846,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               await stopAll("stop", false);
               await recordRunPhase(repository, runId, worker.workerId, "verifying");
               const result = await advance(current);
-              if (result.status !== "ok") throw new AgentOpsError(result.code, "Final proof failed; inspect saved verifier and fresh review reports before repair.");
+              if (result.status !== "ok") throw runStepError(result, "Final proof failed; inspect saved verifier and fresh review reports before repair");
               const data = result.data;
               if (!plain(data) || typeof data.receipt !== "string") throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Finalization requires the receipt returned by the existing finish gate.");
               await acceptReceipt(current, data.receipt);
@@ -805,9 +858,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             const stopped = latest.workers.find(w => w.workerId === worker.workerId);
             if (request.action === "finalize" && latest.integration !== null && (latest.integration.status !== "prepared" ||
               (await deps.git(root, ["rev-parse", latest.targetBranch + "^{commit}"])).stdout.trim() === latest.integration.candidate)) {
-              const recovered = await recoverIntegration(latest);
-              await acceptReceipt(latest, recovered);
-              response = {requestId: request.requestId, code: "RUN_COMPLETE", receipt: recovered};
+              // Preserve the failed step; a manual resume reconciles the sealed transaction after remediation.
+              throw cause;
             } else if (request.action === "policy" && await discoverPendingPolicyTransition(repository, runId) !== null) {
               await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_POLICY_RECOVERY_REQUIRED", workerId: worker.workerId, taskId: worker.taskId,
                 detail: "Policy transition is preserved; explicit resume must reconcile the pending journal before any writer starts."});
@@ -834,7 +886,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       }
     } catch (cause) {
       await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_SUPERVISOR_FAILED",
-        workerId: null, taskId: null, detail: "Supervisor stopped; worktree and proof artifacts are preserved."});
+        workerId: null, taskId: null, detail: cause instanceof AgentOpsError ? cause.message : "Supervisor stopped; worktree and proof artifacts are preserved."});
       try {await stopAll("crash");}
       finally {
         await repository.mutate(runId, current => ({...current, status: current.status === "complete" ? "complete" : "blocked", disableRestart: true}));

@@ -15,7 +15,7 @@ import {resolveReviewScope} from "../review/scope.js";
 import {runVerificationCommand} from "../verify/spawn.js";
 import {checkTaskVerificationEvidence} from "./completion.js";
 import {taskContractHash,criterionContractHash} from "./contract.js";
-import {DEBUG_EXTENSION_MS, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
+import {DEBUG_EXTENSION_MS, debugSpentMs, debugProofDigest, debugRemainingMs, debugRounds, debugStopCause, type DebugState, type DebugReceipt, type DebugHypothesis} from "./debug-state.js";
 import {FileTaskStore, type TaskStore, type StoredTaskRecord} from "./store.js";
 import type {VerificationReport} from "../verify/service.js";
 import type {TaskService} from "./service.js";
@@ -130,7 +130,13 @@ export class DebugService {
     await this.#mutate(root,next);
     return await this.root(root.task.id);
   }
-  async #evidence(taskId: string, reference: string): Promise<VerificationEvidence> {
+  /**
+   * `sealed` admits a strategy switch's citation of this issue's own sealed
+   * regression history: a scope revision stales every current reference while
+   * verification stays stopped until the switch is recorded. Hypotheses and
+   * delivery still need evidence for the current contract and candidate.
+   */
+  async #evidence(taskId: string, reference: string, sealed = false): Promise<VerificationEvidence> {
     const {task,config,sourceFingerprint} = await this.#scope(taskId);
     const store = new FileEvidenceStore(this.options.root,this.options.root);
     const checked = validateEvidence(await store.load(reference));
@@ -139,9 +145,16 @@ export class DebugService {
     const root = await this.root(taskId);
     const head=await this.options.gitRunner.run(["rev-parse","HEAD"]);
     const candidate=new TextDecoder().decode(head.stdout).trim();
-    if (head.exitCode !== 0 || e.taskId !== taskId || e.taskContractHash !== taskContractHash(task.task) || e.configHash !== calculateConfigHash(config) ||
-        e.sourceFingerprint !== sourceFingerprint || p === undefined || p.pairedCommit !== (p.phase === "baseline" ? candidate : root.debug.baselineCommit) || p.commit !== (p.phase === "baseline" ? root.debug.baselineCommit : candidate) ||
-        !task.task.criteria.some(c=>c.id === e.criterionId && p.criterionContractHash === criterionContractHash(c) && c.acceptance?.bindings.some(b=>b.runnerId === e.commandId && sha256(canonicalJson({runnerId:b.runnerId,materials:b.materials})) === p.bindingHash) && c.acceptance?.mode === "behavioral" && c.acceptance.baselineCommit === root.debug.baselineCommit))
+    const current = p !== undefined && e.taskContractHash === taskContractHash(task.task) && e.configHash === calculateConfigHash(config) &&
+      e.sourceFingerprint === sourceFingerprint && p.pairedCommit === (p.phase === "baseline" ? candidate : root.debug.baselineCommit) &&
+      p.commit === (p.phase === "baseline" ? root.debug.baselineCommit : candidate);
+    const historical = sealed && p !== undefined && (p.phase === "baseline" ? p.commit : p.pairedCommit) === root.debug.baselineCommit &&
+      root.debug.receipts.some(r=>r.kind === "verify" && r.taskId === taskId && r.references.includes(reference));
+    if (head.exitCode !== 0 || e.taskId !== taskId || p === undefined || !(current || historical) ||
+        !task.task.criteria.some(c=>c.id === e.criterionId && c.acceptance?.mode === "behavioral" && c.acceptance.baselineCommit === root.debug.baselineCommit &&
+          (current
+            ? p.criterionContractHash === criterionContractHash(c) && c.acceptance.bindings.some(b=>b.runnerId === e.commandId && sha256(canonicalJson({runnerId:b.runnerId,materials:b.materials})) === p.bindingHash)
+            : c.acceptance.bindings.some(b=>b.runnerId === e.commandId))))
       return fail("TASK_DEBUG_EVIDENCE_STALE","Evidence must discriminate the original issue at its immutable baseline and current candidate.");
     const source = await readPrivateFile(join(this.options.root,p.executionArtifact),this.options.root);
     if (source === null || p.executionArtifact !== ".agent-ops/tasks/acceptance/"+sha256(source)+".json") return fail("TASK_DEBUG_EVIDENCE_INVALID","Execution artifact is missing or modified.");
@@ -212,7 +225,7 @@ export class DebugService {
       fail("TASK_DEBUG_STRATEGY_INVALID","Document a substantive different verification method and evidence-backed reason.");
     if (debugStopCause(root.debug) !== "strategy-required" || root.debug.strategy !== null || root.debug.operation !== null)
       fail("TASK_DEBUG_STRATEGY_NOT_ALLOWED","Exactly one strategy switch is allowed after two stagnant repair rounds.");
-    await this.#evidence(taskId,input.reference);
+    await this.#evidence(taskId,input.reference,true);
     await this.#mutate(root,{...root.debug,strategy:{from:input.from,to:input.to,reason:input.reason,references:[input.reference],afterRound:debugRounds(root.debug)},checkpoint:null});
   }
   /** Escape Loop: where the confirmed cause came from, bound into the contract before review. */
@@ -252,8 +265,8 @@ export class DebugService {
     if (action === null) return;
     const attached=await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.status !== "active") fail("TASK_DEBUG_CONTROL_INVALID","Human control must belong to the active attached original issue.");
-    if (action === "resume" && debugRemainingMs(root.debug) === 0) {
-      try {await this.extend(taskId,sessionId,event.id);} catch (error) {
+    if (action === "unlimited" || ((action === "resume" || action === "repair") && debugRemainingMs(root.debug) === 0)) {
+      try {await this.extend(taskId,sessionId,event.id,home);} catch (error) {
         if (!(error instanceof AgentOpsError) || !["TASK_DEBUG_GRANT_INVALID","TASK_DEBUG_GRANT_UNSUPPORTED"].includes(error.code)) throw error;
       }
       root=await this.root(taskId);
@@ -309,10 +322,14 @@ export class DebugService {
     // EVIDENCE-SURFACE-001: intake may start without a surface, the first repair may not.
     if (kind === "verify" && task.task.surfaceRequired === true && task.task.surface === undefined && productDigest !== sha256(canonicalJson([])))
       fail("SURFACE_MISSING","Add the surface audit with task revise --surface-file before verifying the first repair.");
-    const previousCandidate = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1)?.productDigest ?? sha256("[]");
+    const previousVerify = root.debug.receipts.filter(r=>r.kind === "verify" && (r.outcome === "PASS" || r.outcome === "FAIL")).at(-1);
+    const previousCandidate = previousVerify?.productDigest ?? sha256("[]");
     const cause = debugStopCause(root.debug);
     // Recovery reruns the original verifier; changed product content still needs fresh proof.
-    if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify")) && !(cause === "iterations" && kind === "review" && productDigest === previousCandidate))
+    // At the round limit an unchanged PASS candidate may be re-verified (not a new round), e.g. after an
+    // escape-ledger update moved the source fingerprint; a FAIL cannot be re-run into proof at the cap.
+    if (cause !== null && !(["environment","permission"].includes(cause) && (kind === "investigate" || kind === "verify")) &&
+        !(cause === "iterations" && productDigest === previousCandidate && (kind === "review" || (kind === "verify" && previousVerify?.outcome === "PASS"))))
       fail("TASK_DEBUG_STOP_REQUIRED",`Runtime stop predicate: ${cause}. Record a checkpoint; resume alone cannot reset it.`);
     const processIdentity = await nativeProcessIdentity(process.pid);
     if (processIdentity === null) fail("TASK_DEBUG_PROCESS_IDENTITY_REQUIRED","The host cannot prove the debug operation process identity; preserve the issue and report the unsupported environment.");
@@ -483,14 +500,17 @@ export class DebugService {
       fail("TASK_DEBUG_RECOVERY_CONFIRMATION_REQUIRED","Owned debug checkpoint/path/source/contract/config mismatch. Preserve the checkout and obtain user confirmation before recovery.");
     await this.options.tasks.attach(sessionId,root.task.id);
   }
-  async extend(taskId:string,sessionId:string,eventId:string):Promise<void> {
+  async extend(taskId:string,sessionId:string,eventId:string,home?:string):Promise<void> {
     const root=await this.root(taskId),attached=await this.options.tasks.status({sessionId});
     if (attached.task.debug?.rootTaskId !== root.task.id || root.debug.operation !== null) fail("TASK_DEBUG_GRANT_INVALID","Extension belongs to the original issue and its native session; a running operation cannot be extended.");
-    const event=await this.#userEvent(sessionId);
+    const event=await this.#userEvent(sessionId,home);
     if (eventId !== "latest" && eventId !== event.id) fail("TASK_DEBUG_GRANT_INVALID","The requested event is not the current native human event.");
     if (root.debug.grants.some(g=>g.eventId === event.id)) return;
-    const otherCause=debugStopCause({...root.debug,consumedMs:0,budgetMs:86_400_000,
+    const otherCause=debugStopCause({...root.debug,consumedMs:0,foreground:null,operation:null,budgetMs:86_400_000,
       ...(root.debug.control === undefined ? {} : {control:{...root.debug.control,paused:false}})});
+    const unlimited=debugUserControl(event.text) === "unlimited";
+    if (unlimited && (root.status !== "active" || event.timestamp < Date.parse(root.createdAt)))
+      fail("TASK_DEBUG_GRANT_INVALID","Only a current native human event can waive the active original issue time limit.");
     const foregroundActive=root.debug.foreground !== undefined && root.debug.foreground !== null;
     const remainingAtEvent=debugRemainingMs(root.debug,event.timestamp);
     const sealedAtCandidates=[Date.parse(root.updatedAt),root.debug.receipts.at(-1)?.finishedAt ?? Number.NaN].filter(Number.isFinite);
@@ -498,8 +518,8 @@ export class DebugService {
     const exhaustedAtEvent=foregroundActive
       ? remainingAtEvent === 0
       : debugRemainingMs(root.debug) === 0 && event.timestamp > lastSealedAt;
-    if (!exhaustedAtEvent || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !/^(?:繼續|继续|continue)[。.!！]?$/iu.test(event.text.trim()))
+    if ((!unlimited && !exhaustedAtEvent) || (otherCause !== null && !["environment","permission"].includes(otherCause)) || !["resume","repair","unlimited"].includes(debugUserControl(event.text) ?? ""))
       fail("TASK_DEBUG_GRANT_INVALID","Only a contemporaneous human continue event extends exhausted time; other blockers remain authoritative.");
-    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:DEBUG_EXTENSION_MS}],checkpoint:null});
+    await this.#mutate(root,{...root.debug,grants:[...root.debug.grants,{eventId:event.id,sessionId,sourceDigest:event.sourceDigest,grantedMs:unlimited ? null : DEBUG_EXTENSION_MS,spentAtGrantMs:debugSpentMs(root.debug,event.timestamp)}],checkpoint:null});
   }
 }
