@@ -1,0 +1,9 @@
+worktree: session-093ca4b5 (agent-ops/session-093ca4b5)
+session: 093ca4b5-0448-4705-acf2-881f41e80cb6
+agent-ops task task-9c13f98b-dd0e-4c36-8fd3-336347a34b32: agy review 完成後不退出改提早收尾
+criteria:
+- finished-hang-pass: agy round whose log shows the completion signal but never exits returns its stdout report (PASS) after the grace window, far before the round timeout
+- finished-hang-no-report: agy that logs completion, hangs, and printed no report ends quickly as NOT_RUN unparseable-output naming the did-not-exit cause
+- silent-unchanged: agy without a completion line keeps existing behavior (no stall abort, round timeout applies); full test suite passes
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/91309415ac37cea213771fbbabbd093ee69c4829b49a668a188379dbd5b87de4-c16a7c2030cff4d9f9b4d99b14a51d89d127ef2a.json
+receipt-sha256: 118a03f5897637a46df242dd92c38511110a9b3e2cf6cecf15bf9fcd78d8556a
