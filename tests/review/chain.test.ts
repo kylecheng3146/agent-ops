@@ -33,6 +33,8 @@ interface Scripted {
   readonly errorCode?: string;
   /** Never settles, so the executor's timeout fires. */
   readonly hang?: true;
+  /** Logs agy's turn-finished line, prints stdout, then never exits. */
+  readonly finishThenHang?: true;
   readonly beforeComplete?: () => Promise<void>;
   /**
    * Emit this many signs of life, one every `beatMs`, then complete normally.
@@ -128,7 +130,14 @@ function fakeRunner(script: readonly Scripted[]): {
         exitCode: number | null;
         signal: string | null;
       }) => void) | undefined;
-      const completion = step.hang === true
+      const finishedLog = logFileArgument(request.args);
+      if (step.finishThenHang === true && finishedLog !== undefined) {
+        appendFileSync(
+          finishedLog,
+          "I1021 12:57:35.928963 1012 server.go:1303] Stream goroutine exited for c0ffee, sending completion signal\n"
+        );
+      }
+      const completion = step.hang === true || step.finishThenHang === true
         ? new Promise<{ exitCode: number | null; signal: string | null }>(
             (resolve) => { finish = resolve; }
           )
@@ -1179,6 +1188,45 @@ test("a silent necessary reviewer stops the review as stalled", async () => {
   assert.equal(result.attempts?.length, 1);
   assert.equal(result.attempts?.[0]?.reason, "stalled");
   assert.ok(progress.some((line) => line.startsWith("agy: stalled →")));
+});
+
+test("an agy turn that finished but never exits is stopped and its answer read", async () => {
+  const started = Date.now();
+  const { runner } = fakeRunner([
+    { stdout: passing("agy"), finishThenHang: true },
+    { stdout: passing("agy"), finishThenHang: true }
+  ]);
+  const progress: string[] = [];
+  const result = await createReviewExecutor({
+    targets: ["agy"], cwd: scratchRoot, runner, probeBind: async () => true,
+    timeoutMs: 120_000, agyExitGraceMs: 60, onProgress: (line) => progress.push(line)
+  })(request());
+
+  assert.equal(result.status, "PASS", JSON.stringify(result));
+  assert.ok(Date.now() - started < 10_000);
+  assert.ok(progress.some((line) => /agy: finished its turn but did not exit/.test(line)));
+});
+
+test("a finished agy turn that never exits and printed no report is not a timeout", async () => {
+  const { runner } = fakeRunner([{ stdout: "", finishThenHang: true }]);
+  const result = await createReviewExecutor({
+    targets: ["agy"], cwd: scratchRoot, runner, probeBind: async () => true,
+    timeoutMs: 120_000, agyExitGraceMs: 60
+  })(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.notEqual(result.attempts?.[0]?.reason, "timeout");
+});
+
+test("a silent agy without the finished line still waits for the round timeout", async () => {
+  const { runner } = fakeRunner([{ hang: true }]);
+  const result = await createReviewExecutor({
+    targets: ["agy"], cwd: scratchRoot, runner, probeBind: async () => true,
+    timeoutMs: 300, agyExitGraceMs: 20
+  })(request());
+
+  assert.equal(result.status, "NOT_RUN");
+  assert.equal(result.attempts?.[0]?.reason, "timeout");
 });
 
 test("log-file growth is a heartbeat that holds off the stall abort", async () => {

@@ -4,6 +4,11 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- An agy review or resumed round whose log reports a finished turn but whose
+  process never exits is stopped 30 seconds later and its printed answer is
+  validated as usual, instead of waiting out the full round timeout and
+  reporting NOT_RUN. Silent agy generations still run until the round timeout.
+
 ## [0.10.2] - 2026-10-21
 
 - Manual run resume recovers proven historical native goal limit snapshots

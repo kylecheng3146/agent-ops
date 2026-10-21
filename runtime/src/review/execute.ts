@@ -1,7 +1,7 @@
 import type { ReviewTargetId } from "../contracts.js";
 import { randomUUID } from "node:crypto";
 import {
-  chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm, stat, writeFile
+  chmod, copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -87,6 +87,16 @@ export const DEFAULT_STALL_IDLE_MS = 90_000;
 export const AGY_STALL_IDLE_MS = Number.POSITIVE_INFINITY;
 
 /**
+ * agy logs this once its turn is over and the answer is on stdout. Some runs
+ * then never exit (the language server shutdown hangs), which would hold a
+ * finished round until the full round timeout and report it as NOT_RUN.
+ */
+const AGY_TURN_FINISHED = /Stream goroutine exited for \S+, sending completion signal/u;
+
+/** How long a finished agy turn may take to exit before it is stopped. */
+export const AGY_EXIT_GRACE_MS = 30_000;
+
+/**
  * A call the service dropped before answering. It produced no verdict, so
  * one fresh retry is not review shopping.
  */
@@ -105,6 +115,8 @@ export interface ReviewExecutorOptions {
   readonly outputLimitBytes?: number;
   /** Silence that marks a reviewer as wedged. Tests shrink it. */
   readonly stallIdleMs?: number;
+  /** How long a finished agy turn may take to exit. Tests shrink it. */
+  readonly agyExitGraceMs?: number;
   /** Loopback-bind probe used to detect a restricted host. Tests replace it. */
   readonly probeBind?: () => Promise<boolean>;
   /**
@@ -368,6 +380,70 @@ function watchForStall(
       if (timer !== undefined) clearInterval(timer);
     }
   };
+}
+
+interface FinishedTurnWatch {
+  readonly signal: AbortSignal;
+  /** The log reported a finished turn and the process outlived the grace. */
+  readonly fired: () => boolean;
+  readonly stop: () => void;
+}
+
+/**
+ * Stops an agy round that finished its turn but did not exit. Only the log's
+ * completion line starts the grace window, so a long silent generation is
+ * never cut off; the round timeout still caps a reviewer that never finishes.
+ */
+function watchForFinishedTurn(
+  logFile: string | undefined,
+  graceMs: number
+): FinishedTurnWatch {
+  const controller = new AbortController();
+  let fired = false;
+  let grace: ReturnType<typeof setTimeout> | undefined;
+  const check = async (): Promise<void> => {
+    if (logFile === undefined || grace !== undefined) return;
+    try {
+      if (!AGY_TURN_FINISHED.test(await readFile(logFile, "utf8"))) return;
+    } catch {
+      return;
+    }
+    if (grace !== undefined) return;
+    clearInterval(poll);
+    grace = setTimeout(() => {
+      fired = true;
+      controller.abort("finished-without-exit");
+    }, graceMs);
+    grace.unref();
+  };
+  const poll = setInterval(() => {
+    void check();
+  }, Math.max(20, Math.min(5_000, Math.floor(graceMs / 3))));
+  poll.unref();
+  return {
+    signal: controller.signal,
+    fired: () => fired,
+    stop: () => {
+      clearInterval(poll);
+      if (grace !== undefined) clearTimeout(grace);
+    }
+  };
+}
+
+/** A finished agy turn that was stopped for not exiting counts as completed. */
+function finishedTurnCompletion<T extends { readonly failureClass: ProcessFailureClass }>(
+  target: ReviewTargetId,
+  spawned: T,
+  watch: FinishedTurnWatch,
+  graceMs: number,
+  options: ReviewExecutorOptions
+): T {
+  if (!watch.fired() || spawned.failureClass !== "aborted" || options.signal?.aborted === true)
+    return spawned;
+  options.onProgress?.(
+    `${target}: finished its turn but did not exit within ${Math.max(1, Math.round(graceMs / 1_000))}s → stopped it and read its answer`
+  );
+  return { ...spawned, failureClass: "none" };
 }
 
 function throwIfInterrupted(
@@ -760,6 +836,8 @@ async function attemptTarget(
       options.signal,
       stallIdleMs
     );
+    const exitGraceMs = options.agyExitGraceMs ?? AGY_EXIT_GRACE_MS;
+    const finishedWatch = watchForFinishedTurn(agyLog, exitGraceMs);
     let spawned;
     try {
       spawned = await runVerificationCommand(
@@ -781,13 +859,15 @@ async function attemptTarget(
           stdin: invocation.stdin,
           env: environment,
           replaceEnv: true,
-          signal: stallWatch.signal,
+          signal: AbortSignal.any([stallWatch.signal, finishedWatch.signal]),
           onActivity: stallWatch.beat
         }
       );
     } finally {
       stallWatch.stop();
+      finishedWatch.stop();
     }
+    spawned = finishedTurnCompletion(target, spawned, finishedWatch, exitGraceMs, options);
     // Ahead of `throwIfInterrupted`, which reads the same `aborted` failure
     // class as a user interrupt. A stall is this executor's own abort, and
     // ends one target rather than the whole review.
@@ -882,6 +962,7 @@ async function attemptTarget(
             `${target}: turn ended without answering${denied.length > 0 ? ` (denied ${denied.join(", ")})` : ""} → resuming the conversation once`
           );
           const nudgeWatch = watchForStall(nudgeLog, options.signal, stallIdleMs);
+          const nudgeFinished = watchForFinishedTurn(nudgeLog, exitGraceMs);
           let second;
           try {
             second = await runVerificationCommand(
@@ -903,13 +984,15 @@ async function attemptTarget(
                 stdin: nudge.stdin,
                 env: environment,
                 replaceEnv: true,
-                signal: nudgeWatch.signal,
+                signal: AbortSignal.any([nudgeWatch.signal, nudgeFinished.signal]),
                 onActivity: nudgeWatch.beat
               }
             );
           } finally {
             nudgeWatch.stop();
+            nudgeFinished.stop();
           }
+          second = finishedTurnCompletion(target, second, nudgeFinished, exitGraceMs, options);
           usage = sumUsage(usage, extractUsage(target, second.stdout, second.stderr));
           throwIfInterrupted(target, options, second.failureClass);
           nudged = { log: nudgeLog, stdout: second.stdout };
