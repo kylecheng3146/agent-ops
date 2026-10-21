@@ -1030,7 +1030,7 @@ export async function runReviewCommand(
           if (execution !== null) contractArtifacts.push({path: executionPath, digest: sha256(execution), content: execution});
         }
       }
-      // Compact: indentation alone pushed a 494 KiB 1.10.1 manifest past the 512 KiB bound.
+      // Compact: indentation alone pushed a 494 KiB 0.10.2 manifest past the 512 KiB bound.
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
         executionPolicy: options.config,
         ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),

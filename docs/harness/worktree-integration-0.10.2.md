@@ -1,6 +1,6 @@
-# 1.10.1 worktree 整合紀錄
+# 0.10.2 worktree 整合紀錄
 
-使用者指定以下七個 worktree 全部納入 1.10.1。整合驗收沿用
+使用者指定以下七個 worktree 全部納入 0.10.2。整合驗收沿用
 `task-b39eb5ae-6cbc-4166-85d9-8287edbfea91`，保留既有耗用、歷史與不限時授權；
 下表的原 task 不另造成功狀態。
 
@@ -41,4 +41,4 @@
 
 回歸涵蓋 82 個 startup checks：原生恢復與新限制邊界、真正拒絕、封存清理、
 不限時 run、有限授權續期、串行 native worker，以及大型 review 封包。
-套件版本與 lockfile 必須同為 `1.10.1`，並通過 build 與 package check。
+套件版本與 lockfile 必須同為 `0.10.2`，並通過 build 與 package check。

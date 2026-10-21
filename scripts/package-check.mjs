@@ -74,7 +74,7 @@ try {
       /(?:frontend-wixgo|agent-ops-build|(?:^|[./])wixtar\.com)\b/iu,
       /gh[pousr]_[A-Za-z0-9]{20,}/u,
       /github_pat_[A-Za-z0-9_]{20,}/u,
-      /sk-[A-Za-z0-9_-]{20,}/u
+      /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/u
     ];
     if (forbiddenContent.some((pattern) => pattern.test(content))) {
       throw new Error(`Packed content contains an internal path or credential pattern: ${name}`);

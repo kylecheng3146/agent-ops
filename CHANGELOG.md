@@ -4,7 +4,7 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
-## [1.10.1] - 2026-10-20
+## [0.10.2] - 2026-10-21
 
 - Manual run resume recovers proven historical native goal limit snapshots
   without reusing old resume authority or suppressing fresh limits, denials,
@@ -32,6 +32,8 @@ All notable changes to the project are documented here.
   does not count as a new round, and a failing candidate stays stopped.
 - Review contract manifests are written as compact JSON, so long revision
   histories stay within the unchanged 512 KiB manifest bound.
+- The source and package secret scans no longer mistake task IDs
+  (`task-<uuid>`) for API keys.
 
 ## [0.10.1] - 2026-10-16
 
