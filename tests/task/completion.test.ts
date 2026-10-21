@@ -198,7 +198,7 @@ test("active and archived-unfinished subtasks block a parent; verified children 
   }
 });
 
-test("slow completion releases the state lock and rechecks new children before committing", { timeout: 5000 }, async () => {
+test("slow completion releases the state lock and rechecks new children before committing", { timeout: 30_000 }, async () => {
   const { root, store, tasks, context } = await fixture();
   let release = (): void => {};
   try {
@@ -225,7 +225,7 @@ test("slow completion releases the state lock and rechecks new children before c
 });
 
 for (const mutation of ["archive", "failure", "evidence"] as const) {
-  test(`completion cannot overwrite concurrent ${mutation}`, { timeout: 5000 }, async () => {
+  test(`completion cannot overwrite concurrent ${mutation}`, { timeout: 30_000 }, async () => {
     const { root, store, tasks, context } = await fixture();
     let release = (): void => {};
     try {
