@@ -1,0 +1,12 @@
+worktree: session-5c06b479 (agent-ops/session-5c06b479)
+session: 5c06b479-3bca-4aab-9bb9-306ee4d4eca2
+agent-ops task task-a5126dda-5784-41eb-9282-8ba1374cca02: Slim DEBUG to a red-to-green task
+intent: Agreed grill 2026-10-22 (Q1-Q9): DEBUG becomes a normal task plus a required baseline-red/candidate-green behavioral criterion. Remove hypothesis, strategy, rounds, budget/extend/grant, native control words, DEBUG Stop gate, checkpoint/resume, prompt-hook intake and transcript parsing; task debug returns TASK_DEBUG_REMOVED; origin/escape become advisory; legacy state/config load and are ignored. Task B (evidence/base/checkIds/surface-at-verify) follows separately.
+criteria:
+- removed-ceremony: task debug with any action returns TASK_DEBUG_REMOVED; Claude/Codex UserPromptSubmit hooks never create a DEBUG task or inject DEBUG intake text; Stop hooks (Claude, Codex, agy) never block or require a checkpoint because of a DEBUG task; verify never refuses with TASK_DEBUG_BUDGET_EXHAUSTED.
+- red-check-required: task create --debug without a behavioral criterion carrying redCheckIds fails with TASK_DEBUG_RED_CHECK_REQUIRED and without a surface fails like any task; a --debug task with one completes under normal completion rules (proven acceptance coverage plus review) with no hypothesis, origin or budget.
+- legacy-compat: A task state written by 0.10.x containing task.debug, record.debug (hypotheses, budget, grants, checkpoint), originRequired and an attestation with debugProofs loads and the task can complete under normal rules; a config with features.debug {enabled,budgetMs,maxRounds} validates and is ignored.
+- origin-advisory: A --debug task with no declared origin completes (no ESCAPE_ORIGIN_MISSING); task revise --escape-of on a --debug task records the origin and writes the escape ledger like a normal task.
+- docs-install: init/update stop writing features.debug and resolve no task-debug capability; managed CLAUDE.md/AGENTS.md, CLI help, task-debug guides and spec (en and zh-TW) describe the slim DEBUG flow without budgets or control words; npm test passes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/ce0f4314cbb612dcc4ef6450e8d43dfca0ace072f57810a6a54fa49fef355c46-28f7a22cc0838e063a9e4c65f59022d2ff9fb4b1.json
+receipt-sha256: 602949d42ef6eda71bd34a33dc2a4caa9e6646a12c993c79c8e1ec79e78f5852
