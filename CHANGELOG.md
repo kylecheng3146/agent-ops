@@ -7,11 +7,11 @@ All notable changes to the project are documented here.
 - Verification evidence no longer goes stale on metadata. It binds an
   execution hash of the criteria, so a revise that only changes the surface or
   origin keeps it (review is still required); a commit that only touches
-  `.agent-ops-escapes/` keeps the base-mode source fingerprint (base-mode
+  escape-ledger task records keeps the base-mode source fingerprint (base-mode
   fingerprints change once on upgrade: re-verify). Without `--base` on a clean
   tree, `verify` and `review` use the session worktree's merge-base with its
   target branch, or the task's creation commit. `task revise --baseline <ref>`
-  moves every typed baseline. A behavioral binding may list only its red
+  moves every typed baseline to an ancestor of HEAD. A behavioral binding may list only its red
   checks; extra runner output is ignored. `verify` prints the surface gate as
   advisory lines so `SURFACE_*` is fixed before review.
 - DEBUG is now an ordinary task plus a required red-to-green proof:

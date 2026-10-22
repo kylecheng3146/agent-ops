@@ -59,6 +59,8 @@ test("a commit touching only the escape ledger keeps the base-mode fingerprint",
     const fixed = await fingerprint();
     await r.commit({".agent-ops-escapes/task-x.json": "{}\n"}, "ledger");
     assert.equal(await fingerprint(), fixed, "ledger-only commit");
+    await r.commit({".agent-ops-escapes/rules/r.json": "{}\n"}, "rule");
+    assert.notEqual(await fingerprint(), fixed, "escape rules steer the surface gate and stay fingerprinted");
     await r.commit({"src/b.ts": "export const b = 1;\n"}, "more");
     assert.notEqual(await fingerprint(), fixed, "any other path changes it");
   } finally {

@@ -50,6 +50,7 @@ const verifyTask=(f,id)=>new VerificationService({root:f.root,scope:'project',co
   let current=await f.tasks.status({taskId:id});
   const changed=current.task.criteria.map(c=>({...c,acceptance:{...c.acceptance,baselineCommit:moved}}));
   await assert.rejects(f.tasks.revise(id,{expectedContractHash:taskContractHash(current.task),criteria:changed,reason:'Sneak a new baseline'}),e=>e.code==='BASELINE_IMMUTABLE');
+  await assert.rejects(f.tasks.revise(id,{expectedContractHash:taskContractHash(current.task),baseline:'0'.repeat(40),reason:'Unknown commit'}),e=>e.code==='TASK_BASELINE_INVALID');
   const revised=await f.tasks.revise(id,{expectedContractHash:taskContractHash(current.task),baseline:'HEAD',reason:'Opened on the wrong commit'});
   assert.ok(revised.task.criteria.every(c=>c.acceptance.baselineCommit===moved),'every typed criterion moved');
   assert.equal(revised.createdSourceCommit,moved);

@@ -15,7 +15,7 @@
 - generic runner 必須輸出共用相同 runner、baseline 與材料之 criteria 所要求的每個 `checkId`，且各恰好一次；缺少或重複為 UNKNOWN。其他列會被忽略，因此 binding 可以只列 red checks。未要求的列若失敗，runner 的 exit code 仍與 PASS 彙總矛盾，candidate 會成為 UNKNOWN，絕不會 green。
 - fixture、collection、build、timeout、取消、輸出截斷、缺少或重複 ID、retry、skip MUST NOT 算 red 或 green。完整 execution artifacts 以摘要綁定契約、材料與 commits。
 - 原生 Jest JSON 與 Vitest task errors 無法完整區分 test-call 斷言與 hook／fixture cleanup。除非已 review 的 repo collector 提供明確斷言分類，失敗列 MUST 保持 UNKNOWN；AssertionError 名稱、matcher 資料與 pass 的 hook 狀態都不足。green 需要明確的單次 attempt 證據：attempts、Jest invocations，或 Vitest retryCount 與 repeatCount 兩者。原生 Vitest JSON 省略這些 counters，不能單獨提供機械證明。pytest 每個 nodeid 必須有一組依序的 setup／call／teardown；Rust protocol 必須提供 attempts。缺 metadata MUST NOT 預設為一次成功。
-- baseline 為建立 commit；finding pin 使用被 FAIL 的 candidate。`task revise --baseline <ref>` 會一次移動所有 typed criterion 的 baseline（以及 task 的建立 commit），例如 task 開在錯的分支時，並使其驗證失效。revise／replan 保留原始目標、全部映射要求與先前契約／證據。
+- baseline 為建立 commit；finding pin 使用被 FAIL 的 candidate。`task revise --baseline <ref>` 會一次把所有 typed criterion 的 baseline（以及 task 的建立 commit）移到 HEAD 的某個祖先 commit，例如 task 開在錯的分支時，並使其驗證失效。revise／replan 保留原始目標、全部映射要求與先前契約／證據。
 - verification evidence 只綁定 criteria 的 execution hash。只改 surface 或 origin 的 revise 會保留它；改 criteria 或設定則使其失效。0.11 之前的證據綁定完整 contract hash，契約未變時仍相符。每個新契約都需要兩輪 fresh review。
 - `task pin-finding` 驗證已保存 report 的 digest／index 來源。recurrence 明確引用既有 pin。第六條回傳 replan 義務且不修改狀態；映射後必須保留 pin 與全部要求。
 - reviewer packet 包含原始目標、修訂歷史、coverage 與 verifier 材料，審查斷言本身與明確的 fallback 理由。機械 green 不會省略必要 policy commands 或任一 fresh review。
@@ -203,7 +203,7 @@ surface 逃逸 SHOULD 變成已證明、受追蹤的規則；學到的規則 MUS
 
 既有 task 檔案仍可直接讀取，不需資料格式遷移。缺少 config baseline、使用任意文字證據，或含有未完成但已封存子任務的舊任務，必須重建並完成驗證與審查。重複執行 complete 也會重新驗證證據；舊的 completed 狀態本身不夠。Runtime 呼叫端必須提供 `TaskServiceOptions.completion`；缺少此 repository context 時，complete 會拒絕執行，但仍可讀取任務。
 
-Commit 前，verify、review、complete 使用預設 worktree scope。Commit 後，三個命令都使用相同的 `--base <git-ref>`，為已提交範圍重新產生證據。未指定 `--base` 且 worktree 乾淨時，verify 與 review 自動選擇：session worktree 使用與目標分支的 merge-base（finish rebase 後會跟著移動），其他情況使用 task 的建立 commit（須為 HEAD 的祖先）。Base 模式的 source fingerprint 忽略 `.agent-ops-escapes/`，因此 commit escape ledger 不會使驗證與 review 失效；0.10 計算的 fingerprint 不同，升級後需重新 verify 一次；runtime 呼叫端使用 `TaskServiceOptions.completion.base`。Base 模式要求 worktree 乾淨。沒有 worktree 變更又未指定 base 時，complete 會回傳 `TASK_COMPLETION_SCOPE_REQUIRED`。agy Stop gate 仍檢查 worktree scope 的證據：請在 commit 前完成並停止，或由使用者檢查已完成的 base-scope 任務後，核准一次性的 Stop permit。
+Commit 前，verify、review、complete 使用預設 worktree scope。Commit 後，三個命令都使用相同的 `--base <git-ref>`，為已提交範圍重新產生證據。未指定 `--base` 且 worktree 乾淨時，verify 與 review 自動選擇：session worktree 使用與目標分支的 merge-base（finish rebase 後會跟著移動），其他情況使用 task 的建立 commit（須為 HEAD 的祖先）。Base 模式的 source fingerprint 忽略 escape ledger 的 task 記錄（`.agent-ops-escapes/task-*.json`；rules 仍納入 fingerprint），因此 commit ledger 不會使驗證與 review 失效；0.10 計算的 fingerprint 不同，升級後需重新 verify 一次；runtime 呼叫端使用 `TaskServiceOptions.completion.base`。Base 模式要求 worktree 乾淨。沒有 worktree 變更又未指定 base 時，complete 會回傳 `TASK_COMPLETION_SCOPE_REQUIRED`。agy Stop gate 仍檢查 worktree scope 的證據：請在 commit 前完成並停止，或由使用者檢查已完成的 base-scope 任務後，核准一次性的 Stop permit。
 
 這項機制強制的是 toolkit 的完成命令，無法阻止 host 直接用自然語言宣稱完成，也無法阻止具有相同檔案權限的 process 直接改寫 task／evidence 檔案；它不會鎖住 Git 或其他來源檔案寫入者。
 

@@ -445,11 +445,13 @@ export class TaskService {
     });
   }
 
+  /** A moved baseline must be a real commit in the candidate's history, so red-to-green still proves this change. */
   async #resolveCommit(ref: string): Promise<string> {
-    if (commitIdentity(ref)) return ref;
-    const resolved = this.#completion === undefined ? undefined : await this.#completion.gitRunner.run(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+    const git = this.#completion?.gitRunner;
+    const resolved = git === undefined ? undefined : await git.run(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
     const sha = resolved?.exitCode === 0 ? resolved.stdout.toString().trim() : "";
-    if (!commitIdentity(sha)) throw taskError("TASK_BASELINE_INVALID", "--baseline must resolve to one commit.");
+    if (!commitIdentity(sha) || (await git!.run(["merge-base", "--is-ancestor", sha, "HEAD"])).exitCode !== 0)
+      throw taskError("TASK_BASELINE_INVALID", "--baseline must resolve to a commit that is an ancestor of HEAD.");
     return sha;
   }
 
