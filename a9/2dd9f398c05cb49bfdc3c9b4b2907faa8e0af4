@@ -23,3 +23,16 @@ criteria:
 - docs-install: init/update stop writing features.debug and resolve no task-debug capability; managed CLAUDE.md/AGENTS.md, CLI help, task-debug guides and spec (en and zh-TW) describe the slim DEBUG flow without budgets or control words; npm test passes.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/ce0f4314cbb612dcc4ef6450e8d43dfca0ace072f57810a6a54fa49fef355c46-28f7a22cc0838e063a9e4c65f59022d2ff9fb4b1.json
 receipt-sha256: 602949d42ef6eda71bd34a33dc2a4caa9e6646a12c993c79c8e1ec79e78f5852
+
+worktree: session-5c06b479 (agent-ops/session-5c06b479)
+session: 5c06b479-3bca-4aab-9bb9-306ee4d4eca2
+agent-ops task task-5947cda1-cf74-4140-bd5c-f6510d3bd4f8: Stop evidence going stale on metadata changes
+intent: Agreed grill 2026-10-22 Q3-Q5 (Task B of the DEBUG slim-down): bind only red checks, default --base, task revise --baseline, verify evidence bound to an execution hash so surface/origin/goal revises keep it, .agent-ops-escapes-only commits keep the base-mode fingerprint, and verify reports the surface gate as advisory.
+criteria:
+- red-only-checkids: A behavioral binding listing only its red checkIds proves red-to-green when the runner also emits other passing checks; a listed check that is missing stays UNKNOWN missing-check; an unlisted check failing on the candidate keeps the candidate from passing.
+- default-base: With no --base and a clean tree, verify and review in a session worktree use its merge-base with the target branch, and in the main checkout the task creation commit when it is an ancestor of HEAD; a dirty tree keeps worktree mode; task revise --baseline <commit> moves every typed criterion baseline and clears verification evidence.
+- metadata-keeps-evidence: A revise that changes only surface or origin keeps PASS verification evidence usable for completion while requiring a fresh review; a revise that changes criteria clears it; evidence carrying the pre-0.11 full contract hash still matches an unchanged contract.
+- ledger-fingerprint: In base mode a commit that touches only .agent-ops-escapes/** leaves the source fingerprint unchanged, while a commit touching any other path changes it.
+- surface-at-verify: verify prints the surface gate result (code and unclassified paths) as advisory output without changing its status or envelope code; spec (en and zh-TW) and CHANGELOG describe all Task B behavior; npm test passes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/ce0f4314cbb612dcc4ef6450e8d43dfca0ace072f57810a6a54fa49fef355c46-85a458549595a88e1c89b021fd4722c161b7edf1.json
+receipt-sha256: 56e0da0b5c21c9474d9cae5fab01092d68f9f90850c7ff5877b57704222fa324
