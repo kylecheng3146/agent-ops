@@ -277,7 +277,7 @@ export async function runTaskCommand(
         ...(origin === undefined ? {} : {origin}),
         reason: options.args.reason!, ...(options.args.baseline === undefined ? {} : {baseline: options.args.baseline})
       });
-      return await withEscape(taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain new verification and fresh review.", record),
+      return await withEscape(taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain a fresh review, and new verification if the criteria or configuration changed.", record),
         origin === undefined ? undefined : await options.service.declareEscape(record.task.id), options.service);
     }
     if (action === "replan") {
