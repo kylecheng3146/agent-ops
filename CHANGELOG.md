@@ -4,6 +4,14 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- A run coordinator no longer polls `run status` while its children work. After
+  planning them it sends `action=wait`; the supervisor stops it, frees its slot
+  (so `jobs=2` runs two children) and restarts it in a fresh native session,
+  with each child's status and commit, once every child has finished. Without
+  a wait the coordinator is never stopped mid-planning, for any `jobs` value.
+- `run status` and `run logs` JSON omit the event history and goal text from
+  `state`, keeping `eventCount` and `goalHash`; `run logs` still returns events.
+
 - An agy review or resumed round whose log reports a finished turn but whose
   process never exits is stopped 30 seconds later and its printed answer is
   validated as usual, instead of waiting out the full round timeout and

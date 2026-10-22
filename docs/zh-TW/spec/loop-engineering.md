@@ -24,9 +24,14 @@
 - 當次人工 resume 的初始恢復 MAY 忽略啟用前收到、且 native 更新秒數嚴格早於該次 resume 的本執行緒 Codex 額度快照。自動重啟、未知／同秒／未來時間、時鐘倒退，以及啟用開始後收到的所有額度事件仍有效。Native 啟用 MUST 確認 goal 為 active，才能啟動或轉向 turn。人工 resume 可解除衍生的 `RUN_POLICY_DISABLED` task 阻擋，但保留 ID、耗用、歷史及其他產品失敗。
 - 收斂判斷比較實際 per-check 狀態及未解除的 finding pins；source fingerprint、時間或診斷文字本身不能算進展。
 
-`jobs=1` 時，child MUST 等 coordinator 程序確認死亡後才執行。coordinator 保留
-task 與 native session identity，在 child 交付後以新 generation 接續。native
-註冊、恢復與啟動 MUST 都限制最多一個 active agent；僅扣除 task slot 不足以符合。
+不論 `jobs` 為何，coordinator MUST 只在規劃完 child 後送出明確的 `action=wait`
+request 才讓出；supervisor 不會停止仍在規劃的 coordinator。wait 會確認 coordinator
+程序死亡、釋出其 slot 並捨棄其 native thread，使 coordinator 在 child 工作期間
+不再輪詢 `run status`。恢復流程讓等待中的 coordinator 保持停止；所有 child 皆為
+delivered、complete 或 blocked 後，才以新 generation 在全新 native session 中接續，
+instructions 會列出每個 child 的狀態與交付 commit。`jobs=1` 時，child MUST 等該
+程序確認死亡後才執行。native 註冊、恢復與啟動 MUST 都限制最多 `jobs` 個 active
+agent；僅扣除 task slot 不足以符合。
 
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 

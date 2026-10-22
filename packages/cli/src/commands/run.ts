@@ -50,10 +50,13 @@ export interface RunCommandOptions {
   readonly office?: () => Promise<string | null>;
 }
 
+/** Status/logs state without the event history and goal text that made polling costly; `run logs` returns events. */
+export type RunStatusState = Omit<RunState, "events" | "goal"> & { readonly eventCount: number };
+
 export interface RunCommandData {
   readonly action: RunAction;
   readonly runId: string;
-  readonly state: RunState;
+  readonly state: RunState | RunStatusState;
   readonly message: string;
   readonly text: string;
   readonly officeUrl?: string;
@@ -107,7 +110,9 @@ function data(action: RunAction, result: RunLifecycleResult): RunCommandData {
 }
 
 function stateData(action: RunAction, state: RunState, message: string): RunCommandData {
-  return { action, runId: state.runId, state, recovery: describeRunRecovery(state), message, text: textFor(action, state, message) };
+  const { events, goal: _goal, ...brief } = state;
+  return { action, runId: state.runId, state: { ...brief, eventCount: events.length }, recovery: describeRunRecovery(state), message,
+    text: textFor(action, state, message) };
 }
 
 async function goalFromArgs(args: RunParsedArgs, root: string): Promise<string> {

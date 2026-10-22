@@ -197,6 +197,9 @@ removes only `run` and keeps `loop`.
 resumability and concrete remediation. An unchanged cleanup failure retains its
 original cause. Trust, native identity, generation and denial failures remain
 fail-closed; a sealed proof never erases a native or organization denial.
+The JSON `state` of `run status` and `run logs` omits the event history and goal
+text, keeping `eventCount` and `goalHash`, so repeated polling stays small;
+`run logs` returns the events themselves.
 
 Manual resume of a receipt-bound integration validates the exact sealed proof,
 receipt digest and transaction, owner/generation, candidate/target ancestry and

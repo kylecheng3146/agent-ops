@@ -169,6 +169,8 @@ unknown）、有界且遮蔽敏感資料的原始診斷、sealed proof（`record
 僅表示紀錄存在，不代表驗證通過）、cleanup 狀態、能否 resume 與具體修復方式。
 相同 cleanup blocker 保留原始 cause。Trust、native identity、generation 與 denial
 仍 fail-closed；sealed proof 不得抹除 native 或組織的明確拒絕。
+`run status` 與 `run logs` 的 JSON `state` 省略 event 歷史與 goal 全文，保留
+`eventCount` 與 `goalHash`，讓重複輪詢維持精簡；event 本身由 `run logs` 回傳。
 
 人工 resume 已寫入 receipt 的 integration，必須先驗證原 sealed proof、receipt
 digest 與 transaction、owner/generation、candidate/target ancestry 及 Git note。

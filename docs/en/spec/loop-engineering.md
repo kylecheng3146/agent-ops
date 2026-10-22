@@ -72,10 +72,16 @@
 - Convergence compares actual per-check statuses and outstanding finding pins.
   Source fingerprints, timing and diagnostics alone cannot establish progress.
 
-With `jobs=1`, child execution MUST wait for confirmed coordinator process death.
-The coordinator retains its task and native session identity, and resumes under a
-new generation after child deliveries. Native registration, recovery and start
-MUST enforce at most one active agent; changing task slot accounting alone is insufficient.
+For any `jobs` value, the coordinator MUST yield only through an explicit
+`action=wait` request sent after it has planned its children; the supervisor
+never stops a coordinator that is still planning. A wait confirms coordinator
+process death, frees its slot and drops its native thread, so the coordinator does
+not poll `run status` while children work. Recovery leaves a waiting coordinator
+stopped; once every child is delivered, complete or blocked, it restarts under a
+new generation in a fresh native session whose instructions list each child's
+status and delivered commit. With `jobs=1`, child execution MUST wait for that
+confirmed death. Native registration, recovery and start MUST enforce at most
+`jobs` active agents; changing task slot accounting alone is insufficient.
 
 This module defines the bounded loop used to plan, implement, verify, and hand off work.
 
