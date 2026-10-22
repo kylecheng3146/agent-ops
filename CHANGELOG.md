@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-23
+
 - Verification evidence no longer goes stale on metadata. It binds an
   execution hash of the criteria, so a revise that only changes the surface or
   origin keeps it (review is still required); a commit that only touches
@@ -32,11 +34,13 @@ All notable changes to the project are documented here.
   a wait the coordinator is never stopped mid-planning, for any `jobs` value.
 - `run status` and `run logs` JSON omit the event history and goal text from
   `state`, keeping `eventCount` and `goalHash`; `run logs` still returns events.
-
 - An agy review or resumed round whose log reports a finished turn but whose
   process never exits is stopped 30 seconds later and its printed answer is
   validated as usual, instead of waiting out the full round timeout and
   reporting NOT_RUN. Silent agy generations still run until the round timeout.
+- The Office retires paused, stopping, blocked and budget-limited runs after
+  the retention window, as it already did for completed and failed ones; only
+  active and awaiting-input runs stay past it.
 
 ## [0.10.2] - 2026-10-21
 
