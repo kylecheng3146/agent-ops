@@ -1,0 +1,9 @@
+worktree: session-5c06b479 (agent-ops/session-5c06b479)
+session: 5c06b479-3bca-4aab-9bb9-306ee4d4eca2
+agent-ops task task-25c7173a-d0b7-4b9b-8246-50a8c520b88a: Prepare 0.11.0 release
+intent: Bump to 0.11.0 (DEBUG slim-down, evidence fixes, coordinator wait, agy round exit, Office retention) and date the changelog.
+criteria:
+- version: package.json and package-lock.json (root and packages[""]) carry version 0.11.0, and CHANGELOG.md has an empty ## [Unreleased] heading directly followed by ## [0.11.0] - 2026-10-23.
+- release-checks: npm test passes, and npm run package:check and node scripts/scan-source.mjs pass on the release commit.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/ce0f4314cbb612dcc4ef6450e8d43dfca0ace072f57810a6a54fa49fef355c46-f98e63c4604d0a8422c9c72278a1bd2e69aa1762.json
+receipt-sha256: 7a95a54d8b795dad7d32e19af41595117400991f88b17e636fba48a308021813
