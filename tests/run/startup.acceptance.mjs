@@ -7,6 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {recoveryChecks} from '../debug/recovery-checks.mjs';
 import {officePhaseChecks} from '../office/phase-checks.mjs';
 import {officeReviveChecks} from '../office/revive-checks.mjs';
+import {officeRetentionChecks} from '../office/retention-checks.mjs';
 import {peerOriginChecks} from '../debug/peer-origin-checks.mjs';
 import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
@@ -67,6 +68,7 @@ const checks = {
   ...recoveryChecks,
   ...officePhaseChecks,
   ...officeReviveChecks,
+  ...officeRetentionChecks,
   ...peerOriginChecks,
   ...authorizationChecks,
   ...surfaceChecks,
