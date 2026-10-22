@@ -154,8 +154,7 @@ test("migrates a manifest-owned version 0 config during update", async () => {
       verification: { commands },
       features: {
         stopVerification: { enabled: false },
-        completionGate: { enabled: false },
-        debug: {enabled:true,budgetMs:3600000,maxRounds:5}
+        completionGate: { enabled: false }
       },
       pathMappings: [{ path: "src", verifierIds: ["unit"] }],
       securityExceptions: []
@@ -236,8 +235,6 @@ test("disables owned Stop handlers while preserving foreign handlers", async () 
     );
 
     config.features.stopVerification.enabled = false;
-    // DEBUG also owns a Stop handler for its foreground clock.
-    config.features.debug = { ...config.features.debug, enabled: false };
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
     const plan = await createUpdatePlan({
       root,
@@ -494,8 +491,7 @@ test("explicit target update is offline and preserves verifier config", async ()
       schemaVersion: 3,
       features: {
         stopVerification: { enabled: false },
-        completionGate: { enabled: false },
-        debug: {enabled:true,budgetMs:3600000,maxRounds:5}
+        completionGate: { enabled: false }
       }
     });
     assert.match(

@@ -267,13 +267,14 @@ export function aggregateAcceptanceRun(
     run.results.filter((result) => !expected.has(result.checkId)).map((result) => result.checkId)
   );
   const missingCheckIds = requested.filter((id) => !counts.has(id));
-  if (duplicateCheckIds.length > 0 || unexpectedCheckIds.length > 0 || missingCheckIds.length > 0) {
+  // Checks the runner emits beyond the requested ones are ignored: a binding may list only its red checks.
+  // An unrequested failure still surfaces through the runner's exit code, which replay reconciles.
+  if (duplicateCheckIds.length > 0 || missingCheckIds.length > 0) {
     return unknown(
       run,
       run.results,
-      duplicateCheckIds.length > 0 ? ACCEPTANCE_FAILURE.duplicate :
-        missingCheckIds.length > 0 ? ACCEPTANCE_FAILURE.missing : ACCEPTANCE_FAILURE.unexpected,
-      ["The observed checks do not match the requested checks exactly."],
+      duplicateCheckIds.length > 0 ? ACCEPTANCE_FAILURE.duplicate : ACCEPTANCE_FAILURE.missing,
+      ["The observed checks do not include every requested check exactly once."],
       missingCheckIds,
       duplicateCheckIds,
       unexpectedCheckIds

@@ -4,6 +4,44 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-23
+
+- Verification evidence no longer goes stale on metadata. It binds an
+  execution hash of the criteria, so a revise that only changes the surface or
+  origin keeps it (review is still required); a commit that only touches
+  escape-ledger task records keeps the base-mode source fingerprint (base-mode
+  fingerprints change once on upgrade: re-verify). Without `--base` on a clean
+  tree, `verify` and `review` use the session worktree's merge-base with its
+  target branch, or the task's creation commit. `task revise --baseline <ref>`
+  moves every typed baseline to an ancestor of HEAD. A behavioral binding may list only its red
+  checks; extra runner output is ignored. `verify` prints the surface gate as
+  advisory lines so `SURFACE_*` is fixed before review.
+- DEBUG is now an ordinary task plus a required red-to-green proof:
+  `task create --debug --goal <issue>` needs a behavioral criterion whose
+  `redCheckIds` fail at the baseline and pass on the candidate
+  (`TASK_DEBUG_RED_CHECK_REQUIRED`), then verifies, reviews and finishes like
+  any task. Removed: `task debug` (now `TASK_DEBUG_REMOVED`), hypotheses,
+  strategy switches, the 60-minute budget and round limit, grants and native
+  control words, checkpoints, automatic DEBUG intake from prompt hooks, the
+  DEBUG Stop block and the Codex `Interrupt` hook. The escape origin and its
+  rule proof are advisory: `ESCAPE_ORIGIN_MISSING` and finish-time
+  `ESCAPE_RULE_UNPROVEN` no longer block. Older task state and
+  `features.debug` still load and are ignored; `update` drops the setting.
+- A run coordinator no longer polls `run status` while its children work. After
+  planning them it sends `action=wait`; the supervisor stops it, frees its slot
+  (so `jobs=2` runs two children) and restarts it in a fresh native session,
+  with each child's status and commit, once every child has finished. Without
+  a wait the coordinator is never stopped mid-planning, for any `jobs` value.
+- `run status` and `run logs` JSON omit the event history and goal text from
+  `state`, keeping `eventCount` and `goalHash`; `run logs` still returns events.
+- An agy review or resumed round whose log reports a finished turn but whose
+  process never exits is stopped 30 seconds later and its printed answer is
+  validated as usual, instead of waiting out the full round timeout and
+  reporting NOT_RUN. Silent agy generations still run until the round timeout.
+- The Office retires paused, stopping, blocked and budget-limited runs after
+  the retention window, as it already did for completed and failed ones; only
+  active and awaiting-input runs stay past it.
+
 ## [0.10.2] - 2026-10-21
 
 - Manual run resume recovers proven historical native goal limit snapshots

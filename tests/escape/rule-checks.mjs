@@ -83,7 +83,7 @@ async function gate(f, surface, changedFiles, extra = {}) {
 }
 const productChange = async f => f.write('src/pages/ProductPage.tsx', PAGE('ProductPage', 'LARGE'));
 
-/** A non-DEBUG behavioral task (red baseline, green candidate) from the DEBUG acceptance helper. */
+/** A non-DEBUG behavioral task (red baseline, green candidate) from the DEBUG acceptance helper; escape proof never blocks its finish. */
 async function behavioralTask() {
   const {fixture} = await import('../debug/acceptance-helper.mjs');
   const f = await fixture(false);
@@ -232,9 +232,9 @@ const raw = {
       const {runTaskCommand} = await load('packages/cli/src/commands/task.js');
       const escaped = f.baseline;
       await f.declare({kind: 'escape-of', commit: escaped, label: 'criteria'});
-      assert.equal(await f.finish(), 'TASK_COMPLETION_ESCAPE_RULE_UNPROVEN', 'a criteria escape names its promoted check');
+      assert.equal(await f.finish(), 'TASK_COMPLETION_REVIEW_REQUIRED', 'advisory, finish goes on to review: a criteria escape names its promoted check');
       await f.declare({kind: 'escape-of', commit: escaped, label: 'criteria', promote: 'regression:related'});
-      assert.equal(await f.finish(), 'TASK_COMPLETION_ESCAPE_RULE_UNPROVEN', 'an invariant (never red) check is not a red-to-green promotion');
+      assert.equal(await f.finish(), 'TASK_COMPLETION_REVIEW_REQUIRED', 'advisory, finish goes on to review: an invariant (never red) check is not a red-to-green promotion');
       const configPath = join(f.root, '.agent-ops/config.json');
       const before = existsSync(configPath) ? await readFile(configPath, 'utf8') : null;
       const printed = await runTaskCommand({args: parseArgs(['task', 'revise', f.id, '--expected-contract', await f.contract(),
@@ -312,7 +312,7 @@ const raw = {
       assert.notEqual(await f.contract(), plain, 'the fix commit is bound into the contract');
       assert.equal(declared.record.fix, fix);
       assert.deepEqual(declared.record.missedPaths, SIBLINGS, 'missed paths come from the fix commit, not the task diff');
-      assert.equal(await f.finish(), 'TASK_COMPLETION_ESCAPE_RULE_UNPROVEN', 'red: the sibling-page omission has no proving rule');
+      assert.equal(await f.finish(), 'TASK_COMPLETION_REVIEW_REQUIRED', 'advisory, finish goes on to review: red: the sibling-page omission has no proving rule');
       await writeRule(f, rule(escaped));
       assert.equal((await f.declare({kind: 'escape-of', commit: escaped, label: 'surface', fix})).record.proof.status, 'proven');
       assert.equal(await f.finish(), 'TASK_COMPLETION_REVIEW_REQUIRED', 'green: the rule proves the omission');
@@ -331,7 +331,7 @@ const raw = {
       const origin = {kind: 'escape-of', commit: escaped, label: 'surface', fix};
       const declared = await f.declare(origin);
       assert.deepEqual(declared.record.missedPaths, ['src/entry/entryCode.ts']);
-      assert.equal(await f.finish(), 'TASK_COMPLETION_ESCAPE_RULE_UNPROVEN', 'red: the alternate entry path has no proving rule');
+      assert.equal(await f.finish(), 'TASK_COMPLETION_REVIEW_REQUIRED', 'advisory, finish goes on to review: red: the alternate entry path has no proving rule');
       await writeRule(f, {id: 'table-number-entries', escape: escaped, label: 'surface-unseen', trigger: {paths: [], tokens: ['table_number']},
         expand: {paths: [], queries: ['DINE_IN']}, noExclude: true});
       assert.equal((await f.declare(origin)).record.proof.status, 'proven');
@@ -411,8 +411,8 @@ const raw = {
     }
     const {harnessDescriptor, managedRules} = await load('runtime/src/install/harness.js');
     for (const id of ['claude', 'codex', 'agy', 'opencode']) {
-      const text = managedRules(harnessDescriptor(id), {scope: 'project', profiles: ['core'], capabilities: ['rules', 'task', 'task-debug']});
-      for (const token of ['.agent-ops-escapes/rules', 'ESCAPE_RULE_UNPROVEN', '--escape-promote'])
+      const text = managedRules(harnessDescriptor(id), {scope: 'project', profiles: ['core'], capabilities: ['rules', 'task']});
+      for (const token of ['--escape-of', 'never blocks finish'])
         assert.ok(text.includes(token), `${id} managed DEBUG text lacks ${token}`);
     }
   }

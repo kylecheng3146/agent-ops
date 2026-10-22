@@ -167,6 +167,9 @@ export interface OfficeSnapshot {
 
 const COMPLETED_RETENTION_MS = 2 * 60 * 60 * 1000;
 const LIVE = new Set(["assigned", "starting", "running", "idle", "handing-off", "fenced", "delivered", "blocked"]);
+// Every other run status is idle: nothing moves a paused, stopping, blocked or
+// budget-limited run on, so it leaves the Office like a finished one.
+const RUNNING = new Set(["active", "awaiting-input"]);
 const PHASES = new Set<OfficePhase>(["planning", "implementing", "verifying", "reviewing", "integrating", "unknown"]);
 
 function phaseOf(value: string | undefined): OfficePhase {
@@ -190,7 +193,7 @@ function quote(text: string): string {
 export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
   const byPath = new Map(input.worktrees.map(w => [w.path, w]));
   const claimed = new Set<OfficeReviewSlot>();
-  const runs = input.runs.filter(run => !["complete", "failed"].includes(run.status) || input.now - Date.parse(run.updatedAt) < COMPLETED_RETENTION_MS)
+  const runs = input.runs.filter(run => RUNNING.has(run.status) || input.now - Date.parse(run.updatedAt) < COMPLETED_RETENTION_MS)
     .map((run): OfficeRun => {
     const roots = new Set(run.workers.map(w => w.worktree).filter((p): p is string => p !== null));
     const reviewers = input.reviews.filter(r => r.root !== null && roots.has(r.root)).slice(0, 2);

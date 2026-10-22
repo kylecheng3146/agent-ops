@@ -12,10 +12,11 @@
 
 - `behavioral`：指定 red checks 在 baseline 都因斷言失敗，candidate 的必要 checks 全部通過。`invariant`：candidate 的必要 checks 通過，baseline 原本 PASS 有效。`review-only`：兩輪 fresh review 對照原始目標驗收，不宣稱機械證明。
 - repo 授權的 `verification.acceptanceRunners` 定義 argv、setup、產品與 test build。task 提供穩定 check IDs 與明列且已 commit 的 test／fixture／helper；兩側各自安裝並 build 其版本，再覆蓋 candidate 材料。task 不能改 runner 命令。
-- generic runner 輸出的 check IDs 必須恰好等於共用相同 runner、baseline 與材料之 criteria 所要求的 `checkIds` 聯集；多出的列為 UNKNOWN。若 runner 固定輸出整套 checks，就綁定完整輸出集合，並將 `redCheckIds` 限於實際回歸斷言。
+- generic runner 必須輸出共用相同 runner、baseline 與材料之 criteria 所要求的每個 `checkId`，且各恰好一次；缺少或重複為 UNKNOWN。其他列會被忽略，因此 binding 可以只列 red checks。未要求的列若失敗，runner 的 exit code 仍與 PASS 彙總矛盾，candidate 會成為 UNKNOWN，絕不會 green。
 - fixture、collection、build、timeout、取消、輸出截斷、缺少或重複 ID、retry、skip MUST NOT 算 red 或 green。完整 execution artifacts 以摘要綁定契約、材料與 commits。
 - 原生 Jest JSON 與 Vitest task errors 無法完整區分 test-call 斷言與 hook／fixture cleanup。除非已 review 的 repo collector 提供明確斷言分類，失敗列 MUST 保持 UNKNOWN；AssertionError 名稱、matcher 資料與 pass 的 hook 狀態都不足。green 需要明確的單次 attempt 證據：attempts、Jest invocations，或 Vitest retryCount 與 repeatCount 兩者。原生 Vitest JSON 省略這些 counters，不能單獨提供機械證明。pytest 每個 nodeid 必須有一組依序的 setup／call／teardown；Rust protocol 必須提供 attempts。缺 metadata MUST NOT 預設為一次成功。
-- baseline 固定為建立 commit；finding pin 使用被 FAIL 的 candidate。revise／replan 保留原始目標、全部映射要求與先前契約／證據。新契約必須重新取證並取得兩輪 fresh review。
+- baseline 為建立 commit；finding pin 使用被 FAIL 的 candidate。`task revise --baseline <ref>` 會一次把所有 typed criterion 的 baseline（以及 task 的建立 commit）移到 HEAD 的某個祖先 commit，例如 task 開在錯的分支時，並使其驗證失效。revise／replan 保留原始目標、全部映射要求與先前契約／證據。
+- verification evidence 只綁定 criteria 的 execution hash。只改 surface 或 origin 的 revise 會保留它；改 criteria 或設定則使其失效。0.11 之前的證據綁定完整 contract hash，契約未變時仍相符。每個新契約都需要兩輪 fresh review。
 - `task pin-finding` 驗證已保存 report 的 digest／index 來源。recurrence 明確引用既有 pin。第六條回傳 replan 義務且不修改狀態；映射後必須保留 pin 與全部要求。
 - reviewer packet 包含原始目標、修訂歷史、coverage 與 verifier 材料，審查斷言本身與明確的 fallback 理由。機械 green 不會省略必要 policy commands 或任一 fresh review。
 
@@ -47,7 +48,7 @@ English source version: 2026-10-20. Revalidate: when the English specification c
 
 每個新 task MUST 在寫驗收條件前記錄變更還會影響哪些位置（surface audit）；discovery 找到未分類位置時，review MUST NOT 執行。
 
-- Trigger: 建立 task（`task create`、run plan，或 DEBUG task 第一次修復之前）、修訂 surface，或審查 task。
+- Trigger: 建立 task（`task create`，含 `--debug`，或 run plan）、修訂 surface，或審查 task。
 - Action: 以記錄下來的固定字串查詢或 `n/a: 理由` 搜尋四個軸向，把每個命中分類為 included、excluded（glob + 理由）或 UNKNOWN，每列 surface 都寫出可觀察的 `behavior`，並宣告每個共享契約為 compatible 或 breaking。以 `task create|revise --surface-file <json>` 提交。
 - Evidence: surface 存在 task 上、綁進 contract hash 並保留修訂歷史，review 前以 `git grep -F` 重放，並以 `surface-coverage` 條件交給兩位 reviewer。
 - Positive: `diff token 命中三個複製貼上的同類頁面；review 前 audit 已把它們連同行為列入 included。`
@@ -83,7 +84,8 @@ English source version: 2026-10-20. Revalidate: when the English specification c
   至多 128 筆。Reviewer 會看到每筆排除與其命中數，若它隱藏了先前
   `SURFACE_UNCLASSIFIED` 阻擋所列的檔案則會標示出來。
   結果以 HEAD、base、diff、查詢集合與 config hash 快取。
-- Review 以 NOT_RUN 回報：`SURFACE_MISSING`（沒有或無法解析的 surface；非 DEBUG
+- `verify` 在驗證後執行同一個 gate，並以建議性質的輸出列印結果（`Surface: PASS`，或錯誤碼與未分類路徑），讓 surface 在 review 前修好；只有 review 會強制。
+- Review 以 NOT_RUN 回報：`SURFACE_MISSING`（沒有或無法解析的 surface；
   task 建立時也會拒絕）、`SURFACE_UNCLASSIFIED`、`SURFACE_QUERY_TOO_BROAD`（單一
   記錄查詢超過 200 個檔案）、`SURFACE_EXCLUSION_TOO_BROAD`（單一 glob 超過 10 個
   檔案，或包含 diff 內的檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
@@ -100,17 +102,15 @@ English source version: 2026-10-20. Revalidate: when the English specification c
 
 ## EVIDENCE-ESCAPE-001
 
-每個 DEBUG 修復 MUST 在 review 前宣告 bug 的來源；宣告的逃逸 MUST 以機械方式連結、標記並記錄。
+bug 修復在已知來源時 SHOULD 宣告 bug 的來源；宣告的逃逸 MUST 以機械方式連結、標記並記錄。此宣告屬建議性質（advisory），絕不阻擋 finish。
 
-- Trigger: DEBUG 假設已確認，或一般 task 修復一個通過了先前關卡的 bug。
-- Action: 以 `task debug --debug-action origin --payload-file <json>` 宣告 `origin`：`{"kind": "escape-of", "commit": "<commit>", "label": "<label>"}`（可選 `"receipt"`），或 `{"kind": "pre-existing" | "external", "reason": "..."}`。一般 task 可用 `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]` 選擇加入。把 `.agent-ops-escapes/<task-id>.json` 記錄與修復一起 commit。
-- Evidence: `origin` 綁進 task contract hash；本規則上線後建立的 DEBUG task 沒有它時，finish、`task complete` 與 completion gate 以 `ESCAPE_ORIGIN_MISSING` 拒絕；兩位 reviewer 在 `escape-label` 條件下收到連結狀態、標記、事實與 residual risks。
-- Positive: `假設已確認；origin escape-of 864dbbe2 label surface；重放把漏掉的頁面標為 surface-unseen；記錄與修復一起 commit。`
-- Negative: `DEBUG 修復沒有 origin 就 finish，或把 surface-excluded 的漏網改標成 review，理由是 reviewer「應該注意到」。`
+- Trigger: DEBUG task（`task create --debug`）或任何 task 修復一個通過了先前關卡的 bug，且已知其來源。
+- Action: 以 `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]` 宣告 `origin`，DEBUG 與一般 task 相同。0.10 `task debug` 記錄的 `pre-existing` 與 `external` origin（附 `reason`）仍可讀取；未宣告的 origin 另行計數。把 `.agent-ops-escapes/<task-id>.json` 記錄與修復一起 commit。
+- Evidence: `origin` 綁進 task contract hash；兩位 reviewer 在 `escape-label` 條件下收到連結狀態、標記、事實與 residual risks。沒有 origin 的 task 仍可 finish；0.10 標記 `originRequired` 的 task 不再被拒絕（`ESCAPE_ORIGIN_MISSING` 已於 0.11.0 移除）。
+- Positive: `回歸在 baseline 為紅、修復後為綠；origin escape-of 864dbbe2 label surface；重放把漏掉的頁面標為 surface-unseen；記錄與修復一起 commit。`
+- Negative: `把 surface-excluded 的漏網改標成 review，理由是 reviewer「應該注意到」。`
 
-- 宣告必須在假設確認之後（否則 `ESCAPE_ORIGIN_EARLY`），並計入 DEBUG 預算。它是一次
-  contract revision：重新 verify、以新證據重新記錄已確認的假設，然後 review。重新宣告會
-  取代記錄。輸出會列出修復所改或刪行的 `git blame` 提示 commit；blame 只是提示，因為遺漏
+- 宣告是一次 contract revision：重新 verify，然後 review。重新宣告會取代記錄。輸出會列出修復所改或刪行的 `git blame` 提示 commit；blame 只是提示，因為遺漏
   型 bug 存在於沒人寫過的行。
 - finish receipt 留在本機 Git common directory。Schema 2 記錄 target..candidate 的每個
   commit 與逐檔 diff fingerprint（去掉 blob id 與 hunk 位置，squash merge 後仍相同）；
@@ -134,13 +134,13 @@ English source version: 2026-10-20. Revalidate: when the English specification c
 
 ## EVIDENCE-ESCAPE-002
 
-surface 逃逸 MUST 在修復 finish 前變成已證明、受追蹤的規則；學到的規則 MUST 只能收緊 surface gate。
+surface 逃逸 SHOULD 變成已證明、受追蹤的規則；學到的規則 MUST 只能收緊 surface gate。此證明屬建議性質，絕不阻擋 finish。
 
 - Trigger: 已宣告的 escape-of origin（EVIDENCE-ESCAPE-001），或以 `task create --escape-of <commit> --escape-label <label> --escape-fix <fix-commit>` 回填的過去逃逸。
-- Action: 標記為 `surface`、`surface-unseen` 或 `surface-excluded` 時，commit 一條規則 `.agent-ops-escapes/rules/<rule-id>.json`，形狀為 `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}`，並重新宣告 origin。`criteria` 或 `verify` 以 `--escape-promote <runnerId:checkId>`（DEBUG payload `"promote"`）指名修復 task 由紅轉綠的 check。其他標記記錄為 lesson。
-- Evidence: finish、`task complete` 與 completion gate 會重跑證明，並以 `ESCAPE_RULE_UNPROVEN`、`ESCAPE_RULE_TOO_BROAD` 或 `SURFACE_BUDGET_EXCEEDED` 拒絕；ledger 記錄保存證明用規則、其內容 hash 與回測的 fires、commits 與比率。
+- Action: 標記為 `surface`、`surface-unseen` 或 `surface-excluded` 時，commit 一條規則 `.agent-ops-escapes/rules/<rule-id>.json`，形狀為 `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}`，並重新宣告 origin。`criteria` 或 `verify` 以 `--escape-promote <runnerId:checkId>`（origin 欄位 `"promote"`）指名修復 task 由紅轉綠的 check。其他標記記錄為 lesson。
+- Evidence: 宣告 origin 時執行證明，失敗時印出 `ESCAPE_RULE_UNPROVEN`、`ESCAPE_RULE_TOO_BROAD` 或 `SURFACE_BUDGET_EXCEEDED`；自 0.11.0 起 finish 不再因此拒絕。ledger 記錄保存證明用規則、其內容 hash 與回測的 fires、commits 與比率。
 - Positive: `逃逸 surface-unseen；規則 image-size-siblings 在被逃逸 commit 上觸發，其查詢在該 commit 命中兩個漏掉的兄弟頁面，且在最近 200 個 commit 中只觸發 2 次。`
-- Negative: `規則從未在被逃逸 commit 上觸發就 finish surface 逃逸，或新增可排除路徑的規則欄位。`
+- Negative: `規則從未在被逃逸 commit 上觸發卻把 surface 逃逸報為已證明，或新增可排除路徑的規則欄位。`
 
 - 規則只含資料且不需要 trust：trigger 與 expand 變成 argv `git grep -F` 查詢與路徑
   glob，絕不經過 shell 或 regex。嚴格 schema 沒有任何能移除查詢、新增排除或放寬關卡的
@@ -203,7 +203,7 @@ surface 逃逸 MUST 在修復 finish 前變成已證明、受追蹤的規則；�
 
 既有 task 檔案仍可直接讀取，不需資料格式遷移。缺少 config baseline、使用任意文字證據，或含有未完成但已封存子任務的舊任務，必須重建並完成驗證與審查。重複執行 complete 也會重新驗證證據；舊的 completed 狀態本身不夠。Runtime 呼叫端必須提供 `TaskServiceOptions.completion`；缺少此 repository context 時，complete 會拒絕執行，但仍可讀取任務。
 
-Commit 前，verify、review、complete 使用預設 worktree scope。Commit 後，三個命令都使用相同的 `--base <git-ref>`，為已提交範圍重新產生證據；runtime 呼叫端使用 `TaskServiceOptions.completion.base`。Base 模式要求 worktree 乾淨。沒有 worktree 變更又未指定 base 時，complete 會回傳 `TASK_COMPLETION_SCOPE_REQUIRED`。agy Stop gate 仍檢查 worktree scope 的證據：請在 commit 前完成並停止，或由使用者檢查已完成的 base-scope 任務後，核准一次性的 Stop permit。
+Commit 前，verify、review、complete 使用預設 worktree scope。Commit 後，三個命令都使用相同的 `--base <git-ref>`，為已提交範圍重新產生證據。未指定 `--base` 且 worktree 乾淨時，verify 與 review 自動選擇：session worktree 使用與目標分支的 merge-base（finish rebase 後會跟著移動），其他情況使用 task 的建立 commit（須為 HEAD 的祖先）。Base 模式的 source fingerprint 忽略 escape ledger 的 task 記錄（`.agent-ops-escapes/task-*.json`；rules 仍納入 fingerprint），因此 commit ledger 不會使驗證與 review 失效；0.10 計算的 fingerprint 不同，升級後需重新 verify 一次；runtime 呼叫端使用 `TaskServiceOptions.completion.base`。Base 模式要求 worktree 乾淨。沒有 worktree 變更又未指定 base 時，complete 會回傳 `TASK_COMPLETION_SCOPE_REQUIRED`。agy Stop gate 仍檢查 worktree scope 的證據：請在 commit 前完成並停止，或由使用者檢查已完成的 base-scope 任務後，核准一次性的 Stop permit。
 
 這項機制強制的是 toolkit 的完成命令，無法阻止 host 直接用自然語言宣稱完成，也無法阻止具有相同檔案權限的 process 直接改寫 task／evidence 檔案；它不會鎖住 Git 或其他來源檔案寫入者。
 

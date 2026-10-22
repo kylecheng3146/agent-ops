@@ -96,8 +96,7 @@ test("plans a complete project install without writing", async () => {
       "review",
       "lifecycle-summary",
       "local-log",
-      "command-policy",
-      "task-debug"
+      "command-policy"
     ]);
 
     const agents = writeOperation(plan, "AGENTS.md");
@@ -557,14 +556,14 @@ test("replanning preserves user-authored verifier configuration", async () => {
 
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")),
-      {...configured,features:{...configured.features,debug:{enabled:true,budgetMs:3600000,maxRounds:5}}}
+      configured
     );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("replanning preserves explicit debug budgets and disabled settings", async () => {
+test("replanning drops pre-0.11 DEBUG budget settings", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-install-"));
   const options = {root,scope:"project" as const,harness:["codex" as const],profiles:["core" as const],adapters:adapters()};
   try {
@@ -579,7 +578,7 @@ test("replanning preserves explicit debug budgets and disabled settings", async 
       config.features.debug = debug;
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
       await applyInstallPlan(root, await createInstallPlan(options));
-      assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")).features.debug, debug);
+      assert.equal(JSON.parse(await readFile(configPath, "utf8")).features.debug, undefined);
     }
   } finally {
     await rm(root, {recursive:true,force:true});
@@ -711,7 +710,7 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     assert.ok(!initial.capabilities.includes("command-policy"));
     assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "agy")!.events, ["SessionStart", "PreToolUse", "Stop"]);
     // A submitted prompt starts the turn's work in Office.
-    assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "codex")!.events, ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "Interrupt"]);
+    assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "codex")!.events, ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"]);
     // Only Claude publishes the end of a conversation, which closes its Office room.
     assert.deepEqual(initial.manifest.hooks!.find(hook => hook.harness === "claude")!.events, ["SessionStart", "UserPromptSubmit", "PreToolUse", "Stop", "SessionEnd"]);
     const plugin = writeOperation(initial, ".opencode/plugins/agent-ops.js");
@@ -726,8 +725,8 @@ test("Office Preview alone installs presence hooks and preserves the choice on r
     await applyInstallPlan(root, disabled);
     assert.deepEqual(
       Object.fromEntries((disabled.manifest.hooks ?? []).map(hook => [hook.harness, hook.events])),
-      {claude: ["UserPromptSubmit", "Stop"], codex: ["UserPromptSubmit", "Stop", "Interrupt"], agy: ["SessionStart", "Stop"]},
-      "DEBUG prompt and foreground clock hooks stay enabled when Office is off"
+      {},
+      "with Office off a core install registers no hooks (DEBUG no longer owns any)"
     );
   } finally {
     await rm(root, {recursive: true, force: true});

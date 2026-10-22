@@ -18,10 +18,11 @@ Executable acceptance MUST bind the current contract to immutable replay evidenc
   build and test build. Tasks provide stable check IDs and explicit committed
   test/fixture/helper materials. Each checkout installs and builds its own version
   before candidate materials are overlaid. Tasks cannot override runner commands.
-- A generic runner must emit exactly the union of `checkIds` requested by criteria
-  sharing its runner, baseline and materials; unexpected rows are UNKNOWN. If a
-  runner always emits its full suite, bind the full emitted set while keeping
-  `redCheckIds` limited to the actual regression assertions.
+- A generic runner must emit every `checkId` requested by criteria sharing its
+  runner, baseline and materials, each exactly once; missing or duplicate rows are
+  UNKNOWN. Other rows are ignored, so a binding may list only its red checks. A
+  failing unrequested row still disagrees with a PASS aggregate through the
+  runner's exit code, which makes the candidate UNKNOWN, never green.
 - Fixture, collection, build, timeout, cancellation, truncated output, missing or
   duplicate IDs, retries and skips MUST NOT establish red or green. Complete raw
   execution artifacts are digest-bound to the contract, materials and commits.
@@ -34,9 +35,15 @@ Executable acceptance MUST bind the current contract to immutable replay evidenc
   counters and cannot supply mechanical proof by itself. Pytest requires one
   ordered setup/call/teardown lifecycle per nodeid; the Rust protocol requires
   explicit attempts. Missing metadata MUST NOT default to a successful attempt.
-- Baselines are immutable creation commits, or failed candidates for finding pins.
-  Revise/replan preserve the original goal, every mapped requirement and previous
-  contracts/evidence. New contracts require new proof and both fresh reviews.
+- Baselines are creation commits, or failed candidates for finding pins.
+  `task revise --baseline <ref>` moves every typed criterion's baseline (and the
+  task's creation commit) at once to a commit that is an ancestor of HEAD, for example after a task was opened on the
+  wrong branch, and voids its verification. Revise/replan preserve the original
+  goal, every mapped requirement and previous contracts/evidence.
+- Verification evidence binds an execution hash of the criteria only. A revise
+  that changes the surface or origin keeps it; a criteria or configuration change
+  voids it. Evidence from before 0.11 bound the full contract hash and still
+  matches an unchanged contract. Every new contract needs both fresh reviews.
 - `task pin-finding` validates saved report digest/index provenance. Recurrence
   explicitly names an existing pin. A sixth criterion returns a replan obligation
   without changing state; the mapped replan must retain the pin and all requirements.
@@ -76,7 +83,7 @@ Each child worktree MUST record its modification intent before editing.
 
 Every new task MUST record a surface audit of where else its change lands before writing criteria, and review MUST NOT run while discovery finds an unclassified place.
 
-- Trigger: Creating a task (`task create`, a run plan, or before a DEBUG task's first repair), revising its surface, or reviewing it.
+- Trigger: Creating a task (`task create`, including `--debug`, or a run plan), revising its surface, or reviewing it.
 - Action: Search four axes with recorded fixed-string queries or `n/a: reason`, classify every hit as included, excluded (glob + reason) or UNKNOWN, give every surface row an observable `behavior`, and declare each shared contract compatible or breaking. Pass it with `task create|revise --surface-file <json>`.
 - Evidence: The surface is stored on the task, bound into its contract hash with revision history, replayed by `git grep -F` before review, and handed to both reviewers under the `surface-coverage` criterion.
 - Positive: `A diff token hits three copy-pasted sibling pages; the audit includes them with their behavior before review runs.`
@@ -118,8 +125,11 @@ Every new task MUST record a surface audit of where else its change lands before
   dismissals. Reviewers see each dismissal with its hit count, flagged when it
   hid a file an earlier `SURFACE_UNCLASSIFIED` block named.
   Results are cached by HEAD, base, diff, query set and config hash.
+- `verify` runs the same gate after verification and prints its result as
+  advisory lines (`Surface: PASS`, or the code and unclassified paths), so the
+  surface is fixed before review; only review enforces it.
 - Review returns NOT_RUN with: `SURFACE_MISSING` (no or unparseable surface;
-  also refused at create for non-DEBUG tasks), `SURFACE_UNCLASSIFIED`,
+  also refused at create), `SURFACE_UNCLASSIFIED`,
   `SURFACE_QUERY_TOO_BROAD` (one recorded query over 200 files),
   `SURFACE_EXCLUSION_TOO_BROAD` (one glob over 10 files, or any file in the
   diff), `SURFACE_DISMISSAL_TOO_BROAD` (over 128 dismissals),
@@ -137,17 +147,15 @@ Every new task MUST record a surface audit of where else its change lands before
 
 ## EVIDENCE-ESCAPE-001
 
-Every DEBUG fix MUST declare where its bug came from before review, and a declared escape MUST be linked, labelled and recorded mechanically.
+A bug fix SHOULD declare where its bug came from when known, and a declared escape MUST be linked, labelled and recorded mechanically. The declaration is advisory: it never blocks finish.
 
-- Trigger: A DEBUG hypothesis is confirmed, or a normal task fixes a bug that passed earlier gates.
-- Action: Declare `origin` with `task debug --debug-action origin --payload-file <json>`: `{"kind": "escape-of", "commit": "<commit>", "label": "<label>"}` (optional `"receipt"`), or `{"kind": "pre-existing" | "external", "reason": "..."}`. A normal task may opt in with `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]`. Commit the `.agent-ops-escapes/<task-id>.json` record with the fix.
-- Evidence: `origin` is bound into the task contract hash; finish, `task complete` and the completion gate refuse a DEBUG task created after this rule without it as `ESCAPE_ORIGIN_MISSING`; both reviewers receive the link state, labels, facts and residual risks under the `escape-label` criterion.
-- Positive: `Hypothesis confirmed; origin escape-of 864dbbe2 label surface; replay marks the missed page surface-unseen; the record is committed with the fix.`
-- Negative: `Finish a DEBUG fix without an origin, or relabel a surface-excluded miss as review because the reviewer "should have noticed".`
+- Trigger: A DEBUG task (`task create --debug`) or any task fixes a bug that passed earlier gates and its origin is known.
+- Action: Declare `origin` with `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]`, the same for DEBUG and normal tasks. `pre-existing` and `external` origins (with a `reason`) recorded by 0.10 `task debug` still load; an undeclared origin is counted as such. Commit the `.agent-ops-escapes/<task-id>.json` record with the fix.
+- Evidence: `origin` is bound into the task contract hash; both reviewers receive the link state, labels, facts and residual risks under the `escape-label` criterion. A task without an origin still finishes; 0.10 tasks marked `originRequired` are no longer refused (`ESCAPE_ORIGIN_MISSING` was removed in 0.11.0).
+- Positive: `Regression red at the baseline, green on the fix; origin escape-of 864dbbe2 label surface; replay marks the missed page surface-unseen; the record is committed with the fix.`
+- Negative: `Relabel a surface-excluded miss as review because the reviewer "should have noticed".`
 
-- The declaration comes after a confirmed hypothesis (`ESCAPE_ORIGIN_EARLY`
-  otherwise), inside the DEBUG budget. It is a contract revision: re-verify,
-  re-record the confirmed hypothesis with the new evidence, then review.
+- The declaration is a contract revision: re-verify, then review.
   Re-declaring replaces the record. The output lists `git blame` hint commits
   for lines the fix changed or removed; blame is a hint only, because an
   omission bug lives in lines nobody wrote.
@@ -181,13 +189,13 @@ Every DEBUG fix MUST declare where its bug came from before review, and a declar
 
 ## EVIDENCE-ESCAPE-002
 
-A surface escape MUST become a proven, tracked rule before its fix finishes, and learned rules MUST only tighten the surface gate.
+A surface escape SHOULD become a proven, tracked rule, and learned rules MUST only tighten the surface gate. The proof is advisory: it never blocks finish.
 
 - Trigger: A declared escape-of origin (EVIDENCE-ESCAPE-001), or a past escape backfilled with `task create --escape-of <commit> --escape-label <label> --escape-fix <fix-commit>`.
-- Action: For a `surface`, `surface-unseen` or `surface-excluded` label, commit a rule `.agent-ops-escapes/rules/<rule-id>.json` shaped `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}` and re-declare the origin. For `criteria` or `verify`, name the fixing task's red-to-green check with `--escape-promote <runnerId:checkId>` (DEBUG payload `"promote"`). Other labels record a lesson.
-- Evidence: Finish, `task complete` and the completion gate re-run the proof and refuse `ESCAPE_RULE_UNPROVEN`, `ESCAPE_RULE_TOO_BROAD` or `SURFACE_BUDGET_EXCEEDED`; the ledger record stores the proving rule, its content hash and its backtest fires, commits and rate.
+- Action: For a `surface`, `surface-unseen` or `surface-excluded` label, commit a rule `.agent-ops-escapes/rules/<rule-id>.json` shaped `{"id", "escape", "label", "trigger": {"paths", "tokens"}, "expand": {"paths", "queries"}, "noExclude"}` and re-declare the origin. For `criteria` or `verify`, name the fixing task's red-to-green check with `--escape-promote <runnerId:checkId>` (origin field `"promote"`). Other labels record a lesson.
+- Evidence: Declaring the origin runs the proof and prints `ESCAPE_RULE_UNPROVEN`, `ESCAPE_RULE_TOO_BROAD` or `SURFACE_BUDGET_EXCEEDED` when it fails; since 0.11.0 finish no longer refuses them. The ledger record stores the proving rule, its content hash and its backtest fires, commits and rate.
 - Positive: `Escape surface-unseen; rule image-size-siblings fires on the escaped commit, its query hits both missed sibling pages there, and fires on 2 of the last 200 commits.`
-- Negative: `Finish a surface escape whose rule never fires on the escaped commit, or add a rule field that excludes paths.`
+- Negative: `Report a surface escape as proven when its rule never fires on the escaped commit, or add a rule field that excludes paths.`
 
 - Rules are data only and need no trust: triggers and expands become argv
   `git grep -F` queries and path globs, never shell or regex. The strict schema
@@ -257,7 +265,7 @@ New verification evidence uses schema 3. Schema 2 remains readable and its exit-
 
 Existing task files remain readable without migration. Legacy tasks without a config baseline, arbitrary evidence references, or unfinished archived children must be recreated and verified/reviewed before completion. Repeating completion also revalidates the evidence; an old completed status alone is insufficient. Runtime callers must supply `TaskServiceOptions.completion`; omitting this repository context fails closed for completion while leaving read-only task operations available.
 
-Before committing, use the default worktree scope for verify, review and completion. After committing, use the same `--base <git-ref>` on all three commands to produce fresh proof for that committed range; `TaskServiceOptions.completion.base` selects it for runtime callers. Base mode requires a clean worktree. Without a worktree change surface or an explicit base, completion returns `TASK_COMPLETION_SCOPE_REQUIRED`. The agy Stop gate still checks worktree-scoped proof: complete and stop before committing, or use its user-approved one-time permit after inspecting a completed base-scoped task.
+Before committing, use the default worktree scope for verify, review and completion. After committing, use the same `--base <git-ref>` on all three commands to produce fresh proof for that committed range. When `--base` is absent and the tree is clean, verify and review choose it: a session worktree uses its merge-base with the target branch (which follows a finish rebase), elsewhere the task's creation commit when it is an ancestor of HEAD. Base-mode source fingerprints ignore escape-ledger task records (`.agent-ops-escapes/task-*.json`; rules stay fingerprinted), so committing the ledger keeps verification and review current; fingerprints from 0.10 differ, so re-verify once after upgrading; `TaskServiceOptions.completion.base` selects it for runtime callers. Base mode requires a clean worktree. Without a worktree change surface or an explicit base, completion returns `TASK_COMPLETION_SCOPE_REQUIRED`. The agy Stop gate still checks worktree-scoped proof: complete and stop before committing, or use its user-approved one-time permit after inspecting a completed base-scoped task.
 
 This enforces the toolkit's completion command, not a host's natural-language completion claim. It does not prevent a process with the same filesystem authority from editing task/evidence files directly, and it does not lock Git or external source writers.
 

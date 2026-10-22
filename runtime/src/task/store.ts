@@ -12,7 +12,6 @@ import {
   writePrivateFile
 } from "../security/permissions.js";
 import { taskContractHash } from "./contract.js";
-import {assertDebugState, type DebugState} from "./debug-state.js";
 import { materialPath, commitIdentity, acceptanceSourcePath } from "../schema/acceptance.js";
 import type {
   FailureFingerprintState
@@ -35,7 +34,6 @@ export interface TaskRevision {
 }
 
 export interface StoredTaskRecord {
-  readonly debug?: DebugState;
   readonly task: AgentTask;
   readonly createdSourceCommit?: string;
   readonly revisions?: readonly TaskRevision[];
@@ -197,11 +195,8 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   if (!task.ok) {
     return invalidState("Task state contains an invalid task.");
   }
-  if (value.debug !== undefined) {
-    assertDebugState(value.debug);
-    if (value.debug.rootTaskId !== task.value.id || task.value.debug?.rootTaskId !== task.value.id)
-      return invalidState("Debug counters belong only to the original issue root.");
-  }
+  // Pre-0.11 DEBUG budget/hypothesis state: accepted, then dropped on load.
+  if (value.debug !== undefined && !isRecord(value.debug)) return invalidState("Task state contains an invalid task record.");
   if (
     !["active", "archived", "complete"].includes(String(value.status)) ||
     !isTimestamp(value.createdAt) ||
@@ -322,7 +317,6 @@ function parseTaskRecord(value: unknown): StoredTaskRecord {
   }
   return {
     task: task.value,
-    ...(value.debug === undefined ? {} : {debug: value.debug as DebugState}),
     ...(value.noChangePaths === undefined ? {} : {noChangePaths: value.noChangePaths as string[]}),
     ...(value.createdSourceCommit === undefined ? {} : {createdSourceCommit: value.createdSourceCommit as string}),
     ...(value.revisions === undefined ? {} : {revisions: value.revisions as unknown as TaskRevision[]}),

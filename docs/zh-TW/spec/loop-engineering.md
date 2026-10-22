@@ -11,7 +11,7 @@
 - Negative: 只因 native goal completion 就把 run 標為 complete。
 
 - macOS supervisor 在啟動 goal 前保存 Claude／Codex native 身份。同 host writers 使用獨立 worktrees 與目前 generation lease；coordinator 計入最多兩個 writer。依賴以固定交付提供，child baseline 在依賴 commits 進入 checkout 後建立。
-- 新 run 不設總時間上限（`budget.limitMs: null`），仍以 active intervals 聯集記錄 setup、verify、review、整合的消耗。舊有限 run 僅在下次人工 resume 升級，保留舊上限、intervals、消耗、usage epochs 與 blocker 歷史；讀取或安裝不會升級或喚醒舊 run。單次命令／review timeout、provider quota、DEBUG 預算、無進度與 pause/stop 控制保持獨立有效。明確指定 --time-budget 會被拒絕。缺少計數維持 UNKNOWN，partial usage 不算完整成本。
+- 新 run 不設總時間上限（`budget.limitMs: null`），仍以 active intervals 聯集記錄 setup、verify、review、整合的消耗。舊有限 run 僅在下次人工 resume 升級，保留舊上限、intervals、消耗、usage epochs 與 blocker 歷史；讀取或安裝不會升級或喚醒舊 run。單次命令／review timeout、provider quota、無進度與 pause/stop 控制保持獨立有效。明確指定 --time-budget 會被拒絕。缺少計數維持 UNKNOWN，partial usage 不算完整成本。
 - 實質疑問暫停並要求明確回答。修復保留目標與失敗紀錄；連續兩次相同失敗且無進展停止該 worker 及其依賴，獨立 task 仍可執行。review findings 在下次 final gate 前必須有回歸 pin 或記錄 review-only fallback。
 - native completion 僅是觀察。完成必須有必要驗證、兩輪 fresh review、完成的 task state、綁定 target 的 receipt。整合在移動 target 前封存 candidate，記錄 task、receipt、note、cleanup 進度；恢復驗證封存證據，不重做成功的 target mutation。不一致的 target 維持 blocked。
 - Stop 先保存禁止續跑，再確認受管 process group 死亡。crash recovery 不得取代仍存活或身份不明的 writer。dirty checkout、版本漂移、restart storm 保留現場。重開機／login 改變必須明確 resume；不修改全域 host policy。
@@ -24,9 +24,14 @@
 - 當次人工 resume 的初始恢復 MAY 忽略啟用前收到、且 native 更新秒數嚴格早於該次 resume 的本執行緒 Codex 額度快照。自動重啟、未知／同秒／未來時間、時鐘倒退，以及啟用開始後收到的所有額度事件仍有效。Native 啟用 MUST 確認 goal 為 active，才能啟動或轉向 turn。人工 resume 可解除衍生的 `RUN_POLICY_DISABLED` task 阻擋，但保留 ID、耗用、歷史及其他產品失敗。
 - 收斂判斷比較實際 per-check 狀態及未解除的 finding pins；source fingerprint、時間或診斷文字本身不能算進展。
 
-`jobs=1` 時，child MUST 等 coordinator 程序確認死亡後才執行。coordinator 保留
-task 與 native session identity，在 child 交付後以新 generation 接續。native
-註冊、恢復與啟動 MUST 都限制最多一個 active agent；僅扣除 task slot 不足以符合。
+不論 `jobs` 為何，coordinator MUST 只在規劃完 child 後送出明確的 `action=wait`
+request 才讓出；supervisor 不會停止仍在規劃的 coordinator。wait 會確認 coordinator
+程序死亡、釋出其 slot 並捨棄其 native thread，使 coordinator 在 child 工作期間
+不再輪詢 `run status`。恢復流程讓等待中的 coordinator 保持停止；所有 child 皆為
+delivered、complete 或 blocked 後，才以新 generation 在全新 native session 中接續，
+instructions 會列出每個 child 的狀態與交付 commit。`jobs=1` 時，child MUST 等該
+程序確認死亡後才執行。native 註冊、恢復與啟動 MUST 都限制最多 `jobs` 個 active
+agent；僅扣除 task slot 不足以符合。
 
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 

@@ -4,7 +4,7 @@ import type {
   InstallScope,
   VerificationCommand
 } from "../contracts.js";
-import {taskContractHash} from "../task/contract.js";
+import {executionContractHash, taskContractHash} from "../task/contract.js";
 import {replayAcceptance, type AcceptanceReplayResult} from "./acceptance-replay.js";
 import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
 import { validateTaskAgainstConfig } from "../schema/validate.js";
@@ -170,7 +170,9 @@ export class VerificationService {
         failureClass: result.failureClass,
         sourceFingerprint,
         toolVersions: this.#options.toolVersions ?? {},
-        ...(task.goal === undefined && (task.contractRevision ?? 0) === 0 && task.criteria.every(c => c.acceptance === undefined) ? {} : {taskContractHash: taskContractHash(task)}),
+        // Surfaced tasks are always bound, so a later surface-only revision of a goal-less one keeps it; legacy tasks stay unbound.
+        ...(task.goal === undefined && (task.contractRevision ?? 0) === 0 && task.criteria.every(c => c.acceptance === undefined) &&
+          task.surfaceRequired === undefined ? {} : {taskContractHash: executionContractHash(task)}),
         config: this.#options.config
       });
       references.push(
@@ -186,9 +188,7 @@ export class VerificationService {
   ): Promise<VerificationCommandReport> {
     const startedAt = (this.#options.now ?? (() =>
       new Date().toISOString()))();
-    const remaining = task.debug === undefined ? undefined : await this.#options.taskService.debugService().remaining(task.id);
-    if (remaining === 0) throw verificationError("TASK_DEBUG_BUDGET_EXHAUSTED", "The original issue's active budget is exhausted.");
-    const result = await executeConfiguredCommand(remaining === undefined ? command : {...command,timeoutMs:Math.min(command.timeoutMs ?? 300_000,remaining)}, {
+    const result = await executeConfiguredCommand(command, {
       cwd: await this.#commandCwd(command),
       runner: this.#options.processRunner,
       trusted: this.#options.trusted
@@ -228,11 +228,6 @@ export class VerificationService {
   }
 
   async verify(taskId: string): Promise<VerificationReport> {
-    const stored = await this.#options.taskService.status({taskId});
-    return stored.task.debug === undefined ? await this.#verify(taskId) :
-      await this.#options.taskService.debugService().verification(taskId,()=>this.#verify(taskId));
-  }
-  async #verify(taskId: string): Promise<VerificationReport> {
     const stored = await this.#options.taskService.status({ taskId });
     if (stored.status === "archived") {
       throw verificationError(
@@ -301,8 +296,7 @@ export class VerificationService {
     }
 
     const acceptance = validation.value.criteria.some(c => c.acceptance !== undefined && c.acceptance.mode !== "review-only")
-      ? await replayAcceptance({...this.#options, task: validation.value, sourceFingerprint,
-        ...(stored.task.debug === undefined ? {} : {remainingMs:()=>this.#options.taskService.debugService().remaining(taskId)})}) : [];
+      ? await replayAcceptance({...this.#options, task: validation.value, sourceFingerprint}) : [];
     let status = aggregateVerificationStatus([...results, ...acceptance.map(a => ({required: true, status: a.status}))]);
     let sourceChanged = false;
     const postflightScope = await resolveReviewScope({
@@ -359,14 +353,6 @@ export class VerificationService {
         await this.#options.taskService.recordVerificationEvidence(stored, taskEvidence, sourceFingerprint);
       }
     } else {
-      if (stored.task.debug !== undefined && !sourceChanged) {
-        const failures: Record<string,string[]> = {};
-        for (const result of results) {
-          const references=await this.#persistEvidence(validation.value,commandById(this.#options.config,result.commandId),result.startedAt,result.finishedAt,result,sourceFingerprint);
-          relevantCriteria(validation.value,result.commandId).forEach((criterion,index)=>{const reference=references[index];if(reference!==undefined) failures[criterion.id]=[...(failures[criterion.id] ?? []),reference];});
-        }
-        if (Object.keys(failures).length>0) await this.#options.taskService.recordEvidence(taskId,failures);
-      }
       const required = [...results.filter((result) => result.required), ...acceptance.map(a => ({commandId: a.runnerId, required: true,
         status: a.status, failureClass: a.failureClass, exitCode: null, timedOut: false, testCount: null,
         diagnostic: a.criterionId + ":" + a.phase + ":" + a.failureClass, evidenceReferences: [a.reference], startedAt: "", finishedAt: ""}))];

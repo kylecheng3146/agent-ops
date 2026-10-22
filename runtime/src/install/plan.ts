@@ -1,5 +1,4 @@
 import { lstat, readFile } from "node:fs/promises";
-import {DEBUG_DEFAULTS} from "../task/debug-state.js";
 
 import {
   CONFIG_SCHEMA_VERSION,
@@ -257,6 +256,8 @@ function buildConfig(
     existing.verification.commands.length > 0
       ? existing.verification
       : { commands: [...detectedCommands] };
+  // Pre-0.11 DEBUG budget settings are dropped on rewrite.
+  const existingFeatures = existing === undefined ? undefined : (({ debug: _legacyDebug, ...rest }) => rest)(existing.features);
   const effectiveWorktree: WorktreeConfig | undefined =
     worktree !== undefined
       ? (worktree === null ? undefined : structuredClone(worktree))
@@ -266,8 +267,7 @@ function buildConfig(
     profiles: [...profiles],
     verification,
     features: {
-      debug: existing?.features.debug ?? {...DEBUG_DEFAULTS},
-      ...(existing?.features ?? {
+      ...(existingFeatures ?? {
         stopVerification: { enabled: false },
         completionGate: { enabled: completionGateEnabled }
       }),

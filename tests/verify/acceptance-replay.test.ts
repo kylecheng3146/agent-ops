@@ -68,7 +68,8 @@ test("real paired replay shares execution and proves behavioral and invariant cr
     assert.equal(baseline.acceptance.checks[0]?.status, "FAIL");
     const revised = await f.tasks.revise(record.task.id, {expectedContractHash: taskContractHash(record.task),
       criteria: record.task.criteria, reason: "Reassess the same contract against the original goal"});
-    assert.deepEqual((await acceptanceCoverage(revised, f.config, report.sourceFingerprint, f.evidenceStore)).map(c => c.status), ["undischarged", "undischarged"]);
+    // Same criteria, same execution: the paired proof still stands (review is what the new contract needs).
+    assert.deepEqual((await acceptanceCoverage(revised, f.config, report.sourceFingerprint, f.evidenceStore)).map(c => c.status), ["proven", "proven"]);
   } finally {await rm(f.root, {recursive: true, force: true});}
 });
 

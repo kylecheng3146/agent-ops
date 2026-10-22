@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "taskId": "task-5adf9797-9deb-4b86-b53e-a8a27a2d0556",
+  "escapeOf": "7efc1569111058530a119c31a1c49cb1fb6e923f",
+  "link": {
+    "state": "ungated"
+  },
+  "agentLabel": "scenario",
+  "label": "scenario",
+  "missedPaths": [
+    "runtime/src/office/snapshot.ts"
+  ],
+  "facts": [],
+  "residualRisks": 0,
+  "proof": {
+    "status": "lesson",
+    "reason": "scenario: no mechanical replay exists for this gate; recorded as an unproven lesson."
+  },
+  "declaredAt": "2026-10-22T12:22:19.252Z"
+}

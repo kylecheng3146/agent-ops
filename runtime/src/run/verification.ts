@@ -4,7 +4,7 @@ import {sha256} from "../fs/hash.js";
 import {AgentOpsError} from "../fs/paths.js";
 import {readPrivateFile, writePrivateFile} from "../security/permissions.js";
 import {redactSecrets} from "../security/redact.js";
-import {taskContractHash} from "../task/contract.js";
+import {evidenceMatchesContract, taskContractHash} from "../task/contract.js";
 import type {StoredTaskRecord} from "../task/store.js";
 import {FileEvidenceStore} from "../verify/evidence.js";
 import type {VerificationReport} from "../verify/service.js";
@@ -52,7 +52,7 @@ export async function observeRunFailure(state: RunState, root: string, records: 
       for (const phase of saved.report.acceptance ?? []) {
         const proof = await evidence.load(phase.reference) as VerificationEvidence | null;
         const criterion = record.task.criteria.find(c => c.id === phase.criterionId);
-        if (proof?.acceptance === undefined || proof.taskContractHash !== taskContractHash(record.task) || criterion?.acceptance === undefined || criterion.acceptance.mode === "review-only") continue;
+        if (proof?.acceptance === undefined || !evidenceMatchesContract(proof.taskContractHash, record.task) || criterion?.acceptance === undefined || criterion.acceptance.mode === "review-only") continue;
         const bindings = criterion.acceptance.bindings.filter(b => b.runnerId === phase.runnerId);
         acceptance.push({...phase, criterionId: record.task.id + ":" + phase.criterionId, checks: proof.acceptance.checks,
           requiredCheckIds: bindings.flatMap(b => b.checkIds), redCheckIds: bindings.flatMap(b => b.redCheckIds ?? [])});

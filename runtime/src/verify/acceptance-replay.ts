@@ -9,7 +9,7 @@ import {canonicalJson} from "../config/hash.js";
 import {sha256} from "../fs/hash.js";
 import {removeTemporary} from "../fs/temporary.js";
 import {AgentOpsError, resolveContainedPath} from "../fs/paths.js";
-import {criterionContractHash, taskContractHash} from "../task/contract.js";
+import {criterionContractHash, executionContractHash} from "../task/contract.js";
 import {aggregateAcceptanceRun, makeAcceptanceCheck, makeAcceptanceRun, type AcceptanceRun, type AcceptanceAggregate, type AcceptancePhase} from "./acceptance-protocol.js";
 import {collectNodeAcceptance, collectJestAcceptance, collectVitestAcceptance, collectPytestAcceptance, collectRustAcceptance} from "./adapters/index.js";
 import {buildVerificationEvidence, type FileEvidenceStore} from "./evidence.js";
@@ -27,7 +27,6 @@ export interface AcceptanceReplayOptions {
   readonly trusted: boolean;
   readonly scope: "project" | "user";
   readonly signal?: AbortSignal;
-  readonly remainingMs?: () => Promise<number>;
 }
 export interface AcceptanceReplayResult {
   readonly criterionId: string;
@@ -134,11 +133,9 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       let timedOut: string | undefined;
       const command = async (executable: string, args: readonly string[], cwd: string, stage: keyof typeof ACCEPTANCE_TIMEOUTS,
         own?: number) => {
-        const remaining = await options.remainingMs?.();
-        if (remaining === 0) throw new AgentOpsError("TASK_DEBUG_BUDGET_EXHAUSTED","The original issue's active budget is exhausted.");
         const limit = own ?? ACCEPTANCE_TIMEOUTS[stage];
         const result = await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
-          evidence: {kind: "exit-code"}, timeoutMs:Math.min(limit,remaining ?? Infinity)}, {cwd, runner: options.processRunner, env, replaceEnv: true,
+          evidence: {kind: "exit-code"}, timeoutMs:limit}, {cwd, runner: options.processRunner, env, replaceEnv: true,
           outputLimitBytes: 1024 * 1024, ...(options.signal === undefined ? {} : {signal: options.signal})});
         if (result.failureClass === "timeout" && timedOut === undefined) timedOut = stage === "git"
           ? `Runner ${group.runner.id} ${phase}: git checkout exceeded ${limit} ms.`
@@ -208,7 +205,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           aggregate = undefined;
         failure = aggregate?.failureClass ?? output.failureClass;
       } catch (error) {
-        failure = error instanceof AgentOpsError && error.code === "TASK_DEBUG_BUDGET_EXHAUSTED" ? "debug-budget-exhausted" : error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
+        failure = error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
       } finally { await removeTemporary(temp); }
       const finishedAt = new Date().toISOString();
       const artifactContent = redactSecrets(JSON.stringify({schemaVersion: 1, executionId, phase, commit,
@@ -233,7 +230,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           scope: options.scope, startedAt, finishedAt, exitCode: output?.exitCode ?? null, testCount: checks.length,
           status, failureClass: status === "PASS" ? "none" : phase === "baseline" && aggregate?.status === "PASS" ? "non-discriminating" : failure,
           sourceFingerprint: options.sourceFingerprint, toolVersions: {node: process.version}, config: options.config,
-          taskContractHash: taskContractHash(options.task), acceptance: {criterionContractHash: criterionContractHash(criterion),
+          taskContractHash: executionContractHash(options.task), acceptance: {criterionContractHash: criterionContractHash(criterion),
             bindingHash: sha256(canonicalJson({runnerId: group.runner.id, materials: group.binding.materials})), phase, commit, pairedCommit: phase === "baseline" ? candidate : group.baseline, materialDigest, executionDigest, executionArtifact, checks}});
         const reference = await options.evidenceStore.save(evidence);
         reports.push({criterionId: criterion.id, runnerId: group.runner.id, phase, status, failureClass: evidence.failureClass, reference,

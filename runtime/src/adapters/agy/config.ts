@@ -83,7 +83,7 @@ export function buildAgyHookSettings(
     throw new AgentOpsError("AGY_HOOK_PATH_INVALID", "agy hook runtime path is invalid.");
   }
   const hooks: Record<string, readonly unknown[]> = {};
-  if ((capabilities.includes("lifecycle-summary") || capabilities.includes("office-presence") || capabilities.includes("task-debug")) || capabilities.includes("project-loop")) {
+  if ((capabilities.includes("lifecycle-summary") || capabilities.includes("office-presence")) || capabilities.includes("project-loop")) {
     hooks.PreInvocation = [handler(runtimePath, "SessionStart", platform)];
   }
   if ((capabilities.includes("command-policy") || capabilities.includes("office-presence")) || capabilities.includes("project-loop")) {
@@ -92,8 +92,7 @@ export function buildAgyHookSettings(
   if (
     capabilities.includes("office-presence") ||
     capabilities.includes("optional-stop-verify") ||
-    capabilities.includes("completion-gate") ||
-    capabilities.includes("task-debug")
+    capabilities.includes("completion-gate")
   ) {
     hooks.Stop = [handler(
       runtimePath,

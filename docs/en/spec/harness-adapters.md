@@ -118,17 +118,12 @@ installed configuration; the managed OpenCode `tool.execute.before` plugin can
 throw its documented denial or unavailable-runtime error for its supported Bash
 surface. Codex remains `unknown` and never emits a denial. Fixture tests assert
 these wire and plugin shapes only; they do not prove that a host honors a
-denial. `SessionStart` and ordinary `Stop` failures remain fail-open. Active
-DEBUG Stop faults instead retry one targeted reload, then explicitly report
-UNKNOWN/incomplete and preserve the original state before non-success Stop.
+denial. `SessionStart` and `Stop` failures remain fail-open.
 
-Codex DEBUG lifecycle semantics were rechecked on 2026-10-11 against the
-[official hooks reference](https://learn.chatgpt.com/docs/hooks#stop): Stop
-`decision: "block"` with `reason` schedules a continuation; `continue: false`
-halts it. `stop_hook_active` identifies a prior continuation and cannot waive
-the DEBUG check. Native `Interrupt` pauses with a three-second timeout and
-never blocks or restarts the human interruption. This DEBUG-specific policy
-does not enable Codex's generic completion gate or optional Stop verifier.
+Since 0.11.0 no hook is DEBUG-specific: prompts never open DEBUG tasks, Stop
+never holds a session for one, and Codex `Interrupt` is no longer registered
+(a stale registration from an older install is a no-op until `update`). Codex
+still has no generic completion gate or optional Stop verifier.
 Codex separately trusts each exact native hook definition. After managed hook
 updates, review new or changed definitions in `/hooks`; agent-ops repository
 trust alone does not make an unreviewed native hook active.
@@ -197,6 +192,9 @@ removes only `run` and keeps `loop`.
 resumability and concrete remediation. An unchanged cleanup failure retains its
 original cause. Trust, native identity, generation and denial failures remain
 fail-closed; a sealed proof never erases a native or organization denial.
+The JSON `state` of `run status` and `run logs` omits the event history and goal
+text, keeping `eventCount` and `goalHash`, so repeated polling stays small;
+`run logs` returns the events themselves.
 
 Manual resume of a receipt-bound integration validates the exact sealed proof,
 receipt digest and transaction, owner/generation, candidate/target ancestry and

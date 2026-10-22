@@ -362,10 +362,6 @@ test("reports desired capability drift as UPDATE_REQUIRED", async () => {
         hookRuntimePath: "/opt/agent-ops/hook-entry.js"
       })
     );
-    // DEBUG installs its own Stop handler; turn it off so Stop drift stays observable.
-    const installedConfig = JSON.parse(await readFile(join(root, ".agent-ops", "config.json"), "utf8"));
-    installedConfig.features.debug = { ...installedConfig.features.debug, enabled: false };
-    await writeFile(join(root, ".agent-ops", "config.json"), `${JSON.stringify(installedConfig, null, 2)}\n`);
     await applyUpdatePlan(root, await createUpdatePlan({
       root,
       adapters: commonHarnessAdapters(),

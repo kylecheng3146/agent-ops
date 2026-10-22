@@ -96,8 +96,8 @@ export interface SecurityException {
 }
 
 export interface AgentOpsFeatures {
-  /** Task-level investigation; absent remains compatible with older installations. */
-  debug?: { enabled: boolean; budgetMs: number; maxRounds: number };
+  /** Pre-0.11 DEBUG budget settings; still accepted, ignored. */
+  debug?: Record<string, unknown>;
   /** Office Preview is opt-in; older configs may omit this field. */
   office?: {
     enabled: boolean;
@@ -201,7 +201,7 @@ export interface AgentTask {
   surfaceRequired?: true;
   /** Escape Loop: where the fixed bug came from (escape-of a commit, pre-existing, external). */
   origin?: import("./escape/origin.js").TaskOrigin;
-  /** Set on DEBUG roots created after the origin gate shipped; completion needs `origin`. */
+  /** Pre-0.11 DEBUG roots; ignored, origin is advisory. */
   originRequired?: true;
 }
 

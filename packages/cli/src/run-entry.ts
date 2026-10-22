@@ -48,22 +48,67 @@ const plain = (value: unknown): value is Record<string, unknown> => typeof value
 const active = (worker: RunWorkerRecord) => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status);
 const cli = fileURLToPath(new URL("./bin.js", import.meta.url));
 
-/** Release the sole native slot only after confirmed coordinator death. */
+const pendingChildren = (state: RunState) =>
+  state.tasks.filter(task => task.taskId !== state.rootTaskId && !["delivered", "complete", "blocked"].includes(task.status));
+// Only a coordinator wait stops the coordinator with a handoff reason; it never delivers itself.
+const yielded = (worker: RunWorkerRecord) => worker.status === "stopped" && worker.stopIntent?.reason === "handoff";
+
+/**
+ * Stop a coordinator that asked to wait for its children, instead of letting it
+ * poll run status. Its native thread is dropped so the wake starts fresh.
+ */
+export async function waitForChildren(repository: RunRepository, supervisor: RunSupervisor, runId: string, workerId: string, generation: number): Promise<void> {
+  const current = await repository.read(runId);
+  if (current === null || workerId !== current.coordinatorId)
+    throw new AgentOpsError("RUN_COORDINATOR_REQUIRED", "Only the coordinator can wait for child deliveries.");
+  if (current.rootTaskId === null || pendingChildren(current).length === 0)
+    throw new AgentOpsError("RUN_WAIT_NOTHING_PENDING", "Wait requires at least one planned child that has not finished.");
+  await yieldCoordinator(repository, supervisor, runId, workerId, generation, current.rootTaskId);
+}
+
+async function yieldCoordinator(repository: RunRepository, supervisor: RunSupervisor, runId: string, workerId: string, generation: number, taskId: string): Promise<void> {
+  await supervisor.stopWorker(runId, workerId, generation, "handoff");
+  await repository.mutate(runId, saved => ({...saved, workers: saved.workers.map(w =>
+    w.workerId === workerId && w.generation === generation && w.status === "stopped" ? {...w, nativeSessionId: null, nativeJobId: null} : w)}));
+  await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_COORDINATOR_YIELDED", workerId, taskId,
+    detail: "Coordinator waited; process death confirmed and its slot released until every child finishes."});
+}
+
+/** Finish an unconfirmed wait, then return the stopped coordinator once every child has finished. */
 export async function prepareSerialSchedule(repository: RunRepository, supervisor: RunSupervisor, runId: string): Promise<RunWorkerRecord | null> {
   const current = await repository.read(runId);
-  if (current === null || current.jobs !== 1 || current.rootTaskId === null || current.status !== "active" || current.disableRestart || current.awaitingResume) return null;
-  const children = current.tasks.filter(task => task.taskId !== current.rootTaskId);
+  if (current === null || current.rootTaskId === null || current.status !== "active" || current.disableRestart || current.awaitingResume) return null;
   const coordinator = current.workers.find(worker => worker.workerId === current.coordinatorId);
-  if (children.length === 0 || coordinator === undefined) return null;
-  if (children.some(task => !["delivered", "complete", "blocked"].includes(task.status))) {
-    if (active(coordinator)) {
-      await supervisor.stopWorker(runId, coordinator.workerId, coordinator.generation, "handoff");
-      await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_COORDINATOR_YIELDED", workerId: coordinator.workerId,
-        taskId: coordinator.taskId, detail: "Coordinator process death confirmed before assigning the sole slot to children."});
+  if (coordinator?.status === "handing-off" && coordinator.stopIntent?.reason === "handoff") {
+    try {await yieldCoordinator(repository, supervisor, runId, coordinator.workerId, coordinator.generation, current.rootTaskId);}
+    catch (cause) {
+      // The slot stays held until death is confirmed; retry on the next supervisor pass.
+      if (cause instanceof AgentOpsError && ["RUN_HANDOFF_PROCESS_ALIVE", "RUN_WRITER_STILL_ALIVE"].includes(cause.code)) return null;
+      throw cause;
     }
     return null;
   }
+  if (coordinator === undefined || current.tasks.every(task => task.taskId === current.rootTaskId) || pendingChildren(current).length > 0) return null;
   return coordinator.status === "stopped" && !current.workers.some(worker => worker.workerId !== coordinator.workerId && active(worker)) ? coordinator : null;
+}
+
+/** Recovery leaves a waiting coordinator stopped, and with jobs=1 starts only a child whose dependencies are delivered. */
+export function recoverySkips(state: RunState, worker: RunWorkerRecord): boolean {
+  if (state.rootTaskId === null) return false;
+  const pending = pendingChildren(state);
+  if (pending.length === 0) return false;
+  if (worker.workerId === state.coordinatorId) return yielded(worker);
+  const node = pending.find(task => task.taskId === worker.taskId);
+  return state.jobs === 1 && (node === undefined ||
+    node.dependencies.some(id => !state.tasks.some(task => task.taskId === id && ["delivered", "complete"].includes(task.status))));
+}
+
+/** Child status handed to a woken coordinator, which may have lost its conversation. */
+export function coordinatorWakeNote(state: RunState, coordinator: RunWorkerRecord): string {
+  const children = state.tasks.filter(task => task.taskId !== state.rootTaskId)
+    .map(task => `${task.taskId} ${task.status}${task.sourceCommit === null ? "" : " " + task.sourceCommit}`);
+  return (coordinator.nativeSessionId === null ? "Fresh native session after wait; the earlier conversation is unavailable. " : "") +
+    `Children: ${children.join("; ")}. Review deliveries, then plan follow-up workers and wait again, or request finalization.`;
 }
 
 /** Retain the structured child failure instead of hiding it behind recovery text. */
@@ -195,11 +240,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           "Requests require requestId (unique alphanumeric or hyphen, max 64), workerId, generation and current contractHash.",
           "Plan fields: action=plan,title,intent,criteria,surface (the EVIDENCE-SURFACE-001 audit object, same shape as task create --surface-file). Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered),covers (parent included surface IDs this worker delivers; every included surface needs one worker).",
           "Only the coordinator may change execution policy: submit action=policy, configFile (relative proposed JSON), expectedPolicyHash, approvals (each changed capabilityId command:<id>/runner:<id>/setup:<index>, classification=non-dangerous, reason assessing the entire fixed definition including setup/build). Commit source changes and wait until every writer is clean before requesting policy synchronization. Never use init/update/trust grant to create permanent execution authorization. Explicit native or organization denial must not be bypassed.",
-          "Worker task baselines are frozen after dependency commits enter its checkout. Handoff fields: action=handoff,sourceFiles (explicit existing source paths when unchanged). Question fields: action=question,prompt. Coordinator finalize fields: action=finalize.",
+          "Worker task baselines are frozen after dependency commits enter its checkout. Handoff fields: action=handoff,sourceFiles (explicit existing source paths when unchanged). Question fields: action=question,prompt. Coordinator wait fields: action=wait, sent once every worker is planned instead of polling run status; the supervisor stops the coordinator and starts it again, in a fresh session with a child-status diagnostic, after every child is delivered, complete or blocked. Coordinator finalize fields: action=finalize.",
           "The supervisor, after stopping writers, runs final verification, two fresh reviews and finish. A native completed goal is never final proof."], diagnostic};
       const path = join(worker.worktree!, ".agent-ops", "tasks", "run-instructions.json");
       await writePrivateFile(path, JSON.stringify(content, null, 2), worker.worktree!);
-      return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child requests handoff after local green; the coordinator waits for all child deliveries, then requests finalization. Never substitute native goal completion for agent-ops evidence.";
+      return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child requests handoff after local green; the coordinator submits action=wait after planning its children, then requests finalization once all have delivered. Never substitute native goal completion for agent-ops evidence.";
     }
     async function start(worker: RunWorkerRecord, diagnostic?: string, resumeAt?: string): Promise<void> {
       if (await discoverPendingPolicyTransition(repository, runId) !== null)
@@ -233,7 +278,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     }
     async function schedule(): Promise<void> {
       const coordinator = await prepareSerialSchedule(repository, supervisor, runId);
-      if (coordinator !== null) {await start(coordinator); return;}
+      if (coordinator !== null) {await start(coordinator, coordinatorWakeNote((await repository.read(runId))!, coordinator)); return;}
       const current = (await repository.read(runId))!;
       for (const node of await scheduler.next(runId)) {
         if (node.planDigest === undefined || node.taskId === current.rootTaskId) continue;
@@ -610,15 +655,13 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       else if (state.policyBinding !== undefined) await synchronizePolicy();
       state = (await repository.read(runId))!;
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
-        if (state.jobs === 1 && state.rootTaskId !== null) {
-          const pending = state.tasks.filter(task => task.taskId !== state.rootTaskId && !["delivered", "complete", "blocked"].includes(task.status));
-          const node = pending.find(task => task.taskId === worker.taskId);
-          if (pending.length > 0 && (worker.workerId === state.coordinatorId || node === undefined ||
-              node.dependencies.some(id => !state.tasks.some(task => task.taskId === id && ["delivered", "complete"].includes(task.status))))) continue;
-        }
+        if (recoverySkips(state, worker)) continue;
         if (worker.workerId !== state.coordinatorId && (worker.worktree === null ||
             !(await deps.tasks(worker.worktree).list()).some(r => r.task.id === worker.taskId))) continue;
-        try {await start(worker, undefined, manualResumeAt); if (state.jobs === 1) break;}
+        try {
+          await start(worker, worker.workerId === state.coordinatorId && yielded(worker) ? coordinatorWakeNote(state, worker) : undefined, manualResumeAt);
+          if (state.jobs === 1) break;
+        }
         catch (cause) {
           await repository.appendEvent(runId, {type: "diagnostic", code: cause instanceof AgentOpsError ? cause.code : "RUN_RECOVERY_FAILED",
             workerId: worker.workerId, taskId: worker.taskId, detail: "Writer recovery refused; preserve its checkout until the prerequisite is corrected."});
@@ -827,6 +870,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               await repository.mutate(runId, saved => ({...saved, status: "awaiting-input", questions: [...saved.questions,
                 {questionId: request.requestId as string, prompt: request.prompt as string, askedAt: new Date().toISOString(), answeredAt: null, answerDigest: null}]}));
               response = {requestId: request.requestId, code: "RUN_AWAITING_INPUT"};
+            } else if (request.action === "wait") {
+              if ((await collectChangeSurface(gitRunner(worker.worktree!))).paths.length > 0)
+                throw new AgentOpsError("RUN_WAIT_DIRTY", "Commit coordinator changes before waiting; a stopped checkout must be clean to restart.");
+              await waitForChildren(repository, supervisor, runId, worker.workerId, worker.generation);
+              response = {requestId: request.requestId, code: "RUN_COORDINATOR_WAITING"};
             } else if (request.action === "finalize") {
               if (worker.workerId !== current.coordinatorId || current.tasks.some(task => task.taskId !== current.rootTaskId && task.status !== "delivered"))
                 throw new AgentOpsError("RUN_DELIVERIES_PENDING", "The coordinator must wait for every planned child delivery before final integration.");

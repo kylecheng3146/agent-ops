@@ -384,7 +384,7 @@ test("reports configured hooks in the plan and success message", async () => {
     );
     assert.match(
       dryRun.data?.text ?? "",
-      /Hooks:\n  - codex: \.codex\/hooks\.json \(SessionStart, UserPromptSubmit, Stop, Interrupt\)/u
+      /Hooks:\n  - codex: \.codex\/hooks\.json \(SessionStart\)/u
     );
 
     const applied = await runInitCommand(
@@ -405,7 +405,7 @@ test("reports configured hooks in the plan and success message", async () => {
     );
     assert.match(
       applied.data?.message ?? "",
-      /Hooks configured:[\s\S]*codex: \.codex\/hooks\.json \(SessionStart, UserPromptSubmit, Stop, Interrupt\)/u
+      /Hooks configured:[\s\S]*codex: \.codex\/hooks\.json \(SessionStart\)/u
     );
   } finally {
     await rm(root, { recursive: true, force: true });

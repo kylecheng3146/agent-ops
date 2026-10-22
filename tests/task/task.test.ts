@@ -469,13 +469,14 @@ test("task command returns stable human and JSON views", async () => {
   }
 });
 
-test("explicit DEBUG task intake starts the native foreground clock", async () => {
+test("CLI DEBUG intake needs a red behavioral check and starts no clock", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-task-debug-clock-"));
   try {
     const debugConfig: AgentOpsConfig = {
       ...COMPLETION_CONFIG,
       features: {
         ...COMPLETION_CONFIG.features,
+        // Pre-0.11 budget settings are accepted and ignored.
         debug: {enabled: true, budgetMs: 3_600_000, maxRounds: 5}
       }
     };
@@ -499,9 +500,8 @@ test("explicit DEBUG task intake starts the native foreground clock", async () =
       service: tasks,
       sessionId: "agy-native"
     });
-    assert.equal(result.code, "TASK_CREATED");
-    const state = await tasks.debugService().root("debug-task");
-    assert.equal(state.debug.foreground?.sessionId, "agy-native");
+    assert.equal(result.code, "TASK_DEBUG_RED_CHECK_REQUIRED");
+    assert.deepEqual(await tasks.list(), []);
   } finally {
     await rm(root, {recursive: true, force: true});
   }

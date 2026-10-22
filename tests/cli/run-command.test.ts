@@ -76,3 +76,22 @@ test("run status reports recovery without treating a recorded proof as validated
   assert.equal(result.data?.recovery.resumable, false);
   assert.match(result.data?.text ?? "", /genuine new authorization/u);
 });
+
+test("run status and logs JSON omit the event history and goal text that polling would reread", async () => {
+  const initial = createRunState({root: "/repo", commonDir: "/repo/.git", targetBranch: "main", goal: "A long goal ".repeat(200),
+    host: "codex", ownerSessionId: "owner"});
+  const state: RunState = {...initial, events: Array.from({length: 3}, (_, index) => ({id: `event-${index}`, at: initial.createdAt,
+    type: "diagnostic" as const, code: "RUN_COMMAND_AUTO_APPROVED", workerId: null, taskId: null, detail: "approved"}))};
+  const call = (runAction: "status" | "logs") => runRunCommand({args: args({runAction, runId: state.runId}), service: service(state),
+    root: state.root, commonDir: state.commonDir, targetBranch: state.targetBranch, ownerSessionId: state.ownerSessionId});
+  for (const runAction of ["status", "logs"] as const) {
+    const brief = (await call(runAction)).data?.state as unknown as Record<string, unknown>;
+    assert.equal("events" in brief, false, runAction);
+    assert.equal("goal" in brief, false, runAction);
+    assert.equal(brief.eventCount, 3, runAction);
+    assert.equal(brief.goalHash, state.goalHash, runAction);
+    assert.equal(brief.status, state.status, runAction);
+  }
+  const logs = (await call("logs")).data as unknown as {events: unknown[]};
+  assert.equal(logs.events.length, 3, "run logs still returns the events");
+});

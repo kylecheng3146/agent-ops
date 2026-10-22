@@ -3,7 +3,7 @@ import {calculateConfigHash, canonicalJson} from "../config/hash.js";
 import {readPrivateFile} from "../security/permissions.js";
 import {join} from "node:path";
 import {sha256} from "../fs/hash.js";
-import {criterionContractHash, taskContractHash} from "../task/contract.js";
+import {criterionContractHash, evidenceMatchesContract} from "../task/contract.js";
 import type {StoredTaskRecord} from "../task/store.js";
 import type {FileEvidenceStore} from "./evidence.js";
 
@@ -20,7 +20,6 @@ export async function acceptanceCoverage(
   record: StoredTaskRecord, config: AgentOpsConfig, sourceFingerprint: string,
   store: FileEvidenceStore
 ): Promise<CriterionCoverage[]> {
-  const contract = taskContractHash(record.task);
   const configHash = calculateConfigHash(config);
   const rows: CriterionCoverage[] = [];
   for (const criterion of record.task.criteria) {
@@ -32,7 +31,7 @@ export async function acceptanceCoverage(
       const evidence = await store.load(reference) as VerificationEvidence | null;
       if (evidence?.schemaVersion === 4 && evidence.taskId === record.task.id &&
         evidence.criterionId === criterion.id && evidence.configHash === configHash &&
-        evidence.sourceFingerprint === sourceFingerprint && evidence.taskContractHash === contract &&
+        evidence.sourceFingerprint === sourceFingerprint && evidenceMatchesContract(evidence.taskContractHash, record.task) &&
         evidence.acceptance?.criterionContractHash === criterionContractHash(criterion)) {
         matching.push({reference, evidence});
       }

@@ -3,12 +3,9 @@ import { calculateConfigHash } from "../config/hash.js";
 import { findReviewAttestation } from "../review/attestation.js";
 import { validateEvidence, validateTaskAgainstConfig } from "../schema/validate.js";
 import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify/evidence.js";
-import {taskContractHash} from "./contract.js";
-import {acceptanceCoverage,coverageDigest,type CriterionCoverage} from "../verify/acceptance-coverage.js";
+import {evidenceMatchesContract, taskContractHash} from "./contract.js";
+import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
-import {loadDebugProof,debugProofDigest,debugRemainingMs} from "./debug-state.js";
-import {escapeCompletionProblem} from "../escape/link.js";
-import {RULES_DIRECTORY} from "../escape/rules.js";
 
 interface CompletionProblem {
   readonly code: string;
@@ -25,42 +22,10 @@ export async function checkTaskCompletionEvidence(
     readonly evidenceStore: FileEvidenceStore;
   }
 ): Promise<CompletionProblem | null> {
-  const debug=stored.task.debug === undefined ? undefined : await loadDebugProof(options.root,stored.task.debug.rootTaskId);
-  if (debug?.control?.paused === true || debug?.control?.mode === "diagnose")
-    return {status:"FAIL",code:"TASK_DEBUG_SCOPE_RESTRICTED",remedy:"The human restricted this issue to pause or diagnosis. Preserve the active task; only a native human resume repair event authorizes repair completion."};
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
-  if (debug !== undefined) {
-    const coverage=await acceptanceCoverage(stored,options.config,options.sourceFingerprint,options.evidenceStore);
-    const {FileTaskStore}=await import("./store.js");
-    const {join}=await import("node:path");
-    const reviewedRecords=(await new FileTaskStore(join(options.root,".agent-ops/tasks/state.json"),options.root).read()).tasks.filter(r=>attestation?.taskContracts?.[r.task.id] !== undefined);
-    const currentCoverage:CriterionCoverage[]=[];
-    for(const record of reviewedRecords){const rows=await acceptanceCoverage(record,options.config,options.sourceFingerprint,options.evidenceStore);currentCoverage.push(...rows.map(row=>({...row,criterionId:attestation?.tree === undefined ? row.criterionId : record.task.id+":"+row.criterionId})));}
-    const refs=new Set(coverage.filter(c=>c.mode === "behavioral" && c.status === "proven").flatMap(c=>c.evidenceReferences));
-    if (attestation?.coverageDigest !== coverageDigest(currentCoverage) || debug.operation !== null || debugRemainingMs(debug) === 0 || !debug.hypotheses.some(h=>h.status === "confirmed" && h.supporting.some(ref=>refs.has(ref))) ||
-        attestation?.debugProofs?.[stored.task.id] !== debugProofDigest(debug))
-      return {status:"FAIL",code:"TASK_DEBUG_PROOF_REQUIRED",remedy:"Confirm the original cause with current discriminating regression proof, then obtain two fresh independent reviews bound to that debug proof."};
-  }
-  // Fails closed: the Escape Loop needs every DEBUG fix to say where the bug came from.
-  if (stored.task.originRequired === true && stored.task.origin === undefined)
-    return {status:"FAIL",code:"ESCAPE_ORIGIN_MISSING",remedy:"Declare the issue origin with task debug --debug-action origin --payload-file <json> (escape-of <commit> + label, pre-existing or external + reason) after the hypothesis is confirmed, then re-verify, re-record the hypothesis and obtain review."};
-  // Escape Loop R2: a declared escape finishes only with its proof (rule replay + backtest, or a promoted red-to-green check).
-  const origin = stored.task.origin, base = debug?.baselineCommit ?? stored.createdSourceCommit;
-  if (origin?.kind === "escape-of" && base !== undefined) {
-    const escape = await escapeCompletionProblem({root: options.root, taskId: stored.task.id, origin, base});
-    if (escape !== null && "code" in escape)
-      return {status:"FAIL",code:escape.code,remedy:`${escape.reason} Add or fix a tracked ${RULES_DIRECTORY}/<id>.json rule, re-declare the origin and commit the record.`};
-    if (escape !== null) {
-      const [runnerId, checkId] = escape.check.split(":");
-      const proven = new Set((await acceptanceCoverage(stored,options.config,options.sourceFingerprint,options.evidenceStore))
-        .filter(row => row.status === "proven").map(row => row.criterionId));
-      if (!stored.task.criteria.some(c => proven.has(c.id) && c.acceptance?.mode === "behavioral" &&
-          c.acceptance.bindings.some(b => b.runnerId === runnerId && (b.redCheckIds ?? []).includes(checkId!))))
-        return {status:"FAIL",code:"ESCAPE_RULE_UNPROVEN",remedy:`The promoted check ${escape.check} must be a redCheckId of a proven behavioral criterion of this task (red baseline, green candidate).`};
-    }
-  }
+  // Escape origin and its rule proof are advisory: task create/revise --escape-of report them, completion does not wait on them.
   if (attestation === null || attestation.taskId !== stored.task.id ||
       ((stored.task.criteria.some(c => c.acceptance !== undefined) || (stored.task.contractRevision ?? 0) > 0 || stored.task.goal !== undefined) &&
        (attestation.schemaVersion !== 3 || attestation.taskContracts?.[stored.task.id] !== taskContractHash(stored.task))) ||
@@ -106,7 +71,7 @@ export async function checkTaskVerificationEvidence(
         if (evidence.taskId === stored.task.id && evidence.criterionId === criterion.id &&
           evidence.commandId === command.id && evidence.configHash === configHash &&
           evidence.sourceFingerprint === sourceFingerprint &&
-          ((stored.task.goal === undefined && (stored.task.contractRevision ?? 0) === 0 && stored.task.criteria.every(c => c.acceptance === undefined)) || evidence.taskContractHash === taskContractHash(stored.task)) &&
+          ((stored.task.goal === undefined && (stored.task.contractRevision ?? 0) === 0 && stored.task.criteria.every(c => c.acceptance === undefined)) || evidenceMatchesContract(evidence.taskContractHash, stored.task)) &&
           (latest === undefined || Date.parse(evidence.finishedAt) > Date.parse(latest.finishedAt) ||
             (Date.parse(evidence.finishedAt) === Date.parse(latest.finishedAt) && !isPassingVerificationEvidence(command, evidence)))) {
           latest = evidence;

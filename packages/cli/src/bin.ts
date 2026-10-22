@@ -89,9 +89,11 @@ import {
 } from "../../../runtime/src/review/execute.js";
 import { probeReviewTargetDetailed } from "../../../runtime/src/review/probe.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
+import { runSurfaceGate } from "../../../runtime/src/surface/discovery.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
+import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
 import { runEscapesCommand } from "./commands/escapes.js";
@@ -359,6 +361,15 @@ process.exitCode = await runCli(
           const root = args.scope === "user"
             ? process.env.AGENT_OPS_HOME ?? homedir()
             : process.cwd();
+          // Committed work is judged as a range by default; see defaultBase.
+          if ((args.command === "verify" || (args.command === "review" && args.action !== "show")) && args.base === undefined && args.scope !== "user") {
+            const taskId = args.taskId;
+            const base = await defaultBase(root, gitRunner(root), async () => taskId === undefined ? undefined :
+              (await new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)).status({taskId})).createdSourceCommit)
+              // Only a default: any failure leaves the command's own scope handling and errors in charge.
+              .catch(() => undefined);
+            if (base !== undefined) args = {...args, base};
+          }
           const isTTY =
             !args.json &&
             process.stdin.isTTY === true &&
@@ -644,7 +655,6 @@ process.exitCode = await runCli(
             return await runTaskCommand({
               args,
               service: taskService,
-              ...(args.action !== "debug" ? {} : {trusted:await (async()=>{const binding=await plannedTrustBinding(root,(await loadEffectiveConfig(root,"project")).config);return binding !== null && (await trustStore().status(binding)).status === "TRUSTED";})()}),
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId }),
               ...(fromMain
@@ -716,42 +726,19 @@ process.exitCode = await runCli(
                 reviewActivity = handle;
                 try { return await executor(request); } finally { reviewActivity = undefined; }
               });
-            const debugRecord = reviewArgs.taskId === undefined ? undefined : await taskService.status({taskId:reviewArgs.taskId});
-            const inDebug = (executor: ReturnType<typeof createReviewExecutor>): ReturnType<typeof createReviewExecutor> =>
-              debugRecord?.task.debug === undefined ? executor : async request => await taskService.debugService().review(debugRecord.task.id,()=>executor(request));
             const inSlot = (
               executor: ReturnType<typeof createReviewExecutor>
             ): ReturnType<typeof createReviewExecutor> =>
               slotDir === undefined
-                ? inDebug(executor)
+                ? executor
                 : async (request) => await withReviewSlot({
                     dir: slotDir,
                     signal,
                     holder: {root, ...(reviewArgs.taskId === undefined ? {} : {taskId: reviewArgs.taskId})},
-                    ...(debugRecord?.task.debug === undefined || reviewSessionId === undefined
-                      ? {}
-                      : (() => {
-                          let paused = false;
-                          const debug = taskService.debugService();
-                          return {
-                            onWaitStart: async () => {
-                              if (paused) return;
-                              const current = await debug.root(debugRecord.task.id).catch(() => null);
-                              if (current?.debug.foreground?.sessionId !== reviewSessionId) return;
-                              await debug.foregroundStop(debugRecord.task.id, reviewSessionId);
-                              paused = true;
-                            },
-                            onWaitEnd: async () => {
-                              if (!paused) return;
-                              await debug.foregroundStart(debugRecord.task.id, reviewSessionId);
-                              paused = false;
-                            }
-                          };
-                        })()),
                     onWait: (line) => {
                       process.stderr.write(`${progressPrefix}${line}\n`);
                     }
-                  }, async () => await inDebug(executor)(request));
+                  }, async () => await executor(request));
             return {
               args: reviewArgs,
               authorized: reviewArgs.yes,
@@ -776,7 +763,6 @@ process.exitCode = await runCli(
               config: reviewConfig,
               evidenceStore: new FileEvidenceStore(root, root),
               execute: inActivity(inSlot(createReviewExecutor({
-                ...(debugRecord?.task.debug === undefined ? {} : {remainingBudgetMs:()=>taskService.debugService().remaining(debugRecord.task.id)}),
                 runner: registeredRunProofRunner(),
                 targets: configuredReviewTargets,
                 cwd: root,
@@ -944,6 +930,18 @@ process.exitCode = await runCli(
             return await runVerifyCommand({
               args,
               taskService,
+              surface: async taskId => {
+                const record = await taskService.status({taskId});
+                // A subtask's surface is its parent's; review checks the tree, so verify stays quiet here.
+                if (record.task.parentTaskId !== undefined) return [];
+                const scope = await resolveReviewScope({root, runner: gitRunner(root), ...(args.base === undefined ? {} : {base: args.base})});
+                const gate = await runSurfaceGate({root, taskId, surface: record.task.surface, required: record.task.surfaceRequired === true,
+                  ...(scope.mode === "base" ? {base: scope.resolvedBase} : {}), changedFiles: scope.changedFiles, configHash: calculateConfigHash(config)});
+                if (gate.status === "PASS") return ["Surface: PASS"];
+                const paths = gate.details.flatMap(d => typeof d === "object" && d !== null && "path" in d ? [String(d.path)] : []);
+                return [`Surface (advisory; review would stop with ${gate.code}): ${gate.message}`,
+                  ...paths.slice(0, 20).map(path => `  - ${path}`), ...(paths.length > 20 ? [`  ... ${paths.length - 20} more`] : [])];
+              },
               activity: {commonDir: await officeCommonDir(root), root, ...(verifySessionId === undefined ? {} : {sessionId: verifySessionId})},
               service: {verify: async taskId => {
                 const run = await runPolicyContext(root);
