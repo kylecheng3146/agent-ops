@@ -1,0 +1,12 @@
+worktree: session-5c06b479 (agent-ops/session-5c06b479)
+session: 5c06b479-3bca-4aab-9bb9-306ee4d4eca2
+agent-ops task task-6d2b7ae8-b355-4b16-8bf7-09a44c540777: Stop run coordinator busy-polling
+intent: Recover reviewed-design commits 660405c and bdbadc8 (lost to an accidental reset): coordinator yields only after an explicit action=wait request (all jobs values), frees its slot, and wakes on a fresh native session after all children are delivered/complete/blocked; run status/logs JSON drop events and goal.
+criteria:
+- wait-yields: A coordinator action=wait request with pending children stops the coordinator (confirmed death, slot freed, RUN_COORDINATOR_WAITING) for jobs=1 and jobs=2; wait from a child or with no pending child is rejected.
+- no-forced-yield: Without a wait request the scheduler never stops an active coordinator while children are pending, for jobs=1 and jobs=2.
+- fresh-wake: A yielded coordinator is not restarted (schedule or recovery) while children are pending; once all are delivered/complete/blocked it restarts with cleared native thread ids so the transport starts a fresh session, and its instructions diagnostic lists each child status.
+- slim-status: run status and run logs --json state omit events and goal and include eventCount and goalHash; run logs still returns events.
+- docs-instructions: Coordinator instructions tell it to send wait after planning workers; loop-engineering and harness-adapters specs (en and zh-TW) and CHANGELOG describe the new behavior, and npm test passes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/ce0f4314cbb612dcc4ef6450e8d43dfca0ace072f57810a6a54fa49fef355c46-ca712c7d8d6b775d4fdb217d2ba7c9fad5e8c9bc.json
+receipt-sha256: 64e2b90262e9607ced74dc8d252434f5ea0cd8a290a895059ce63845e56d6914
