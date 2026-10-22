@@ -282,27 +282,7 @@
         },
         "debug": {
           "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "enabled",
-            "budgetMs",
-            "maxRounds"
-          ],
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "budgetMs": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 86400000
-            },
-            "maxRounds": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100
-            }
-          }
+          "description": "Pre-0.11 DEBUG budget settings; accepted, ignored and dropped by update."
         }
       }
     },
