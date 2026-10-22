@@ -59,7 +59,6 @@ import {
   isPassingVerificationEvidence
 } from "../../../../runtime/src/verify/evidence.js";
 import { validateEvidence } from "../../../../runtime/src/schema/validate.js";
-import {loadDebugProof,debugProofDigest} from "../../../../runtime/src/task/debug-state.js";
 import {logSurfaceResidualRisks, runSurfaceGate, type SurfaceCode, type SurfaceGateResult} from "../../../../runtime/src/surface/discovery.js";
 import {escapeReviewData} from "../../../../runtime/src/escape/link.js";
 import {logGateCatch} from "../../../../runtime/src/logging/local-log.js";
@@ -499,7 +498,7 @@ async function reviewEscapes(options: ReviewCommandOptions, context: TaskContext
   for (const record of context.records) {
     const origin = record.task.origin;
     if (origin === undefined) continue;
-    const base = record.debug?.baselineCommit ?? record.createdSourceCommit ?? (scope?.mode === "base" ? scope.resolvedBase : undefined);
+    const base = record.createdSourceCommit ?? (scope?.mode === "base" ? scope.resolvedBase : undefined);
     try {
       if (base === undefined) throw new Error("no base");
       rows.push(await escapeReviewData({root: options.root, git: options.gitRunner, taskId: record.task.id, origin, base}));
@@ -989,7 +988,6 @@ export async function runReviewCommand(
     }
     context.coverage = rows;
     context.binding = {
-      ...(context.records.every(r=>r.task.debug === undefined) || options.root === undefined ? {} : {debugProofs:Object.fromEntries(await Promise.all(context.records.filter(r=>r.task.debug !== undefined).map(async r=>[r.task.id,debugProofDigest(await loadDebugProof(options.root!,r.task.debug!.rootTaskId))])))}),
       taskContractHash: taskContractHash(context.records.find(r => r.task.id === context.taskId)!.task),
       taskContracts: Object.fromEntries(context.records.map(r => [r.task.id, taskContractHash(r.task)])),
       ...(context.treeTasks === undefined ? {} : {treeContractHash: treeContractHash(context.records.map(r => r.task))}),
@@ -1035,8 +1033,7 @@ export async function runReviewCommand(
         executionPolicy: options.config,
         ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
         artifacts: contractArtifacts.map(({path, digest}) => ({path, digest})),
-        tasks: await Promise.all(context.records.map(async r => ({task: r.task, revisions: r.revisions ?? [],
-          ...(r.task.debug === undefined ? {} : {debugProof:await loadDebugProof(options.root!,r.task.debug.rootTaskId)})}))),
+        tasks: context.records.map(r => ({task: r.task, revisions: r.revisions ?? []})),
         superseded: context.historyRecords ?? []}));
       const digest = sha256(content);
       const path = ".agent-ops/tasks/review-contracts/" + digest + ".json";
@@ -1147,10 +1144,7 @@ export async function runReviewCommand(
           await options.tasks.treeContract(context.taskId) !== context.binding.treeContractHash) ||
         (context !== undefined && options.tasks !== undefined &&
           (await Promise.all(context.records.map(async r => taskContractHash((await options.tasks!.status({taskId: r.task.id})).task))))
-            .some((hash, i) => hash !== taskContractHash(context.records[i]!.task))) ||
-        (context?.binding?.debugProofs !== undefined && options.root !== undefined &&
-          (await Promise.all(context.records.filter(r=>r.task.debug !== undefined).map(async r=>
-            debugProofDigest(await loadDebugProof(options.root!,r.task.debug!.rootTaskId)) !== context!.binding!.debugProofs![r.task.id]))).some(Boolean))
+            .some((hash, i) => hash !== taskContractHash(context.records[i]!.task)))
       ) {
         const changed = await persistReviewEvidence(
           options,

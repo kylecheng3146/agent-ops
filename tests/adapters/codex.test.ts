@@ -67,13 +67,9 @@ test("outside the loop, Office or command policy adds one managed Codex prompt h
   assert.match(JSON.stringify(buildCodexHookConfig(["project-loop", "office-presence"], RUNTIME_PATH).hooks.UserPromptSubmit), /agent-ops-loop\.sh/u);
 });
 
-test("task-debug installs Codex prompt, enforced Stop and bounded Interrupt hooks", () => {
-  const managed = buildCodexHookConfig(["task-debug"], RUNTIME_PATH);
-  assert.equal(managed.hooks.UserPromptSubmit?.length, 1);
-  assert.equal(managed.hooks.Stop?.length, 1);
-  assert.match(JSON.stringify(managed.hooks.Stop), /codex Stop --managed-by=agent-ops/u);
-  assert.match(JSON.stringify(managed.hooks.Interrupt), /codex Interrupt --managed-by=agent-ops/u);
-  assert.equal(managed.hooks.Interrupt![0]!.hooks[0]!.timeout,3);
+test("Codex no longer registers an Interrupt hook", () => {
+  for (const capabilities of [["office-presence"], ["optional-stop-verify"], ["command-policy", "office-presence", "optional-stop-verify"]] as const)
+    assert.equal(buildCodexHookConfig(capabilities, RUNTIME_PATH).hooks.Interrupt, undefined, capabilities.join(","));
 });
 
 test("merges only agent-ops groups and preserves unrelated Codex hooks", async () => {

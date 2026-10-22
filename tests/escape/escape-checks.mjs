@@ -288,7 +288,7 @@ const raw = {
     assert.deepEqual(await resolveEscape(f.runner, receipts, unrelated), {state: 'ungated'});
   }),
 
-  'escape-origin-required': async () => {
+  'escape-origin-advisory': async () => {
     const {fixture} = await import('../debug/acceptance-helper.mjs');
     const {parseArgs} = await load('packages/cli/src/args.js');
     const {runTaskCommand} = await load('packages/cli/src/commands/task.js');
@@ -296,15 +296,11 @@ const raw = {
     const {saveReviewReportArtifact, saveReviewAttestation, reviewReportDigest} = await load('runtime/src/review/attestation.js');
     const {acceptanceCoverage, coverageDigest} = await load('runtime/src/verify/acceptance-coverage.js');
     const {FileEvidenceStore} = await load('runtime/src/verify/evidence.js');
-    const {debugProofDigest} = await load('runtime/src/task/debug-state.js');
-    const hypothesis = {id: 'cause', statement: 'Original value is zero', method: 'Execute original issue assertion',
-      expected: 'Baseline assertion fails', checkId: 'issue', expectedStatus: 'FAIL'};
     const reviewed = async (f, report) => {
       const stored = await f.tasks.status({taskId: f.record.task.id}), id = stored.task.id, fingerprint = report.sourceFingerprint;
       const coverage = await acceptanceCoverage(stored, f.config, fingerprint, new FileEvidenceStore(f.root, f.root));
       const binding = {taskContractHash: taskContractHash(stored.task), taskContracts: {[id]: taskContractHash(stored.task)},
-        goalHash: goalHash(stored.task), candidateCommit: f.git('rev-parse', 'HEAD').toString().trim(), coverageDigest: coverageDigest(coverage),
-        debugProofs: {[id]: debugProofDigest((await f.tasks.debugService().root(id)).debug)}};
+        goalHash: goalHash(stored.task), candidateCommit: f.git('rev-parse', 'HEAD').toString().trim(), coverageDigest: coverageDigest(coverage)};
       const round = summary => ({summary, results: stored.task.criteria.map(c => ({criterionId: c.id, status: 'PASS', summary, evidence: ['paired references']})),
         findings: [], residualRisks: [], changedFilesInspected: ['product.mjs'], supportingFilesInspected: []});
       const result = {status: 'PASS', harness: 'codex', model: 'fixture', effort: 'fixture', prompt: 'fixture', plannedTargets: ['codex', 'agy'],
@@ -316,35 +312,29 @@ const raw = {
         adversarialReportDigest: reviewReportDigest(result.adversarial.report), reportArtifact: artifact, createdAt: new Date().toISOString(), ...binding});
       return stored;
     };
+    // A DEBUG fix without an origin completes: the origin is advisory.
+    const plain = await fixture();
+    try {
+      assert.equal(plain.record.task.originRequired, undefined, 'a new DEBUG task does not require an origin');
+      await plain.candidate();
+      const report = await plain.verify(); assert.equal(report.status, 'PASS');
+      const stored = await reviewed(plain, report);
+      assert.equal((await plain.tasks.complete(plain.record.task.id, stored.evidence)).status, 'complete');
+    } finally {await plain.close();}
+    // Declared through task revise --escape-of, like any task, it still writes the ledger record.
     const f = await fixture();
     try {
-      const id = f.record.task.id, d = f.tasks.debugService();
-      assert.equal(f.record.task.originRequired, true, 'a new DEBUG root must require an origin');
-      need(d, 'origin');
+      const id = f.record.task.id;
       await f.candidate();
-      let report = await f.verify(); assert.equal(report.status, 'PASS');
-      await assert.rejects(d.origin(id, {kind: 'external', reason: 'Upstream changed the default value.'}), {code: 'ESCAPE_ORIGIN_EARLY'});
-      let reference = report.acceptance.find(r => r.criterionId === 'issue' && r.phase === 'baseline').reference;
-      await d.hypothesis(id, {...hypothesis, reference});
       const current = await f.tasks.status({taskId: id});
-      await assert.rejects(f.tasks.revise(id, {expectedContractHash: taskContractHash(current.task), reason: 'Skip the debug gate.',
-        origin: {kind: 'external', reason: 'Upstream changed the default value.'}}), {code: 'ESCAPE_ORIGIN_DEBUG_ACTION'});
-      let stored = await reviewed(f, report);
-      await assert.rejects(f.tasks.complete(id, stored.evidence), e => e.code === 'TASK_COMPLETION_ESCAPE_ORIGIN_MISSING');
-      const payload = join(f.root, '.agent-ops', 'origin.json');
-      // R2: a criteria escape names the red-to-green check that proves it.
-      await writeFile(payload, JSON.stringify({kind: 'escape-of', commit: f.baseline.slice(0, 12), label: 'criteria', promote: 'regression:issue'}));
-      const declared = await runTaskCommand({args: parseArgs(['task', 'debug', '--task', id, '--debug-action', 'origin', '--payload-file', payload]), service: f.tasks});
-      assert.equal(declared.code, 'TASK_DEBUG_ORIGIN_DECLARED', JSON.stringify(declared.errors));
+      const declared = await runTaskCommand({args: parseArgs(['task', 'revise', '--task', id, '--expected-contract', taskContractHash(current.task),
+        '--escape-of', f.baseline.slice(0, 12), '--escape-label', 'criteria', '--escape-promote', 'regression:issue', '--reason', 'Declare origin']), service: f.tasks});
+      assert.equal(declared.code, 'TASK_REVISED', JSON.stringify(declared.errors));
       assert.deepEqual(declared.data.record.task.origin, {kind: 'escape-of', commit: f.baseline, label: 'criteria', promote: 'regression:issue'});
-      assert.equal(declared.data.record.task.contractRevision, (current.task.contractRevision ?? 0) + 1);
-      assert.notEqual(taskContractHash(declared.data.record.task), taskContractHash(current.task));
       assert.ok(existsSync(join(f.root, '.agent-ops-escapes', `${id}.json`)), 'escape-of writes its ledger record');
       f.git('add', '-A'); f.git('commit', '-qm', 'escape ledger');
-      report = await f.verify(); assert.equal(report.status, 'PASS');
-      reference = report.acceptance.find(r => r.criterionId === 'issue' && r.phase === 'baseline').reference;
-      await d.hypothesis(id, {...hypothesis, reference});
-      stored = await reviewed(f, report);
+      const report = await f.verify(); assert.equal(report.status, 'PASS');
+      const stored = await reviewed(f, report);
       assert.equal((await f.tasks.complete(id, stored.evidence)).status, 'complete');
     } finally {await f.close();}
   },
@@ -584,7 +574,7 @@ const raw = {
     };
     for (const lang of ['en', 'zh-TW']) {
       const rule = section(await readFile(join('docs', lang, 'spec', 'acceptance-and-evidence.md'), 'utf8'), 'EVIDENCE-ESCAPE-001');
-      for (const token of ['--debug-action origin', 'escape-of', 'pre-existing', 'external', 'ESCAPE_ORIGIN_MISSING', 'ESCAPE_ORIGIN_EARLY',
+      for (const token of ['escape-of', 'pre-existing', 'external', 'advisory',
         '--escape-of', '--escape-label', '--escape-receipt', 'gated', 'unresolved', 'ungated', 'receipt-not-local', 'requirement', 'surface',
         'scenario', 'criteria', 'verify', 'review', 'flagged', 'out-of-model', 'surface-excluded', 'surface-unseen', 'git grep -F',
         '.agent-ops-escapes', 'gate-catch', 'escape-label', 'R2'])
@@ -592,8 +582,8 @@ const raw = {
     }
     const {harnessDescriptor, managedRules} = await load('runtime/src/install/harness.js');
     for (const id of ['claude', 'codex', 'agy', 'opencode']) {
-      const rules = managedRules(harnessDescriptor(id), {scope: 'project', profiles: ['core'], capabilities: ['rules', 'task', 'task-debug']});
-      for (const token of ['--debug-action origin', 'ESCAPE_ORIGIN_MISSING', '.agent-ops-escapes', '--escape-of'])
+      const rules = managedRules(harnessDescriptor(id), {scope: 'project', profiles: ['core'], capabilities: ['rules', 'task']});
+      for (const token of ['task create --debug', 'redCheckIds', '--escape-of', 'advisory'])
         assert.ok(rules.includes(token), `${id} managed DEBUG text lacks ${token}`);
     }
   }

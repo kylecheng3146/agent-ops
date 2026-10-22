@@ -11,7 +11,7 @@
 - Negative: 只因 native goal completion 就把 run 標為 complete。
 
 - macOS supervisor 在啟動 goal 前保存 Claude／Codex native 身份。同 host writers 使用獨立 worktrees 與目前 generation lease；coordinator 計入最多兩個 writer。依賴以固定交付提供，child baseline 在依賴 commits 進入 checkout 後建立。
-- 新 run 不設總時間上限（`budget.limitMs: null`），仍以 active intervals 聯集記錄 setup、verify、review、整合的消耗。舊有限 run 僅在下次人工 resume 升級，保留舊上限、intervals、消耗、usage epochs 與 blocker 歷史；讀取或安裝不會升級或喚醒舊 run。單次命令／review timeout、provider quota、DEBUG 預算、無進度與 pause/stop 控制保持獨立有效。明確指定 --time-budget 會被拒絕。缺少計數維持 UNKNOWN，partial usage 不算完整成本。
+- 新 run 不設總時間上限（`budget.limitMs: null`），仍以 active intervals 聯集記錄 setup、verify、review、整合的消耗。舊有限 run 僅在下次人工 resume 升級，保留舊上限、intervals、消耗、usage epochs 與 blocker 歷史；讀取或安裝不會升級或喚醒舊 run。單次命令／review timeout、provider quota、無進度與 pause/stop 控制保持獨立有效。明確指定 --time-budget 會被拒絕。缺少計數維持 UNKNOWN，partial usage 不算完整成本。
 - 實質疑問暫停並要求明確回答。修復保留目標與失敗紀錄；連續兩次相同失敗且無進展停止該 worker 及其依賴，獨立 task 仍可執行。review findings 在下次 final gate 前必須有回歸 pin 或記錄 review-only fallback。
 - native completion 僅是觀察。完成必須有必要驗證、兩輪 fresh review、完成的 task state、綁定 target 的 receipt。整合在移動 target 前封存 candidate，記錄 task、receipt、note、cleanup 進度；恢復驗證封存證據，不重做成功的 target mutation。不一致的 target 維持 blocked。
 - Stop 先保存禁止續跑，再確認受管 process group 死亡。crash recovery 不得取代仍存活或身份不明的 writer。dirty checkout、版本漂移、restart storm 保留現場。重開機／login 改變必須明確 resume；不修改全域 host policy。

@@ -4,6 +4,17 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- DEBUG is now an ordinary task plus a required red-to-green proof:
+  `task create --debug --goal <issue>` needs a behavioral criterion whose
+  `redCheckIds` fail at the baseline and pass on the candidate
+  (`TASK_DEBUG_RED_CHECK_REQUIRED`), then verifies, reviews and finishes like
+  any task. Removed: `task debug` (now `TASK_DEBUG_REMOVED`), hypotheses,
+  strategy switches, the 60-minute budget and round limit, grants and native
+  control words, checkpoints, automatic DEBUG intake from prompt hooks, the
+  DEBUG Stop block and the Codex `Interrupt` hook. The escape origin and its
+  rule proof are advisory: `ESCAPE_ORIGIN_MISSING` and finish-time
+  `ESCAPE_RULE_UNPROVEN` no longer block. Older task state and
+  `features.debug` still load and are ignored; `update` drops the setting.
 - A run coordinator no longer polls `run status` while its children work. After
   planning them it sends `action=wait`; the supervisor stops it, frees its slot
   (so `jobs=2` runs two children) and restarts it in a fresh native session,

@@ -13,7 +13,6 @@ import { renderTaskMarkdown } from "./render.js";
 import { checkTaskCompletionEvidence, findIncompleteSubtask } from "./completion.js";
 import { calculateConfigHash, FileEvidenceStore, isPassingVerificationEvidence } from "../verify/evidence.js";
 import type { GitRunner } from "../verify/change-surface.js";
-import {collectChangeSurface} from "../verify/change-surface.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {acceptanceCoverage, type CriterionCoverage} from "../verify/acceptance-coverage.js";
@@ -33,9 +32,6 @@ import type {
 
 import { taskContractHash, treeContractHash } from "./contract.js";
 import { commitIdentity } from "../schema/acceptance.js";
-import {createDebugState, DEBUG_DEFAULTS} from "./debug-state.js";
-import {DebugService} from "./debug.js";
-import {sameDebugText} from "./debug-intake.js";
 import {isCovers, parseSurface} from "../surface/schema.js";
 import type {TaskOrigin} from "../escape/origin.js";
 import {declareEscape, resolveOrigin} from "../escape/link.js";
@@ -48,10 +44,8 @@ export interface ReviseTaskInput {
   readonly criteria?: readonly AcceptanceCriterion[];
   /** EVIDENCE-SURFACE-001 audit; revised like criteria, with fresh proof and reviews. */
   readonly surface?: unknown;
-  /** Escape Loop origin; DEBUG tasks declare it only through task debug --debug-action origin. */
+  /** Escape Loop origin; advisory, also for DEBUG tasks. */
   readonly origin?: TaskOrigin;
-  /** Set by DebugService after its confirmed-hypothesis and budget checks. */
-  readonly debugOrigin?: true;
   readonly reason: string;
   readonly diagnostics?: readonly string[];
   readonly baseline?: string;
@@ -78,12 +72,11 @@ export interface CreateTaskInput {
   /** EVIDENCE-SURFACE-001 audit, or `{covers}` for a child of a surfaced parent. */
   readonly surface?: unknown;
   /**
-   * Front doors (CLI create, run plan, DEBUG intake) set this: the task then
-   * needs a surface before review. DEBUG intake may add it before the first
-   * repair; API callers that omit it keep the grandfathered behavior.
+   * Front doors (CLI create, run plan) set this: the task then needs a
+   * surface before review; API callers that omit it keep the grandfathered behavior.
    */
   readonly requireSurface?: boolean;
-  /** Optional escape-of declaration for a normal task (DEBUG roots declare origin later). */
+  /** Optional escape-of declaration (Escape Loop, advisory). */
   readonly origin?: TaskOrigin;
 }
 
@@ -225,14 +218,6 @@ export class TaskService {
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#completion = options.completion;
   }
-  debugService(): DebugService {
-    if (this.#completion === undefined) throw taskError("TASK_DEBUG_CONTEXT_REQUIRED", "Debug operations require repository context.");
-    return new DebugService({store:this.#store,tasks:this,...this.#completion});
-  }
-  async assertDebugBaseline(): Promise<void> {
-    if (this.#completion === undefined || (await collectChangeSurface(this.#completion.gitRunner)).paths.length > 0)
-      throw taskError("TASK_DEBUG_BASELINE_DIRTY", "Preserve user edits; debug intake needs a clean committed baseline before worktree allocation.");
-  }
 
   async create(input: CreateTaskInput): Promise<StoredTaskRecord> {
     if (
@@ -246,11 +231,6 @@ export class TaskService {
     }
     if (input.sessionId !== undefined) {
       assertSessionId(input.sessionId);
-    }
-    // A new session must not restart an active issue's budget and rounds.
-    if (input.debug !== undefined && input.parentTaskId === undefined && input.goal !== undefined) {
-      const existing = await this.activeDebugRoot(input.goal);
-      if (existing !== null) return input.sessionId === undefined ? existing : await this.attach(input.sessionId, existing.task.id);
     }
     let createdSourceCommit = input.createdSourceCommit;
     if (createdSourceCommit === undefined && this.#completion !== undefined) {
@@ -278,18 +258,12 @@ export class TaskService {
         ? {}
         : { parentTaskId: input.parentTaskId })
     };
-    let debugSettings: {budgetMs:number; maxRounds:number} | undefined;
-    if (input.debug !== undefined) {
-      if (input.goal === undefined || createdSourceCommit === undefined || this.#completion === undefined)
-        throw taskError("TASK_DEBUG_CONTEXT_REQUIRED", "Debug intake requires the original issue and a committed baseline.");
-      if ((await collectChangeSurface(this.#completion.gitRunner)).paths.length > 0)
-        throw taskError("TASK_DEBUG_BASELINE_DIRTY", "Preserve original user edits; investigate read-only or ask for an explicit committed baseline.");
-      const config = await this.#completion.loadConfig();
-      if (config.features.debug?.enabled === false) throw taskError("TASK_DEBUG_DISABLED", "Task debug routing is explicitly disabled.");
-      debugSettings = config.features.debug ?? DEBUG_DEFAULTS;
+    // DEBUG = an ordinary task whose original regression is proven red at the baseline and green on the candidate.
+    if (input.debug !== undefined && input.parentTaskId === undefined) {
+      if (!criteria.some(c => c.acceptance?.mode === "behavioral" && c.acceptance.bindings.some(b => (b.redCheckIds ?? []).length > 0)))
+        throw taskError("TASK_DEBUG_RED_CHECK_REQUIRED",
+          "A DEBUG task needs a behavioral criterion whose redCheckIds fail at the baseline and pass on the candidate.");
       task.debug = {rootTaskId:task.id,facts:[...(input.debug.facts ?? [])],unknowns:[...(input.debug.unknowns ?? [])]};
-      if (input.origin !== undefined) throw taskError("ESCAPE_ORIGIN_DEBUG_ACTION", "A DEBUG issue declares its origin with task debug --debug-action origin after a confirmed hypothesis.");
-      if (input.parentTaskId === undefined) task.originRequired = true;
     }
     const validation = validateTask(task);
     if (!validation.ok) {
@@ -341,12 +315,9 @@ export class TaskService {
             throw taskError("TASK_GOAL_IMMUTABLE", "Subtasks must retain their parent original goal.");
           validation.value.goal = parent.task.goal;
         }
-        if (parent.task.debug !== undefined) {
-          if (input.debug !== undefined) throw taskError("TASK_DEBUG_ROOT_IMMUTABLE", "A child cannot create a new issue budget.");
-          validation.value.debug = structuredClone(parent.task.debug);
-        }
+        if (parent.task.debug !== undefined) validation.value.debug = structuredClone(parent.task.debug);
       }
-      if (input.requireSurface === true && validation.value.debug === undefined) {
+      if (input.requireSurface === true) {
         const parentSurface = state.tasks.find(record => record.task.id === input.parentTaskId)?.task.surface;
         const surfacedParent = parentSurface !== undefined && !isCovers(parentSurface);
         if (surface === undefined || isCovers(surface) !== surfacedParent)
@@ -356,7 +327,6 @@ export class TaskService {
       }
       const record: StoredTaskRecord = {
         task: validation.value,
-        ...(input.debug === undefined ? {} : {debug:createDebugState(task.id,createdSourceCommit!,debugSettings!,this.#completion!.root)}),
         ...(createdSourceCommit === undefined ? {} : {createdSourceCommit}),
         status: "active",
         evidence: {},
@@ -420,8 +390,6 @@ export class TaskService {
     const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined;
     if (rebindOnly && this.#completion === undefined)
       throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, an origin, or a combination.");
-    if (input.origin !== undefined && previous.task.debug !== undefined && input.debugOrigin !== true)
-      throw taskError("ESCAPE_ORIGIN_DEBUG_ACTION", "A DEBUG issue declares its origin with task debug --debug-action origin after a confirmed hypothesis.");
     // Re-declaring the same origin only refreshes its ledger record; the contract and its proof stand.
     if (input.criteria === undefined && input.surface === undefined && input.origin !== undefined &&
         canonicalJson(input.origin) === canonicalJson(previous.task.origin ?? null)) return previous;
@@ -582,8 +550,6 @@ export class TaskService {
         if (record.policyConfigHash !== parent.policyConfigHash || !validateTask(task).ok) {
           throw taskError("TASK_DELIVERY_INVALID", `Task ${task.id} has an incompatible policy or definition.`);
         }
-        if (parent.task.debug !== undefined && (task.goal !== parent.task.goal || JSON.stringify(task.debug) !== JSON.stringify(parent.task.debug) || record.debug !== undefined))
-          throw taskError("TASK_DEBUG_ROOT_MISMATCH","A delivery must retain the original issue identity and cannot import an independent debug budget.");
         const existing = state.tasks.find((item) => item.task.id === task.id);
         if (existing !== undefined) {
           if (JSON.stringify(existing.task) !== JSON.stringify(task)) {
@@ -608,12 +574,6 @@ export class TaskService {
         });
       }
     });
-  }
-
-  /** The active DEBUG root already holding this original issue, if any. */
-  async activeDebugRoot(goal: string): Promise<StoredTaskRecord | null> {
-    return (await this.list()).find((record) => record.status === "active" && record.task.debug?.rootTaskId === record.task.id &&
-      record.task.goal !== undefined && sameDebugText(record.task.goal, goal)) ?? null;
   }
 
   async list(

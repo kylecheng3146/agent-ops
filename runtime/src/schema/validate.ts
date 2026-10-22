@@ -1,4 +1,3 @@
-import {validDebugSettings, validDebugIntake} from "../task/debug-state.js";
 import type {
   AcceptanceCriterion,
   AgentOpsConfig,
@@ -540,8 +539,9 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   if (featuresUnknown !== undefined) {
     return featuresUnknown;
   }
-  if (root.features.debug !== undefined && !validDebugSettings(root.features.debug))
-    return failure("INVALID_FEATURE", "$.features.debug", "Debug requires enabled, bounded budgetMs and maxRounds.");
+  // Pre-0.11 DEBUG budget settings: still accepted, now ignored.
+  if (root.features.debug !== undefined && !isRecord(root.features.debug))
+    return failure("INVALID_FEATURE", "$.features.debug", "features.debug must be an object.");
   if (root.features.office !== undefined) {
     if (!isRecord(root.features.office)) {
       return failure("INVALID_TYPE", "$.features.office", "office must be an object.");
@@ -938,6 +938,12 @@ export function validateCriterion(
   return success(value as unknown as AcceptanceCriterion);
 }
 
+/** The DEBUG tag a task keeps: its root and the issue's recorded facts and unknowns. */
+function validDebugTag(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).every(k => ["rootTaskId", "facts", "unknowns"].includes(k)) &&
+    typeof value.rootTaskId === "string" && value.rootTaskId.length > 0 && isStringArray(value.facts) && isStringArray(value.unknowns);
+}
+
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
@@ -947,7 +953,7 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   if (isFailure(root)) {
     return root;
   }
-  if (root.debug !== undefined && (!validDebugIntake(root.debug) || root.schemaVersion !== TASK_SCHEMA_VERSION || root.goal === undefined))
+  if (root.debug !== undefined && (!validDebugTag(root.debug) || root.schemaVersion !== TASK_SCHEMA_VERSION || root.goal === undefined))
     return failure("INVALID_DEBUG_TASK", "$.debug", "Debug tasks require immutable goal and bounded root intake.");
   if (root.surfaceRequired !== undefined && root.surfaceRequired !== true)
     return failure("INVALID_SURFACE", "$.surfaceRequired", "surfaceRequired is either absent or true.");
@@ -957,7 +963,7 @@ export function validateTask(value: unknown): ValidationResult<AgentTask> {
   if (root.origin !== undefined && !validOrigin(root.origin))
     return failure("INVALID_ORIGIN", "$.origin", "origin is escape-of {commit, label, receipt?} or pre-existing/external {reason}.");
   if (root.originRequired !== undefined && (root.originRequired !== true || root.debug === undefined))
-    return failure("INVALID_ORIGIN", "$.originRequired", "originRequired is either absent or true on a DEBUG task.");
+    return failure("INVALID_ORIGIN", "$.originRequired", "originRequired (pre-0.11, now ignored) is either absent or true on a DEBUG task.");
   if (root.contractRevision !== undefined && (!Number.isSafeInteger(root.contractRevision) || (root.contractRevision as number) < 0))
     return failure("INVALID_CONTRACT_REVISION", "$.contractRevision", "Invalid contract revision.");
   if (root.goal !== undefined && (!isNonEmptyString(root.goal) || Buffer.byteLength(root.goal as string, "utf8") > 65536))

@@ -137,16 +137,13 @@ export function buildCodexHookConfig(
     }
     // The loop has its own prompt hook. Outside it, a prompt is both the
     // turn's start for Office and content for command policy.
-    if (capabilities.includes("command-policy") || capabilities.includes("office-presence") || capabilities.includes("task-debug")) {
+    if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) {
       hooks.UserPromptSubmit = [matcherGroup("UserPromptSubmit", runtimePath)];
       if (capabilities.includes("command-policy") || capabilities.includes("office-presence")) hooks.PreToolUse = [matcherGroup("PreToolUse", runtimePath)];
     }
   }
-  if (capabilities.includes("task-debug") || capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
+  if (capabilities.includes("optional-stop-verify") || capabilities.includes("office-presence")) {
     hooks.Stop = [matcherGroup("Stop", runtimePath)];
-  }
-  if (capabilities.includes("task-debug")) {
-    hooks.Interrupt = [{hooks:[{...commandHook("Interrupt",runtimePath),timeout:3}]}];
   }
   if (capabilities.includes("office-presence") && hooks.PreToolUse !== undefined) {
     hooks.PreToolUse = hooks.PreToolUse.map(group => ({...group, matcher: "^(Bash|apply_patch)$"}));

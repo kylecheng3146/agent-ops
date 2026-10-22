@@ -326,6 +326,17 @@ const STEPS_BEFORE_SURFACE = [
   "2. Inspect the smallest relevant scope and preserve unrelated changes."
 ].join("\n");
 
+// 0.11.0 added the one-paragraph DEBUG rule for the task capability; everything else is unchanged.
+const DEBUG_RULE = [
+  "To fix a bug, run `agent-ops task create --debug --goal <verbatim issue>` with a",
+  "behavioral criterion whose `redCheckIds` fail at the baseline and pass on the",
+  "candidate, then verify, review and finish as for any task. If you know where the",
+  "bug came from, record it with `task revise --escape-of <commit> --escape-label",
+  "<label>`; the origin is advisory and never blocks finish.",
+  "",
+  ""
+].join("\n");
+
 test("managed rules start every change with the surface audit", () => {
   for (const id of ["claude", "codex", "agy", "opencode"] as const) {
     const content = managedRules(harnessDescriptor(id), { scope: "project", profiles: ["core"], capabilities: ["rules", "task"] });
@@ -336,7 +347,7 @@ test("managed rules start every change with the surface audit", () => {
 test("managed rules without auto-run are byte-identical to before the run profile", () => {
   for (const { context, digests } of RULES_BEFORE_RUN) {
     for (const [id, digest] of Object.entries(digests)) {
-      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE);
+      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE).replace(DEBUG_RULE, "");
       assert.equal(createHash("sha256").update(content).digest("hex"), digest, id);
     }
   }

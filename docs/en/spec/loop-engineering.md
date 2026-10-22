@@ -18,7 +18,7 @@
   still measure setup, proof, review and integration. Legacy finite runs upgrade
   only on manual resume, retaining the old limit, intervals, elapsed time, usage
   epochs and blocker history. Reads and installation never upgrade or awaken runs.
-  Command/review timeouts, provider quotas, DEBUG budgets and no-progress/stop
+  Command/review timeouts, provider quotas and no-progress/stop
   controls remain independent and effective. Explicit --time-budget is rejected.
   Missing counters remain UNKNOWN; partial usage is not a complete cost estimate.
 - Questions pause work and require an explicit answer. Repair preserves the goal

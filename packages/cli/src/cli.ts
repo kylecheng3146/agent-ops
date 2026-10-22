@@ -48,7 +48,7 @@ Commands:
   doctor     Diagnose an installation
   update     Update managed artifacts
   uninstall  Remove managed artifacts
-  task <create|status|attach|revise|replan|pin-finding|debug|advance|complete|archive|export>
+  task <create|status|attach|revise|replan|pin-finding|advance|complete|archive|export>
              Manage independent task acceptance state
   verify     Run configured verification
   review     Run an independent review or show recorded reports
@@ -129,7 +129,7 @@ The URL carries an access token; do not share it.
        agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
 
 New runs have no total time cap. Manual resume upgrades legacy finite runs and keeps accounting.
-Command/review timeouts, provider limits, DEBUG budgets and stop controls remain effective.
+Command/review timeouts, provider limits and stop controls remain effective.
 Native goal state is observational. Completion requires current verification,
 two fresh reviews, task completion and a target-bound integration receipt.
 --retry-approval explicitly retries an intact Codex approval-review usage-limit
@@ -212,7 +212,7 @@ Options:
   --json
   --yes
 `,
-  task: `Usage: agent-ops task <create|status|attach|revise|replan|pin-finding|debug|advance|complete|archive|export> [options]
+  task: `Usage: agent-ops task <create|status|attach|revise|replan|pin-finding|advance|complete|archive|export> [options]
 
 Manage independent task acceptance state. Task commands accept none of
 --harness, --profile or --dry-run. Only advance accepts --yes.
@@ -220,16 +220,12 @@ Manage independent task acceptance state. Task commands accept none of
 Options:
   --title <text>                        create
   --goal <text>                         create: immutable original issue/goal
-  --debug                               create: task-level investigation tag
-  --debug-action <status|hypothesis|strategy|investigate|checkpoint|resume|extend|origin>
-  --payload-file <path>                 debug hypothesis/strategy/origin: bounded JSON
-  --command-id <id>                     debug investigate: trusted configured command
-  --event-id <native-event-id|latest>    debug extend: authentic human continue event
+  --debug                               create: bug fix; needs --goal and a behavioral criterion with redCheckIds
   --intent <text>                       create: intended behavior and constraints before editing
   --criterion <json>                    create, repeatable, two to five total
   --criterion-file <path>               create: one criterion object, repeatable; pin-finding: exactly one
   --criteria-file <path>                revise: replacement criterion array
-  --surface-file <path>                 create (required unless --debug), revise: EVIDENCE-SURFACE-001
+  --surface-file <path>                 create (required), revise: EVIDENCE-SURFACE-001
                                         audit JSON, or {"covers":[surface-id]} under a surfaced parent
   --escape-of <commit>                  create, revise: the commit this bug escaped from (Escape Loop)
   --escape-label <label>                with --escape-of: requirement|surface|scenario|criteria|verify|review|flagged|out-of-model
@@ -243,9 +239,9 @@ Options:
   --baseline <git-ref>                  create/revise: baseline for new mechanical requirements
   --parent <task-id>                    create: record a subtask; status: list subtasks
   --task <id>                           status, attach, revise, replan, pin-finding, complete, archive, export, advance
-  --session <id>                        create, attach, status, advance, debug
+  --session <id>                        create, attach, status, advance
   --evidence <criterion-id=reference>   complete, repeatable
-  --base <git-ref>                      complete, debug: a clean committed range
+  --base <git-ref>                      complete: a clean committed range
   --yes                                 advance: authorize the two review sessions
   --json
 

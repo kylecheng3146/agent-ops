@@ -101,14 +101,11 @@ Runtime-failure 處理中，只有 `command-policy` 為 fail-closed。當已安�
 OpenCode `tool.execute.before` plugin 可在其支援的 Bash surface 上 throw 文件化的
 denial 或 unavailable-runtime error。Codex 維持 `unknown` 且絕不輸出 denial。
 Fixture test 只斷言這些 wire 與 plugin shape；它們不證明 host 會實際遵守 denial。
-`SessionStart` 與一般 `Stop` failure 維持 fail-open。active DEBUG Stop 故障則
-針對 task/config 重新載入一次，再明確回報 UNKNOWN／未完成並保留原狀態，才允許非成功停止。
+`SessionStart` 與 `Stop` failure 維持 fail-open。
 
-Codex DEBUG lifecycle 語意於 2026-10-11 依[官方 hook 文件](https://learn.chatgpt.com/docs/hooks#stop)
-重新檢查：Stop 的 `decision: "block"` 加 `reason` 會排程續跑；`continue: false`
-會停止。`stop_hook_active` 表示已經續跑過，不能繞過 DEBUG 檢查。
-原生 `Interrupt` 暫停採三秒 timeout，不得阻擋或重啟人類中斷。
-此 DEBUG 專用政策不會啟用 Codex 的一般 completion gate 或 optional Stop verifier。
+自 0.11.0 起沒有 DEBUG 專用 hook：prompt 不會開 DEBUG task，Stop 不會因 DEBUG 擋住
+session，Codex `Interrupt` 不再註冊（舊安裝殘留的註冊在 `update` 前為 no-op）。Codex
+仍沒有一般 completion gate 或 optional Stop verifier。
 Codex 另以每個原生 hook 的精確定義保存信任。更新受管理 hook 後，必須在 `/hooks`
 審核新增或變更的定義；agent-ops repository trust 不會啟用尚未審核的原生 hook。
 

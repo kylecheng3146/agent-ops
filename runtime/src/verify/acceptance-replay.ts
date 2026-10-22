@@ -27,7 +27,6 @@ export interface AcceptanceReplayOptions {
   readonly trusted: boolean;
   readonly scope: "project" | "user";
   readonly signal?: AbortSignal;
-  readonly remainingMs?: () => Promise<number>;
 }
 export interface AcceptanceReplayResult {
   readonly criterionId: string;
@@ -134,11 +133,9 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       let timedOut: string | undefined;
       const command = async (executable: string, args: readonly string[], cwd: string, stage: keyof typeof ACCEPTANCE_TIMEOUTS,
         own?: number) => {
-        const remaining = await options.remainingMs?.();
-        if (remaining === 0) throw new AgentOpsError("TASK_DEBUG_BUDGET_EXHAUSTED","The original issue's active budget is exhausted.");
         const limit = own ?? ACCEPTANCE_TIMEOUTS[stage];
         const result = await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
-          evidence: {kind: "exit-code"}, timeoutMs:Math.min(limit,remaining ?? Infinity)}, {cwd, runner: options.processRunner, env, replaceEnv: true,
+          evidence: {kind: "exit-code"}, timeoutMs:limit}, {cwd, runner: options.processRunner, env, replaceEnv: true,
           outputLimitBytes: 1024 * 1024, ...(options.signal === undefined ? {} : {signal: options.signal})});
         if (result.failureClass === "timeout" && timedOut === undefined) timedOut = stage === "git"
           ? `Runner ${group.runner.id} ${phase}: git checkout exceeded ${limit} ms.`
@@ -208,7 +205,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           aggregate = undefined;
         failure = aggregate?.failureClass ?? output.failureClass;
       } catch (error) {
-        failure = error instanceof AgentOpsError && error.code === "TASK_DEBUG_BUDGET_EXHAUSTED" ? "debug-budget-exhausted" : error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
+        failure = error instanceof Error && /^[a-z-]+$/u.test(error.message) ? error.message : "replay-unavailable";
       } finally { await removeTemporary(temp); }
       const finishedAt = new Date().toISOString();
       const artifactContent = redactSecrets(JSON.stringify({schemaVersion: 1, executionId, phase, commit,

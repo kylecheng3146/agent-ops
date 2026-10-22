@@ -23,7 +23,6 @@ import {
 } from "../output.js";
 
 export interface TaskCommandOptions {
-  readonly trusted?: boolean;
   readonly args: ParsedArgs;
   readonly service: TaskService;
   readonly sessionId?: string;
@@ -98,10 +97,10 @@ async function withEscape(envelope: CliEnvelope<TaskCommandData | null>, escape:
     ...facts.map(fact => `- ${fact.path}: ${fact.surface}`),
     ...(proof === undefined ? [] : [proof.status === "proven"
       ? `Proof: rule ${proof.rule} replays at the escaped commit; backtest ${proof.backtest.fires}/${proof.backtest.commits} commits (${proof.backtest.rate}).`
-      : proof.status === "unproven" ? `Proof: ${proof.code} - ${proof.reason} Finish refuses this until a tracked rule proves it.`
+      : proof.status === "unproven" ? `Proof: ${proof.code} - ${proof.reason} Advisory: finish does not wait for it; add a tracked rule to prove it.`
       : proof.status === "lesson" ? `Lesson (unproven, does not block): ${proof.reason}`
-      : proof.check === null ? "Proof: ESCAPE_RULE_UNPROVEN - name the red-to-green check with --escape-promote <runnerId:checkId>."
-      : `Proof: promoted check ${proof.check} must be a proven redCheckId of this task. Config proposal (not written):\n${JSON.stringify(proposal, null, 2)}`]),
+      : proof.check === null ? "Proof: ESCAPE_RULE_UNPROVEN (advisory) - name the red-to-green check with --escape-promote <runnerId:checkId>."
+      : `Proof: promoted check ${proof.check} should be a proven redCheckId of this task (advisory). Config proposal (not written):\n${JSON.stringify(proposal, null, 2)}`]),
     `Ledger record: ${escape.path} (commit it with the fix).`,
     escape.blame.length === 0 ? "Blame hints: none (the fix only adds lines; an omission has no author)."
       : `Blame hints (a hint only): ${escape.blame.map(hint => `${hint.commit.slice(0, 12)} (${hint.lines} line${hint.lines === 1 ? "" : "s"})`).join(", ")}`
@@ -160,7 +159,7 @@ function taskAction(args: ParsedArgs): TaskAction {
       "complete",
       "create",
       "export",
-      "status", "revise", "replan", "pin-finding", "debug"
+      "status", "revise", "replan", "pin-finding"
     ].includes(args.action)
   ) {
     throw new AgentOpsError(
@@ -182,7 +181,7 @@ function taskEnvelope(
     message,
     record,
     contractHash: taskContractHash(record.task),
-    text: renderTaskMarkdown(record) + "\nContract: " + taskContractHash(record.task) + (record.debug === undefined ? "" : "\nDEBUG: " + JSON.stringify(record.debug))
+    text: renderTaskMarkdown(record) + "\nContract: " + taskContractHash(record.task)
   });
 }
 
@@ -213,7 +212,6 @@ export async function runTaskCommand(
           "Task creation requires --title."
         );
       }
-      if (options.args.debug) await options.service.assertDebugBaseline();
       const worktree = sessionId === undefined || options.sessionWorktree === undefined
         ? undefined
         : await options.sessionWorktree(sessionId);
@@ -239,12 +237,6 @@ export async function runTaskCommand(
         requireSurface: true
       });
       const escape = origin === undefined ? undefined : await (worktree?.service ?? options.service).declareEscape(record.task.id);
-      // An explicit CLI DEBUG intake may be the only start signal on hosts
-      // without a prompt hook (notably agy). The native session owns the clock;
-      // foregroundStart is idempotent for a repeated hook or command.
-      if (options.args.debug && sessionId !== undefined) {
-        await (worktree?.service ?? options.service).debugService().foregroundStart(record.task.id,sessionId);
-      }
       const created = await withEscape(taskEnvelope(
         action,
         "TASK_CREATED",
@@ -273,24 +265,6 @@ export async function runTaskCommand(
           ].join("\n")
         }
       };
-    }
-    if (action === "debug") {
-      const id=requireTaskId(options.args), service=options.service.debugService();
-      if (options.args.debugAction === "origin") {
-        const declared = await service.origin(id,await jsonFile(options.args.payloadFile!));
-        return await withEscape(taskEnvelope(action,"TASK_DEBUG_ORIGIN_DECLARED","Origin bound into the contract; re-verify, re-record the confirmed hypothesis, then review.",declared.record),declared.escape,options.service);
-      }
-      switch (options.args.debugAction) {
-        case "hypothesis": await service.hypothesis(id,await jsonFile(options.args.payloadFile!) as Parameters<typeof service.hypothesis>[1]); break;
-        case "strategy": await service.strategy(id,await jsonFile(options.args.payloadFile!) as Parameters<typeof service.strategy>[1]); break;
-        case "investigate": await service.investigate(id,options.args.commandId!,options.trusted === true); break;
-        case "checkpoint": if (sessionId === undefined) throw new AgentOpsError("TASK_SESSION_REQUIRED","Debug checkpoint requires a session."); await service.checkpoint(id,sessionId); break;
-        case "resume": if (sessionId === undefined) throw new AgentOpsError("TASK_SESSION_REQUIRED","Debug resume requires a session."); await service.resume(id,sessionId); break;
-        case "extend": if (sessionId === undefined) throw new AgentOpsError("TASK_SESSION_REQUIRED","Debug extension requires a native session."); await service.extend(id,sessionId,options.args.eventId!); break;
-        case "status": break;
-        default: throw new AgentOpsError("TASK_DEBUG_ACTION_INVALID","A supported debug operation is required.");
-      }
-      return taskEnvelope(action,"TASK_DEBUG_UPDATED","Original issue debug state preserved.",await service.root(id));
     }
     if (action === "revise") {
       const payload = options.args.criteriaFile === undefined ? undefined : await jsonFile(options.args.criteriaFile);

@@ -4,18 +4,15 @@ import {mkdtemp, mkdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {recoveryChecks} from '../debug/recovery-checks.mjs';
 import {officePhaseChecks} from '../office/phase-checks.mjs';
 import {officeReviveChecks} from '../office/revive-checks.mjs';
 import {officeRetentionChecks} from '../office/retention-checks.mjs';
-import {peerOriginChecks} from '../debug/peer-origin-checks.mjs';
 import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
 import {escapeChecks} from '../escape/escape-checks.mjs';
 import {ruleChecks} from '../escape/rule-checks.mjs';
 import {timeoutChecks} from '../verify/timeout-checks.mjs';
 import {syncChecks} from '../worktree/sync-checks.mjs';
-import {nativeGrantChecks} from '../debug/native-grant-checks.mjs';
 import {heartbeatCleanupChecks} from '../worktree/heartbeat-cleanup-checks.mjs';
 import {resumeAuthorizationChecks} from './resume-authorization-checks.mjs';
 import {nativeResumeChecks} from './native-resume-checks.mjs';
@@ -65,18 +62,15 @@ async function fixture(check) {
 const checks = {
   ...nativeResumeChecks,
   ...resumeAuthorizationChecks,
-  ...recoveryChecks,
   ...officePhaseChecks,
   ...officeReviveChecks,
   ...officeRetentionChecks,
-  ...peerOriginChecks,
   ...authorizationChecks,
   ...surfaceChecks,
   ...escapeChecks,
   ...ruleChecks,
   ...timeoutChecks,
   ...syncChecks,
-  ...nativeGrantChecks,
   ...heartbeatCleanupChecks,
   ...recoveryRepairChecks,
   ...unlimitedPolicyChecks,
