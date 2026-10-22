@@ -6,21 +6,32 @@ import { AgentOpsError } from "../fs/paths.js";
 import type { ReviewScope } from "../review/scope.js";
 import { resolveGitCommit, type GitRunner } from "./change-surface.js";
 
+/** Escape-ledger records are committed after the fix; a commit touching only them leaves the base-mode fingerprint alone. */
+const LEDGER_PREFIX = ".agent-ops-escapes/";
+
+/** HEAD's tree without the ledger, so a ledger-only commit yields the same digest. */
+async function ledgerFreeTree(runner: GitRunner): Promise<string> {
+  const result = await runner.run(["ls-tree", "-r", "--full-tree", "-z", "HEAD"]);
+  if (result.exitCode !== 0) throw new AgentOpsError("CHANGE_SURFACE_GIT_FAILED", "Git could not list the HEAD tree.");
+  const entries = Buffer.from(result.stdout).toString("utf8").split("\0").filter(entry => entry !== "" && !entry.split("\t", 2)[1]!.startsWith(LEDGER_PREFIX));
+  return sha256(entries.join("\0"));
+}
+
 export async function calculateSourceFingerprint(
   root: string,
   scope: ReviewScope,
   runner: GitRunner
 ): Promise<string> {
-  const head = await resolveGitCommit(runner, "HEAD");
   if (scope.mode === "base") {
     return sha256(JSON.stringify({
-      domain: "agent-ops-source-v1",
+      domain: "agent-ops-source-v2",
       mode: scope.noChange === true ? "goal-no-change" : "base",
-      head,
+      tree: await ledgerFreeTree(runner),
       base: scope.resolvedBase,
-      paths: [...scope.changedFiles]
+      paths: scope.changedFiles.filter(path => !path.startsWith(LEDGER_PREFIX))
     }));
   }
+  const head = await resolveGitCommit(runner, "HEAD");
   const paths = [] as Array<Record<string, unknown>>;
   for (const path of scope.changedFiles) {
     const absolute = join(root, ...path.split("/"));

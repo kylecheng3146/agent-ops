@@ -36,7 +36,7 @@ import {
   type ReviewRoleConfig
 } from "../../../../runtime/src/review/roles.js";
 import type { TaskService } from "../../../../runtime/src/task/service.js";
-import {taskContractHash, treeContractHash, goalHash} from "../../../../runtime/src/task/contract.js";
+import {evidenceMatchesContract, taskContractHash, treeContractHash, goalHash} from "../../../../runtime/src/task/contract.js";
 import {acceptanceCoverage, coverageDigest, type CriterionCoverage} from "../../../../runtime/src/verify/acceptance-coverage.js";
 import {resolveGitCommit} from "../../../../runtime/src/verify/change-surface.js";
 import {sha256} from "../../../../runtime/src/fs/hash.js";
@@ -317,7 +317,7 @@ async function currentEvidence(
       evidence.sourceFingerprint !== sourceFingerprint ||
       (context.records.some(r => r.task.id === (owner?.taskId ?? context.taskId) &&
         (r.task.goal !== undefined || (r.task.contractRevision ?? 0) > 0 || r.task.criteria.some(c => c.acceptance !== undefined))) &&
-        evidence.taskContractHash !== taskContractHash(context.records.find(r => r.task.id === (owner?.taskId ?? context.taskId))!.task))
+        !evidenceMatchesContract(evidence.taskContractHash, context.records.find(r => r.task.id === (owner?.taskId ?? context.taskId))!.task))
     ) {
       stale = true;
       continue;

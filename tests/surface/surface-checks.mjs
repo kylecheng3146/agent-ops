@@ -230,7 +230,7 @@ const raw = {
     assert.deepEqual(record.task.criteria, created.task.criteria);
     assert.equal(record.task.contractRevision, 1);
     assert.notEqual(taskContractHash(record.task), before);
-    assert.deepEqual(record.evidence, {}, 'a surface revision needs fresh evidence');
+    assert.deepEqual(record.evidence, {}, 'a surface revision drops review references; it needs a fresh review');
     assert.deepEqual(record.revisions.map(r => r.previousTask.surface), [first]);
     assert.equal(record.revisions[0].reason, 'Discovery found a sibling page.');
   }),

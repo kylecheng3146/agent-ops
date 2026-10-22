@@ -12,7 +12,8 @@ agent-ops task create --debug --title "修購物車無法捲動" \
 
 - `--debug` 需要 `--goal`，且至少一條帶 `redCheckIds` 的 behavioral criterion；
   否則建立失敗並回 `TASK_DEBUG_RED_CHECK_REQUIRED`。surface audit 與一般 task 一樣必填。
-- baseline 是建立 task 時的 commit。
+- baseline 是建立 task 時的 commit；`task revise --baseline <ref>` 可移動它
+  （例如開錯分支時），並使先前證據失效。
 - 之後修復、commit、`verify`、兩輪 `review`、`worktree finish`，與一般 task 完全相同。
   setup 失敗、skip、timeout 與 UNKNOWN 都不算重現；red check 必須在 baseline 以 assertion 失敗。
 

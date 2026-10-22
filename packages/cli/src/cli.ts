@@ -236,7 +236,7 @@ Options:
   --expected-contract <hash>            revise, pin-finding: current task contract from status
   --expected-tree-contract <hash>       replan: current tree contract from status
   --reason <text>                       required for revise/replan; optional for pin-finding
-  --baseline <git-ref>                  create/revise: baseline for new mechanical requirements
+  --baseline <git-ref>                  create: baseline for typed criteria; revise: move every typed baseline
   --parent <task-id>                    create: record a subtask; status: list subtasks
   --task <id>                           status, attach, revise, replan, pin-finding, complete, archive, export, advance
   --session <id>                        create, attach, status, advance
@@ -253,7 +253,8 @@ Each legacy criterion needs at least one verifierIds entry naming a verification
 command id configured in .agent-ops/config.json. Typed criteria additionally
 accept an acceptance object: mode (behavioral, invariant or review-only),
 bindings and optional baselineCommit/reviewOnlyReason. Mechanical bindings name
-configured acceptance runner IDs, checkIds, committed materials and optional
+configured acceptance runner IDs, checkIds (the checks this criterion needs;
+other runner output is ignored), committed materials and optional
 redCheckIds; tasks cannot supply commands. Creation freezes the baseline.
 Review-only example (mandatory repository policy commands still run):
 
@@ -261,7 +262,8 @@ Review-only example (mandatory repository policy commands still run):
 
 Pin a saved finding with task pin-finding --task <id> <report-digest:index>
 --expected-contract <hash> --criterion-file <path>. Revise/replan preserve the
-original goal and immutable existing baselines; obtain new verify and review.
+original goal and existing baselines unless revise --baseline moves them all.
+A revise that keeps the criteria keeps verification; every revise needs review.
 `,
   verify: `Usage: agent-ops verify [options]
 

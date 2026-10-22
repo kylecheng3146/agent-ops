@@ -31,6 +31,8 @@ export interface VerifyCommandOptions {
   readonly service: VerificationExecutor;
   readonly taskService: VerifyTaskResolver;
   readonly sessionId?: string;
+  /** Advisory surface gate lines, shown so a review-time SURFACE_* stop is fixed before review. */
+  readonly surface?: (taskId: string) => Promise<readonly string[]>;
   /** Display only: where the Office learns that QA is at work. */
   readonly activity?: {readonly commonDir: string | undefined; readonly root: string; readonly sessionId?: string};
 }
@@ -51,6 +53,8 @@ export interface VerifyCommandData {
   readonly message: string;
   readonly report: PublicVerificationReport;
   readonly text: string;
+  /** Advisory only: never changes the verification status. */
+  readonly surface?: readonly string[];
 }
 
 function safe(value: string): string {
@@ -177,12 +181,16 @@ export async function runVerifyCommand(
     const report = publicReport(await withActivity(activity?.commonDir,
       {kind: "verify", root: activity?.root ?? "", taskId, ...(activity?.sessionId === undefined ? {} : {sessionId: activity.sessionId})},
       async () => await options.service.verify(taskId)));
-    const text = formatReport(report);
+    // A broken surface check must not hide the verification result.
+    const surface = options.surface === undefined ? [] : await options.surface(taskId).catch(() => []);
+    const text = formatReport(report) + surface.map(line => `${safe(line)}\n`).join("");
+    const advisory = surface.length === 0 ? {} : {surface};
     if (report.status === "PASS") {
       return okEnvelope("VERIFICATION_PASSED", {
         message: "Required verification passed.",
         report,
-        text
+        text,
+        ...advisory
       });
     }
     const code =
@@ -196,7 +204,7 @@ export async function runVerifyCommand(
     return {
       code,
       status: "error",
-      data: { message, report, text },
+      data: { message, report, text, ...advisory },
       errors: [{ code, message }]
     };
   } catch (error) {

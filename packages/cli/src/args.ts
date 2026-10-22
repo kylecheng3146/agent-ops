@@ -894,7 +894,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command === "escapes" && argv.some(token => token !== "escapes" && token !== "--json"))
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "escapes accepts only --json; it is a read-only report.");
   if (revisionAction && (taskId === undefined || evidence.length > 0 || title !== undefined || intent !== undefined || parentTaskId !== undefined || sessionId !== undefined || criteria.length > 0 || base !== undefined ||
-    (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined && escapeOf === undefined) || reason === undefined)) ||
+    (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined && escapeOf === undefined && baseline === undefined) || reason === undefined)) ||
     (action === "replan" && (expectedTreeContract === undefined || planFile === undefined || reason === undefined)) ||
     (action === "pin-finding" && (expectedContract === undefined || findingReference === undefined || criterionFiles.length !== 1))))
     throw new CliArgumentError("CLI_MISSING_VALUE", "Acceptance revision requires task, expected contract, payload and reason.");

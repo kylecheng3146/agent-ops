@@ -9,7 +9,7 @@ import {canonicalJson} from "../config/hash.js";
 import {sha256} from "../fs/hash.js";
 import {removeTemporary} from "../fs/temporary.js";
 import {AgentOpsError, resolveContainedPath} from "../fs/paths.js";
-import {criterionContractHash, taskContractHash} from "../task/contract.js";
+import {criterionContractHash, executionContractHash} from "../task/contract.js";
 import {aggregateAcceptanceRun, makeAcceptanceCheck, makeAcceptanceRun, type AcceptanceRun, type AcceptanceAggregate, type AcceptancePhase} from "./acceptance-protocol.js";
 import {collectNodeAcceptance, collectJestAcceptance, collectVitestAcceptance, collectPytestAcceptance, collectRustAcceptance} from "./adapters/index.js";
 import {buildVerificationEvidence, type FileEvidenceStore} from "./evidence.js";
@@ -230,7 +230,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
           scope: options.scope, startedAt, finishedAt, exitCode: output?.exitCode ?? null, testCount: checks.length,
           status, failureClass: status === "PASS" ? "none" : phase === "baseline" && aggregate?.status === "PASS" ? "non-discriminating" : failure,
           sourceFingerprint: options.sourceFingerprint, toolVersions: {node: process.version}, config: options.config,
-          taskContractHash: taskContractHash(options.task), acceptance: {criterionContractHash: criterionContractHash(criterion),
+          taskContractHash: executionContractHash(options.task), acceptance: {criterionContractHash: criterionContractHash(criterion),
             bindingHash: sha256(canonicalJson({runnerId: group.runner.id, materials: group.binding.materials})), phase, commit, pairedCommit: phase === "baseline" ? candidate : group.baseline, materialDigest, executionDigest, executionArtifact, checks}});
         const reference = await options.evidenceStore.save(evidence);
         reports.push({criterionId: criterion.id, runnerId: group.runner.id, phase, status, failureClass: evidence.failureClass, reference,

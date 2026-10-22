@@ -30,7 +30,7 @@ import type {
   TaskState
 } from "./store.js";
 
-import { taskContractHash, treeContractHash } from "./contract.js";
+import { evidenceMatchesContract, executionContractHash, taskContractHash, treeContractHash } from "./contract.js";
 import { commitIdentity } from "../schema/acceptance.js";
 import {isCovers, parseSurface} from "../surface/schema.js";
 import type {TaskOrigin} from "../escape/origin.js";
@@ -387,20 +387,23 @@ export class TaskService {
     if (previous.status !== "active") throw taskError("TASK_NOT_ACTIVE", "Only active tasks can revise acceptance.");
     if (taskContractHash(previous.task) !== input.expectedContractHash) throw taskError("TASK_CONTRACT_CHANGED", "Task contract changed.");
     // With none of them, a revision only rebinds the task to the current configuration (checked below).
-    const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined;
+    const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined && input.baseline === undefined;
     if (rebindOnly && this.#completion === undefined)
       throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, an origin, or a combination.");
     // Re-declaring the same origin only refreshes its ledger record; the contract and its proof stand.
     if (input.criteria === undefined && input.surface === undefined && input.origin !== undefined &&
         canonicalJson(input.origin) === canonicalJson(previous.task.origin ?? null)) return previous;
     const surface = input.surface === undefined ? previous.task.surface : parseSurface(input.surface);
-    const baseline = input.baseline ?? previous.createdSourceCommit;
-    const criteria = input.criteria === undefined ? structuredClone(previous.task.criteria) : structuredClone(input.criteria).map(criterion => {
+    // An explicit --baseline moves every typed criterion (e.g. a task opened on the wrong branch); its evidence is then void.
+    const moved = input.baseline === undefined ? undefined : await this.#resolveCommit(input.baseline);
+    const baseline = moved ?? previous.createdSourceCommit;
+    const criteria = (input.criteria === undefined ? structuredClone(previous.task.criteria) : structuredClone(input.criteria)).map(criterion => {
       if (criterion.acceptance === undefined) return criterion;
-      const sha = criterion.acceptance.baselineCommit ?? baseline;
+      if (input.criteria === undefined && moved === undefined) return criterion;
+      const sha = moved ?? criterion.acceptance.baselineCommit ?? baseline;
       if (sha === undefined) throw taskError("BASELINE_REQUIRED", "Legacy tasks need an explicit baseline before typed acceptance.");
       const old = previous.task.criteria.find(c => c.id === criterion.id)?.acceptance;
-      if (old !== undefined && sha !== old.baselineCommit) throw taskError("BASELINE_IMMUTABLE", "Create a replacement criterion instead of changing its baseline.");
+      if (moved === undefined && old !== undefined && sha !== old.baselineCommit) throw taskError("BASELINE_IMMUTABLE", "Create a replacement criterion, or move every baseline with --baseline.");
       return {...criterion, acceptance: {...criterion.acceptance, baselineCommit: sha}};
     });
     const next: AgentTask = {...previous.task, schemaVersion: TASK_SCHEMA_VERSION,
@@ -425,7 +428,13 @@ export class TaskService {
       const current = findTask(state, taskId);
       if (current.status !== "active" || JSON.stringify(current) !== JSON.stringify(previous))
         throw taskError("TASK_CONTRACT_CHANGED", "Concurrent revision preserved; retry from current task.");
-      const result: StoredTaskRecord = {...current, task: next, evidence: {}, failureFingerprint: null,
+      // Surface, origin or goal-only revisions keep what verification ran; review is still voided by the new contract hash.
+      const sameExecution = executionContractHash(next) === executionContractHash(current.task) && policyConfigHash === current.policyConfigHash;
+      // Review references never carry over: the new contract needs fresh review.
+      const verified = Object.fromEntries(Object.entries(current.evidence)
+        .map(([id, refs]) => [id, refs.filter(ref => !ref.startsWith("review:"))] as const).filter(([, refs]) => refs.length > 0));
+      const result: StoredTaskRecord = {...current, task: next, evidence: sameExecution ? verified : {},
+        failureFingerprint: sameExecution ? current.failureFingerprint : null, ...(moved === undefined ? {} : {createdSourceCommit: moved}),
         policyConfigHash, completionBase: null, updatedAt: now,
         revisions: [...(current.revisions ?? []), {previousTask: current.task, previousEvidence: current.evidence,
           previousFailure: current.failureFingerprint, previousHash: input.expectedContractHash,
@@ -434,6 +443,14 @@ export class TaskService {
       replaceTask(state, withoutReview);
       return cloneRecord(withoutReview);
     });
+  }
+
+  async #resolveCommit(ref: string): Promise<string> {
+    if (commitIdentity(ref)) return ref;
+    const resolved = this.#completion === undefined ? undefined : await this.#completion.gitRunner.run(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+    const sha = resolved?.exitCode === 0 ? resolved.stdout.toString().trim() : "";
+    if (!commitIdentity(sha)) throw taskError("TASK_BASELINE_INVALID", "--baseline must resolve to one commit.");
+    return sha;
   }
 
   async replan(taskId: string, input: ReplanTaskInput): Promise<readonly StoredTaskRecord[]> {
@@ -885,7 +902,7 @@ export class TaskService {
         validation.value.criterionId === criterionId && validation.value.commandId === commandId &&
         validation.value.configHash === configHash && validation.value.sourceFingerprint === sourceFingerprint &&
         (!(snapshot.task.goal !== undefined || (snapshot.task.contractRevision ?? 0) > 0 || snapshot.task.criteria.some(c => c.acceptance !== undefined)) ||
-          validation.value.taskContractHash === taskContractHash(snapshot.task))
+          evidenceMatchesContract(validation.value.taskContractHash, snapshot.task))
         ? validation.value : null;
     };
     for (const criterion of snapshot.task.criteria) {

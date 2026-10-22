@@ -3,7 +3,7 @@ import { calculateConfigHash } from "../config/hash.js";
 import { findReviewAttestation } from "../review/attestation.js";
 import { validateEvidence, validateTaskAgainstConfig } from "../schema/validate.js";
 import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify/evidence.js";
-import {taskContractHash} from "./contract.js";
+import {evidenceMatchesContract, taskContractHash} from "./contract.js";
 import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
 
@@ -71,7 +71,7 @@ export async function checkTaskVerificationEvidence(
         if (evidence.taskId === stored.task.id && evidence.criterionId === criterion.id &&
           evidence.commandId === command.id && evidence.configHash === configHash &&
           evidence.sourceFingerprint === sourceFingerprint &&
-          ((stored.task.goal === undefined && (stored.task.contractRevision ?? 0) === 0 && stored.task.criteria.every(c => c.acceptance === undefined)) || evidence.taskContractHash === taskContractHash(stored.task)) &&
+          ((stored.task.goal === undefined && (stored.task.contractRevision ?? 0) === 0 && stored.task.criteria.every(c => c.acceptance === undefined)) || evidenceMatchesContract(evidence.taskContractHash, stored.task)) &&
           (latest === undefined || Date.parse(evidence.finishedAt) > Date.parse(latest.finishedAt) ||
             (Date.parse(evidence.finishedAt) === Date.parse(latest.finishedAt) && !isPassingVerificationEvidence(command, evidence)))) {
           latest = evidence;

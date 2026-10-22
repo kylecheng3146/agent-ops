@@ -18,10 +18,11 @@ Executable acceptance MUST bind the current contract to immutable replay evidenc
   build and test build. Tasks provide stable check IDs and explicit committed
   test/fixture/helper materials. Each checkout installs and builds its own version
   before candidate materials are overlaid. Tasks cannot override runner commands.
-- A generic runner must emit exactly the union of `checkIds` requested by criteria
-  sharing its runner, baseline and materials; unexpected rows are UNKNOWN. If a
-  runner always emits its full suite, bind the full emitted set while keeping
-  `redCheckIds` limited to the actual regression assertions.
+- A generic runner must emit every `checkId` requested by criteria sharing its
+  runner, baseline and materials, each exactly once; missing or duplicate rows are
+  UNKNOWN. Other rows are ignored, so a binding may list only its red checks. A
+  failing unrequested row still disagrees with a PASS aggregate through the
+  runner's exit code, which makes the candidate UNKNOWN, never green.
 - Fixture, collection, build, timeout, cancellation, truncated output, missing or
   duplicate IDs, retries and skips MUST NOT establish red or green. Complete raw
   execution artifacts are digest-bound to the contract, materials and commits.
@@ -34,9 +35,15 @@ Executable acceptance MUST bind the current contract to immutable replay evidenc
   counters and cannot supply mechanical proof by itself. Pytest requires one
   ordered setup/call/teardown lifecycle per nodeid; the Rust protocol requires
   explicit attempts. Missing metadata MUST NOT default to a successful attempt.
-- Baselines are immutable creation commits, or failed candidates for finding pins.
-  Revise/replan preserve the original goal, every mapped requirement and previous
-  contracts/evidence. New contracts require new proof and both fresh reviews.
+- Baselines are creation commits, or failed candidates for finding pins.
+  `task revise --baseline <ref>` moves every typed criterion's baseline (and the
+  task's creation commit) at once, for example after a task was opened on the
+  wrong branch, and voids its verification. Revise/replan preserve the original
+  goal, every mapped requirement and previous contracts/evidence.
+- Verification evidence binds an execution hash of the criteria only. A revise
+  that changes the surface or origin keeps it; a criteria or configuration change
+  voids it. Evidence from before 0.11 bound the full contract hash and still
+  matches an unchanged contract. Every new contract needs both fresh reviews.
 - `task pin-finding` validates saved report digest/index provenance. Recurrence
   explicitly names an existing pin. A sixth criterion returns a replan obligation
   without changing state; the mapped replan must retain the pin and all requirements.
@@ -118,6 +125,9 @@ Every new task MUST record a surface audit of where else its change lands before
   dismissals. Reviewers see each dismissal with its hit count, flagged when it
   hid a file an earlier `SURFACE_UNCLASSIFIED` block named.
   Results are cached by HEAD, base, diff, query set and config hash.
+- `verify` runs the same gate after verification and prints its result as
+  advisory lines (`Surface: PASS`, or the code and unclassified paths), so the
+  surface is fixed before review; only review enforces it.
 - Review returns NOT_RUN with: `SURFACE_MISSING` (no or unparseable surface;
   also refused at create), `SURFACE_UNCLASSIFIED`,
   `SURFACE_QUERY_TOO_BROAD` (one recorded query over 200 files),
@@ -255,7 +265,7 @@ New verification evidence uses schema 3. Schema 2 remains readable and its exit-
 
 Existing task files remain readable without migration. Legacy tasks without a config baseline, arbitrary evidence references, or unfinished archived children must be recreated and verified/reviewed before completion. Repeating completion also revalidates the evidence; an old completed status alone is insufficient. Runtime callers must supply `TaskServiceOptions.completion`; omitting this repository context fails closed for completion while leaving read-only task operations available.
 
-Before committing, use the default worktree scope for verify, review and completion. After committing, use the same `--base <git-ref>` on all three commands to produce fresh proof for that committed range; `TaskServiceOptions.completion.base` selects it for runtime callers. Base mode requires a clean worktree. Without a worktree change surface or an explicit base, completion returns `TASK_COMPLETION_SCOPE_REQUIRED`. The agy Stop gate still checks worktree-scoped proof: complete and stop before committing, or use its user-approved one-time permit after inspecting a completed base-scoped task.
+Before committing, use the default worktree scope for verify, review and completion. After committing, use the same `--base <git-ref>` on all three commands to produce fresh proof for that committed range. When `--base` is absent and the tree is clean, verify and review choose it: a session worktree uses its merge-base with the target branch (which follows a finish rebase), elsewhere the task's creation commit when it is an ancestor of HEAD. Base-mode source fingerprints ignore `.agent-ops-escapes/`, so committing the escape ledger keeps verification and review current; fingerprints from 0.10 differ, so re-verify once after upgrading; `TaskServiceOptions.completion.base` selects it for runtime callers. Base mode requires a clean worktree. Without a worktree change surface or an explicit base, completion returns `TASK_COMPLETION_SCOPE_REQUIRED`. The agy Stop gate still checks worktree-scoped proof: complete and stop before committing, or use its user-approved one-time permit after inspecting a completed base-scoped task.
 
 This enforces the toolkit's completion command, not a host's natural-language completion claim. It does not prevent a process with the same filesystem authority from editing task/evidence files directly, and it does not lock Git or external source writers.
 

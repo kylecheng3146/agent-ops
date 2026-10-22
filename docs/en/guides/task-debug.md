@@ -14,7 +14,8 @@ agent-ops task create --debug --title "Fix cart scroll" \
 - `--debug` needs `--goal` and at least one behavioral criterion with
   `redCheckIds`; otherwise creation fails with `TASK_DEBUG_RED_CHECK_REQUIRED`.
   The surface audit is required as for any task.
-- The baseline is the commit the task was created on.
+- The baseline is the commit the task was created on; `task revise --baseline
+  <ref>` moves it (for example off the wrong branch) and voids earlier evidence.
 - Then fix, commit, `verify`, two-round `review` and `worktree finish` exactly
   as for any task. Setup failure, skip, timeout and UNKNOWN never prove
   reproduction; the red check must fail on an assertion at the baseline.

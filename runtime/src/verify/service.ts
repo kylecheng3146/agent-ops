@@ -4,7 +4,7 @@ import type {
   InstallScope,
   VerificationCommand
 } from "../contracts.js";
-import {taskContractHash} from "../task/contract.js";
+import {executionContractHash, taskContractHash} from "../task/contract.js";
 import {replayAcceptance, type AcceptanceReplayResult} from "./acceptance-replay.js";
 import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
 import { validateTaskAgainstConfig } from "../schema/validate.js";
@@ -170,7 +170,9 @@ export class VerificationService {
         failureClass: result.failureClass,
         sourceFingerprint,
         toolVersions: this.#options.toolVersions ?? {},
-        ...(task.goal === undefined && (task.contractRevision ?? 0) === 0 && task.criteria.every(c => c.acceptance === undefined) ? {} : {taskContractHash: taskContractHash(task)}),
+        // Surfaced tasks are always bound, so a later surface-only revision of a goal-less one keeps it; legacy tasks stay unbound.
+        ...(task.goal === undefined && (task.contractRevision ?? 0) === 0 && task.criteria.every(c => c.acceptance === undefined) &&
+          task.surfaceRequired === undefined ? {} : {taskContractHash: executionContractHash(task)}),
         config: this.#options.config
       });
       references.push(
