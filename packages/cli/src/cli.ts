@@ -277,11 +277,14 @@ Options:
   --json
 `,
   review: `Usage: agent-ops review --task <id> --yes [options]
+       agent-ops review --criteria --task <id> --yes [--rerun]
        agent-ops review show --task <id> [--json]
 
 Run the complete task-bound review: one necessary reviewer followed by one
 fresh adversarial reviewer from the configured pair. Show reads recorded
 reports without running a reviewer, including from the main checkout.
+Criteria mode runs/reads one pre-edit advisory, with no time/token budget;
+only --rerun starts another attempt. It never replaces final proof.
 
 Options:
   --task <id>          Required task whose original criteria are reviewed

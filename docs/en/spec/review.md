@@ -2,6 +2,12 @@
 
 ## REVIEW-CRITERIA-001
 
+- Trigger: Production task criteria become ready before implementation.
+- Action: Await one scoped advisory and let the writer record adoption/rejection reasons.
+- Evidence: Private snapshot report plus safe local status/usage log; no completion attestation.
+- Positive: `A revised task shows historical advice and only an explicit rerun spends another round.`
+- Negative: `Automatically re-review every revise or treat advice as final PASS proof.`
+
 Every production task creation (including DEBUG, replan children and native run root/child tasks) MUST wait for one independent criteria advisory before implementation. A fresh session uses one configured independent-review target, preferring a different target from the host. It receives only the original goal, assigned intent/covers, criteria and surface audit in an empty disposable workspace. It MUST NOT inspect repository files or run tests. Missing goals are insufficient information; child completeness is scoped to its assignment. Verification materials/import validity remain deferred until implementation; reasoned review-only acceptance is valid.
 
 The advisory has no agent-ops execution deadline, stall cutoff or token budget. Provider limitations, genuine launch/auth/output errors and explicit cancellation remain effective. Errors produce NOT_RUN and permit work; cancellation preserves the task and MUST stop implementation. Native review processes remain registered and stoppable. Normal verification and final two-round review retain their existing deadlines and gates.

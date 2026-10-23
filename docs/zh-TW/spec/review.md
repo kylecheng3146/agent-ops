@@ -4,6 +4,12 @@ English source version: 2026-10-23. Revalidate: when the English specification c
 
 ## REVIEW-CRITERIA-001
 
+- Trigger: 正式 task 的 criteria 就緒、尚未開始實作。
+- Action: 等待一輪限定範圍的 advisory，由 writer 記錄採納或拒絕理由。
+- Evidence: 私人快照報告與安全 local 狀態／用量 log；不產生完成證明。
+- Positive: `修訂後顯示歷史建議；只有明確 rerun 才再花一輪。`
+- Negative: `每次 revise 都自動重審，或把建議當正式 PASS 證明。`
+
 每個正式 task 建立入口（含 DEBUG、replan 新子任務及 native run root/child）MUST 在首次實作前等待一輪獨立 criteria advisory。使用設定的 independent-review target 與全新 session，優先選擇不同於 host 的 target；只提供原始 goal、指派 intent/covers、criteria 與 surface audit，並在空白暫存工作區執行。MUST NOT 掃描 repository 或跑測試。缺 goal 須明示資訊不足；子任務只對指派範圍判完整性。材料是否存在、是否載入產品程式留待實作驗證；有理由的 review-only 條件合法。
 
 advisory 不設 agent-ops 執行 deadline、stall cutoff 或 token budget。provider 限制、真正啟動／認證／輸出錯誤與人工取消仍有效。錯誤回報 NOT_RUN 後可繼續；人工取消保留 task 並 MUST 停止實作。native 審查程序仍受註冊與停止機制管理。一般 verify 與正式雙輪 review 的既有時間限制及 gate 保持有效。

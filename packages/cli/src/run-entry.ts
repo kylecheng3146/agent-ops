@@ -955,7 +955,7 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
             const result = JSON.parse(output) as unknown;
             if (!plain(result) || !["ok", "error"].includes(String(result.status)) || typeof result.code !== "string") throw new Error();
             const coordinatorRoot = saved.workers[0]?.worktree;
-            if (result.status === "error" && coordinatorRoot != null)
+            if (!criteria && result.status === "error" && coordinatorRoot != null)
               await recordSavedReviewRunUsage(repository, runId, coordinatorRoot);
             if (plain(result.data) && plain(result.data.result) && typeof result.data.result.sourceFingerprint === "string" &&
               typeof result.data.result.taskId === "string") {
