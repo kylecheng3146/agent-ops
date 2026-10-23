@@ -1,0 +1,9 @@
+worktree: session-01a16664 (agent-ops/session-01a16664)
+session: 01a16664-ee6b-79c2-acbb-5034a5a52bfb
+agent-ops task task-2df25727-2db1-4410-8a27-45f3381763d0: Release 0.11.1 through PR and trusted publishing
+intent: Prepare the smallest 0.11.1 release metadata change, preserve the existing Trusted Publishing workflow, complete local verification and review, then publish the reviewed main commit through a PR and the existing OIDC release workflow.
+criteria:
+- release-version: Package metadata identifies release 0.11.1 consistently with the lockfile and CLI version reader; existing package metadata and CLI version policy tests pass.
+- release-notes-policy: CHANGELOG.md publishes the existing criteria advisory release notes under 0.11.1 dated 2026-10-23 and retains Unreleased; existing release policy tests pass for dispatch-only, main/tag-bound OIDC publishing.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/12de2db716defa1f557e287d87f931a7fb3d365ac3e8b15e9f4da381b036d5e8-f6f3e69a0802758acbe70d849bf61c632943e3e1.json
+receipt-sha256: 454fcecf0a51cec03a1d630252fba25a2be1b8847a6eb51ec8a07ffd14b360b2
