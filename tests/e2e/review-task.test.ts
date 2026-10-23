@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync
 } from "node:fs";
@@ -287,9 +288,12 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       });
     };
 
+    const reports = (): string[] => existsSync(join(root, ".agent-ops", "reviews"))
+      ? readdirSync(join(root, ".agent-ops", "reviews")).filter(name => name.endsWith(".json")).sort() : [];
+    const advisoryReports = reports();
     await interrupt("SIGINT", 130);
     await interrupt("SIGTERM", 143);
-    assert.equal(existsSync(join(root, ".agent-ops", "reviews")), false);
+    assert.deepEqual(reports(), advisoryReports, "cancelled final review must add no report or attestation alongside existing advisory artifacts");
   } finally {
     cleanupE2eRoot(root);
   }
