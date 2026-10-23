@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-23
+
 - Every production task now waits for one advisory criteria review before
   implementation, including DEBUG, replan children and native run root/child
   paths. It uses a bounded data-only prompt, an empty workspace and a fresh
