@@ -66,6 +66,8 @@ export interface RunVerificationCommandOptions {
   /** Use exactly `env` instead of inheriting the parent process environment. */
   readonly replaceEnv?: boolean;
   readonly stdin?: string;
+  /** Internal advisory override; null allocates no execution deadline. */
+  readonly timeoutMs?: number | null;
   readonly now?: () => number;
   readonly outputLimitBytes?: number;
   readonly terminationGraceMs?: number;
@@ -472,8 +474,8 @@ export async function runVerificationCommand(
     MAX_TERMINATION_GRACE_MS,
     "terminationGraceMs"
   );
-  const timeoutMs = boundedPositiveInteger(
-    command.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  const timeoutMs = options.timeoutMs === null ? null : boundedPositiveInteger(
+    options.timeoutMs ?? command.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     2_147_483_647,
     "timeoutMs"
   );
@@ -501,7 +503,7 @@ export async function runVerificationCommand(
   const stderr = captureOutput(running.stderr, outputLimit, options.onActivity);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<TimeoutOutcome>((resolve) => {
-    timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+    if (timeoutMs !== null) timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
   });
   let removeAbortListener = (): void => {};
   const aborted = new Promise<AbortOutcome>((resolve) => {

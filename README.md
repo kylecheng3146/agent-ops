@@ -12,6 +12,19 @@ pre-1.0 interface.
 The CLI is published as `@kylecheng3146/agent-ops` as a pre-1.0 interface;
 command behavior may change before 1.0.
 
+## Criteria advisory before implementation
+
+Every new task, including DEBUG and native run parent/child tasks, waits for one
+independent advisory review of its goal, criteria and assigned surface before
+implementation. Read the suggestions, decide which to adopt, and record reasons
+through `task revise`. Revisions do not automatically re-review.
+
+The advisory has no time/token budget; explicit cancellation stops work. Genuine
+execution errors report NOT_RUN and allow work. Detailed reports remain private;
+`task status` shows their snapshot and whether they are historical. Explicitly
+rerun with `agent-ops review --criteria --task <id> --rerun --yes`.
+Final verification, two-round review and finish remain required.
+
 ## Executable acceptance and native goal runs (0.6.0)
 
 Criteria can use `behavioral`, `invariant` or `review-only` acceptance contracts.

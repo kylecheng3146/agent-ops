@@ -4,6 +4,16 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Every production task now waits for one advisory criteria review before
+  implementation, including DEBUG, replan children and native run root/child
+  paths. It uses a bounded data-only prompt, an empty workspace and a fresh
+  configured reviewer session, with no execution/stall/token budget. Explicit
+  cancellation stops work; real execution errors report NOT_RUN. Private
+  snapshot reports and safe local usage summaries survive revisions without
+  automatic rereview; `review --criteria --task <id> --rerun --yes` explicitly
+  starts a new attempt. Final verification, two-round review and finish gates
+  are unchanged.
+
 ## [0.11.0] - 2026-10-23
 
 - Verification evidence no longer goes stale on metadata. It binds an

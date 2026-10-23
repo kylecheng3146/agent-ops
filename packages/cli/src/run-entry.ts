@@ -1,3 +1,5 @@
+import {criteriaReviewStatus} from "./criteria-review.js";
+import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
 import {stat} from "node:fs/promises";
 import {recoverRunIntegrationAfterCleanup, validateRunIntegrationReceipt} from "../../../runtime/src/run/integration.js";
 import {pendingFindingPins} from "../../../runtime/src/run/ratchet.js";
@@ -227,11 +229,14 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           sha256(answer.answer) !== question.answerDigest) throw new AgentOpsError("RUN_ANSWER_CHANGED", "The saved answer no longer matches its recorded digest.");
         answers.push({questionId: question.questionId, prompt: question.prompt, answer: answer.answer});
       }
-      const content = {runId, workerId: worker.workerId, generation: worker.generation, contractHash: current.currentContractHash,
+      const localTask = worker.taskId === null ? undefined : await new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops/tasks/state.json"), worker.worktree!)).status({taskId: worker.taskId}).catch(() => undefined);
+      const criteriaAdvice = localTask === undefined ? null : await criteriaReviewStatus(worker.worktree!, localTask.task);
+      const content = {criteriaAdvisory: criteriaAdvice === null ? null : renderCriteriaReview(criteriaAdvice), runId, workerId: worker.workerId, generation: worker.generation, contractHash: current.currentContractHash,
         originalGoal: current.goal, answers, rootTaskId: current.rootTaskId, taskId: worker.taskId, cli, ownerSessionId: worker.ownerSessionId,
         policyConfigHash: current.policyBinding?.configHash,
         instructions: ["Keep the original goal fixed. Read this repository's AGENTS.md and use its existing verifier authority.",
           "Plan 2–5 substantive acceptance criteria. Submit a plan request before changing product files; the supervisor creates the task with the fixed goal.",
+          "Read the criteria advisory before implementation. Decide which suggestions to adopt and use task revise with reasons (including rejected advice). A revision does not automatically rerun criteria review; formal final proof remains required.",
           "For every mechanically testable requirement use a configured acceptance runner; explicit review-only fallback requires a recorded reason and fresh goal review.",
           "Implement, commit and verify. Repair failed checks and pin mechanically testable review findings into regression criteria. Never disable a mandatory policy verifier.",
           "Only registered run workers may write. Use isolated worktrees and supervisor-issued leases; do not launch an unregistered writing subagent.",
@@ -322,7 +327,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             generateId: () => node.taskId, completion: {root: workerRoot, gitRunner: gitRunner(workerRoot), loadConfig: async () => config}});
           await service.create({title: plan.title, intent: plan.intent, criteria: plan.criteria, goal: current.goal,
             sessionId: ownerSessionId, policyConfigHash: calculateConfigHash(config), ...(plan.covers === undefined ? {} : {surface: {covers: plan.covers}})});
-          await start((await repository.read(runId))!.workers.find(w => w.workerId === registration.workerId)!);
+          const advisory = await criteriaStep(workerRoot, node.taskId);
+          await start((await repository.read(runId))!.workers.find(w => w.workerId === registration.workerId)!, JSON.stringify(advisory));
         } catch (cause) {
           const latest = (await repository.read(runId))!;
           if (latest.status !== "active" || latest.disableRestart) {
@@ -356,77 +362,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       return result.data.receipt;
     }
     async function step(cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
-      const remaining = remainingRunTimeMs(saved);
-      if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
-      return await new Promise((resolve, reject) => {
-        const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_HOST: saved.host,
-          AGENT_OPS_SESSION_ID: saved.workers.find(worker => worker.worktree === cwd)?.ownerSessionId ?? saved.ownerSessionId,
-          AGENT_OPS_RUN_ID: saved.runId,
-          AGENT_OPS_WORKER_ID: saved.workers.find(worker => worker.worktree === cwd)?.workerId ?? saved.coordinatorId,
-          AGENT_OPS_WORKER_GENERATION: String(saved.workers.find(worker => worker.worktree === cwd)?.generation ?? saved.workers.find(worker => worker.workerId === saved.coordinatorId)?.generation)};
-        delete env.CODEX_THREAD_ID;
-        delete env.AGENT_OPS_AGENT_ID;
-        delete env.CODEX_SANDBOX_NETWORK_DISABLED;
-        const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)), cli, ...args, "--json"],
-          {cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"]});
-        let output = "";
-        let closed = false;
-        let escalation: ReturnType<typeof setTimeout> | undefined;
-        const terminate = (): void => {
-          if (child.pid === undefined || escalation !== undefined) return;
-          try {process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGTERM");} catch {}
-          escalation = setTimeout(() => {
-            if (!closed) try {process.kill(process.platform === "win32" ? child.pid! : -child.pid!, "SIGKILL");} catch {}
-          }, 3000);
-        };
-        const timeout = Number.isFinite(remaining) ? setTimeout(terminate, remaining) : undefined;
-        const registration = (async () => {
-          const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
-          if (identity === null || closed) {terminate(); return;}
-          await repository.mutate(runId, current => {
-            if (current.status !== "active" || current.disableRestart) {
-              terminate(); throw new AgentOpsError("RUN_PROOF_STOPPED", "Stop raced final proof registration.");
-            }
-            return {...current, proofProcess: {processId: child.pid!, processIdentity: identity}};
-          });
-          child.stdin.end("start\n");
-        })();
-        child.stdin.on("error", terminate);
-        void registration.catch(() => terminate());
-        let checking = false;
-        const control = setInterval(() => {
-          if (checking) return;
-          checking = true;
-          void repository.read(runId).then(current => {
-            if (current === null || current.disableRestart || current.status !== "active") terminate();
-          }).catch(terminate).finally(() => {checking = false;});
-        }, 250);
-        child.stdout.on("data", chunk => {output += chunk.toString(); if (Buffer.byteLength(output) > 4 * 1024 * 1024) terminate();});
-        child.stderr.resume();
-        child.once("error", cause => {closed = true; clearTimeout(timeout); clearInterval(control); reject(cause);});
-        child.once("close", async () => {
-          closed = true;
-          clearTimeout(timeout);
-          clearTimeout(escalation);
-          clearInterval(control);
-          try {
-            await registration;
-            await repository.mutate(runId, current => ({...current,
-              ...(current.proofProcess?.processId === child.pid ? {proofProcess: null} : {})}));
-            const result = JSON.parse(output) as unknown;
-            if (!plain(result) || !["ok", "error"].includes(String(result.status)) || typeof result.code !== "string") throw new Error();
-            const coordinatorRoot = saved.workers[0]?.worktree;
-            if (result.status === "error" && coordinatorRoot != null)
-              await recordSavedReviewRunUsage(repository, runId, coordinatorRoot);
-            if (plain(result.data) && plain(result.data.result) && typeof result.data.result.sourceFingerprint === "string" &&
-              typeof result.data.result.taskId === "string") {
-              const artifact = await readReviewReportArtifact(cwd, result.data.result.sourceFingerprint, result.data.result.taskId);
-              if (artifact !== null) await recordReviewRunUsage(repository, runId, artifact);
-            }
-            resolve(result as {status: string; code: string; data?: unknown});
-          } catch {reject(new AgentOpsError("RUN_FINAL_PROOF_INTERRUPTED", "Final gate did not return a complete result; inspect target and receipt before retrying."));}
-        });
-      });
+      return await runControlledStep(repository, cli, cwd, args, saved);
+    }
+    async function criteriaStep(cwd: string, taskId: string): Promise<unknown> {
+      return await runCriteriaStep(repository, runId, cwd, taskId, step);
     }
     async function stopAll(reason: "stop" | "budget" | "crash", closeBudget = true): Promise<void> {
       const current = (await repository.read(runId))!;
@@ -804,7 +743,8 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               await repository.mutate(runId, saved => ({...saved, rootTaskId: task.task.id, currentContractHash: treeContractHash([task.task]),
                 tasks: saved.tasks.map(node => node.taskId === worker.taskId ? {...node, taskId: task.task.id} : node),
                 workers: saved.workers.map(w => w.workerId === worker.workerId ? {...w, taskId: task.task.id} : w)}));
-              response = {requestId: request.requestId, code: "RUN_PLAN_CREATED", task: task.task, contractHash: treeContractHash([task.task])};
+              const advisory = await criteriaStep(worker.worktree!, task.task.id);
+              response = {advisory, requestId: request.requestId, code: "RUN_PLAN_CREATED", task: task.task, contractHash: treeContractHash([task.task])};
               await recordRunPhase(repository, runId, worker.workerId, "implementing", {taskId: task.task.id, update: {passed: 0, total: task.task.criteria.length}});
               await instructions((await repository.read(runId))!.workers.find(w => w.workerId === worker.workerId)!);
             } else if (request.action === "worker") {
@@ -948,3 +888,103 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (process.argv.length !== 4) throw new AgentOpsError("RUN_SUPERVISOR_ARGUMENTS", "Supervisor requires canonical repository root and run ID.");
   await superviseNativeRun(process.argv[2]!, process.argv[3]!);
 }
+
+export async function runControlledStep(repository: FileRunRepository, cli: string, cwd: string, args: readonly string[], saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
+      const runId = saved.runId;
+      const criteria = args[0] === "review" && args.includes("--criteria");
+      const remaining = criteria ? Infinity : remainingRunTimeMs(saved);
+      if (remaining <= 0) throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "No active time remains for final proof.");
+      return await new Promise((resolve, reject) => {
+        const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_HOST: saved.host,
+          AGENT_OPS_SESSION_ID: saved.workers.find(worker => worker.worktree === cwd)?.ownerSessionId ?? saved.ownerSessionId,
+          AGENT_OPS_RUN_ID: saved.runId,
+          AGENT_OPS_WORKER_ID: saved.workers.find(worker => worker.worktree === cwd)?.workerId ?? saved.coordinatorId,
+          AGENT_OPS_WORKER_GENERATION: String(saved.workers.find(worker => worker.worktree === cwd)?.generation ?? saved.workers.find(worker => worker.workerId === saved.coordinatorId)?.generation)};
+        delete env.CODEX_THREAD_ID;
+        delete env.AGENT_OPS_AGENT_ID;
+        delete env.CODEX_SANDBOX_NETWORK_DISABLED;
+        const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)), cli, ...args, "--json"],
+          {cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"]});
+        let output = "";
+        let closed = false;
+        let escalation: ReturnType<typeof setTimeout> | undefined;
+        const terminate = (): void => {
+          if (child.pid === undefined || escalation !== undefined) return;
+          try {process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGTERM");} catch {}
+          escalation = setTimeout(() => {
+            if (!closed) try {process.kill(process.platform === "win32" ? child.pid! : -child.pid!, "SIGKILL");} catch {}
+          }, 3000);
+        };
+        const timeout = Number.isFinite(remaining) ? setTimeout(terminate, remaining) : undefined;
+        const registration = (async () => {
+          const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
+          if (identity === null || closed) {terminate(); return;}
+          await repository.mutate(runId, current => {
+            if (current.status !== "active" || current.disableRestart) {
+              terminate(); throw new AgentOpsError("RUN_PROOF_STOPPED", "Stop raced final proof registration.");
+            }
+            if (criteria && current.proofProcess != null) {
+              terminate(); throw new AgentOpsError("CRITERIA_REVIEW_PROCESS_BUSY", "Another controlled process is already registered.");
+            }
+            return {...current, proofProcess: {processId: child.pid!, processIdentity: identity}};
+          });
+          child.stdin.end("start\n");
+        })();
+        child.stdin.on("error", terminate);
+        void registration.catch(() => terminate());
+        let checking = false;
+        const control = setInterval(() => {
+          if (checking) return;
+          checking = true;
+          void repository.read(runId).then(current => {
+            if (current === null || current.disableRestart || current.status !== "active") terminate();
+          }).catch(terminate).finally(() => {checking = false;});
+        }, 250);
+        child.stdout.on("data", chunk => {output += chunk.toString(); if (Buffer.byteLength(output) > 4 * 1024 * 1024) terminate();});
+        child.stderr.resume();
+        child.once("error", cause => {closed = true; clearTimeout(timeout); clearInterval(control); reject(cause);});
+        child.once("close", async () => {
+          closed = true;
+          clearTimeout(timeout);
+          clearTimeout(escalation);
+          clearInterval(control);
+          try {
+            await registration;
+            await repository.mutate(runId, current => ({...current,
+              ...(current.proofProcess?.processId === child.pid ? {proofProcess: null} : {})}));
+            const result = JSON.parse(output) as unknown;
+            if (!plain(result) || !["ok", "error"].includes(String(result.status)) || typeof result.code !== "string") throw new Error();
+            const coordinatorRoot = saved.workers[0]?.worktree;
+            if (result.status === "error" && coordinatorRoot != null)
+              await recordSavedReviewRunUsage(repository, runId, coordinatorRoot);
+            if (plain(result.data) && plain(result.data.result) && typeof result.data.result.sourceFingerprint === "string" &&
+              typeof result.data.result.taskId === "string") {
+              const artifact = await readReviewReportArtifact(cwd, result.data.result.sourceFingerprint, result.data.result.taskId);
+              if (artifact !== null) await recordReviewRunUsage(repository, runId, artifact);
+            }
+            resolve(result as {status: string; code: string; data?: unknown});
+          } catch {reject(new AgentOpsError("RUN_FINAL_PROOF_INTERRUPTED", "Final gate did not return a complete result; inspect target and receipt before retrying."));}
+        });
+      });
+    }
+
+export async function runCriteriaStep(repository: FileRunRepository, runId: string, cwd: string, taskId: string,
+  step: (cwd: string, args: readonly string[], saved: RunState) => Promise<{status: string; code: string; data?: unknown}>): Promise<unknown> {
+      const current = (await repository.read(runId))!;
+      if (current.status !== "active" || current.disableRestart) throw new AgentOpsError("RUN_CRITERIA_STOPPED", "Run stopped before criteria review.");
+      try {
+        if (current.proofProcess != null) throw new Error("Controlled process busy");
+        const result = await step(cwd, ["review", "--criteria", "--task", taskId, "--yes"], current);
+        const latest = (await repository.read(runId))!;
+        if (latest.status !== "active" || latest.disableRestart || result.code === "CRITERIA_REVIEW_CANCELLED")
+          throw new AgentOpsError("RUN_CRITERIA_STOPPED", "Criteria review cancelled; do not start implementation.");
+        if (result.status === "ok") return result.data;
+      } catch (cause) {
+        const latest = await repository.read(runId);
+        if (latest === null || latest.status !== "active" || latest.disableRestart ||
+          cause instanceof AgentOpsError && cause.code === "RUN_CRITERIA_STOPPED") throw cause;
+      }
+      await repository.appendEvent(runId, {type: "diagnostic", code: "CRITERIA_REVIEW_NOT_RUN", workerId: null, taskId,
+        detail: "Pre-edit advisory unavailable; final evidence gates still apply."}).catch(() => undefined);
+      return {code: "CRITERIA_REVIEW_NOT_RUN", text: "Criteria advisory NOT_RUN (process unavailable); final evidence gates still apply."};
+    }

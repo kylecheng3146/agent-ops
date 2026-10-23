@@ -1,6 +1,16 @@
 # 審查
 
-English source version: 2026-09-30. Revalidate: when the English specification changes.
+English source version: 2026-10-23. Revalidate: when the English specification changes.
+
+## REVIEW-CRITERIA-001
+
+每個正式 task 建立入口（含 DEBUG、replan 新子任務及 native run root/child）MUST 在首次實作前等待一輪獨立 criteria advisory。使用設定的 independent-review target 與全新 session，優先選擇不同於 host 的 target；只提供原始 goal、指派 intent/covers、criteria 與 surface audit，並在空白暫存工作區執行。MUST NOT 掃描 repository 或跑測試。缺 goal 須明示資訊不足；子任務只對指派範圍判完整性。材料是否存在、是否載入產品程式留待實作驗證；有理由的 review-only 條件合法。
+
+advisory 不設 agent-ops 執行 deadline、stall cutoff 或 token budget。provider 限制、真正啟動／認證／輸出錯誤與人工取消仍有效。錯誤回報 NOT_RUN 後可繼續；人工取消保留 task 並 MUST 停止實作。native 審查程序仍受註冊與停止機制管理。一般 verify 與正式雙輪 review 的既有時間限制及 gate 保持有效。
+
+task 建立回應呈現建議與私人報告位置。writer 自行判斷採納，透過 task revise 記錄採納及拒絕理由（可用相同 criteria 修訂記錄拒絕建議）。需求歧義或擴大範圍才向使用者澄清。報告綁定 task／goal／criteria／surface 快照；輸入改變後 status 與 revise 顯示歷史報告已過期。修訂 MUST NOT 自動重審。重複初審請求重用第一次嘗試，包含 NOT_RUN；只有明確執行 `agent-ops review --criteria --task <id> --rerun --yes` 才開始新的一輪。省略 --rerun 時讀取／等待目前嘗試。
+
+詳細報告經遮蔽後私存於 `.agent-ops/reviews/criteria-<task-id>*.json`；local log 只記狀態、耗時、數量、可得用量及報告參照。CLI 呼叫數與 provider 模型呼叫數分開，後者可能未回報。報告／log 故障 MUST NOT 回滾 task 或偽造證據。advisory 產物 MUST NOT 滿足 verify、正式 review 或 finish。
 
 ## REVIEW-INDEPENDENT-001
 

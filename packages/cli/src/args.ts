@@ -125,6 +125,7 @@ export interface ParsedArgs {
   json: boolean;
   yes: boolean;
   /** review: discard a matching PASS attestation and run the chain again. */
+  criteriaReview?: boolean;
   rerun: boolean;
   /** review: cover the selected task and all non-archived descendants. */
   tree?: boolean;
@@ -264,6 +265,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   let json = false;
   let yes = false;
   let rerun = false;
+  let criteriaReview = false;
   let tree = false;
   let helpSeen = false;
   let versionSeen = false;
@@ -554,6 +556,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         index += 1;
         break;
       }
+      case "--criteria":
+        if (criteriaReview) throw new CliArgumentError("CLI_DUPLICATE_OPTION", "--criteria may appear only once.");
+        criteriaReview = true;
+        break;
       case "--rerun":
         if (rerun) {
           duplicate(token);
@@ -873,6 +879,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       "--worktree may be used only with init or update."
     );
   }
+  if (criteriaReview && (command !== "review" || action !== undefined || tree || base !== undefined || output !== undefined))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--criteria requires review --task <id> --yes; omit show, tree, base and output.");
   const revisionAction = command === "task" && ["revise", "replan", "pin-finding"].includes(action ?? "");
   if ((taskGoal !== undefined || debug) && !(command === "task" && action === "create"))
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED","--goal and --debug apply only to task create.");
@@ -997,7 +1005,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command === "review" && action !== "show" && !yes) {
     throw new CliArgumentError(
       "CLI_OPTION_NOT_ALLOWED",
-      "Review requires --yes to authorize both reviewer sessions."
+      criteriaReview ? "Criteria advisory requires --yes to authorize one reviewer session." : "Review requires --yes to authorize both reviewer sessions."
     );
   }
   if (command === "review" && harness !== undefined) {
@@ -1128,6 +1136,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(taskGoal === undefined ? {} : {goal:taskGoal}),
     ...(debug ? {debug:true} : {}),
     ...(reviewTargets.length === 0 ? {} : { reviewTargets }),
+    ...(criteriaReview ? {criteriaReview: true} : {}),
     ...(completionGate === undefined ? {} : { completionGate }),
     ...(office === undefined ? {} : { office }),
     ...(autoRun === undefined ? {} : { autoRun }),

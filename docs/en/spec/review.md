@@ -1,5 +1,15 @@
 # Review
 
+## REVIEW-CRITERIA-001
+
+Every production task creation (including DEBUG, replan children and native run root/child tasks) MUST wait for one independent criteria advisory before implementation. A fresh session uses one configured independent-review target, preferring a different target from the host. It receives only the original goal, assigned intent/covers, criteria and surface audit in an empty disposable workspace. It MUST NOT inspect repository files or run tests. Missing goals are insufficient information; child completeness is scoped to its assignment. Verification materials/import validity remain deferred until implementation; reasoned review-only acceptance is valid.
+
+The advisory has no agent-ops execution deadline, stall cutoff or token budget. Provider limitations, genuine launch/auth/output errors and explicit cancellation remain effective. Errors produce NOT_RUN and permit work; cancellation preserves the task and MUST stop implementation. Native review processes remain registered and stoppable. Normal verification and final two-round review retain their existing deadlines and gates.
+
+Task creation shows advice and a private report reference. The writer decides which recommendations to adopt and records acceptance/rejection reasons through task revise (a same-criteria revision may record rejected advice). Requirements that are ambiguous or expand scope require user clarification. Reports bind the original task/goal/criteria/surface snapshot; task status and revise show historical reports as stale when those inputs change. A revision MUST NOT automatically re-review. Repeated initial requests reuse the first attempt, including NOT_RUN; only explicit `agent-ops review --criteria --task <id> --rerun --yes` starts another fresh single round. Without --rerun the same command reads/waits for the current attempt.
+
+Detailed redacted reports remain private in `.agent-ops/reviews/criteria-<task-id>*.json`; the local log contains only status, duration, counts, reported usage and report reference. CLI invocation counts are distinct from provider model calls, which may be unreported. Report/log failures MUST NOT roll back a task or fabricate evidence. These advisory artifacts MUST NOT satisfy verify, final review or finish.
+
 ## REVIEW-INDEPENDENT-001
 
 An independent reviewer MUST receive a minimal packet containing the request, criteria, artifact references, and evidence requirements.
