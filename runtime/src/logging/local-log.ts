@@ -72,7 +72,13 @@ export interface EscapeRuleLogEvent {
   excluded: number;
 }
 
+export interface CriteriaReviewLogEvent {
+  type: "criteria-review"; taskId: string; attemptId: string; status: string; code: string; durationMs: number;
+  invocations: number; recommendations: number; report: string; usage: Readonly<Record<string, number>>;
+}
+
 export type LocalLogEvent =
+  | CriteriaReviewLogEvent
   | CommandResultLogEvent
   | EscapeRuleLogEvent
   | GateCatchLogEvent
@@ -133,6 +139,18 @@ function invalidEvent(): never {
 function sanitizeEvent(value: unknown): LocalLogEvent {
   if (!isRecord(value) || typeof value.type !== "string") {
     return invalidEvent();
+  }
+  if (value.type === "criteria-review") {
+    if (!hasExactKeys(value, ["type", "taskId", "attemptId", "status", "code", "durationMs", "invocations", "recommendations", "report", "usage"]) ||
+      typeof value.taskId !== "string" || !ID_PATTERN.test(value.taskId) ||
+      typeof value.attemptId !== "string" || !/^[a-f0-9-]{36}$/u.test(value.attemptId) ||
+      !["RUNNING", "COMPLETED", "NOT_RUN", "CANCELLED"].includes(String(value.status)) ||
+      typeof value.code !== "string" || !ID_PATTERN.test(value.code) || !isBoundedString(value.report) ||
+      ![value.durationMs, value.invocations, value.recommendations].every(n => Number.isSafeInteger(n) && (n as number) >= 0) ||
+      !isRecord(value.usage) || Object.entries(value.usage).some(([key, n]) =>
+        !["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd"].includes(key) ||
+        typeof n !== "number" || !Number.isFinite(n) || n < 0)) return invalidEvent();
+    return {...value, report: redactSecrets(value.report)} as unknown as CriteriaReviewLogEvent;
   }
   if (value.type === "diagnostic") {
     if (

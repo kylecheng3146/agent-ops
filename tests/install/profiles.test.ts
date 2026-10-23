@@ -337,17 +337,33 @@ const DEBUG_RULE = [
   ""
 ].join("\n");
 
+const CRITERIA_ADVISORY = [
+  "   Every production task creation waits for one independent criteria advisory",
+  "   before implementation (also DEBUG and native run parents/children). It has",
+  "   no time/token budget; real launch/auth/output errors report NOT_RUN and",
+  "   allow work, while explicit cancellation means stop. Read the private report,",
+  "   decide which advice to adopt, and use task revise with reasons (including",
+  "   rejections). Revise does not rerun it. Explicit rerun only:",
+  "   `agent-ops review --criteria --task <id> --rerun --yes`.",
+  "   Start task creation/criteria review through the trusted outer host when",
+  "   the host sandbox blocks reviewer auth/network, using the same outer-host",
+  "   invocation described below for review. Never bypass a native denial.",
+  "   This advisory never replaces verify, final two-round review or finish.",
+  "", ""
+].join("\n");
+
 test("managed rules start every change with the surface audit", () => {
   for (const id of ["claude", "codex", "agy", "opencode"] as const) {
     const content = managedRules(harnessDescriptor(id), { scope: "project", profiles: ["core"], capabilities: ["rules", "task"] });
     assert.ok(content.includes("For every change:\n\n" + SURFACE_STEPS), id);
+    assert.ok(content.includes(CRITERIA_ADVISORY), id);
   }
 });
 
 test("managed rules without auto-run are byte-identical to before the run profile", () => {
   for (const { context, digests } of RULES_BEFORE_RUN) {
     for (const [id, digest] of Object.entries(digests)) {
-      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE).replace(DEBUG_RULE, "");
+      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE).replace(DEBUG_RULE, "").replace(CRITERIA_ADVISORY, "");
       assert.equal(createHash("sha256").update(content).digest("hex"), digest, id);
     }
   }

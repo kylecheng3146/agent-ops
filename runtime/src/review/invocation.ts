@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 export interface TargetInvocationRequest {
   readonly target: ReviewTargetId;
   readonly prompt: string;
+  readonly responseSchema?: Record<string, unknown>;
   readonly model?: string;
   readonly effort?: string;
   readonly repositoryRoot?: string;
@@ -69,10 +70,10 @@ function stripPatterns(value: unknown): void {
  * "https://json-schema.org/draft/2020-12/schema"` and never starts. The draft
  * declaration carries no constraint, so dropping it costs nothing.
  */
-function reviewSchemaText(): string {
-  const parsed = JSON.parse(
+function reviewSchemaText(schema?: Record<string, unknown>): string {
+  const parsed = schema === undefined ? JSON.parse(
     readFileSync(reviewSchemaPath(), "utf8")
-  ) as Record<string, unknown>;
+  ) as Record<string, unknown> : structuredClone(schema);
   delete parsed.$schema;
   stripPatterns(parsed);
   return JSON.stringify(parsed);
@@ -192,7 +193,7 @@ export function buildTargetInvocation(
       "--output-format",
       "json",
       "--json-schema",
-      reviewSchemaText(),
+      reviewSchemaText(request.responseSchema),
       ...(request.repositoryRoot === undefined
         ? []
         : ["--add-dir", request.repositoryRoot]),

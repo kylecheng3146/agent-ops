@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {reviewCreatedCriteria, criteriaReviewStatus} from "./criteria-review.js";
+import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
 import {advancePhaseObserver, productionRunContext} from "./run-deps.js";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {recordRunVerification} from "../../../runtime/src/run/verification.js";
@@ -362,7 +364,7 @@ process.exitCode = await runCli(
             ? process.env.AGENT_OPS_HOME ?? homedir()
             : process.cwd();
           // Committed work is judged as a range by default; see defaultBase.
-          if ((args.command === "verify" || (args.command === "review" && args.action !== "show")) && args.base === undefined && args.scope !== "user") {
+          if ((args.command === "verify" || (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {
             const taskId = args.taskId;
             const base = await defaultBase(root, gitRunner(root), async () => taskId === undefined ? undefined :
               (await new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)).status({taskId})).createdSourceCommit)
@@ -655,6 +657,8 @@ process.exitCode = await runCli(
             return await runTaskCommand({
               args,
               service: taskService,
+              onTaskCreated: async (record, createdRoot) => await reviewCreatedCriteria(createdRoot ?? root, record.task),
+              criteriaStatus: async record => await criteriaReviewStatus(root, record.task),
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId }),
               ...(fromMain
@@ -677,6 +681,11 @@ process.exitCode = await runCli(
                   }
                 : {})
             });
+          }
+          if (args.command === "review" && args.criteriaReview) {
+            const record = await taskService.status({taskId: args.taskId!});
+            const criteriaReview = await reviewCreatedCriteria(root, record.task, args.rerun);
+            return {status: "ok" as const, code: "CRITERIA_REVIEW_ADVISORY", data: {criteriaReview, text: renderCriteriaReview(criteriaReview)}, errors: []};
           }
           const probeTarget: NonNullable<ReviewExecutorOptions["preflightTarget"]> =
             async (target, budget) =>

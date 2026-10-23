@@ -82,6 +82,7 @@ Options:
   --width <n>                         Batch only: reviews allowed at once (default 2)
   --target-version <version>          Update target version (offline-capable)
   --title <text>
+  --criteria                          Review only: one pre-edit advisory, no time budget
   --criterion <json>                    Repeatable
   --evidence <criterion-id=reference>   Repeatable
   --session <id>
@@ -276,11 +277,14 @@ Options:
   --json
 `,
   review: `Usage: agent-ops review --task <id> --yes [options]
+       agent-ops review --criteria --task <id> --yes [--rerun]
        agent-ops review show --task <id> [--json]
 
 Run the complete task-bound review: one necessary reviewer followed by one
 fresh adversarial reviewer from the configured pair. Show reads recorded
 reports without running a reviewer, including from the main checkout.
+Criteria mode runs/reads one pre-edit advisory, with no time/token budget;
+only --rerun starts another attempt. It never replaces final proof.
 
 Options:
   --task <id>          Required task whose original criteria are reviewed

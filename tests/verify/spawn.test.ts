@@ -443,3 +443,20 @@ test("Windows tree termination runs even after the group leader exits", async ()
     assert.deepEqual(calls, [{ processId, graceMs: 25 }]);
   }
 });
+
+test("explicit uncapped execution survives finite deadlines and still aborts its process tree", async (t) => {
+  t.mock.timers.enable({apis: ["setTimeout"]});
+  const controller = new AbortController();
+  let finish!: (completion: ProcessCompletion) => void;
+  let terminated = 0;
+  const pending = runVerificationCommand(command({timeoutMs: 5}), {cwd: "/workspace", timeoutMs: null, signal: controller.signal,
+    runner: runnerWith(() => ({pid: 456, stdout: chunks(), stderr: chunks(), completion: new Promise(resolve => {finish = resolve;}),
+      terminateTree: async () => {terminated++; finish({exitCode: null, signal: "SIGTERM"});}}))});
+  let settled = false; void pending.then(() => {settled = true;});
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(terminated, 0); assert.equal(settled, false);
+  controller.abort("SIGINT");
+  const result = await pending;
+  assert.equal(result.failureClass, "aborted"); assert.equal(result.timedOut, false); assert.equal(terminated, 1);
+});

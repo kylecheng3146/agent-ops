@@ -668,6 +668,18 @@ export function managedRules(
 
   if (context.capabilities.includes("rules")) {
     lines.push(
+      "   Every production task creation waits for one independent criteria advisory",
+      "   before implementation (also DEBUG and native run parents/children). It has",
+      "   no time/token budget; real launch/auth/output errors report NOT_RUN and",
+      "   allow work, while explicit cancellation means stop. Read the private report,",
+      "   decide which advice to adopt, and use task revise with reasons (including",
+      "   rejections). Revise does not rerun it. Explicit rerun only:",
+      "   `agent-ops review --criteria --task <id> --rerun --yes`.",
+      "   Start task creation/criteria review through the trusted outer host when",
+      "   the host sandbox blocks reviewer auth/network, using the same outer-host",
+      "   invocation described below for review. Never bypass a native denial.",
+      "   This advisory never replaces verify, final two-round review or finish.",
+      "",
       "For every change:",
       "",
       "1. Audit the change's surfaces first (EVIDENCE-SURFACE-001): dependents,",

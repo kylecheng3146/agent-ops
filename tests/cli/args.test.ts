@@ -708,3 +708,12 @@ test("parses --from and --target-branch for worktree add only", () => {
     );
   }
 });
+
+test("criteria advisory is an explicit single-task mode separate from formal review", () => {
+  const args = parseArgs(["review", "--criteria", "--task", "task-one", "--yes", "--rerun"]);
+  assert.equal(args.criteriaReview, true); assert.equal(args.rerun, true);
+  assert.equal(parseArgs(["review", "--task", "task-one", "--yes"]).criteriaReview, undefined);
+  for (const argv of [["task", "status", "--criteria"], ["review", "--criteria", "--task", "task-one"],
+    ["review", "--criteria", "--task", "task-one", "--yes", "--tree"], ["review", "--criteria", "--task", "task-one", "--yes", "--base", "HEAD"],
+    ["review", "show", "--criteria", "--task", "task-one"]]) assert.throws(() => parseArgs(argv));
+});

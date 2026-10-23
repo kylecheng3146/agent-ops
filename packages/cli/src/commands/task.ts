@@ -1,3 +1,4 @@
+import {renderCriteriaReview, type CriteriaReviewView} from "../../../../runtime/src/review/criteria.js";
 import { lstat, readFile } from "node:fs/promises";
 import { taskContractHash } from "../../../../runtime/src/task/contract.js";
 import type {
@@ -26,6 +27,8 @@ export interface TaskCommandOptions {
   readonly args: ParsedArgs;
   readonly service: TaskService;
   readonly sessionId?: string;
+  readonly onTaskCreated?: (record: StoredTaskRecord, root?: string) => Promise<CriteriaReviewView>;
+  readonly criteriaStatus?: (record: StoredTaskRecord) => Promise<CriteriaReviewView | null>;
   readonly policyConfigHash?: string;
   /**
    * Worktree auto mode from the main checkout: the session's worktree,
@@ -49,7 +52,15 @@ export interface TaskCommandData {
   readonly records?: readonly StoredTaskRecord[];
   /** Escape Loop link state, labels, facts and blame hints of a declared escape-of origin. */
   readonly escape?: unknown;
+  readonly criteriaReview?: CriteriaReviewView;
   readonly text: string;
+}
+
+async function withCriteriaStatus(envelope: CliEnvelope<TaskCommandData | null>, options: TaskCommandOptions): Promise<CliEnvelope<TaskCommandData | null>> {
+  const item = envelope.data?.record;
+  const advice = item === undefined ? null : await options.criteriaStatus?.(item).catch(() => null);
+  return advice == null || envelope.data === null ? envelope : {...envelope, data: {...envelope.data, criteriaReview: advice,
+    text: envelope.data.text + "\n\n" + renderCriteriaReview(advice)}};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -237,7 +248,8 @@ export async function runTaskCommand(
         requireSurface: true
       });
       const escape = origin === undefined ? undefined : await (worktree?.service ?? options.service).declareEscape(record.task.id);
-      const created = await withEscape(taskEnvelope(
+      const initialAdvice = await options.onTaskCreated?.(record, worktree?.path);
+      let created = await withEscape(taskEnvelope(
         action,
         "TASK_CREATED",
         sessionId === undefined
@@ -247,6 +259,8 @@ export async function runTaskCommand(
             : `Created subtask ${record.task.id}; the session stays on the top of its task tree.`,
         record
       ), escape, worktree?.service ?? options.service);
+      if (initialAdvice !== undefined && created.data !== null) created = {...created, data: {...created.data, criteriaReview: initialAdvice,
+        text: created.data.text + "\n\n" + renderCriteriaReview(initialAdvice)}};
       if (worktree === undefined || created.data === null) return created;
       return {
         ...created,
@@ -277,8 +291,8 @@ export async function runTaskCommand(
         ...(origin === undefined ? {} : {origin}),
         reason: options.args.reason!, ...(options.args.baseline === undefined ? {} : {baseline: options.args.baseline})
       });
-      return await withEscape(taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain a fresh review, and new verification if the criteria or configuration changed.", record),
-        origin === undefined ? undefined : await options.service.declareEscape(record.task.id), options.service);
+      return await withCriteriaStatus(await withEscape(taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain a fresh review, and new verification if the criteria or configuration changed.", record),
+        origin === undefined ? undefined : await options.service.declareEscape(record.task.id), options.service), options);
     }
     if (action === "replan") {
       const payload = await jsonFile(options.args.planFile!);
@@ -287,7 +301,12 @@ export async function runTaskCommand(
         expectedTreeContractHash: options.args.expectedTreeContract!, reason: options.args.reason!,
         tasks: payload as Parameters<TaskService["replan"]>[1]["tasks"]
       });
-      return okEnvelope("TASK_REPLANNED", {action, message: "Task tree split atomically; reverify and review.", records, text: renderTaskList(records)});
+      const advice = [];
+      for (const record of records) {
+        const result = await options.onTaskCreated?.(record);
+        if (result !== undefined) advice.push(renderCriteriaReview(result));
+      }
+      return okEnvelope("TASK_REPLANNED", {action, message: "Task tree split atomically; reverify and review.", records, text: [renderTaskList(records), ...advice].join("\n\n")});
     }
     if (action === "pin-finding") {
       const criterion = parseCriterion(JSON.stringify(await jsonFile(options.args.criterionFiles![0]!)));
@@ -323,9 +342,9 @@ export async function runTaskCommand(
       const reviewOnly = coverage.rows.filter(row => row.mode === "review-only").length;
       const legacy = coverage.rows.filter(row => row.mode === "legacy").length;
       const envelope = taskEnvelope(action, "TASK_STATUS", `Read task ${record.task.id}.`, record);
-      return {...envelope, data: {...envelope.data!, coverage, treeContractHash: await options.service.treeContract(record.task.id),
+      return await withCriteriaStatus({...envelope, data: {...envelope.data!, coverage, treeContractHash: await options.service.treeContract(record.task.id),
         text: envelope.data!.text + "\nAcceptance: " + proven + "/" + mechanical + " mechanical proven; " + reviewOnly + " review-only; " + legacy + " legacy; originally mechanical " + coverage.originalMechanical +
-          "; reviewed " + coverage.reviewed + "; undischarged " + coverage.rows.filter(row => row.status !== "proven" && !coverage.reviewed).length}};
+          "; reviewed " + coverage.reviewed + "; undischarged " + coverage.rows.filter(row => row.status !== "proven" && !coverage.reviewed).length}}, options);
     }
     if (action === "attach") {
       if (sessionId === undefined) {

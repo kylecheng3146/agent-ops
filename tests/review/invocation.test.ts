@@ -197,3 +197,15 @@ test("claude takes its log file as a debug file, codex takes none", () => {
   assert.ok(!codex.includes("--debug-file"));
   assert.ok(!codex.includes("--log-file"));
 });
+
+test("criteria can supply a strict separate schema without mutating it or the final-review default", () => {
+  const schema = {$schema: "https://json-schema.org/draft/2020-12/schema", type: "object", properties: {summary: {type: "string", pattern: "^ok$"}}};
+  for (const target of ["agy", "claude"] as const) {
+    const invocation = buildTargetInvocation({target, prompt: PROMPT, responseSchema: schema})!;
+    const passed = JSON.parse(invocation.args[invocation.args.indexOf("--json-schema") + 1]!);
+    assert.deepEqual(passed, {type: "object", properties: {summary: {type: "string"}}});
+    assert.ok(schema.$schema); assert.equal(schema.properties.summary.pattern, "^ok$");
+    const normal = buildTargetInvocation({target, prompt: PROMPT})!;
+    assert.match(normal.args[normal.args.indexOf("--json-schema") + 1]!, /changedFilesInspected/);
+  }
+});
