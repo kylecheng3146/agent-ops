@@ -1,0 +1,12 @@
+worktree: session-01a16664 (agent-ops/session-01a16664)
+session: 01a16664-ee6b-79c2-acbb-5034a5a52bfb
+agent-ops task task-6c58094f-ebc5-43bb-8f64-9153b6ed6005: Pre-implementation criteria advisory review
+intent: Implement the agreed bounded criteria-only single-review advisory using existing isolated invocation and process ownership, private snapshot reports and safe logs, all production task creation hooks, no new dependency/config trust/state machine or final proof gate. Five observable criteria are validated with node-test. Final design at /private/tmp/agent-ops-criteria-review-spec-2026-10-23.md and agy consensus at /private/tmp/agent-ops-criteria-review-final-sketch.md.
+criteria:
+- creation-paths: Every production task creation path, including DEBUG and native run root/child, awaits one advisory criteria review before implementation, without duplicate automatic attempts or live model calls in uninjected fixtures.
+- scoped-advisory: A single independent reviewer receives only bounded original goal, assigned intent/covers, criteria and surface data in an empty workspace and returns validated structured recommendations; missing goal and not-yet-existing verification materials remain explicitly unassessed.
+- uncapped-cancellable: Criteria review allocates no execution deadline or stall budget, genuine launch/provider/output errors remain advisory, and explicit cancellation stops its process tree and writer startup while preserving the task; other verification and formal review limits remain finite.
+- report-provenance: Private reports and safe local summaries expose recommendations, task snapshot and attempt status; revisions preserve a visibly historical report without automatic rereview, explicit rerun creates a new attempt, and report/log failures never roll back task creation.
+- final-proof-independent: Criteria advisory never produces or satisfies verification, final dual-review or finish attestations, and the existing final proof, policy and trust contracts remain unchanged.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/12de2db716defa1f557e287d87f931a7fb3d365ac3e8b15e9f4da381b036d5e8-25d680484c2ba7f1fedb05f0696444657f43d35b.json
+receipt-sha256: 1800cadec1558ded78601286c81c087e0a6a12466e19e0d4bf6191bf041bd5b7
