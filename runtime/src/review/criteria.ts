@@ -46,6 +46,13 @@ export function validateCriteriaAdvice(value: unknown): value is CriteriaAdvice 
       record(item) && keys(item, ["criterionId", "issue", "recommendation", "reason"]) && Object.values(item).every(validText));
 }
 
+function redactData(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redactData);
+  if (record(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactData(item)]));
+  return value;
+}
+
 export function criteriaSnapshot(task: AgentTask, parent?: AgentTask): Record<string, unknown> {
   return {taskId: task.id, originalGoal: task.goal ?? null, intent: task.intent ?? null,
     criteria: task.criteria, surface: task.surface ?? null,
@@ -60,7 +67,7 @@ export function criteriaReviewPrompt(snapshot: Record<string, unknown>): string 
     "Missing originalGoal is insufficient information; never substitute the title. Child completeness is judged only against its intent and assigned covers, not the whole parent goal.",
     "Verification materials have not been inspected and may not exist yet. Mark product-import/binding validity deferred until implementation; do not claim it proved or failed. Legitimate reasoned review-only criteria are allowed.",
     "Return only JSON matching this schema. criterionId must name a supplied criterion, or task for a scope-wide recommendation. No PASS verdict or completion evidence.",
-    JSON.stringify(CRITERIA_REVIEW_SCHEMA), "BEGIN UNTRUSTED DATA", redactSecrets(canonicalJson(snapshot)), "END UNTRUSTED DATA"].join("\n");
+    JSON.stringify(CRITERIA_REVIEW_SCHEMA), "BEGIN UNTRUSTED DATA", canonicalJson(redactData(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
 export type CriteriaReviewStatus = "RUNNING" | "COMPLETED" | "NOT_RUN" | "CANCELLED";
 export interface CriteriaReviewReport {
@@ -157,7 +164,7 @@ export async function runCriteriaReview(options: CriteriaReviewOptions): Promise
   const path = reportPath(root, task.id), snapshot = criteriaSnapshot(task, options.parent);
   const snapshotHash = sha256(canonicalJson(snapshot)), started = Date.now();
   let report: CriteriaReviewReport = {kind: "criteria-advisory", taskId: task.id, attemptId: randomUUID(), snapshotHash,
-    snapshot: JSON.parse(redactSecrets(canonicalJson(snapshot))) as Record<string, unknown>, status: "RUNNING", code: "CRITERIA_REVIEW_RUNNING",
+    snapshot: redactData(snapshot) as Record<string, unknown>, status: "RUNNING", code: "CRITERIA_REVIEW_RUNNING",
     startedAt: new Date().toISOString(), durationMs: 0, invocations: 0, ownerPid: process.pid, ownerIdentity: await nativeProcessIdentity(process.pid),
     ...(options.target === undefined ? {} : {target: options.target})};
   const newAttempt = report;
@@ -228,7 +235,7 @@ export async function runCriteriaReview(options: CriteriaReviewOptions): Promise
           result.failureClass === "missing-executable" ? "CRITERIA_REVIEW_MISSING_EXECUTABLE" :
           result.failureClass === "spawn-failed" ? "CRITERIA_REVIEW_SPAWN_FAILED" : "CRITERIA_REVIEW_INVALID_RESULT"};
       } else report = {...report, status: "COMPLETED", code: "CRITERIA_REVIEW_COMPLETED",
-        advice: JSON.parse(redactSecrets(JSON.stringify(advice))) as CriteriaAdvice};
+        advice: redactData(advice) as CriteriaAdvice};
     }
   } catch (error) {
     report = {...report, status: signal?.aborted || error instanceof AgentOpsError && error.code === "CRITERIA_REVIEW_CANCELLED" ? "CANCELLED" : "NOT_RUN",

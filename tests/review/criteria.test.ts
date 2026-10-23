@@ -152,3 +152,18 @@ test("an explicit rerun recovers an interrupted claim and each envelope target r
     assert.equal(requests.length, 3);
   } finally {await rm(root, {recursive: true, force: true});}
 });
+
+test("redacting an authorization header preserves JSON structure and following text", async () => {
+  const root = await fixture(), requests: ProcessRequest[] = [];
+  const header = "Authorization: [REDACTED_AUTHORIZATION]\nKeep following text";
+  try {
+    const result = await runCriteriaReview({root, task: {...task, goal: header}, target: "codex", runner: runner(requests, {...advice, summary: header})});
+    assert.equal(result.report.status, "COMPLETED");
+    assert.equal(result.report.advice!.recommendations.length, 1);
+    assert.match(result.report.advice!.summary, /Keep following text/);
+    const payload = requests[0]!.stdin!.split("BEGIN UNTRUSTED DATA\n")[1]!.split("\nEND UNTRUSTED DATA")[0]!;
+    assert.equal(JSON.parse(payload).originalGoal, header);
+    const cached = await readCriteriaReview(root, {...task, goal: header});
+    assert.equal(cached!.report.status, "COMPLETED"); assert.equal(cached!.stale, false);
+  } finally {await rm(root, {recursive: true, force: true});}
+});

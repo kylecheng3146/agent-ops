@@ -38,7 +38,7 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
     const target = role?.targets.find(target => target !== host) ?? role?.targets[0];
     const parent = await parentScope(root, task).catch(() => undefined);
     process.stderr.write(`Criteria advisory for ${task.id}: waiting for one independent reviewer (no time budget; Ctrl-C cancels).\n`);
-    const result = await runCriteriaReview({root, task, parent, target, model: role?.model, effort: role?.effort,
+    let result = await runCriteriaReview({root, task, parent, target, model: role?.model, effort: role?.effort,
       rerun, signal: controller.signal, runner: registeredRunProofRunner(),
       unavailableCode: config === undefined ? "CRITERIA_REVIEW_CONFIG_UNAVAILABLE" : target === undefined && role !== undefined ? "CRITERIA_REVIEW_NO_INDEPENDENT_TARGET" : "CRITERIA_REVIEW_UNCONFIGURED",
       log: async (report, path) => {
@@ -48,6 +48,9 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
           invocations: report.invocations, recommendations: report.advice?.recommendations.length ?? 0,
           report: path, usage: {...report.usage}}, {anchorDirectory: state.anchorDirectory});
       }});
+    const latest = await new TaskService(new FileTaskStore(join(root, ".agent-ops/tasks/state.json"), root)).status({taskId: task.id}).catch(() => undefined);
+    const currentView = latest === undefined ? null : await criteriaReviewStatus(root, latest.task);
+    if (currentView?.report.attemptId === result.report.attemptId) result = {...result, stale: currentView.stale};
     if (controller.signal.aborted) throw new AgentOpsError("CRITERIA_REVIEW_CANCELLED", "Criteria review cancelled; stop before implementation.");
     process.stderr.write(renderCriteriaReview(result) + "\n");
     return result;
