@@ -42,7 +42,9 @@ test("one data-only round, private provenance, safe log, no final evidence and c
     assert.ok(requests[0]!.args.includes("--ignore-rules"));
     assert.ok(!requests[0]!.args.includes(root)); assert.equal(requests[0]!.replaceEnv, true);
     assert.match(requests[0]!.stdin!, /Do not inspect files/);
-    assert.equal((await stat(first.reportPath)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") {
+      assert.equal((await stat(first.reportPath)).mode & 0o777, 0o600);
+    }
     const revised = {...task, criteria: task.criteria.map(c => ({...c, description: c.description + " changed"}))};
     const cached = await runCriteriaReview({root, task: revised, target: "codex", runner: runner(requests)});
     assert.equal(requests.length, 1); assert.equal(cached.stale, true);
