@@ -50,6 +50,7 @@ export interface FollowupAssessment {
   /** Review-only semantic evidence; never executable acceptance or a resolution receipt. */
   readonly proofKind: "review-only";
   readonly review: ReviewRunResult | null;
+  readonly reviewOnlyReason?: string;
 }
 
 export interface FollowupAssessmentReference {
@@ -65,6 +66,7 @@ export interface AssessFollowupOptions {
   readonly gitRunner: GitRunner;
   readonly loadConfig: () => Promise<AgentOpsConfig>;
   readonly review: Omit<ReviewExecutorOptions, "cwd" | "verifySourceFingerprint">;
+  readonly reviewOnlyReason?: string;
 }
 
 function unavailable(code: string): never {
@@ -118,13 +120,15 @@ async function assertOriginal(options: AssessFollowupOptions, item: FollowupItem
     unavailable("FOLLOWUP_ORIGINAL_CHANGED");
 }
 
-function assessmentPacket(item: FollowupItem, binding: FollowupSourceBinding) {
+function assessmentPacket(item: FollowupItem, binding: FollowupSourceBinding, reviewOnlyReason?: string) {
   return buildReviewPacket({
     request: canonicalJson({ itemId: item.id, findingDigest: followupFindingDigest(item), original: item.original,
-      provenance: item.provenance, finding: concreteFinding(item), binding }),
+      provenance: item.provenance, finding: concreteFinding(item), binding,
+      ...(reviewOnlyReason === undefined ? {} : { reviewOnlyReason }) }),
     criteria: [{ id: "followup-assessment", description: "Assess the exact original finding against this current source, explaining specific semantic evidence or uncertainty." }],
     artifactRefs: [], evidenceRequirements: [{ criterionId: "followup-assessment",
-      requirement: "Explain the original claim using literal current-source path:line: excerpt evidence. UNKNOWN on insufficient proof; no executable acceptance is claimed." }]
+      requirement: "Explain the original claim using literal current-source path:line: excerpt evidence. UNKNOWN on insufficient proof; no executable acceptance is claimed." +
+        (reviewOnlyReason === undefined ? "" : " Explicit review-only closure contract: assess whether the supplied reason establishes why executable checks are unavailable. Reject the fallback as UNKNOWN for a reproducible bug or an unjustified reason; behavioral red-to-green is required for reproducible bugs.") }]
   });
 }
 
@@ -187,7 +191,9 @@ export async function assessFollowup(options: AssessFollowupOptions): Promise<{
       }
       catch { return false; }
     };
-    const packet = assessmentPacket(item, binding);
+    if (options.reviewOnlyReason !== undefined && (options.reviewOnlyReason.trim() === "" || options.reviewOnlyReason.length > 4096 || options.reviewOnlyReason.includes("\0")))
+      unavailable("FOLLOWUP_REVIEW_REASON_INVALID");
+    const packet = assessmentPacket(item, binding, options.reviewOnlyReason);
     const execute = createReviewExecutor({ ...options.review, cwd: binding.root, verifySourceFingerprint: unchanged });
     const host = detectHostTarget(options.review.env ?? process.env);
     const planned = planReviewTargets(options.review.targets, host);
@@ -209,7 +215,8 @@ export async function assessFollowup(options: AssessFollowupOptions): Promise<{
   }
   const assessment: FollowupAssessment = { schemaVersion: 1, assessmentId: randomUUID(), createdAt: new Date().toISOString(),
     itemId: item.id, findingDigest, original: item.original, provenance: item.provenance, finding,
-    binding, conclusion, reason, proofKind: "review-only", review };
+    binding, conclusion, reason, proofKind: "review-only", review,
+    ...(options.reviewOnlyReason === undefined ? {} : { reviewOnlyReason: options.reviewOnlyReason }) };
   const content = `${JSON.stringify(assessment, null, 2)}\n`, digest = sha256(content);
   if (Buffer.byteLength(content) > 4 * 1024 * 1024) unavailable("FOLLOWUP_ASSESSMENT_TOO_LARGE");
   const path = evidencePath(options.commonDir, digest);
@@ -230,7 +237,9 @@ export async function readFollowupAssessment(commonDir: string, reference: Follo
   let proof: FollowupAssessment;
   try { proof = JSON.parse(content) as FollowupAssessment; } catch { return unavailable("FOLLOWUP_ASSESSMENT_INVALID"); }
   if (proof?.schemaVersion !== 1 || proof.proofKind !== "review-only" || !["PRESENT", "ABSENT", "UNKNOWN"].includes(proof.conclusion) ||
-      !validateFollowupFinding(proof.finding) || typeof proof.findingDigest !== "string" || !/^[a-f0-9]{64}$/u.test(proof.findingDigest))
+      !validateFollowupFinding(proof.finding) || typeof proof.findingDigest !== "string" || !/^[a-f0-9]{64}$/u.test(proof.findingDigest) ||
+      (proof.reviewOnlyReason !== undefined && (typeof proof.reviewOnlyReason !== "string" || proof.reviewOnlyReason.trim() === "" ||
+        proof.reviewOnlyReason.length > 4096 || proof.reviewOnlyReason.includes("\0"))))
     unavailable("FOLLOWUP_ASSESSMENT_INVALID");
   return proof;
 }
@@ -244,7 +253,8 @@ export async function isFollowupAssessmentCurrent(options: AssessFollowupOptions
         !same(proof.original, item.original) || !same(proof.provenance, item.provenance) ||
         !same(proof.finding, concreteFinding(item)) || proof.binding === null || !same(proof.binding, await sourceBinding(options)) ||
         proof.review === null || proof.review.sourceFingerprint !== proof.binding.sourceFingerprint || proof.conclusion === "UNKNOWN") return false;
-    const prompt = buildReviewPrompt({ followupAssessment: true, packet: assessmentPacket(item, proof.binding),
+    if (proof.reviewOnlyReason !== options.reviewOnlyReason) return false;
+    const prompt = buildReviewPrompt({ followupAssessment: true, packet: assessmentPacket(item, proof.binding, proof.reviewOnlyReason),
       harness: proof.review.harness, model: proof.review.model, effort: proof.review.effort });
     if (proof.review.prompt !== prompt) return false;
     if (await assessedConclusion(options.root, options.gitRunner, proof.review) !== proof.conclusion) return false;

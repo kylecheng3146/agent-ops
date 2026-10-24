@@ -150,8 +150,9 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
         `${noteText(record, taskTree(receipt.tasks ?? []))}\nreceipt: ${integration.receiptPath}\nreceipt-sha256: ${integration.receiptDigest}`,
         proof.head], "WORKTREE_NOTE_FAILED", "Cannot bind the sealed receipt to its candidate.");
     });
-    followup = await collectFollowupReceipt({git: deps.git, mainRoot: record.mainRoot, commonDir, path: integration.receiptPath!});
     const config = await deps.loadConfig(record.mainRoot);
+    followup = await collectFollowupReceipt({git: deps.git, mainRoot: record.mainRoot, commonDir, config,
+      loadConfig: async () => await deps.loadConfig(record.mainRoot), path: integration.receiptPath!});
     await step("gate", async () => {
       if (!config.features.completionGate.enabled) return;
       const gate = await deps.gate(record.mainRoot, config);
@@ -644,7 +645,8 @@ export async function finishWorktree(
       ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", finishNote, mergedHead],
       "WORKTREE_NOTE_FAILED", "Git could not write the agent-ops note."));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "note");
-    const followup = receipt === undefined ? undefined : await collectFollowupReceipt({git: deps.git, mainRoot, commonDir, path: receipt.path});
+    const followup = receipt === undefined ? undefined : await collectFollowupReceipt({git: deps.git, mainRoot, commonDir, config: mainConfig,
+      loadConfig: async () => await deps.loadConfig(mainRoot), path: receipt.path});
     if (followup !== undefined) warnings.push(...followup.warnings);
     if (gateEnabled) {
       await attempt("gate", async () => {

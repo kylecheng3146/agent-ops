@@ -18,7 +18,8 @@ export interface CriterionCoverage {
 /** Only current, paired check evidence discharges a mechanical contract. */
 export async function acceptanceCoverage(
   record: StoredTaskRecord, config: AgentOpsConfig, sourceFingerprint: string,
-  store: FileEvidenceStore
+  store: Pick<FileEvidenceStore, "root" | "load">,
+  readExecution: (path: string) => Promise<string | null> = path => readPrivateFile(join(store.root, ...path.split("/")), store.root)
 ): Promise<CriterionCoverage[]> {
   const configHash = calculateConfigHash(config);
   const rows: CriterionCoverage[] = [];
@@ -40,7 +41,7 @@ export async function acceptanceCoverage(
     for (const item of matching) {
       const proof = item.evidence.acceptance!;
       try {
-        const source = await readPrivateFile(join(store.root, ...proof.executionArtifact.split("/")), store.root);
+        const source = await readExecution(proof.executionArtifact);
         if (source === null || proof.executionArtifact !== ".agent-ops/tasks/acceptance/" + sha256(source) + ".json") continue;
         const artifact = JSON.parse(source);
         if (artifact.commit !== proof.commit || artifact.phase !== proof.phase || artifact.pairedCommit !== proof.pairedCommit ||

@@ -65,7 +65,7 @@ export async function withRepository(check) {
 }
 
 /** A real clean worktree, task proof and two fresh sealed review sessions. */
-export async function reviewedCandidate(fixture, {name = 'candidate', modern = false, tree = false} = {}) {
+export async function reviewedCandidate(fixture, {name = 'candidate', modern = false, tree = false, goal, criteria, sessionId, extraFiles = {}} = {}) {
   const {root, commonDir, deps} = fixture;
   const {addWorktree} = await load('runtime/src/parallel/service.js');
   const {calculateSourceFingerprint} = await load('runtime/src/verify/source-fingerprint.js');
@@ -76,14 +76,16 @@ export async function reviewedCandidate(fixture, {name = 'candidate', modern = f
   const {taskContractHash, goalHash, treeContractHash} = await load('runtime/src/task/contract.js');
   const {sha256} = await load('runtime/src/fs/hash.js');
   const {prepareFinishReceipt} = await load('runtime/src/parallel/receipt.js');
-  const {record} = await addWorktree(deps, {cwd: root, name, sessionId: `session-${name}`});
+  const {record} = await addWorktree(deps, {cwd: root, name, sessionId: sessionId ?? `session-${name}`});
   await writeFile(join(record.path, 'source.txt'), `${name} candidate\n`);
-  await checkedGit(record.path, ['add', 'source.txt']); await checkedGit(record.path, ['commit', '-qm', name]);
+  for (const [path, content] of Object.entries(extraFiles)) await writeFile(join(record.path, path), content);
+  await checkedGit(record.path, ['add', 'source.txt', ...Object.keys(extraFiles)]); await checkedGit(record.path, ['commit', '-qm', name]);
   const head = await checkedGit(record.path, ['rev-parse', 'HEAD']);
   const fingerprint = await calculateSourceFingerprint(record.path, await resolveReviewScope({root: record.path, runner: runner(record.path), base: record.base}), runner(record.path));
-  const tasks = deps.tasks(record.path);
+  const tasks = deps.tasks(record.path, criteria?.some(c => c.acceptance !== undefined) ? record.base : undefined);
   const first = await tasks.create({title: 'Review source risk', policyConfigHash: calculateConfigHash(config), sessionId: record.sessionId,
-    criteria: [{id: 'behavior', description: 'The requested behavior holds.', verifierIds: ['node-test']}, {id: 'regression', description: 'Existing behavior holds.', verifierIds: ['node-test']}]});
+    ...(goal === undefined ? {} : {goal}),
+    criteria: criteria ?? [{id: 'behavior', description: 'The requested behavior holds.', verifierIds: ['node-test']}, {id: 'regression', description: 'Existing behavior holds.', verifierIds: ['node-test']}]});
   const records = [first];
   if (tree) records.push(await tasks.create({title: 'Child source risk', parentTaskId: first.task.id, policyConfigHash: calculateConfigHash(config),
     criteria: first.task.criteria}));
@@ -102,6 +104,7 @@ export async function reviewedCandidate(fixture, {name = 'candidate', modern = f
     const evidence = new FileEvidenceStore(record.path, record.path);
     for (const c of r.task.criteria) {
       const base = {taskId: r.task.id, criterionId: c.id, command: config.verification.commands[0], scope: 'project',
+        ...(goal === undefined ? {} : {taskContractHash: taskContractHash(r.task)}),
         startedAt: '2026-10-23T00:00:00Z', finishedAt: '2026-10-23T00:00:01Z', testCount: null, toolVersions: {}, config};
       references[c.id] = [
         await evidence.save(buildVerificationEvidence({...base, exitCode: 1, status: 'FAIL', failureClass: 'nonzero-exit', sourceFingerprint: '0'.repeat(64)})),
@@ -134,19 +137,20 @@ export async function rewriteReceipt(path, fixture, change, {rebind = true} = {}
   return receipt;
 }
 
-export async function sealNativeCandidate(fixture, candidate) {
+export async function sealNativeCandidate(fixture, candidate, existingState) {
   const {createRunState, FileRunRepository} = await load('runtime/src/run/service.js');
   const {writeWorktreeRecord} = await load('runtime/src/parallel/service.js');
   const {prepareRunIntegration} = await load('runtime/src/run/integration.js');
   const {root, commonDir} = fixture;
   const session = candidate.record.sessionId;
-  const state = createRunState({root, commonDir, targetBranch: 'main', goal: 'Deliver the reviewed candidate', host: 'codex', ownerSessionId: session});
+  const state = existingState ?? createRunState({root, commonDir, targetBranch: 'main', goal: 'Deliver the reviewed candidate', host: 'codex', ownerSessionId: session});
   const repository = new FileRunRepository(join(commonDir, 'agent-ops/runs'), commonDir);
-  await repository.create(state);
+  if (existingState === undefined) await repository.create(state);
   const record = {...candidate.record, runId: state.runId, coordinatorId: state.coordinatorId, workerId: state.coordinatorId,
     ownerSessionId: session, workerGeneration: 1};
   await writeWorktreeRecord(record);
-  await repository.mutate(state.runId, s => ({...s, workers: [{workerId: state.coordinatorId, taskId: candidate.records[0].task.id,
+  await repository.mutate(state.runId, s => ({...s, rootTaskId: candidate.records[0].task.id,
+    workers: [{workerId: state.coordinatorId, taskId: candidate.records[0].task.id,
     host: 'codex', ownerSessionId: session, nativeSessionId: null, nativeJobId: null, worktree: record.path,
     processId: null, processIdentity: null, generation: 1, status: 'stopped', leaseExpiresAt: null, heartbeatAt: null,
     stopIntent: null, nativeGoalState: 'inactive', lastFailure: null}]}));

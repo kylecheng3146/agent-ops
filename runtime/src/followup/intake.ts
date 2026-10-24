@@ -1,10 +1,12 @@
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { AgentOpsConfig } from "../contracts.js";
 
 import { AgentOpsError } from "../fs/paths.js";
 import type { WorktreeDependencies } from "../parallel/service.js";
 import { readDeliveredReceipt } from "./receipt.js";
 import { FileFollowupStore, followupIdentity, type FollowupItem, type FollowupProvenance } from "./store.js";
+import { reconcileFollowupRepairs } from "./process.js";
 
 export interface FollowupCollection {
   readonly added: number;
@@ -17,6 +19,8 @@ export interface FollowupSource {
   readonly git: WorktreeDependencies["git"];
   readonly mainRoot: string;
   readonly commonDir: string;
+  readonly config?: AgentOpsConfig;
+  readonly loadConfig?: () => Promise<AgentOpsConfig>;
 }
 
 function warning(error: unknown): string {
@@ -42,14 +46,15 @@ export async function collectFollowupReceipt(options: FollowupSource & { readonl
       report.findings.forEach((finding, index) => { if (!finding.blocking) add("finding", finding, index); });
       report.residualRisks.forEach((risk, index) => add("residual-risk", risk, index));
     }
-    if (pending.length === 0) return { added: 0, candidates: 0, observations: 0, warnings: [] };
-    return await new FileFollowupStore(options.commonDir).mutate(items => {
+    const collected = await new FileFollowupStore(options.commonDir).mutate(items => {
       const known = new Set(items.map(item => item.id));
       const added = pending.filter(item => !known.has(item.id));
       items.push(...added);
       return { added: added.length, candidates: added.filter(item => item.kind === "candidate").length,
         observations: added.filter(item => item.kind === "observation").length, warnings: [] };
     });
+    const warnings = options.config === undefined ? [] : await reconcileFollowupRepairs({ ...options, config: options.config });
+    return { ...collected, warnings };
   } catch (error) { return { added: 0, candidates: 0, observations: 0, warnings: [warning(error)] }; }
 }
 
@@ -64,14 +69,16 @@ export async function reconcileFollowups(options: FollowupSource): Promise<Follo
     if (!status.isDirectory() || status.isSymbolicLink())
       throw new AgentOpsError("PRIVATE_STATE_PATH_INVALID", "Receipt directory is unsafe.");
     const names = (await readdir(directory)).filter(name => /^[a-f0-9]{64}-[a-f0-9]{40,64}\.json$/u.test(name)).sort();
+    const { config: _config, loadConfig: _loadConfig, ...source } = options;
     for (const name of names) {
-      const collected = await collectFollowupReceipt({ ...options, path: join(directory, name) });
+      const collected = await collectFollowupReceipt({ ...source, path: join(directory, name) });
       result.added += collected.added;
       result.candidates += collected.candidates;
       result.observations += collected.observations;
       // Repeated malformed sources cannot flood normal CLI diagnostics.
       for (const item of collected.warnings) if (!result.warnings.includes(item) && result.warnings.length < 8) result.warnings.push(item);
     }
+    if (options.config !== undefined) result.warnings.push(...await reconcileFollowupRepairs({ ...options, config: options.config }));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") result.warnings.push(warning(error));
   }

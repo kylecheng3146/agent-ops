@@ -11,7 +11,7 @@ async function assessmentModule() {
   }
 }
 
-const report = (conclusion = 'PRESENT', overrides = {}) => ({summary: conclusion,
+export const report = (conclusion = 'PRESENT', overrides = {}) => ({summary: conclusion,
   results: [{criterionId: 'followup-assessment', status: 'PASS',
     summary: conclusion === 'ABSENT'
       ? 'The cited replacement statement has no unsafe branch; inspection of its callers confirms the original branch is no longer reachable.'
@@ -22,7 +22,7 @@ const report = (conclusion = 'PRESENT', overrides = {}) => ({summary: conclusion
 function bytes(text) {return {async *[Symbol.asyncIterator]() {if (text) yield Buffer.from(text);}};}
 
 /** Real clone/snapshot execution, scripted model transport at the existing process boundary. */
-async function reviewer(f, scripts = [report(), report()], extra = {}) {
+export async function reviewer(f, scripts = [report(), report()], extra = {}) {
   const {NodeVerificationProcessRunner} = await load('runtime/src/verify/spawn.js');
   const native = new NodeVerificationProcessRunner();
   const calls = [], helps = [];
@@ -54,7 +54,7 @@ async function reviewer(f, scripts = [report(), report()], extra = {}) {
     probeBind: async () => true, preflightTarget: async () => 'ok', env: {}, timeoutMs: 2000, ...extra}};
 }
 
-async function withAssessment(check) {
+export async function withAssessment(check) {
   const api = await assessmentModule();
   const modules = await followupModules();
   await withRepository(async f => {
