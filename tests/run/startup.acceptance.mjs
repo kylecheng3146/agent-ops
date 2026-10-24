@@ -20,6 +20,7 @@ import {recoveryRepairChecks} from './recovery-repair-checks.mjs';
 import {unlimitedPolicyChecks} from './unlimited-policy-checks.mjs';
 import {serialWorkerChecks} from './serial-workers-checks.mjs';
 import {handoffRecoveryChecks} from './handoff-recovery-checks.mjs';
+import {coordinatorResponseChecks} from './coordinator-response-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -61,6 +62,7 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...coordinatorResponseChecks,
   ...handoffRecoveryChecks,
   ...nativeResumeChecks,
   ...resumeAuthorizationChecks,

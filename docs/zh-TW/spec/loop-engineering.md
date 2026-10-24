@@ -34,6 +34,16 @@ instructions 會列出每個 child 的狀態與交付 commit。`jobs=1` 時，ch
 程序確認死亡後才執行。native 註冊、恢復與啟動 MUST 都限制最多 `jobs` 個 active
 agent；僅扣除 task slot 不足以符合。
 
+明確回答 pending run 問題後，MAY 在 child 全部完成前解除已確認停止的 coordinator
+wait。回答只消耗此 run 當前 generation 的等待，記錄 `RUN_COORDINATOR_RESPONSE_WAKE`，
+本身不啟動程序。正常 resume 仍須核對程序死亡、trust 與 policy，再於 job 限制內
+發出新 generation。一般 resume 或重播舊回答不得解除新的 wait。child 交付、失敗
+歷史與 policy binding 保持原樣；回答本身不授予額外 command capability。
+
+已知限制：內層 verification command 逾時可能終止共用的 proof 程序群組，使 evidence
+CLI 來不及輸出 JSON。本次 response 恢復沒有修復此程序隔離缺陷；可由既有
+coordinator policy 流程評估有界、僅限該 run 的 command timeout，並保留失敗紀錄。
+
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 
 ## LOOP-START-001

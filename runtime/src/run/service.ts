@@ -767,9 +767,25 @@ export class RunService {
       if (question === undefined) throw new AgentOpsError("RUN_QUESTION_NOT_FOUND", `Question not found: ${cleanQuestion}`);
       if (question.answeredAt !== null) throw new AgentOpsError("RUN_QUESTION_ANSWERED", `Question already answered: ${cleanQuestion}`);
       const answeredAt = this.#now();
+      const coordinator = current.workers.find(worker => worker.workerId === current.coordinatorId);
+      const intent = coordinator?.stopIntent;
+      const wake = coordinator?.status === "stopped" && coordinator.taskId === current.rootTaskId &&
+        coordinator.nativeSessionId === null && coordinator.nativeJobId === null && coordinator.nativeGoalState === "inactive" &&
+        coordinator.proofProcess == null && intent?.reason === "handoff" && intent.runId === runId &&
+        intent.workerId === coordinator.workerId && intent.generation === coordinator.generation &&
+        intent.confirmedDeadAt !== null && Number.isFinite(Date.parse(intent.confirmedDeadAt)) &&
+        Date.parse(intent.confirmedDeadAt) <= Date.parse(answeredAt);
       return {
         ...current,
         status: "active",
+        // Consume this wait once; ordinary resume still requires death reconciliation and a fresh lease.
+        ...(wake ? {
+          workers: current.workers.map(worker => worker.workerId === current.coordinatorId
+            ? {...worker, stopIntent: {...intent!, reason: "stop" as const}} : worker),
+          events: [...current.events, event({type: "diagnostic", code: "RUN_COORDINATOR_RESPONSE_WAKE",
+            workerId: coordinator.workerId, taskId: coordinator.taskId,
+            detail: `Answer ${cleanQuestion} released coordinator wait at generation ${coordinator.generation}; normal recovery is required.`}, answeredAt)].slice(-MAX_EVENTS)
+        } : {}),
         questions: current.questions.map((item) => item.questionId === cleanQuestion
           ? { ...item, answeredAt, answerDigest: sha256(cleanAnswer) }
           : item),

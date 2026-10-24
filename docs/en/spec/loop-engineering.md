@@ -94,6 +94,19 @@ status and delivered commit. With `jobs=1`, child execution MUST wait for that
 confirmed death. Native registration, recovery and start MUST enforce at most
 `jobs` active agents; changing task slot accounting alone is insufficient.
 
+An explicit answer to a pending run question MAY release a confirmed stopped
+coordinator wait before all children finish. The response consumes only this
+run's current-generation wait, records `RUN_COORDINATOR_RESPONSE_WAKE`, and starts
+no process. Normal resume still reconciles death, trust and policy, then issues a
+fresh generation within the job limit. Ordinary resume and replayed answers do
+not consume a new wait. Child delivery, failure history and policy bindings remain
+unchanged; an answer itself grants no additional command capability.
+
+Known limitation: an inner verification command timeout can terminate the shared
+proof process group before the evidence CLI emits JSON. Response recovery does
+not fix this process isolation defect; a bounded run-only command timeout may be
+assessed through the existing coordinator policy flow, with the failure retained.
+
 This module defines the bounded loop used to plan, implement, verify, and hand off work.
 
 ## LOOP-START-001
