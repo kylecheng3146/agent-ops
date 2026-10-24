@@ -270,3 +270,51 @@ Before committing, use the default worktree scope for verify, review and complet
 This enforces the toolkit's completion command, not a host's natural-language completion claim. It does not prevent a process with the same filesystem authority from editing task/evidence files directly, and it does not lock Git or external source writers.
 
 Project init/update installs `.agent-ops/.gitignore` for `/tasks/` and `/reviews/` on every harness and profile. An existing user-owned `.agent-ops/.gitignore` blocks init/update with `UNMANAGED_INSTALL_PATH`: first back it up outside that path and move its custom rules to the root `.gitignore` (prefix them with `/.agent-ops/`), then retry. Git collection fails with `CHANGE_SURFACE_TRACKED_RUNTIME` if these directories contain indexed files (even clean tracked files), or staged runtime removals. Move any real source files out of the runtime directories, install ignore rules, then use `git rm -r --cached --ignore-unmatch -- .agent-ops/tasks/ .agent-ops/reviews/` to keep local files while removing them from the index. Commit any staged removals before producing fresh verification/review evidence. The active completion Stop gate also blocks this condition with `COMPLETION_GATE_TRACKED_RUNTIME` and the recovery message. Run verify/review from the Git repository root; nested project roots are not supported by the current path/fingerprint collector. Uninstall removes the managed ignore file but preserves runtime output.
+
+## EVIDENCE-FOLLOWUP-001
+
+Retained nonblocking findings and free-text residual risks MUST keep their original
+provenance and MUST NOT be treated as resolved by generic passing checks.
+
+- Successful ordinary finish, native final delivery and recovery collect from
+  authenticated local receipts, Git-note digests and full sealed reports. Ordinary
+  repository CLI use retries collection and linked-result reconciliation. Historical
+  `agent-ops followup import` (alias `sync`) is metadata-only: no model calls,
+  assessment, repair or provider quota. Invalid sources warn conservatively;
+  collection is advisory and fail-open after valid completion.
+- Versioned private state lives under the repository Git common directory at
+  `agent-ops/followup/`, shared by linked worktrees, never committed. Exact
+  provenance identities make repeated import idempotent; dispositions, assessment
+  links, repair runs and proof history survive retries. Schema 1 readable receipts
+  retain an explicit legacy contract provenance limit. Source tasks, runs and
+  receipts remain immutable.
+- `followup list` and `show <followup-id>` expose text or `--json` state. Concrete
+  findings are candidates; text risks are observations. `clarify <followup-id>
+  --finding-file <json> --reason <text>` retains the original observation and
+  supplies a concrete nonblocking ReviewFinding with locations and evidence.
+  `accept` and `defer` require nonempty reasons, retain history and are distinct
+  from resolution. `reopen` retains proof history; `process` may be selected again.
+- `followup process <followup-id> --host <claude|codex>` explicitly authorizes
+  current-source revalidation and, only on conclusive PRESENT, a fresh bounded
+  production native repair run without another confirmation. Two independent
+  read-only sessions inspect isolated current source and the immutable finding.
+  UNKNOWN (including reviewer failure, invalid output, timeout, source/config
+  drift or insufficient evidence) cannot launch repair or resolve. Fingerprints,
+  changed paths and path existence alone prove no semantic conclusion.
+- Native repair preserves macOS support, clean main checkout, checked-out target,
+  current trust, run policy, native controls and worktree ownership. Refusals
+  retain the item and exact code; there is no nested-run workaround or restart
+  of the completed source run. An exclusive private claim and reserved run
+  identity prevent duplicate starts; ambiguous interrupted startup stays pending.
+- ABSENT can resolve only under `--review-only-reason <text>` with a specific
+  justified contract and two fresh reviews. Reproducible bugs need corresponding
+  behavioral red-to-green acceptance. Completed repair closure validates the
+  exact original finding's `followup-resolution` criterion, baseline, target,
+  source/config, paired checks or reasoned review-only contract, two fresh sealed
+  reviews, delivered receipt and exact commit/evidence digests. Generic test PASS,
+  run status, acceptance or deferral cannot close it; stale/unlinked proof stays
+  unresolved. Cleanup recovery must retain links.
+- CLI permissions for `followup process` follow the opt-in run profile and appear
+  in normal init/update plans. They grant no trust/policy changes. No Office
+  write UI, SessionStart summary, cloud service or additional mandatory gate is
+  introduced.

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import { finishWorktree, type FinishDependencies } from "../../../../runtime/src/parallel/finish.js";
+import { followupFinishText } from "./parallel.js";
 import { integrateSessionChildren } from "../../../../runtime/src/parallel/integrate.js";
 import { readWorktreeRecord, resolveCheckouts, sessionWorktreeName, worktreePath } from "../../../../runtime/src/parallel/service.js";
 import { resolveReviewScope } from "../../../../runtime/src/review/scope.js";
@@ -120,7 +121,7 @@ export async function runAdvanceCommand(options: {
   if (savedProof !== null && (await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]) === savedProof.head ||
       (await deps.git(mainRoot, ["merge-base", "--is-ancestor", savedProof.head, record.targetBranch])).exitCode === 0)) {
     const finished = await finishWorktree(deps, {cwd: mainRoot, name, finalProof: {...savedProof, recovery: true}});
-    return okEnvelope("TASK_ADVANCED", { ...finished, text: "Recovered the sealed integration without moving the target again." });
+    return okEnvelope("TASK_ADVANCED", { ...finished, text: `Recovered the sealed integration without moving the target again.\n${followupFinishText(finished)}${finished.warnings.join("\n")}` });
   }
   if (savedProof !== null && await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]) !== savedProof.target)
     await abandonPreparedRunIntegration(commonDir, record, deps.git);
@@ -199,7 +200,7 @@ export async function runAdvanceCommand(options: {
         reviewMode,
         sourceFingerprint,
         ...finished,
-        text: `Final candidate ${head} passed all task verifiers and ${reviewMode} review, then finished into ${record.targetBranch}. Receipt: ${finished.receipt}.\n${highlights}Full reports: agent-ops review show --task ${parent.task.id}`
+        text: `Final candidate ${head} passed all task verifiers and ${reviewMode} review, then finished into ${record.targetBranch}. Receipt: ${finished.receipt}.\n${followupFinishText(finished)}${finished.warnings.map(w => `Warning: ${w}\n`).join("")}${highlights}Full reports: agent-ops review show --task ${parent.task.id}`
       });
     } catch (failure) {
       if (failure instanceof AgentOpsError && failure.code === "WORKTREE_TARGET_MOVED" && attempt === 0) {

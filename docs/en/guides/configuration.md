@@ -263,6 +263,11 @@ evidence. Give each editing conversation its own worktree instead:
   are never pre-authorized. Turning auto mode off, or `uninstall`, takes
   exactly those entries back out; a rules file of that name agent-ops did not
   write is left alone.
+- The opt-in `run` profile additionally authorizes `agent-ops run` and the
+  selected `agent-ops followup process` action on Claude and Codex. Normal
+  init/update plans disclose the exact entries; dropping the profile removes
+  them. Followup metadata actions grant no native execution authority. Processing
+  still enforces current repository trust and all ordinary native start controls.
 - `review` and `doctor` take `--output <file>`: the JSON envelope is written
   there (mode 0600) and one summary line is printed. Use it instead of a shell
   redirect, which Codex wraps in `zsh -lc` and can only allow by matching the

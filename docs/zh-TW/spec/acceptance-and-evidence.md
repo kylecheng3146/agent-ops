@@ -208,3 +208,36 @@ Commit 前，verify、review、complete 使用預設 worktree scope。Commit 後
 這項機制強制的是 toolkit 的完成命令，無法阻止 host 直接用自然語言宣稱完成，也無法阻止具有相同檔案權限的 process 直接改寫 task／evidence 檔案；它不會鎖住 Git 或其他來源檔案寫入者。
 
 Project init/update 在所有 harness 與 profile 安裝 `.agent-ops/.gitignore`，忽略 `/tasks/` 與 `/reviews/`；若已有使用者自建的 `.agent-ops/.gitignore`，init/update 會回傳 `UNMANAGED_INSTALL_PATH`：先將原檔備份到其他位置，並將自訂規則移到根目錄 `.gitignore`（加上 `/.agent-ops/` 前綴），再重試。這些目錄若包含 index 中的檔案（即使 tracked 且未修改）或 staged 的 runtime 刪除，Git 範圍收集會回傳 `CHANGE_SURFACE_TRACKED_RUNTIME`。請先移出真正的程式來源、安裝 ignore 規則，再執行 `git rm -r --cached --ignore-unmatch -- .agent-ops/tasks/ .agent-ops/reviews/`，保留本機檔案並解除追蹤。若有 staged 刪除，先提交清理 commit，再重新產生 verify/review 證據。啟用的 completion Stop gate 也會以 `COMPLETION_GATE_TRACKED_RUNTIME` 阻擋此狀況並提供修復訊息。請從 Git repository 根目錄執行 verify/review；目前路徑與指紋收集不支援巢狀 project root。Uninstall 會移除 managed ignore 檔，但保留 runtime 輸出。
+
+## EVIDENCE-FOLLOWUP-001
+
+保留的非阻擋 finding 與自由文字剩餘風險必須保留原始來源，不能因一般測試通過而視為已解決。
+
+- 一般 finish、原生執行最終交付與復原，在成功交付後，從驗證過的本機 receipt、Git note
+  摘要及完整封存報告自動收集。一般儲存庫 CLI 使用時會重試收集及修復結果對帳。
+  `agent-ops followup import`（別名 `sync`）回填歷史只處理中繼資料：不呼叫模型、
+  不重驗、不修復、不花 provider 額度。無效來源保守警告；收集為建議性功能，
+  失敗不影響已有效完成的交付（fail-open）。
+- 版本化私有狀態位於 Git common directory 的 `agent-ops/followup/`，所有連結 worktree
+  共用，不提交至 Git。以精確來源識別去重，重複匯入保留處置、重驗、修復連結與證據歷史。
+  舊 schema 1 receipt 保留明確的舊版契約來源限制，不改寫已完成的來源 task、run 或 receipt。
+- `followup list`、`show <followup-id>` 支援文字與 `--json`。具體 finding 是候選項；
+  文字風險是待釐清觀察。`clarify <followup-id> --finding-file <json> --reason <text>`
+  保留原始觀察並提供含位置與證據的非阻擋 ReviewFinding。`accept`、`defer` 必須有非空理由，
+  保留歷史，且不等於解決。`reopen` 保留既有證據；可再次選取 `process` 重新處理。
+- `followup process <followup-id> --host <claude|codex>` 明確授權針對目前原始碼重驗，
+  且只在確定 PRESENT 時啟動全新、有界的正式原生修復 run，不重複要求確認。
+  兩次獨立唯讀審查使用隔離的目前原始碼及不可變原始 finding。UNKNOWN（含 reviewer
+  失敗、無效輸出、逾時、原始碼或設定漂移、證據不足）不能啟動修復或結案。
+  指紋、路徑變動與檔案存在本身不能證明語意結論。
+- 原生啟動保留 macOS、乾淨主 checkout、已 checkout 目標分支、目前信任、run policy、
+  原生控制與 worktree 所有權。拒絕時保留項目與原始錯誤碼；不得繞過 nested-run 限制，
+  不重啟已完成的來源 run。私有互斥宣告與預留 run 身分避免重複啟動；中斷且結果未知時維持待處理。
+- ABSENT 結案需要 `--review-only-reason <text>` 的具體合理契約與兩次新鮮審查。
+  可重現錯誤仍需對應 behavioral 紅轉綠驗收。修復結案需驗證原始 finding 專屬的
+  `followup-resolution` criterion、baseline、目標、原始碼與設定、成對檢查或有理由的
+  review-only 契約、兩次新鮮封存審查、交付 receipt，以及精確 commit 與證據摘要。
+  一般測試 PASS、run 狀態、接受與延後都不能結案；過期或未連結的證據維持未解決。
+  清理與復原不得遺失連結。
+- `followup process` CLI 權限只隨 opt-in run profile 提供，並在一般 init/update 計畫中可見；
+  不授權修改信任或 policy。不新增 Office 寫入 UI、SessionStart 摘要、雲端服務或強制關卡。

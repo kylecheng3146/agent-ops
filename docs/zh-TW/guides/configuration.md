@@ -227,6 +227,9 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   `npx lint-staged` 的 allow 規則，讓 pre-commit hook 能寫入主 `.git`。`trust`、
   `allow-stop`、`init`、`update`、`uninstall` 永遠不會被預先授權。關閉 auto 模式或
   `uninstall` 會精確移除這些項目；同名但不是 agent-ops 寫的規則檔不會被動到。
+- opt-in `run` profile 另外在 Claude 與 Codex 授權 `agent-ops run` 與明確選取的
+  `agent-ops followup process`。一般 init/update 計畫會列出精確項目；移除 profile
+  會移除這些權限。中繼資料操作不授予原生執行權限，process 仍遵守目前儲存庫信任與所有原生啟動限制。
 - `review` 與 `doctor` 支援 `--output <file>`：JSON envelope 寫入該檔（權限 0600），
   並只印出一行摘要。請用它取代 shell 重導向；Codex 會把重導向包成 `zsh -lc`，只能
   以整串指令比對來放行。

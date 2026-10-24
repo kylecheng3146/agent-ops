@@ -58,6 +58,10 @@ function addText(result: WorktreeAddResult): string {
   ].join("\n");
 }
 
+export function followupFinishText(result: FinishResult): string {
+  return result.followup === undefined ? "" : `Followup: collected ${result.followup.candidates} candidate(s), ${result.followup.observations} observation(s). Inspect with agent-ops followup list.\n`;
+}
+
 function finishText(result: FinishResult): string {
   const { record } = result;
   return [
@@ -65,6 +69,7 @@ function finishText(result: FinishResult): string {
     `Completed and recorded in git notes (refs/notes/agent-ops): ${result.taskIds.join(", ")}.`,
     `Removed ${record.path}.`,
     ...(result.receipt === undefined ? [] : [`Receipt: ${result.receipt}`]),
+    ...followupFinishText(result).trimEnd().split("\n").filter(Boolean),
     ...(result.residualRisks === undefined || result.residualRisks.length === 0 ? [] :
       ["Residual risks from review:", ...result.residualRisks.map((risk) => `- ${safeTaskText(redactSecrets(risk))}`)]),
     ...result.warnings.map((warning) => `Warning: ${warning}`)

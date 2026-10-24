@@ -521,6 +521,12 @@ as its first and only invocation, with `--output` instead of a shell redirect.
 
 See [Configuration](docs/en/guides/configuration.md) for the full contract.
 
+Retained nonblocking review findings and residual risks are collected privately
+across linked worktrees. Use `agent-ops followup list` / `show`, metadata-only
+`import`, reasoned `accept` / `defer`, and explicit `process <followup-id> --host
+codex` for current-source revalidation and bounded repair. Observations need
+`clarify`; resolution needs finding-specific proof. See [followup guidance](docs/en/guides/task-debug.md#retained-review-followups).
+
 ## Project principles
 
 - Define verifiable success before making changes.
