@@ -1,0 +1,9 @@
+worktree: session-01a169d6 (agent-ops/session-01a169d6)
+session: 01a169d6-ec63-7ed0-b5c6-75179bfa1e8e
+agent-ops task task-554186fb-2d45-4c24-b770-b3b79e8603fc: Restore coordinator recovery after answered child question
+intent: The original run remains awaiting child question timeout-recovery-f4aafef6-eeeb-47cf-9a8f-b8e81cd3c243. Fix the confirmed control-plane deadlock where respond resumes the run but still skips its yielded coordinator, making coordinator-only scoped policy recovery unreachable. Reuse explicit response, stopped wait intent and normal resume/generation/job guards; no new command, dependency, persistence schema or authority. Keep original run, child source 74c27cd, all frozen baselines and failure history. After finish, let its coordinator assess the exact existing required npm test definition with a bounded run-only 600000ms timeout through normal action=policy. The preexisting shared proof-group timeout termination defect is not resolved by this change and must remain recorded.
+criteria:
+- answered-child-coordinator-recovery: Answering a pending child question makes a confirmed waiting coordinator eligible again before the child finishes; the normal supervisor starts a fresh generation within jobs=1/2, preserving original goals, tasks, source/baseline identities and failure history.
+- coordinator-response-boundaries: Only the current run's confirmed stopped coordinator wait is consumed; live, unconfirmed, stale, foreign, delivered or non-wait identities remain unchanged. Invalid/replayed answers are rejected with existing codes; ordinary waits, policy bindings, failures and child delivery remain authoritative.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/679541f25f521fe2d95395a9879d9f3c934765aa0d98325d3117fda9154ea7ce-96e02a7350e6bc12d7d1b31a54b30143aeaabf74.json
+receipt-sha256: f8063b64c786bab360de639c31b09f44b41f9d8da888e724a4e8e1ce068c9998
