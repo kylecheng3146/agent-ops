@@ -15,6 +15,7 @@ import {beginPolicyTransition, markPolicyTransitionStage, completePolicyTransiti
   type PolicyTransitionJournal} from "../../../runtime/src/run/policy-transition.js";
 import {readReviewReportArtifact, type ReviewReportArtifact} from "../../../runtime/src/review/attestation.js";
 import {execFile, spawn} from "node:child_process";
+import {redactSecrets} from "../../../runtime/src/security/redact.js";
 import {promisify} from "node:util";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -905,7 +906,9 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
         delete env.CODEX_SANDBOX_NETWORK_DISABLED;
         const child = spawn(process.execPath, [fileURLToPath(new URL("./run-step-entry.js", import.meta.url)), cli, ...args, "--json"],
           {cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"]});
-        let output = "";
+        let output = Buffer.alloc(0), diagnostic = Buffer.alloc(0);
+        let outputOverflow = false;
+        let spawnError: Error | undefined;
         let closed = false;
         let escalation: ReturnType<typeof setTimeout> | undefined;
         const terminate = (): void => {
@@ -918,7 +921,7 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
         const timeout = Number.isFinite(remaining) ? setTimeout(terminate, remaining) : undefined;
         const registration = (async () => {
           const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
-          if (identity === null || closed) {terminate(); return;}
+          if (identity === null || closed) {terminate(); throw new Error("Controlled process identity unavailable.");}
           await repository.mutate(runId, current => {
             if (current.status !== "active" || current.disableRestart) {
               terminate(); throw new AgentOpsError("RUN_PROOF_STOPPED", "Stop raced final proof registration.");
@@ -940,20 +943,39 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
             if (current === null || current.disableRestart || current.status !== "active") terminate();
           }).catch(terminate).finally(() => {checking = false;});
         }, 250);
-        child.stdout.on("data", chunk => {output += chunk.toString(); if (Buffer.byteLength(output) > 4 * 1024 * 1024) terminate();});
-        child.stderr.resume();
-        child.once("error", cause => {closed = true; clearTimeout(timeout); clearInterval(control); reject(cause);});
-        child.once("close", async () => {
+        child.stdout.on("data", (chunk: Buffer) => {
+          const room = 4 * 1024 * 1024 - output.length;
+          if (room > 0) output = Buffer.concat([output, chunk.subarray(0, room)]);
+          if (chunk.length > room) {outputOverflow = true; terminate();}
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          const room = 64 * 1024 - diagnostic.length;
+          if (room > 0) diagnostic = Buffer.concat([diagnostic, chunk.subarray(0, room)]);
+        });
+        child.once("error", cause => {spawnError = cause; terminate();});
+        child.once("close", async (exitCode, signal) => {
           closed = true;
           clearTimeout(timeout);
           clearTimeout(escalation);
           clearInterval(control);
+          let stage = "registration";
           try {
-            await registration;
+            // Cleanup ownership even when registration or the subprocess failed.
+            let registrationError: unknown;
+            try {await registration;} catch (cause) {registrationError = cause;}
+            stage = "cleanup";
             await repository.mutate(runId, current => ({...current,
               ...(current.proofProcess?.processId === child.pid ? {proofProcess: null} : {})}));
-            const result = JSON.parse(output) as unknown;
-            if (!plain(result) || !["ok", "error"].includes(String(result.status)) || typeof result.code !== "string") throw new Error();
+            stage = "registration";
+            if (registrationError !== undefined) throw registrationError;
+            stage = "process";
+            if (spawnError !== undefined) throw spawnError;
+            if (signal !== null || outputOverflow) throw new Error(outputOverflow ? "Result exceeded 4 MiB." : "Controlled process was signaled.");
+            stage = "result";
+            const result = JSON.parse(output.toString("utf8")) as unknown;
+            if (!plain(result) || !["ok", "error"].includes(String(result.status)) || typeof result.code !== "string") throw new Error("Invalid result envelope.");
+            if (result.status === "ok" && exitCode !== 0) throw new Error("Successful envelope with unsuccessful process exit.");
+            stage = "usage";
             const coordinatorRoot = saved.workers[0]?.worktree;
             if (!criteria && result.status === "error" && coordinatorRoot != null)
               await recordSavedReviewRunUsage(repository, runId, coordinatorRoot);
@@ -963,7 +985,16 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
               if (artifact !== null) await recordReviewRunUsage(repository, runId, artifact);
             }
             resolve(result as {status: string; code: string; data?: unknown});
-          } catch {reject(new AgentOpsError("RUN_FINAL_PROOF_INTERRUPTED", "Final gate did not return a complete result; inspect target and receipt before retrying."));}
+          } catch (cause) {
+            const excerpt = (value: string): string => redactSecrets(value)
+              .replace(/-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*$/u, "[REDACTED_PRIVATE_KEY]").slice(0, 3500);
+            const detail = JSON.stringify({exitCode, signal, stage, outputOverflow,
+              cause: excerpt(cause instanceof Error ? cause.message : String(cause)),
+              stderr: excerpt(diagnostic.toString("utf8")), stdout: excerpt(output.toString("utf8").slice(0, 4096))}).slice(0, 9500);
+            await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_CONTROLLED_STEP_FAILED",
+              workerId: env.AGENT_OPS_WORKER_ID ?? null, taskId: saved.workers.find(w => w.worktree === cwd)?.taskId ?? null, detail}).catch(() => undefined);
+            reject(new AgentOpsError("RUN_FINAL_PROOF_INTERRUPTED", "Final gate did not return a complete result; inspect target and receipt before retrying. " + detail));
+          }
         });
       });
     }

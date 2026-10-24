@@ -127,6 +127,7 @@ The URL carries an access token; do not share it.
        agent-ops run [start] --goal-file <path> --host <claude|codex>
        agent-ops run <status|logs|resume|stop> <run-id> [--json]
        agent-ops run resume <run-id> [--retry-approval <auth-event-id>]... [--json]
+       agent-ops run resume <run-id> --retry-delivery <task-id> [--json]
        agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
 
 New runs have no total time cap. Manual resume upgrades legacy finite runs and keeps accounting.
@@ -135,6 +136,9 @@ Native goal state is observational. Completion requires current verification,
 two fresh reviews, task completion and a target-bound integration receipt.
 --retry-approval explicitly retries an intact Codex approval-review usage-limit
 failure. Original denials remain recorded; every command needs fresh approval.
+--retry-delivery requeues one stopped child blocked by interrupted handoff proof.
+Inspect and repair the harness cause first. History is retained; fresh native
+generation, verification and delivery are required. It grants no command approval.
 Status includes phase, original cause, recorded sealed proof, cleanup state,
 resumability and remediation. Resume revalidates authority and sealed artifacts;
 receipt-bound recovery executes only missing cleanup steps. Resolve the saved

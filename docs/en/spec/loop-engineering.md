@@ -62,6 +62,17 @@
   Repeat the flag for multiple failures. Successful acknowledgements are audited
   and revalidated on later resumes. This grants no command permission: native
   approval runs again. Existing writer-death, checkout, trust and budget checks apply.
+  `run resume <id> --retry-delivery <task-id>` MAY explicitly requeue one child
+  blocked by `RUN_FINAL_PROOF_INTERRUPTED` after the harness cause is repaired.
+  It MUST require the matching interrupted handoff, confirmed stopped writers
+  and proof, clean owned checkouts and current trust/policy. It MUST preserve
+  run/task/goal/baselines/commits, accounting and failure history, record the
+  acknowledged attempt, and require a fresh native generation and normal proof.
+  It MUST NOT mark delivery, reset another blocker or acknowledge command denial;
+  approval retry is a separate control. Ordinary resume retains no-progress blocks.
+  Interrupted controlled proof MUST record bounded redacted exit/signal, result
+  failure stage and subprocess diagnostics without treating invalid output or a
+  nonzero successful envelope as proof.
   Initial recovery after a current manual resume MAY ignore an owned Codex limit
   snapshot received before activation whose native update second strictly predates
   that resume. Automatic restarts, unknown/equal/future timestamps, clock rollback,

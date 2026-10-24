@@ -7,9 +7,9 @@ import {fileURLToPath} from "node:url";
 import {setTimeout as delay} from "node:timers/promises";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {sha256} from "../../../runtime/src/fs/hash.js";
-import {resolveCheckouts, ensureSessionWorktree, writeWorktreeRecord, sessionWorktreeName} from "../../../runtime/src/parallel/service.js";
+import {resolveCheckouts, ensureSessionWorktree, readWorktreeRecord, writeWorktreeRecord, sessionWorktreeName} from "../../../runtime/src/parallel/service.js";
 import {createLaunchdDescriptor, LaunchdController, readBootIdentity, readGuiLoginIdentity} from "../../../runtime/src/run/macOS.js";
-import {FileRunRepository, RunService, type RunState} from "../../../runtime/src/run/service.js";
+import {FileRunRepository, RunService, validateDeliveryRetry, type RunState} from "../../../runtime/src/run/service.js";
 import {readPrivateFile, writePrivateFile} from "../../../runtime/src/security/permissions.js";
 import {collectChangeSurface} from "../../../runtime/src/verify/change-surface.js";
 import {worktreeDependencies, gitRunner, trustStore} from "./parallel-deps.js";
@@ -197,8 +197,9 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       throw cause;
     }
   };
-  const resume = async (runId: string, retryApprovalIds: readonly string[] = [], upgradeBudget = true) => {
+  const resume: RunCommandService["resume"] = async (runId, retryApprovalIds = [], upgradeBudget = true, retryDeliveryTaskId) => {
     const before = await service.status(runId);
+    const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(before, retryDeliveryTaskId);
     const runtimeHash = await runRuntimeHash();
     const policy = await readRunPolicy(before, before.policyBinding?.runtimeHash ?? runtimeHash, Date.now(), true);
     if (policy !== null && await deps.trust.status(checkouts.mainRoot, policy.baseConfig) !== "TRUSTED")
@@ -220,7 +221,15 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       if (exists === null || (await collectChangeSurface(gitRunner(worker.worktree!))).paths.length > 0)
         throw new AgentOpsError("RUN_RECOVERY_DIRTY", "Commit or preserve every writer checkout before explicit resume.");
     }
-    const result = await service.resume(runId, retryApprovalIds, upgradeBudget);
+    if (retry !== null) {
+      const record = retry.worktree === null ? null : await readWorktreeRecord(retry.worktree);
+      const head = retry.worktree === null ? null : await deps.git(retry.worktree, ["rev-parse", "HEAD"]);
+      if (record === null || record.runId !== runId || record.workerId !== retry.workerId ||
+        record.ownerSessionId !== retry.ownerSessionId || record.workerGeneration !== retry.generation ||
+        head?.exitCode !== 0 || head.stdout.trim() !== retry.stopIntent!.sourceCommit)
+        throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Interrupted checkout ownership or source changed; preserve it and reconcile before retrying.");
+    }
+    const result = await service.resume(runId, retryApprovalIds, upgradeBudget, retryDeliveryTaskId, retry?.lastFailure?.id);
     try {
     if (pending !== null) await renewPendingRunPolicy(repository, runId, pending);
     if (policy !== null && pending === null) await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash, resumeRuntime: true,

@@ -586,11 +586,34 @@ function resumeBlocker(current: RunState, acknowledged: ReadonlySet<string> = ne
   return [...current.events].reverse().find(e => !acknowledged.has(e.id) && (RECOVERABLE.has(e.code) || ["RUN_NO_PROGRESS_REPEAT", "RUN_COMMAND_DENIED"].includes(e.code)));
 }
 
-function cannotResume(current: RunState, acknowledged: ReadonlySet<string> = new Set()): boolean {
+function cannotResume(current: RunState, acknowledged: ReadonlySet<string> = new Set(), retryingDelivery = false): boolean {
   return current.status === "complete" || current.events.some(e => e.code === "RUN_COMMAND_DENIED" && !acknowledged.has(e.id)) ||
     (current.integration?.proofDigest === undefined && (
       current.workers.some(w => w.workerId === current.coordinatorId && w.status === "blocked" && w.lastFailure !== null && w.lastFailure.failureClass !== "native-start") ||
-      (current.status === "blocked" && !RECOVERABLE.has(resumeBlocker(current, acknowledged)?.code ?? ""))));
+      (current.status === "blocked" && !RECOVERABLE.has(resumeBlocker(current, acknowledged)?.code ?? "") &&
+        !(retryingDelivery && resumeBlocker(current, acknowledged) === undefined))));
+}
+
+/** A manual retry grants a fresh attempt, never proof or command authorization. */
+export function validateDeliveryRetry(state: RunState, taskId: string, now = Date.now()): RunWorkerRecord {
+  const task = state.tasks.find(t => t.taskId === taskId);
+  const worker = state.workers.find(w => w.workerId === task?.workerId && w.taskId === taskId);
+  const intent = worker?.stopIntent;
+  const dead = (w: RunWorkerRecord): boolean => !["assigned", "starting", "running", "idle", "handing-off"].includes(w.status) &&
+    (w.nativeSessionId === null && w.processId === null || w.stopIntent?.runId === state.runId &&
+      w.stopIntent.workerId === w.workerId && w.stopIntent.generation === w.generation &&
+      w.stopIntent.nativeSessionId === w.nativeSessionId && w.stopIntent.confirmedDeadAt !== null &&
+      Number.isFinite(Date.parse(w.stopIntent.confirmedDeadAt)) && Date.parse(w.stopIntent.confirmedDeadAt) <= now);
+  if (["complete", "failed", "stopping"].includes(state.status) || state.integration !== null || state.proofProcess != null ||
+    task === undefined || task.taskId === state.rootTaskId || task.status !== "blocked" || task.blockedReason !== "RUN_FINAL_PROOF_INTERRUPTED" ||
+    task.deliveryDigest !== null || task.sourceCommit !== null || worker === undefined || worker.workerId === state.coordinatorId ||
+    worker.status !== "blocked" || worker.lastFailure?.failureClass !== "RUN_FINAL_PROOF_INTERRUPTED" ||
+    worker.lastFailure.checkId !== "RUN_FINAL_PROOF_INTERRUPTED" || worker.lastFailure.pinId !== null ||
+    intent?.reason !== "handoff" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(intent.sourceCommit ?? "") ||
+    !/^[a-f0-9]{64}$/u.test(intent.contractDigest ?? "") || !/^[a-f0-9]{64}$/u.test(intent.deliveryDigest ?? "") ||
+    state.workers.some(w => w.proofProcess != null || !dead(w)))
+    throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Retry requires an interrupted child handoff, unchanged identity and confirmed stopped writers/proof; inspect run status first.");
+  return worker;
 }
 
 /** Observations are not proof validation; resume still reconciles every authority and sealed artifact. */
@@ -688,12 +711,20 @@ export class RunService {
     return { state, message: `Run ${runId} is paused.` };
   }
 
-  async resume(runId: string, retryApprovalIds: readonly string[] = [], upgradeBudget = true): Promise<RunLifecycleResult> {
+  async resume(runId: string, retryApprovalIds: readonly string[] = [], upgradeBudget = true,
+    retryDeliveryTaskId?: string, expectedFailureId?: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, async (current) => {
-      const acknowledged = await approvalRetryEvents(current, retryApprovalIds);
+      if (retryDeliveryTaskId !== undefined && retryApprovalIds.length > 0)
+        throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Delivery and approval retries require separate explicit controls.");
+      const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(current, retryDeliveryTaskId, Date.parse(this.#now()));
+      if (retry !== null && expectedFailureId !== undefined && retry.lastFailure!.id !== expectedFailureId)
+        throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "The interrupted attempt changed during recovery.");
+      const acknowledged = new Set(await approvalRetryEvents(current, retryApprovalIds));
+      if (retry !== null) for (const e of current.events)
+        if (e.code === "RUN_NO_PROGRESS_REPEAT" && e.workerId === retry.workerId && e.taskId === retry.taskId) acknowledged.add(e.id);
       const recoverable = RECOVERABLE;
       const blocker = resumeBlocker(current, acknowledged);
-      if (cannotResume(current, acknowledged)) {
+      if (cannotResume(current, acknowledged, retry !== null)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
       if (current.integration?.proofDigest === undefined && !upgradeBudget && budgetExpired(current, Date.parse(this.#now())))
@@ -709,11 +740,17 @@ export class RunService {
         ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") &&
           !current.tasks.some(t => t.taskId === w.taskId && t.status === "blocked" && !recoverable.has(t.blockedReason ?? "")) ? {...w, status: "stopped" as const} : w),
           tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
+        ...(retry === null ? {} : {
+          workers: current.workers.map(w => w.workerId === retry.workerId ? {...w, status: "stopped" as const, lastFailure: null} : w),
+          tasks: current.tasks.map(t => t.taskId === retry.taskId ? {...t, status: "ready" as const, blockedReason: null} : t)
+        }),
         status: "active",
         awaitingResume: false,
         disableRestart: false,
         controls: [...current.controls, {
-          action: "resume", actor: "user", reason: retryApprovalIds.length === 0 ? null : "retry-approval:" + JSON.stringify(retryApprovalIds), requestedAt: this.#now(), expiresAt: null, appliedAt: null
+          action: "resume", actor: "user", reason: retry !== null ? "retry-delivery:" + JSON.stringify({taskId: retry.taskId,
+            workerId: retry.workerId, generation: retry.generation, failure: retry.lastFailure}) :
+            retryApprovalIds.length === 0 ? null : "retry-approval:" + JSON.stringify(retryApprovalIds), requestedAt: this.#now(), expiresAt: null, appliedAt: null
         }]
       };
     });
