@@ -211,7 +211,13 @@ Project init/update 在所有 harness 與 profile 安裝 `.agent-ops/.gitignore`
 
 ## EVIDENCE-FOLLOWUP-001
 
-保留的非阻擋 finding 與自由文字剩餘風險必須保留原始來源，不能因一般測試通過而視為已解決。
+保留的非阻擋 finding 與自由文字剩餘風險必須（MUST）保留原始來源，不得（MUST NOT）因一般測試通過而視為已解決。
+
+- Trigger: 成功且有 receipt 的交付、本機歷史匯入或明確選取處理。
+- Action: 收集中繼資料、保留來源與處置，修復前先重驗目前原始碼。
+- Evidence: 結案綁定原始 finding、精確 commit、對應驗收，或有理由的 review-only 契約及兩次新鮮審查。
+- Positive: 選取的 PRESENT finding 啟動全新原生修復；對應紅轉綠與封存交付可解決該項目。
+- Negative: 只因一般測試通過、路徑變動或 run 完成，就在缺乏專屬證據時結案。
 
 - 一般 finish、原生執行最終交付與復原，在成功交付後，從驗證過的本機 receipt、Git note
   摘要及完整封存報告自動收集。一般儲存庫 CLI 使用時會重試收集及修復結果對帳。

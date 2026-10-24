@@ -276,6 +276,12 @@ Project init/update installs `.agent-ops/.gitignore` for `/tasks/` and `/reviews
 Retained nonblocking findings and free-text residual risks MUST keep their original
 provenance and MUST NOT be treated as resolved by generic passing checks.
 
+- Trigger: Successful receipt-bound delivery, local history import or explicit selected processing.
+- Action: Collect metadata, preserve provenance/dispositions and assess the current source before any bounded repair.
+- Evidence: Resolution binds the original finding, exact commit and corresponding acceptance artifacts or a reasoned review-only contract with two fresh reviews.
+- Positive: A selected PRESENT finding starts a new native repair; its corresponding red-to-green proof and sealed delivery resolve the exact item.
+- Negative: A generic passing suite, changed path or completed run resolves a retained finding without its specific proof.
+
 - Successful ordinary finish, native final delivery and recovery collect from
   authenticated local receipts, Git-note digests and full sealed reports. Ordinary
   repository CLI use retries collection and linked-result reconciliation. Historical

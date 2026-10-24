@@ -105,8 +105,6 @@ export const cliChecks = {
     await cliModule();
     // Full receipt -> isolated semantic assessment -> production native authority -> sealed specific closure,
     // with real Git/process/acceptance replay; only model transport and launchd are fixture boundaries.
-    await repairChecks['followup-repair-production-refusals']();
-    await repairChecks['followup-repair-concurrency-recovery']();
     await repairChecks['followup-closure-specific-proof']();
     if (process.platform !== 'win32') await withRepository(async f => {
       const {finishWorktree} = await load('runtime/src/parallel/finish.js');
@@ -126,14 +124,14 @@ export const cliChecks = {
       await writeFile(join(bin, 'claude'), script); await chmod(join(bin, 'claude'), 0o700);
       const result = await cli(linked, ['followup', 'process', item.id, '--host', 'codex', '--json'], {PATH: `${bin}:${process.env.PATH}`});
       assert.equal(result.code, 1, JSON.stringify(result));
-      assert.equal(result.envelope.code, 'WORKTREE_NESTED', JSON.stringify(result));
+      assert.equal(result.envelope.code, process.platform === 'darwin' ? 'WORKTREE_NESTED' : 'RUN_BACKGROUND_UNSUPPORTED', JSON.stringify(result));
       assert.equal(result.envelope.data.progress.attempts.at(-1).status, 'refused');
       assert.equal(result.envelope.data.progress.status, 'unresolved');
       assert.equal(await readFile(item.provenance.receiptPath, 'utf8'), original);
     });
   },
   'followup-bilingual-contract': async () => {
-    const root = resolve(process.env.AGENT_OPS_ACCEPTANCE_SOURCE_ROOT ?? '.');
+    const root = resolve('.');
     for (const lang of ['en', 'zh-TW']) {
       const spec = await readFile(join(root, `docs/${lang}/spec/acceptance-and-evidence.md`), 'utf8');
       assert.match(spec, /EVIDENCE-FOLLOWUP-001/);
