@@ -4,9 +4,8 @@ import {chmod, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import {load, moduleUrl, withRepository, reviewedCandidate, config, finding, checkedGit} from './fixture.mjs';
-import {repairChecks} from './repair-checks.mjs';
-import {report} from './assessment-checks.mjs';
+import {load, moduleUrl, withRepository, reviewedCandidate, config, finding, checkedGit, runner, sealNativeCandidate} from './fixture.mjs';
+import {report, reviewer} from './assessment-checks.mjs';
 
 const execute = promisify(execFile);
 async function cli(cwd, args, extraEnv = {}) {
@@ -105,7 +104,6 @@ export const cliChecks = {
     await cliModule();
     // Full receipt -> isolated semantic assessment -> production native authority -> sealed specific closure,
     // with real Git/process/acceptance replay; only model transport and launchd are fixture boundaries.
-    await repairChecks['followup-closure-specific-proof']();
     if (process.platform !== 'win32') await withRepository(async f => {
       const {finishWorktree} = await load('runtime/src/parallel/finish.js');
       const {FileFollowupStore} = await load('runtime/src/followup/store.js');
@@ -127,6 +125,52 @@ export const cliChecks = {
       assert.equal(result.envelope.code, process.platform === 'darwin' ? 'WORKTREE_NESTED' : 'RUN_BACKGROUND_UNSUPPORTED', JSON.stringify(result));
       assert.equal(result.envelope.data.progress.attempts.at(-1).status, 'refused');
       assert.equal(result.envelope.data.progress.status, 'unresolved');
+      await checkedGit(f.root, ['worktree', 'remove', '.worktrees/linked']);
+      await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify(config));
+      const {processFollowup, readFollowupProgress, followupResolutionDescription} = await load('runtime/src/followup/process.js');
+      const {productionRunContext} = await load('packages/cli/src/run-deps.js');
+      const {loadEffectiveConfig, repositoryTrustBinding} = await load('packages/cli/src/context.js');
+      const {trustStore} = await load('packages/cli/src/parallel-deps.js');
+      const {CLI_VERSION} = await load('packages/cli/src/version.js');
+      const {FileRunRepository} = await load('runtime/src/run/service.js');
+      const native = {supported: true, writeDescriptor: async () => {}, bootstrap: async () => {}, enableRestart: async () => {},
+        wake: async () => {}, disableRestart: async () => {}, bootout: async () => {}};
+      const mock = await reviewer(f);
+      const reason = 'Independent source invariant has no executable oracle; both fresh reviewers must justify this fallback.';
+      const options = {root: f.root, commonDir: f.commonDir, itemId: item.id, targetBranch: 'main', gitRunner: runner(f.root),
+        loadConfig: async () => config, review: mock.options, reviewOnlyReason: reason, host: 'codex', start: async input => {
+          const context = await productionRunContext(f.root, {launchd: native});
+          return (await context.service.start({...input, root: f.root, commonDir: f.commonDir, targetBranch: 'main', ownerSessionId: 'fixture'})).state;
+        }};
+      const previousHome = process.env.AGENT_OPS_HOME;
+      try {
+        process.env.AGENT_OPS_HOME = f.root;
+        const trusted = (await loadEffectiveConfig(f.root, 'project')).config;
+        await trustStore().grant(await repositoryTrustBinding(f.root, trusted, CLI_VERSION));
+        const selected = await Promise.all([processFollowup(options), processFollowup(options)]);
+        assert.ok(selected.every(p => p.status === 'linked'));
+        assert.equal(selected[0].attempts.at(-1).runId, selected[1].attempts.at(-1).runId);
+        assert.equal(mock.calls.length, 2, 'Competing selection reuses one assessment and production run');
+        const attempt = selected[0].attempts.at(-1);
+        const runs = new FileRunRepository(join(f.commonDir, 'agent-ops/runs'), f.commonDir);
+        const run = await runs.read(attempt.runId);
+        assert.ok(run.policyBinding, 'Successful handoff uses production native authority');
+        assert.equal(run.workers[0].status, 'assigned');
+        const baseline = await checkedGit(f.root, ['rev-parse', 'HEAD']);
+        const criteria = [{id: 'followup-resolution', description: followupResolutionDescription(item.id, attempt.findingDigest),
+          verifierIds: ['node-test'], acceptance: {mode: 'review-only', baselineCommit: baseline, bindings: [], reviewOnlyReason: reason}},
+          {id: 'regression', description: 'Preserve existing behavior.', verifierIds: ['node-test']}];
+        const repair = await reviewedCandidate(f, {name: 'repair', modern: true, goal: attempt.goal, criteria, sessionId: run.ownerSessionId});
+        const sealed = await sealNativeCandidate(f, repair, run);
+        const finished = await finishWorktree(f.deps, {cwd: f.root, name: sealed.record.name, finalProof: repair.finalProof});
+        const closed = await readFollowupProgress(f.commonDir, item.id);
+        assert.equal(closed.status, 'resolved', JSON.stringify(finished.warnings));
+        assert.equal(closed.resolutions.at(-1).commit, finished.mergedHead);
+        assert.equal(closed.resolutions.at(-1).receipt.runId, attempt.runId);
+        const shown = await cli(f.root, ['followup', 'show', item.id, '--json']);
+        assert.equal(shown.envelope.data.progress.status, 'resolved');
+        assert.deepEqual(shown.envelope.data.progress.resolutions, closed.resolutions, 'Ordinary CLI reconciliation preserves exact proof');
+      } finally {if (previousHome === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = previousHome;}
       assert.equal(await readFile(item.provenance.receiptPath, 'utf8'), original);
     });
   },
