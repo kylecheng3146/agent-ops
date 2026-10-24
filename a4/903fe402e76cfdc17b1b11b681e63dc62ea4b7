@@ -1,0 +1,10 @@
+worktree: session-01a169d6 (agent-ops/session-01a169d6)
+session: 01a169d6-ec63-7ed0-b5c6-75179bfa1e8e
+agent-ops task task-8315520c-aa7f-436f-8b0e-13204d660c25: Repair controlled handoff diagnostics and explicit child recovery
+intent: Preserve controlled proof exit and bounded redacted diagnostics; add an explicit stopped-child delivery retry through existing production resume authority. Preserve the original run, task, goal, frozen baselines, source history, failures, trust, usage and final verification/review gates. Do not modify feature code or mark delivery manually. After completing this independent harness task, recover run-b95f6b6f5ab14a65.
+criteria:
+- controlled-proof-diagnostics: Interrupted controlled proof preserves actual process exit/signal and bounded redacted failure context for operators, including invalid or missing results, while valid structured results and stop/registration/usage gates retain their semantics.
+- explicit-child-delivery-retry: An explicit supported resume action requeues only a stopped child blocked by interrupted handoff proof, keeping original run/task/goal/baselines/source history and forcing a fresh normal verification/handoff instead of marking delivery.
+- retry-authority-boundaries: No automatic or unsafe retry: live writers/proofs, foreign/coordinator or completed tasks, product failures, independent command denials, dirty/drifting authority and stale retry are refused; ordinary resume, failure history, accounting and final verify/two-review/receipt gates remain intact.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/679541f25f521fe2d95395a9879d9f3c934765aa0d98325d3117fda9154ea7ce-a4903fe402e76cfdc17b1b11b681e63dc62ea4b7.json
+receipt-sha256: 65144fb59a667303086af8924d81b83bf2a33f74e006a1465716abaf5d86ca00
