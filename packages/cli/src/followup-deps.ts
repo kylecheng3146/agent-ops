@@ -13,17 +13,19 @@ export async function productionFollowupContext(cwd: string) {
   const branch = await deps.git(checkouts.currentRoot, ["symbolic-ref", "--short", "HEAD"]);
   if (branch.exitCode !== 0) throw new AgentOpsError("RUN_TARGET_REQUIRED", "Followup processing requires a checked-out target branch.");
   const loadConfig = async () => await deps.loadConfig(checkouts.currentRoot);
-  const config = await loadConfig(), role = resolveReviewRole("independent-review", config.reviewRoles ?? []);
-  const assessmentOptions = (itemId: string, reviewOnlyReason?: string): AssessFollowupOptions => ({
-    root: checkouts.currentRoot, commonDir: checkouts.commonDir, itemId, targetBranch: branch.stdout.trim(),
-    gitRunner: gitRunner(checkouts.currentRoot), loadConfig,
-    review: { targets: role?.targets ?? [], ...(role?.timeoutMs === undefined ? {} : { timeoutMs: role.timeoutMs }) },
-    ...(reviewOnlyReason === undefined ? {} : { reviewOnlyReason })
-  });
+  const assessmentOptions = async (itemId: string, reviewOnlyReason?: string): Promise<AssessFollowupOptions> => {
+    const config = await loadConfig(), role = resolveReviewRole("independent-review", config.reviewRoles ?? []);
+    return {
+      root: checkouts.currentRoot, commonDir: checkouts.commonDir, itemId, targetBranch: branch.stdout.trim(),
+      gitRunner: gitRunner(checkouts.currentRoot), loadConfig,
+      review: { targets: role?.targets ?? [], ...(role?.timeoutMs === undefined ? {} : { timeoutMs: role.timeoutMs }) },
+      ...(reviewOnlyReason === undefined ? {} : { reviewOnlyReason })
+    };
+  };
   return { ...checkouts,
     assessmentOptions,
     process: async (itemId: string, host: RunHost, reviewOnlyReason?: string) => {
-      const options = assessmentOptions(itemId, reviewOnlyReason);
+      const options = await assessmentOptions(itemId, reviewOnlyReason);
       return await processFollowup({ ...options, host, start: async (input, proof) => {
         const run = await productionRunContext(cwd, { beforeStart: async () => {
           if (!await isFollowupAssessmentCurrent(options, proof))

@@ -91,6 +91,16 @@ export const repairChecks = {
         assert.ok(production.policyBinding); assert.equal(production.workers[0].status, 'assigned');
         assert.equal(production.goal, started.attempts.at(-1).goal);
         await repository.mutate(production.runId, state => ({...state, status: 'failed', disableRestart: true}));
+        assert.equal((await api.processFollowup({...options(fresh.options), host: 'codex', start: memory.start})).status, 'linked');
+        assert.equal(memory.calls.length, 0, 'A failed production run retains its assigned writer instead of starting another');
+        await repository.mutate(production.runId, state => ({...state, status: 'failed', disableRestart: true,
+          workers: state.workers.map(w => ({...w, status: 'stopped'}))}));
+        const {productionFollowupContext} = await load('packages/cli/src/followup-deps.js');
+        const context = await productionFollowupContext(f.root);
+        assert.deepEqual((await context.assessmentOptions(item.id)).review.targets, []);
+        await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify({...config, reviewRoles: [{role: 'independent-review', targets: ['claude']}]}));
+        assert.deepEqual((await context.assessmentOptions(item.id)).review.targets, ['claude'], 'Each selection reads the current configured reviewer authority');
+        await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify(config));
       } finally {if (originalHome === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = originalHome;}
       for (const code of ['RUN_POLICY_STALE', 'RUN_NATIVE_APPROVAL_DENIED'])
         await checkRefusal(code, async () => {throw new AgentOpsError(code, 'Exact native refusal');});
@@ -117,7 +127,11 @@ export const repairChecks = {
       await writeFile(path, JSON.stringify({...saved, status: 'starting', attempts: [{...first, status: 'starting'}]}));
       const recovered = await api.processFollowup(opts);
       assert.equal(recovered.status, 'linked'); assert.equal(memory.calls.length, 1, 'Crash after creation recovers the reserved run identity');
-      await memory.repository.mutate(first.runId, state => ({...state, status: 'failed', disableRestart: true}));
+      await memory.repository.mutate(first.runId, state => ({...state, status: 'failed', disableRestart: true,
+        proofProcess: {processId: process.pid, processIdentity: 'fixture-live-proof'}}));
+      assert.equal((await api.processFollowup(opts)).status, 'linked');
+      assert.equal(memory.calls.length, 1, 'A failed run with a live proof cannot start another repair');
+      await memory.repository.mutate(first.runId, state => ({...state, proofProcess: null}));
       const denied = await reviewer(f);
       const partial = await api.processFollowup({...options(denied.options), host: 'codex', start: async input => {
         await memory.start(input); throw new Error('Crash after run record creation');

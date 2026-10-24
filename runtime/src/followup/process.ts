@@ -136,7 +136,9 @@ export async function processFollowup(options: ProcessFollowupOptions): Promise<
       const existing = await runs.read(prior.runId);
       if (existing !== null) {
         if (existing.goal !== prior.goal || existing.host !== prior.host) invalid("FOLLOWUP_RUN_CHANGED");
-        if (!["failed", "complete"].includes(existing.status))
+        const unsettledWriters = existing.workers.some(worker => ["assigned", "starting", "running", "idle", "handing-off"].includes(worker.status) ||
+          ((worker.processId !== null || worker.nativeSessionId !== null || worker.nativeJobId !== null) && worker.stopIntent?.confirmedDeadAt == null));
+        if (!["failed", "complete"].includes(existing.status) || existing.proofProcess != null || unsettledWriters)
           return await save(commonDir, { ...state, status: "linked", code: "FOLLOWUP_RUN_LINKED",
             attempts: [...state.attempts.slice(0, -1), { ...prior, status: "linked" }] });
       } else if (prior.status === "starting") {
@@ -147,7 +149,9 @@ export async function processFollowup(options: ProcessFollowupOptions): Promise<
     state = await save(commonDir, { ...state, status: "assessing", code: "FOLLOWUP_ASSESSING" });
     const { assessment, reference } = await assessFollowup(options);
     state = await save(commonDir, { ...state, assessment: reference, status: "unresolved", code: "FOLLOWUP_" + assessment.conclusion });
-    if (assessment.conclusion === "UNKNOWN" || !await isFollowupAssessmentCurrent(options, assessment)) return state;
+    if (assessment.conclusion === "UNKNOWN") return state;
+    if (!await isFollowupAssessmentCurrent(options, assessment))
+      return await save(commonDir, { ...state, code: "FOLLOWUP_SOURCE_CHANGED" });
     if (assessment.conclusion === "ABSENT") {
       if (assessment.reviewOnlyReason === undefined) return state;
       const resolution: FollowupResolution = { at: new Date().toISOString(), findingDigest: assessment.findingDigest,
