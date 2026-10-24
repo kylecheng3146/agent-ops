@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {chmod, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, copyFile, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -18,7 +18,13 @@ async function cli(cwd, args, extraEnv = {}) {
   return result;
 }
 async function cliModule() {
-  try {return await load('packages/cli/src/commands/followup.js');}
+  try {
+    const api = await load('packages/cli/src/commands/followup.js');
+    // tsc emits code only; subprocesses in fixture checkouts need the packaged schema asset too.
+    await mkdir(fileURLToPath(moduleUrl('schemas')), {recursive: true});
+    await copyFile(new URL('../../schemas/review-report.schema.json', import.meta.url), fileURLToPath(moduleUrl('schemas/review-report.schema.json')));
+    return api;
+  }
   catch (error) {
     if (error.code === 'ERR_MODULE_NOT_FOUND') assert.fail('The production followup CLI lifecycle must exist');
     throw error;
