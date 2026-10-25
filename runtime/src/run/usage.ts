@@ -62,14 +62,17 @@ export async function recordNativeRunUsage(repository: RunRepository, event: Nat
       costUsd: usage.costUsd ?? null, completeness: "partial", observedAt: event.at};
   } else if (event.host === "codex" && plain(payload.tokenUsage) && plain(payload.tokenUsage.total)) {
     const usage = payload.tokenUsage.total;
-    incoming = {source: "codex", epoch: `${worker.workerId}:${worker.nativeSessionId}:thread`, inputTokens: count(usage.inputTokens),
+    const threadKey = worker.nativeJobId !== null && worker.nativeJobId !== worker.nativeSessionId
+      ? `${worker.nativeSessionId}:${worker.nativeJobId}` : worker.nativeSessionId;
+    incoming = {source: "codex", epoch: `${worker.workerId}:${threadKey}:thread`, inputTokens: count(usage.inputTokens),
       outputTokens: count(usage.outputTokens), totalTokens: count(usage.totalTokens), costUsd: null,
       completeness: "partial", observedAt: event.at};
   }
   if (incoming === undefined) return;
   await repository.mutate(event.runId, current => {
     const saved = current.workers.find(w => w.workerId === event.workerId);
-    if (saved?.generation !== event.generation || saved.nativeSessionId !== worker.nativeSessionId) return current;
+    if (saved?.generation !== event.generation || saved.nativeSessionId !== worker.nativeSessionId ||
+      saved.nativeJobId !== worker.nativeJobId) return current;
     return appendUsage(current, incoming!);
   });
 }

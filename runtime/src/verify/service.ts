@@ -2,7 +2,8 @@ import type {
   AgentOpsConfig,
   AgentTask,
   InstallScope,
-  VerificationCommand
+  VerificationCommand,
+  VerificationEvidence
 } from "../contracts.js";
 import {executionContractHash, taskContractHash} from "../task/contract.js";
 import {replayAcceptance, type AcceptanceReplayResult} from "./acceptance-replay.js";
@@ -22,6 +23,8 @@ import {
 import { calculateSourceFingerprint } from "./source-fingerprint.js";
 import {
   buildVerificationEvidence,
+  calculateConfigHash,
+  isPassingVerificationEvidence,
   type FileEvidenceStore
 } from "./evidence.js";
 import {
@@ -182,6 +185,71 @@ export class VerificationService {
     return references;
   }
 
+  async #sharedTreeCommandReport(
+    task: AgentTask,
+    command: VerificationCommand,
+    sourceFingerprint: string
+  ): Promise<VerificationCommandReport | null> {
+    if (!this.#options.trusted) return null;
+    const active = (await this.#options.taskService.list()).filter(
+      (record) => record.status === "active" && record.supersededBy === undefined
+    );
+    const byId = new Map(active.map((record) => [record.task.id, record]));
+    const rootOf = (id: string): string => {
+      let current = id;
+      const seen = new Set<string>();
+      while (!seen.has(current)) {
+        seen.add(current);
+        const parentId = byId.get(current)?.task.parentTaskId;
+        if (parentId === undefined || !byId.has(parentId)) return current;
+        current = parentId;
+      }
+      return current;
+    };
+    const rootId = rootOf(task.id);
+    const peers = active.filter(
+      (record) =>
+        record.task.id !== task.id &&
+        rootOf(record.task.id) === rootId
+    );
+    if (peers.length === 0) return null;
+    const configHash = calculateConfigHash(this.#options.config);
+    for (const peer of peers) {
+      for (const reference of new Set(Object.values(peer.evidence).flat())) {
+        let loaded: unknown;
+        try {
+          loaded = await this.#options.evidenceStore.load(reference);
+        } catch {
+          continue;
+        }
+        if (loaded === null || typeof loaded !== "object") continue;
+        const evidence = loaded as VerificationEvidence;
+        if (
+          evidence.commandId === command.id &&
+          evidence.sourceFingerprint === sourceFingerprint &&
+          evidence.configHash === configHash &&
+          evidence.scope === this.#options.scope &&
+          isPassingVerificationEvidence(command, evidence)
+        ) {
+          return {
+            commandId: command.id,
+            required: command.required,
+            status: "PASS",
+            failureClass: "none",
+            exitCode: evidence.exitCode,
+            timedOut: false,
+            testCount: evidence.testCount,
+            diagnostic: "",
+            evidenceReferences: [],
+            startedAt: evidence.startedAt,
+            finishedAt: evidence.finishedAt
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   async #runCommand(
     task: AgentTask,
     command: VerificationCommand
@@ -287,11 +355,14 @@ export class VerificationService {
     };
     const results: VerificationCommandReport[] = [];
     for (const commandId of selection.verifierIds) {
+      const command = commandById(this.#options.config, commandId);
+      const shared = await this.#sharedTreeCommandReport(
+        validation.value,
+        command,
+        sourceFingerprint
+      );
       results.push(
-        await this.#runCommand(
-          validation.value,
-          commandById(this.#options.config, commandId)
-        )
+        shared ?? (await this.#runCommand(validation.value, command))
       );
     }
 

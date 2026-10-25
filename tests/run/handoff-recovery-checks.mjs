@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtemp, mkdir, realpath, rm, writeFile} from 'node:fs/promises';
+import {access, mkdtemp, mkdir, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -202,5 +202,86 @@ export const handoffRecoveryChecks = {
       assert.equal((await f.repository.read(f.state.runId)).tasks.at(-1).status,'ready','CLI must forward explicit retry');
     });
     await productionBoundary();
+  },
+  'completed-request-not-stale-across-generation': () => fixture(async f => {
+    const runEntry = await mod('packages/cli/src/run-entry.js');
+    assert.equal(typeof runEntry.reconcileWorkerRequest, 'function', 'reconcileWorkerRequest must be exported from run-entry');
+    const {sha256} = await mod('runtime/src/fs/hash.js');
+    const {canonicalJson} = await mod('runtime/src/config/hash.js');
+    const {writePrivateFile} = await mod('runtime/src/security/permissions.js');
+    const directory = join(f.root, 'runs');
+    const worktree = join(f.root, 'worker-wt');
+    await mkdir(join(worktree, '.agent-ops/tasks'), {recursive: true});
+    const workerGen2 = {...f.worker, worktree, generation: 2, status: 'running'};
+    const completedReq = {
+      requestId: 'req-wait-1',
+      workerId: workerGen2.workerId,
+      generation: 1,
+      contractHash: f.state.currentContractHash,
+      action: 'wait'
+    };
+    const requestPath = join(worktree, '.agent-ops/tasks/run-request.json');
+    const responsePath = join(worktree, '.agent-ops/tasks/run-response.json');
+    const donePath = join(directory, f.state.runId, 'requests', sha256(completedReq.requestId) + '.json');
+    const savedResponse = {requestId: 'req-wait-1', code: 'RUN_COORDINATOR_WAITING'};
+    const completedSource = JSON.stringify(completedReq);
+    await writePrivateFile(requestPath, completedSource, worktree);
+    await writePrivateFile(responsePath, JSON.stringify(savedResponse), worktree);
+    await writePrivateFile(donePath, JSON.stringify({
+      requestDigest: sha256(canonicalJson(completedReq)),
+      response: savedResponse
+    }), f.root);
+
+    const eventsBefore = (await f.repository.read(f.state.runId)).events.length;
+    const reconciled = await runEntry.reconcileWorkerRequest({
+      repository: f.repository,
+      directory,
+      commonDir: f.root,
+      runId: f.state.runId,
+      worker: workerGen2,
+      source: completedSource,
+      requestPath
+    });
+    assert.deepEqual(reconciled, {kind: 'completed', sameGeneration: false});
+    const afterCompleted = await f.repository.read(f.state.runId);
+    assert.equal(afterCompleted.events.length, eventsBefore, 'Completed prior-generation request must not emit RUN_REQUEST_STALE diagnostic');
+    assert.deepEqual(JSON.parse(await readFile(responsePath, 'utf8')), savedResponse, 'Completed prior-generation request must not overwrite run-response.json');
+    await assert.rejects(access(requestPath), {code: 'ENOENT'}, 'Consumed prior-generation run-request.json must be cleaned up');
+
+    // Uncompleted prior-generation request must still be rejected as RUN_REQUEST_STALE.
+    const uncompletedReq = {
+      requestId: 'req-uncompleted-1',
+      workerId: workerGen2.workerId,
+      generation: 1,
+      contractHash: f.state.currentContractHash,
+      action: 'handoff'
+    };
+    const uncompletedSource = JSON.stringify(uncompletedReq);
+    await writePrivateFile(requestPath, uncompletedSource, worktree);
+    const staleReconciled = await runEntry.reconcileWorkerRequest({
+      repository: f.repository,
+      directory,
+      commonDir: f.root,
+      runId: f.state.runId,
+      worker: workerGen2,
+      source: uncompletedSource,
+      requestPath
+    });
+    assert.deepEqual(staleReconciled, {kind: 'rejected', code: 'RUN_REQUEST_STALE'});
+    const afterStale = await f.repository.read(f.state.runId);
+    assert.equal(afterStale.events.at(-1)?.code, 'RUN_REQUEST_STALE', 'Uncompleted prior-generation request must emit RUN_REQUEST_STALE');
+    assert.equal(JSON.parse(await readFile(responsePath, 'utf8')).code, 'RUN_REQUEST_STALE');
+  }),
+  'targeted-fast-handoff-instructions': async () => {
+    const runEntry = await mod('packages/cli/src/run-entry.js');
+    assert.equal(typeof runEntry.workerInstructionLines, 'function', 'workerInstructionLines must be exported from run-entry');
+    assert.equal(typeof runEntry.workerGoalPrompt, 'function', 'workerGoalPrompt must be exported from run-entry');
+    const lines = runEntry.workerInstructionLines().join('\n');
+    const goal = runEntry.workerGoalPrompt();
+    assert.match(lines, /targeted fast checks/i, 'Worker instructions must direct targeted fast checks locally');
+    assert.match(lines, /supervisor runs full verification/i, 'Worker instructions must delegate full verification to the supervisor');
+    assert.match(lines, /do not poll full-suite verification/i, 'Worker instructions must forbid polling full-suite verification in a loop');
+    assert.match(goal, /targeted fast checks/i, 'Worker goal prompt must direct targeted fast checks before handoff');
+    assert.match(goal, /supervisor executes full verification/i, 'Worker goal prompt must state that supervisor executes full verification');
   }
 };
