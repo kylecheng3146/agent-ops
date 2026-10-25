@@ -4,6 +4,26 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-26
+
+- Retain nonblocking review findings and residual risks in a private followup
+  ledger shared by worktrees. Import historical receipts, inspect and manage
+  findings, and explicitly process selected items through two independent
+  current-source assessments and bounded native repair. Resolution requires
+  evidence tied to the original finding and delivered repair.
+- Recover interrupted child handoffs with an explicit retry after the harness
+  cause is repaired, preserving the original run, tasks, commits and failure
+  history. Controlled proof failures now include bounded redacted diagnostics.
+- Wake a waiting coordinator after an explicit answer and authenticate its
+  integration proof across delivered child checkouts while preserving worker
+  identity and policy boundaries.
+- Isolate timed-out verification subprocesses from the enclosing evidence
+  process, increase the default command timeout from five to ten minutes, and
+  share passing command results across an unchanged task tree while retaining
+  separate task evidence and acceptance checks.
+- Reduce native run request replay and repeated repair context, and keep token
+  accounting distinct across native thread restarts.
+
 ## [0.11.1] - 2026-10-23
 
 - Every production task now waits for one advisory criteria review before
