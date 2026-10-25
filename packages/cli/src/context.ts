@@ -275,18 +275,21 @@ export async function runPolicyContext(root: string, renew = false) {
   if (saved === null || saved.policyBinding === undefined) return null;
   const here = realpathSync(root);
   const worker = saved.workers.find(w => w.worktree === here);
-  const proofProcess = worker?.proofProcess ?? saved.proofProcess;
-  let proof = false;
-  if (proofProcess != null && String(proofProcess.processId) === process.env.AGENT_OPS_RUN_PROOF_PID) {
-    try {proof = execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim() === String(proofProcess.processId) &&
-      execFileSync("ps", ["-o", "lstart=", "-p", String(proofProcess.processId)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim() === proofProcess.processIdentity;}
-    catch {proof = false;}
-  }
+  const matchesProof = (registered: RunState["proofProcess"]): boolean => {
+    if (registered == null || String(registered.processId) !== process.env.AGENT_OPS_RUN_PROOF_PID) return false;
+    try {return execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim() === String(registered.processId) &&
+      execFileSync("ps", ["-o", "lstart=", "-p", String(registered.processId)], {encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true}).trim() === registered.processIdentity;}
+    catch {return false;}
+  };
+  const globalProof = matchesProof(saved.proofProcess);
+  const proof = globalProof || matchesProof(worker?.proofProcess);
+  // Reading another registered checkout does not change a run-level proof's coordinator actor.
+  const actor = globalProof || worker === undefined ? saved.workers.find(w => w.workerId === saved.coordinatorId) : worker;
   if ((!proof && (worker === undefined || record?.runId !== runId || record.workerId !== worker.workerId ||
       record.ownerSessionId !== worker.ownerSessionId || record.coordinatorId !== saved.coordinatorId || record.workerGeneration !== worker.generation)) ||
     (worker === undefined && !(proof && saved.root === here)) ||
-    (process.env.AGENT_OPS_WORKER_ID !== undefined && (process.env.AGENT_OPS_WORKER_ID !== (worker?.workerId ?? saved.coordinatorId) ||
-      process.env.AGENT_OPS_WORKER_GENERATION !== String((worker ?? saved.workers.find(w => w.workerId === saved.coordinatorId))?.generation))))
+    ((globalProof || process.env.AGENT_OPS_WORKER_ID !== undefined) && (actor === undefined ||
+      process.env.AGENT_OPS_WORKER_ID !== actor.workerId || process.env.AGENT_OPS_WORKER_GENERATION !== String(actor.generation))))
     throw new AgentOpsError("RUN_WORKER_STALE", "Run policy requires the current registered worker generation or proof process.");
   if (saved.status !== "active" || saved.disableRestart || saved.awaitingResume)
     throw new AgentOpsError("RUN_POLICY_DISABLED", "Run execution policy is inactive; explicit resume is required.");

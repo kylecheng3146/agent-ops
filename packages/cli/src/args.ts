@@ -67,6 +67,7 @@ export interface ParsedArgs {
   runAction?: RunAction;
   runId?: string;
   retryApprovalIds?: readonly string[];
+  retryDeliveryTaskId?: string;
   goal?: string;
   goalFile?: string;
   host?: "claude" | "codex";
@@ -1198,10 +1199,13 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
     seen.add(token);
     if (token === "--json") {args.json = true; continue;}
     if (token === "--wait") {args.wait = true; continue;}
-    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file", "--retry-approval"].includes(token))
+    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file", "--retry-approval", "--retry-delivery"].includes(token))
       throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown run option: ${token}`, token);
     const value = readOptionValue(argv, i++, token);
     switch (token) {
+      case "--retry-delivery":
+        if (!/^task-[a-z0-9-]{1,128}$/u.test(value)) invalidValue(token, value);
+        args.retryDeliveryTaskId = value; break;
       case "--retry-approval":
         if (!/^auth-[a-f0-9]{64}$/u.test(value) || args.retryApprovalIds?.includes(value)) invalidValue(token, value);
         args.retryApprovalIds = [...(args.retryApprovalIds ?? []), value]; break;
@@ -1221,6 +1225,8 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
     }
   }
   if (args.retryApprovalIds !== undefined && action !== "resume") throw new CliArgumentError("CLI_INVALID_OPTION", "--retry-approval requires run resume.");
+  if (args.retryDeliveryTaskId !== undefined && (action !== "resume" || args.retryApprovalIds !== undefined))
+    throw new CliArgumentError("CLI_INVALID_OPTION", "--retry-delivery requires run resume without --retry-approval.");
   if (action === "start") {
     args.goal = positional;
     if ((args.goal === undefined) === (args.goalFile === undefined)) throw new CliArgumentError("RUN_GOAL_REQUIRED", "Provide exactly one quoted goal or --goal-file.");

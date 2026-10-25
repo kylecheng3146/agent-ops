@@ -23,6 +23,9 @@ import {intakeChecks} from '../followup/intake-checks.mjs';
 import {assessmentChecks} from '../followup/assessment-checks.mjs';
 import {repairChecks} from '../followup/repair-checks.mjs';
 import {cliChecks} from '../followup/cli-checks.mjs';
+import {handoffRecoveryChecks} from './handoff-recovery-checks.mjs';
+import {coordinatorResponseChecks} from './coordinator-response-checks.mjs';
+import {coordinatorProofPolicyChecks} from './coordinator-proof-policy-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -68,6 +71,9 @@ const checks = {
   ...repairChecks,
   ...assessmentChecks,
   ...intakeChecks,
+  ...coordinatorProofPolicyChecks,
+  ...coordinatorResponseChecks,
+  ...handoffRecoveryChecks,
   ...nativeResumeChecks,
   ...resumeAuthorizationChecks,
   ...officePhaseChecks,

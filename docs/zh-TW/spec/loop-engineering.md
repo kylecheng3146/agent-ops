@@ -21,6 +21,7 @@
 - Coordinator 只能在綁定原始 repository trust、可執行 runtime、一小時有限授權期限的 run-scoped policy 下，評估新增固定且非危險的能力。不得繞過 native 或組織的明確拒絕。Policy 變更先停止所有 writer，保留固定交付，以 journal 記錄 contract 同步，再啟動新 generation；不授予永久 repository trust。Native decision 保存遮罩後的命令範圍與理由，provider 未提供的證據維持 UNKNOWN。
 - 執行中的 run 僅在原始 repository trust、config、可執行 runtime 與操作範圍完全相同時，自動續期過期的有限授權。續期以 digest 綁定前一版本並保留既有評估，拒絕無效／倒退時鐘；並行 stop、denial 或 scope 變更使續期失敗。權限已變更或撤銷時須沿既有 trust/resume 流程取得真正授權；續期不授予永久 trust，也不消除 denial。明確 resume 先核對不可變 renewal lineage，再同步 policy。回答問題也沿用相同恢復檢查；兩者皆不得復活已被明確拒絕的工作。
 - `run resume <id> --retry-approval <auth-event-id>` MAY 明確重試以額度不足 wrapper 失敗的 Codex 自動審批。每筆指定失敗 MUST 保有原始 private artifact、digest、worker identity 與 policy lineage；真正或未指定的拒絕仍阻擋。多筆失敗可重複旗標。成功確認會留存並在後續 resume 重新驗證；此操作不授予命令權限，原生審批必須重跑，既有 writer 死亡、checkout、trust 與預算檢查仍適用。
+- `run resume <id> --retry-delivery <task-id>` MAY 在修復 harness 原因後，明確重新排程一個被 `RUN_FINAL_PROOF_INTERRUPTED` 阻擋的 child。MUST 核對同一筆中斷 handoff、所有 writer 與 proof 已確認停止、所屬 checkout 乾淨及目前 trust/policy；保留 run、task、goal、baselines、commits、耗用與失敗歷史，記錄已確認的 attempt，並要求新 native generation 及正常交付驗證。MUST NOT 直接標記交付、解除其他阻擋或確認命令拒絕；approval retry 是獨立操作。一般 resume 保留 no-progress 阻擋。受控 proof 中斷 MUST 記錄有界且已遮蔽的 exit/signal、失敗階段與子程序診斷；無效輸出或非零退出的成功 envelope 不得視為證據。
 - 當次人工 resume 的初始恢復 MAY 忽略啟用前收到、且 native 更新秒數嚴格早於該次 resume 的本執行緒 Codex 額度快照。自動重啟、未知／同秒／未來時間、時鐘倒退，以及啟用開始後收到的所有額度事件仍有效。Native 啟用 MUST 確認 goal 為 active，才能啟動或轉向 turn。人工 resume 可解除衍生的 `RUN_POLICY_DISABLED` task 阻擋，但保留 ID、耗用、歷史及其他產品失敗。
 - 收斂判斷比較實際 per-check 狀態及未解除的 finding pins；source fingerprint、時間或診斷文字本身不能算進展。
 
@@ -32,6 +33,26 @@ delivered、complete 或 blocked 後，才以新 generation 在全新 native ses
 instructions 會列出每個 child 的狀態與交付 commit。`jobs=1` 時，child MUST 等該
 程序確認死亡後才執行。native 註冊、恢復與啟動 MUST 都限制最多 `jobs` 個 active
 agent；僅扣除 task slot 不足以符合。
+
+明確回答 pending run 問題後，MAY 在 child 全部完成前解除已確認停止的 coordinator
+wait。回答只消耗此 run 當前 generation 的等待，記錄 `RUN_COORDINATOR_RESPONSE_WAKE`，
+本身不啟動程序。正常 resume 仍須核對程序死亡、trust 與 policy，再於 job 限制內
+發出新 generation。一般 resume 或重播舊回答不得解除新的 wait。child 交付、失敗
+歷史與 policy binding 保持原樣；回答本身不授予額外 command capability。
+
+Run-level proof MUST 符合已保存的 proof PID、process group、程序啟動身分，以及
+目前 coordinator ID 與 generation。此 actor 可讀取 main root 與已註冊 worker
+checkout 的 run policy，包括整合時已交付的 child，且不需改寫其 worker 環境。
+Worker-local proof 仍限於自己的 checkout 與 worker 身分，其紀錄 MUST NOT 遮蔽
+獨立驗證通過的 run-level proof。一般 checkout record 與 integration ownership
+檢查仍有效。錯誤 actor、group、generation 或未註冊 checkout 回傳
+`RUN_WORKER_STALE`；身分核對後，inactive、disabled 或 awaiting-resume run 仍回傳
+`RUN_POLICY_DISABLED`。讀取 policy 不授予額外 capability，也不改動 config、trust、
+registration 或 delivery state。
+
+已知限制：內層 verification command 逾時可能終止共用的 proof 程序群組，使 evidence
+CLI 來不及輸出 JSON。本次 response 恢復沒有修復此程序隔離缺陷；可由既有
+coordinator policy 流程評估有界、僅限該 run 的 command timeout，並保留失敗紀錄。
 
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 

@@ -62,6 +62,17 @@
   Repeat the flag for multiple failures. Successful acknowledgements are audited
   and revalidated on later resumes. This grants no command permission: native
   approval runs again. Existing writer-death, checkout, trust and budget checks apply.
+  `run resume <id> --retry-delivery <task-id>` MAY explicitly requeue one child
+  blocked by `RUN_FINAL_PROOF_INTERRUPTED` after the harness cause is repaired.
+  It MUST require the matching interrupted handoff, confirmed stopped writers
+  and proof, clean owned checkouts and current trust/policy. It MUST preserve
+  run/task/goal/baselines/commits, accounting and failure history, record the
+  acknowledged attempt, and require a fresh native generation and normal proof.
+  It MUST NOT mark delivery, reset another blocker or acknowledge command denial;
+  approval retry is a separate control. Ordinary resume retains no-progress blocks.
+  Interrupted controlled proof MUST record bounded redacted exit/signal, result
+  failure stage and subprocess diagnostics without treating invalid output or a
+  nonzero successful envelope as proof.
   Initial recovery after a current manual resume MAY ignore an owned Codex limit
   snapshot received before activation whose native update second strictly predates
   that resume. Automatic restarts, unknown/equal/future timestamps, clock rollback,
@@ -82,6 +93,31 @@ new generation in a fresh native session whose instructions list each child's
 status and delivered commit. With `jobs=1`, child execution MUST wait for that
 confirmed death. Native registration, recovery and start MUST enforce at most
 `jobs` active agents; changing task slot accounting alone is insufficient.
+
+An explicit answer to a pending run question MAY release a confirmed stopped
+coordinator wait before all children finish. The response consumes only this
+run's current-generation wait, records `RUN_COORDINATOR_RESPONSE_WAKE`, and starts
+no process. Normal resume still reconciles death, trust and policy, then issues a
+fresh generation within the job limit. Ordinary resume and replayed answers do
+not consume a new wait. Child delivery, failure history and policy bindings remain
+unchanged; an answer itself grants no additional command capability.
+
+A run-level proof MUST match its persisted proof PID, process group and process
+start identity, plus the current coordinator ID and generation. That actor may
+read the run policy for the main root and registered worker checkouts, including
+delivered children during integration, without changing its worker environment.
+Worker-local proof remains bound to its own checkout and worker identity; its
+record MUST NOT shadow an independently authenticated run-level proof. Ordinary
+checkout record checks and integration ownership checks remain authoritative.
+Invalid actor, group, generation or unregistered checkout claims return
+`RUN_WORKER_STALE`; an inactive, disabled or awaiting-resume run still returns
+`RUN_POLICY_DISABLED` after identity validation. Policy reads grant no additional
+capability and do not alter config, trust, registration or delivery state.
+
+Known limitation: an inner verification command timeout can terminate the shared
+proof process group before the evidence CLI emits JSON. Response recovery does
+not fix this process isolation defect; a bounded run-only command timeout may be
+assessed through the existing coordinator policy flow, with the failure retained.
 
 This module defines the bounded loop used to plan, implement, verify, and hand off work.
 
