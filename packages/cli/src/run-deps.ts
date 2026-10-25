@@ -153,7 +153,8 @@ export function runDescriptor(state: RunState) {
     command: process.execPath, args: [runEntry, state.root, state.runId], cwd: state.root, pathEnvironment: process.env.PATH});
 }
 export async function productionRunContext(cwd: string, options: {launchd?: Pick<LaunchdController,
-  "supported" | "writeDescriptor" | "bootstrap" | "enableRestart" | "wake" | "disableRestart" | "bootout">} = {}) {
+  "supported" | "writeDescriptor" | "bootstrap" | "enableRestart" | "wake" | "disableRestart" | "bootout">;
+  beforeStart?: () => Promise<void>} = {}) {
   const deps = worktreeDependencies();
   const checkouts = await resolveCheckouts(deps, cwd);
   const target = await deps.git(checkouts.mainRoot, ["symbolic-ref", "--short", "HEAD"]);
@@ -171,8 +172,10 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     if (await deps.trust.status(checkouts.mainRoot, config) !== "TRUSTED")
       throw new AgentOpsError("RUN_REPO_UNTRUSTED", "The run requires current repository verifier trust.");
     const ownerSessionId = randomUUID();
+    const bootIdentity = await readBootIdentity(), loginDomain = await readGuiLoginIdentity();
+    await options.beforeStart?.();
     const result = await service.start({...input, root: checkouts.mainRoot, commonDir: checkouts.commonDir,
-      targetBranch: target.stdout.trim(), ownerSessionId, bootIdentity: await readBootIdentity(), loginDomain: await readGuiLoginIdentity()});
+      targetBranch: target.stdout.trim(), ownerSessionId, bootIdentity, loginDomain});
     try {
       await bindRunPolicy(repository, result.state.runId, {config,
         baseTrustBinding: await repositoryTrustBinding(checkouts.mainRoot, config, CLI_VERSION), runtimeHash: await runRuntimeHash()});

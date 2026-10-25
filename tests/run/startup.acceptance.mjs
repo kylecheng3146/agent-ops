@@ -19,6 +19,9 @@ import {nativeResumeChecks} from './native-resume-checks.mjs';
 import {recoveryRepairChecks} from './recovery-repair-checks.mjs';
 import {unlimitedPolicyChecks} from './unlimited-policy-checks.mjs';
 import {serialWorkerChecks} from './serial-workers-checks.mjs';
+import {intakeChecks} from '../followup/intake-checks.mjs';
+import {assessmentChecks} from '../followup/assessment-checks.mjs';
+import {repairChecks} from '../followup/repair-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -60,6 +63,9 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...repairChecks,
+  ...assessmentChecks,
+  ...intakeChecks,
   ...nativeResumeChecks,
   ...resumeAuthorizationChecks,
   ...officePhaseChecks,

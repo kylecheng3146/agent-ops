@@ -422,6 +422,14 @@ function parseAttestation(value: unknown): ReviewAttestation | null {
   };
 }
 
+/** Validate a sealed pair without depending on a retired review checkout. */
+export function validateReviewPair(attestation: unknown, report: unknown): ReviewAttestation | null {
+  try {
+    const checked = parseAttestation(attestation);
+    return checked !== null && matchingReportArtifact(report, checked) ? checked : null;
+  } catch { return null; }
+}
+
 export async function saveReviewAttestation(
   root: string,
   attestation: ReviewAttestation

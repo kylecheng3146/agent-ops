@@ -1,4 +1,5 @@
 import {criteriaReviewStatus} from "./criteria-review.js";
+import {collectFollowupReceipt} from "../../../runtime/src/followup/intake.js";
 import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
 import {stat} from "node:fs/promises";
 import {recoverRunIntegrationAfterCleanup, validateRunIntegrationReceipt} from "../../../runtime/src/run/integration.js";
@@ -550,6 +551,15 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         contractRevision: current.contractRevision + (current.currentContractHash === finalContract ? 0 : 1)}));
       await supervisor.finalize(runId, {targetCommit: receipt.candidateHead, candidateCommit: receipt.candidateHead,
         verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: sha256(source)});
+      try {
+        const followup = await collectFollowupReceipt({git: deps.git, mainRoot: root, commonDir,
+          path, config: await deps.loadConfig(root), loadConfig: async () => await deps.loadConfig(root)});
+        for (const warning of followup.warnings) await repository.appendEvent(runId, {type: "diagnostic",
+          code: "FOLLOWUP_RECONCILIATION_PENDING", workerId: null, taskId: null, detail: warning});
+      } catch {
+        await repository.appendEvent(runId, {type: "diagnostic", code: "FOLLOWUP_RECONCILIATION_PENDING",
+          workerId: null, taskId: null, detail: "Completion remains valid; followup reconciliation needs retry."}).catch(() => {});
+      }
       try {
         await stopAll("stop");
         await launchd.disableRestart(runDescriptor(current), "verified final integration completed");

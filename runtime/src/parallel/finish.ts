@@ -1,4 +1,5 @@
 import { withActivity } from "../office/activity.js";
+import { collectFollowupReceipt, type FollowupCollection } from "../followup/intake.js";
 import { lstat, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import { join } from "node:path";
@@ -57,6 +58,7 @@ export interface FinishResult {
   readonly receipt?: string;
   /** Both review rounds' residual risks, copied from the receipt so finish can print them. */
   readonly residualRisks?: readonly string[];
+  readonly followup?: FollowupCollection;
 }
 
 export interface FinalCandidateProof {
@@ -141,6 +143,7 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
     await action();
     await markRunIntegration(commonDir, record, "receipt-written", name);
   };
+  let followup: FollowupCollection | undefined;
   try {
     await step("note", async () => {
       if (!noteBound) await git(deps, record.mainRoot, ["notes", `--ref=${NOTES_REF}`, "add", "-m",
@@ -148,6 +151,8 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
         proof.head], "WORKTREE_NOTE_FAILED", "Cannot bind the sealed receipt to its candidate.");
     });
     const config = await deps.loadConfig(record.mainRoot);
+    followup = await collectFollowupReceipt({git: deps.git, mainRoot: record.mainRoot, commonDir, config,
+      loadConfig: async () => await deps.loadConfig(record.mainRoot), path: integration.receiptPath!});
     await step("gate", async () => {
       if (!config.features.completionGate.enabled) return;
       const gate = await deps.gate(record.mainRoot, config);
@@ -172,7 +177,7 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
     throw cause;
   }
   await recoverRunIntegrationAfterCleanup(commonDir, record.runId!, deps.git);
-  return {record, mergedHead: proof.head, taskIds: (receipt.tasks ?? []).map(item => item.task.id), warnings: [],
+  return {record, mergedHead: proof.head, taskIds: (receipt.tasks ?? []).map(item => item.task.id), warnings: followup?.warnings ?? [], followup,
     receipt: integration.receiptPath!, residualRisks: receipt.residualRisks ?? []};
 }
 
@@ -640,6 +645,9 @@ export async function finishWorktree(
       ["notes", `--ref=${NOTES_REF}`, "add", "-f", "-m", finishNote, mergedHead],
       "WORKTREE_NOTE_FAILED", "Git could not write the agent-ops note."));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "note");
+    const followup = receipt === undefined ? undefined : await collectFollowupReceipt({git: deps.git, mainRoot, commonDir, config: mainConfig,
+      loadConfig: async () => await deps.loadConfig(mainRoot), path: receipt.path});
+    if (followup !== undefined) warnings.push(...followup.warnings);
     if (gateEnabled) {
       await attempt("gate", async () => {
         const mainGate = await deps.gate(mainRoot, mainConfig);
@@ -674,7 +682,7 @@ export async function finishWorktree(
     await attempt("remove", async () => await removeCheckout(deps, record,
       options.finalProof === undefined, options.finalProof?.head));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
-    return { record, mergedHead, taskIds: tree.map(({ task }) => task.task.id), warnings,
+    return { record, mergedHead, taskIds: tree.map(({ task }) => task.task.id), warnings, followup,
       ...(receipt === undefined ? {} : { receipt: receipt.path, residualRisks: receipt.receipt.residualRisks }) };
   }));
 }
