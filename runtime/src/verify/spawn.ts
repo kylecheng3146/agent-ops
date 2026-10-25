@@ -113,7 +113,7 @@ interface AbortOutcome {
   readonly kind: "abort";
 }
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_OUTPUT_LIMIT_BYTES = 64 * 1024;
 const MAX_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 const DEFAULT_TERMINATION_GRACE_MS = 500;
@@ -281,6 +281,76 @@ async function terminatePosixTree(
   }
 }
 
+async function collectPosixSubtree(
+  seen: Set<number>,
+  excluded: ReadonlySet<number>
+): Promise<number[]> {
+  try {
+    const { stdout } = await execFile("ps", ["-axo", "pid=,ppid="], {
+      encoding: "utf8"
+    });
+    const rows = stdout
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [pid, ppid] = line.trim().split(/\s+/u).map(Number);
+        return { pid, ppid };
+      })
+      .filter(
+        (row): row is { pid: number; ppid: number } =>
+          Number.isSafeInteger(row.pid) &&
+          row.pid > 0 &&
+          Number.isSafeInteger(row.ppid) &&
+          row.ppid >= 0
+      );
+    for (let added = true; added;) {
+      added = false;
+      for (const { pid, ppid } of rows) {
+        if (!excluded.has(pid) && !seen.has(pid) && seen.has(ppid)) {
+          seen.add(pid);
+          added = true;
+        }
+      }
+    }
+    const alive = new Set(rows.map((row) => row.pid));
+    const root = [...seen][0];
+    return [...seen].filter(
+      (pid) => !excluded.has(pid) && (pid === root || alive.has(pid))
+    );
+  } catch {
+    return [...seen].filter((pid) => !excluded.has(pid));
+  }
+}
+
+async function terminatePosixSubtree(
+  processId: number,
+  processGroupId: number,
+  completion: Promise<ProcessCompletion>,
+  graceMs: number
+): Promise<void> {
+  const excluded = new Set<number>([process.pid, processGroupId]);
+  const seen = new Set<number>([processId]);
+  for (const pid of (await collectPosixSubtree(seen, excluded)).reverse()) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if (errorCode(error) !== "ESRCH") {
+        throw error;
+      }
+    }
+  }
+  await waitForCompletion(completion, graceMs);
+  for (const pid of (await collectPosixSubtree(seen, excluded)).reverse()) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (error) {
+      if (errorCode(error) !== "ESRCH") {
+        throw error;
+      }
+    }
+  }
+}
+
 async function defaultTerminateWindowsTree(
   processId: number,
   graceMs: number
@@ -367,7 +437,16 @@ implements VerificationProcessRunner {
           await this.#terminateWindowsTree(processId, graceMs);
           return;
         }
-        await terminatePosixTree(this.#processGroupId ?? processId, completion, graceMs);
+        if (this.#processGroupId !== undefined) {
+          await terminatePosixSubtree(
+            processId,
+            this.#processGroupId,
+            completion,
+            graceMs
+          );
+          return;
+        }
+        await terminatePosixTree(processId, completion, graceMs);
       }
     };
   }

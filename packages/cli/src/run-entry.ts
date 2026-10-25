@@ -1,6 +1,6 @@
 import {criteriaReviewStatus} from "./criteria-review.js";
 import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
-import {stat} from "node:fs/promises";
+import {rm, stat} from "node:fs/promises";
 import {recoverRunIntegrationAfterCleanup, validateRunIntegrationReceipt} from "../../../runtime/src/run/integration.js";
 import {pendingFindingPins} from "../../../runtime/src/run/ratchet.js";
 import {resolveReviewScope} from "../../../runtime/src/review/scope.js";
@@ -112,6 +112,102 @@ export function coordinatorWakeNote(state: RunState, coordinator: RunWorkerRecor
     .map(task => `${task.taskId} ${task.status}${task.sourceCommit === null ? "" : " " + task.sourceCommit}`);
   return (coordinator.nativeSessionId === null ? "Fresh native session after wait; the earlier conversation is unavailable. " : "") +
     `Children: ${children.join("; ")}. Review deliveries, then plan follow-up workers and wait again, or request finalization.`;
+}
+
+export function workerInstructionLines(): readonly string[] {
+  return ["Keep the original goal fixed. Read this repository's AGENTS.md and use its existing verifier authority.",
+    "Plan 2–5 substantive acceptance criteria. Submit a plan request before changing product files; the supervisor creates the task with the fixed goal.",
+    "Read the criteria advisory before implementation. Decide which suggestions to adopt and use task revise with reasons (including rejected advice). A revision does not automatically rerun criteria review; formal final proof remains required.",
+    "For every mechanically testable requirement use a configured acceptance runner; explicit review-only fallback requires a recorded reason and fresh goal review.",
+    "Implement, run targeted fast checks on changed code, commit and submit action=handoff so the supervisor runs full verification outside your context window. Do not poll full-suite verification in a loop. Repair failed checks and pin mechanically testable review findings into regression criteria. Never disable a mandatory policy verifier.",
+    "Only registered run workers may write. Use isolated worktrees and supervisor-issued leases; do not launch an unregistered writing subagent.",
+    "Commit product changes before revising the contract. A contract revision stops existing generations; dirty recovery preserves the checkout and blocks takeover.",
+    "Write one request atomically to .agent-ops/tasks/run-request.json; wait for matching run-response.json before another request.",
+    "Requests require requestId (unique alphanumeric or hyphen, max 64), workerId, generation and current contractHash.",
+    "Plan fields: action=plan,title,intent,criteria,surface (the EVIDENCE-SURFACE-001 audit object, same shape as task create --surface-file). Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered),covers (parent included surface IDs this worker delivers; every included surface needs one worker).",
+    "Only the coordinator may change execution policy: submit action=policy, configFile (relative proposed JSON), expectedPolicyHash, approvals (each changed capabilityId command:<id>/runner:<id>/setup:<index>, classification=non-dangerous, reason assessing the entire fixed definition including setup/build). Commit source changes and wait until every writer is clean before requesting policy synchronization. Never use init/update/trust grant to create permanent execution authorization. Explicit native or organization denial must not be bypassed.",
+    "Worker task baselines are frozen after dependency commits enter its checkout. Handoff fields: action=handoff,sourceFiles (explicit existing source paths when unchanged). Question fields: action=question,prompt. Coordinator wait fields: action=wait, sent once every worker is planned instead of polling run status; the supervisor stops the coordinator and starts it again, in a fresh session with a child-status diagnostic, after every child is delivered, complete or blocked. Coordinator finalize fields: action=finalize.",
+    "The supervisor, after stopping writers, runs final verification, two fresh reviews and finish. A native completed goal is never final proof."];
+}
+
+export function workerGoalPrompt(): string {
+  return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child runs targeted fast checks, commits, and requests handoff so the supervisor executes full verification; the coordinator submits action=wait after planning its children, then requests finalization once all have delivered. Never substitute native goal completion for agent-ops evidence.";
+}
+
+/** Drop the old native thread for a stopped or fenced writer on a clean checkout so repair starts without context bloat. */
+export async function resetStoppedRepairThread(
+  repository: RunRepository,
+  runId: string,
+  workerId: string,
+  generation: number,
+  cleanCheckout = true
+): Promise<RunWorkerRecord> {
+  const state = await repository.mutate(runId, current => ({
+    ...current,
+    workers: current.workers.map(w =>
+      w.workerId === workerId && w.generation === generation && ["stopped", "fenced"].includes(w.status) && cleanCheckout
+        ? {...w, nativeSessionId: null, nativeJobId: null}
+        : w)
+  }));
+  const worker = state.workers.find(w => w.workerId === workerId);
+  if (worker === undefined) throw new AgentOpsError("RUN_WORKER_NOT_FOUND", `Unknown worker ${workerId}.`);
+  return worker;
+}
+
+export type ReconciledWorkerRequest =
+  | { readonly kind: "completed"; readonly sameGeneration: boolean }
+  | { readonly kind: "rejected"; readonly code: "RUN_REQUEST_INVALID" | "RUN_REQUEST_STALE" }
+  | { readonly kind: "active"; readonly request: Record<string, unknown>; readonly donePath: string; readonly requestDigest: string };
+
+/** Check persisted requests/<sha256(requestId)>.json completion artifacts before rejecting across generations. */
+export async function reconcileWorkerRequest(options: {
+  readonly repository: RunRepository;
+  readonly directory: string;
+  readonly commonDir: string;
+  readonly runId: string;
+  readonly worker: RunWorkerRecord;
+  readonly source: string;
+  readonly requestPath: string;
+}): Promise<ReconciledWorkerRequest> {
+  const {repository, directory, commonDir, runId, worker, source, requestPath} = options;
+  async function rejectRequest(code: "RUN_REQUEST_INVALID" | "RUN_REQUEST_STALE"): Promise<ReconciledWorkerRequest> {
+    const digest = sha256(source);
+    const diagnostic = join(directory, runId, "invalid-requests", worker.workerId + "-" + worker.generation + "-" + digest + ".json");
+    if (await readPrivateFile(diagnostic, commonDir) === null) {
+      await writePrivateFile(diagnostic, canonicalJson({code, workerId: worker.workerId, generation: worker.generation, requestDigest: digest}), commonDir);
+      await repository.appendEvent(runId, {type: "diagnostic", code, workerId: worker.workerId, taskId: worker.taskId,
+        detail: "Supervisor request is malformed or stale; a diagnostic response is available in the current checkout."});
+    }
+    await writePrivateFile(join(worker.worktree!, ".agent-ops/tasks/run-response.json"), JSON.stringify({code,
+      workerId: worker.workerId, generation: worker.generation, error: "Read current run-instructions.json and replace the malformed or stale request atomically."}), worker.worktree!);
+    return {kind: "rejected", code};
+  }
+  let request: unknown;
+  try {request = JSON.parse(source);} catch {return await rejectRequest("RUN_REQUEST_INVALID");}
+  if (!plain(request) || typeof request.requestId !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(request.requestId))
+    return await rejectRequest("RUN_REQUEST_INVALID");
+  const donePath = join(directory, runId, "requests", sha256(request.requestId) + ".json");
+  const requestDigest = sha256(canonicalJson(request));
+  const completed = await readPrivateFile(donePath, commonDir);
+  if (completed !== null && request.workerId === worker.workerId) {
+    const cached: unknown = JSON.parse(completed);
+    const sameGeneration = request.generation === worker.generation;
+    if (plain(cached) && cached.requestDigest === requestDigest) {
+      if (sameGeneration)
+        await writePrivateFile(join(worker.worktree!, ".agent-ops", "tasks", "run-response.json"), JSON.stringify(cached.response), worker.worktree!);
+      await rm(requestPath, {force: true}).catch(() => {});
+      return {kind: "completed", sameGeneration};
+    }
+    if (sameGeneration) {
+      const conflict = {requestId: request.requestId, code: "RUN_REQUEST_ID_CONFLICT", error: "A request ID cannot be reused for different content."};
+      await writePrivateFile(join(worker.worktree!, ".agent-ops", "tasks", "run-response.json"), JSON.stringify(conflict), worker.worktree!);
+      await rm(requestPath, {force: true}).catch(() => {});
+      return {kind: "completed", sameGeneration: true};
+    }
+  }
+  if (request.workerId !== worker.workerId || request.generation !== worker.generation)
+    return await rejectRequest("RUN_REQUEST_STALE");
+  return {kind: "active", request, donePath, requestDigest};
 }
 
 /** Retain the structured child failure instead of hiding it behind recovery text. */
@@ -235,22 +331,10 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const content = {criteriaAdvisory: criteriaAdvice === null ? null : renderCriteriaReview(criteriaAdvice), runId, workerId: worker.workerId, generation: worker.generation, contractHash: current.currentContractHash,
         originalGoal: current.goal, answers, rootTaskId: current.rootTaskId, taskId: worker.taskId, cli, ownerSessionId: worker.ownerSessionId,
         policyConfigHash: current.policyBinding?.configHash,
-        instructions: ["Keep the original goal fixed. Read this repository's AGENTS.md and use its existing verifier authority.",
-          "Plan 2–5 substantive acceptance criteria. Submit a plan request before changing product files; the supervisor creates the task with the fixed goal.",
-          "Read the criteria advisory before implementation. Decide which suggestions to adopt and use task revise with reasons (including rejected advice). A revision does not automatically rerun criteria review; formal final proof remains required.",
-          "For every mechanically testable requirement use a configured acceptance runner; explicit review-only fallback requires a recorded reason and fresh goal review.",
-          "Implement, commit and verify. Repair failed checks and pin mechanically testable review findings into regression criteria. Never disable a mandatory policy verifier.",
-          "Only registered run workers may write. Use isolated worktrees and supervisor-issued leases; do not launch an unregistered writing subagent.",
-          "Commit product changes before revising the contract. A contract revision stops existing generations; dirty recovery preserves the checkout and blocks takeover.",
-          "Write one request atomically to .agent-ops/tasks/run-request.json; wait for matching run-response.json before another request.",
-          "Requests require requestId (unique alphanumeric or hyphen, max 64), workerId, generation and current contractHash.",
-          "Plan fields: action=plan,title,intent,criteria,surface (the EVIDENCE-SURFACE-001 audit object, same shape as task create --surface-file). Worker fields: action=worker,title,intent,criteria,dependencies (known worker task IDs; omit all acceptance baselines until dependencies are delivered),covers (parent included surface IDs this worker delivers; every included surface needs one worker).",
-          "Only the coordinator may change execution policy: submit action=policy, configFile (relative proposed JSON), expectedPolicyHash, approvals (each changed capabilityId command:<id>/runner:<id>/setup:<index>, classification=non-dangerous, reason assessing the entire fixed definition including setup/build). Commit source changes and wait until every writer is clean before requesting policy synchronization. Never use init/update/trust grant to create permanent execution authorization. Explicit native or organization denial must not be bypassed.",
-          "Worker task baselines are frozen after dependency commits enter its checkout. Handoff fields: action=handoff,sourceFiles (explicit existing source paths when unchanged). Question fields: action=question,prompt. Coordinator wait fields: action=wait, sent once every worker is planned instead of polling run status; the supervisor stops the coordinator and starts it again, in a fresh session with a child-status diagnostic, after every child is delivered, complete or blocked. Coordinator finalize fields: action=finalize.",
-          "The supervisor, after stopping writers, runs final verification, two fresh reviews and finish. A native completed goal is never final proof."], diagnostic};
+        instructions: workerInstructionLines(), diagnostic};
       const path = join(worker.worktree!, ".agent-ops", "tasks", "run-instructions.json");
       await writePrivateFile(path, JSON.stringify(content, null, 2), worker.worktree!);
-      return "Read .agent-ops/tasks/run-instructions.json and carry its immutable original goal through the evidence loop. Submit a plan if rootTaskId is null; otherwise implement and repair the assigned task. A child requests handoff after local green; the coordinator submits action=wait after planning its children, then requests finalization once all have delivered. Never substitute native goal completion for agent-ops evidence.";
+      return workerGoalPrompt();
     }
     async function start(worker: RunWorkerRecord, diagnostic?: string, resumeAt?: string): Promise<void> {
       if (await discoverPendingPolicyTransition(repository, runId) !== null)
@@ -519,7 +603,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         return;
       }
       const latest = result.state.workers.find(w => w.workerId === worker.workerId)!;
-      if (["fenced", "stopped"].includes(latest.status)) await start(latest, message);
+      if (["fenced", "stopped"].includes(latest.status)) {
+        const clean = latest.worktree !== null && (await collectChangeSurface(gitRunner(latest.worktree))).paths.length === 0;
+        const reset = await resetStoppedRepairThread(repository, runId, latest.workerId, latest.generation, clean);
+        await start(reset, message);
+      }
       else await supervisor.sendRepair(runId, worker.workerId, worker.generation, message);
     }
     async function acceptReceipt(current: RunState, path: string): Promise<void> {
@@ -669,39 +757,18 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               "Native completion has no agent-ops delivery or final receipt. Read run-instructions.json, complete the evidence loop and submit handoff or finalize.");
             continue;
           }
-          async function rejectRequest(code: string): Promise<void> {
-            const digest = sha256(source!);
-            const diagnostic = join(directory, runId, "invalid-requests", worker.workerId + "-" + worker.generation + "-" + digest + ".json");
-            if (await readPrivateFile(diagnostic, commonDir) === null) {
-              await writePrivateFile(diagnostic, canonicalJson({code, workerId: worker.workerId, generation: worker.generation, requestDigest: digest}), commonDir);
-              await repository.appendEvent(runId, {type: "diagnostic", code, workerId: worker.workerId, taskId: worker.taskId,
-                detail: "Supervisor request is malformed or stale; a diagnostic response is available in the current checkout."});
-            }
-            await writePrivateFile(join(worker.worktree!, ".agent-ops/tasks/run-response.json"), JSON.stringify({code,
-              workerId: worker.workerId, generation: worker.generation, error: "Read current run-instructions.json and replace the malformed or stale request atomically."}), worker.worktree!);
-            if (observation.nativeGoalState === "complete") await repair(worker, code,
+          const reconciled = await reconcileWorkerRequest({repository, directory, commonDir, runId, worker, source, requestPath});
+          if (reconciled.kind === "rejected") {
+            if (observation.nativeGoalState === "complete") await repair(worker, reconciled.code,
               "A malformed or stale request cannot establish completion. Read current run-instructions.json and replace run-request.json atomically.");
+            continue;
           }
-          let request: unknown;
-          try {request = JSON.parse(source);} catch {await rejectRequest("RUN_REQUEST_INVALID"); continue;}
-          if (!plain(request) || typeof request.requestId !== "string" || !/^[A-Za-z0-9-]{1,64}$/u.test(request.requestId)) {
-            await rejectRequest("RUN_REQUEST_INVALID"); continue;
-          }
-          if (request.workerId !== worker.workerId || request.generation !== worker.generation) {
-            await rejectRequest("RUN_REQUEST_STALE"); continue;
-          }
-          const donePath = join(directory, runId, "requests", sha256(request.requestId) + ".json");
-          const requestDigest = sha256(canonicalJson(request));
-          const completed = await readPrivateFile(donePath, commonDir);
-          if (completed !== null) {
-            const cached: unknown = JSON.parse(completed);
-            const response = plain(cached) && cached.requestDigest === requestDigest ? cached.response :
-              {requestId: request.requestId, code: "RUN_REQUEST_ID_CONFLICT", error: "A request ID cannot be reused for different content."};
-            await writePrivateFile(join(worker.worktree!, ".agent-ops", "tasks", "run-response.json"), JSON.stringify(response), worker.worktree!);
-            if (observation.nativeGoalState === "complete") await repair(worker, "RUN_NATIVE_COMPLETION_UNPROVEN",
+          if (reconciled.kind === "completed") {
+            if (reconciled.sameGeneration && observation.nativeGoalState === "complete") await repair(worker, "RUN_NATIVE_COMPLETION_UNPROVEN",
               "The previous request response is available, but current delivery or final proof is still missing. Continue the assigned goal and submit a new request.");
             continue;
           }
+          const {request, donePath, requestDigest} = reconciled;
           const current = (await repository.read(runId))!;
           let response: unknown;
           try {
@@ -863,6 +930,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             }
           }
           await writePrivateFile(donePath, JSON.stringify({requestDigest, response}), commonDir);
+          await rm(requestPath, {force: true}).catch(() => {});
           const after = (await repository.read(runId))!;
           if (after.status === "complete") {
             await writePrivateFile(join(directory, runId, "final-response.json"), JSON.stringify(response), commonDir);

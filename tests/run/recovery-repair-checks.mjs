@@ -154,5 +154,145 @@ export const recoveryRepairChecks = {
     });
     await heartbeatCleanupChecks['dead-heartbeat-final-proof-cleanup']();
     await heartbeatCleanupChecks['foreign-heartbeat-preserved']();
-  }
+  },
+  'repair-resets-stopped-native-thread': () => fixture(async f => {
+    const runEntry = await load('packages/cli/src/run-entry.js');
+    assert.equal(typeof runEntry.resetStoppedRepairThread, 'function', 'resetStoppedRepairThread must be exported from run-entry');
+    const lastFailure = {
+      id: 'fail-1',
+      failureClass: 'assertion-failed',
+      checkId: 'unit-test',
+      pinId: null,
+      fingerprint: 'a'.repeat(64),
+      diagnosticDigest: 'b'.repeat(64),
+      phase: 'verify',
+      progressDigest: 'c'.repeat(64),
+      round: 1,
+      observedAt: f.state.createdAt,
+      usefulProgress: false
+    };
+    const workerId = f.state.coordinatorId;
+    const baseWorker = {
+      workerId,
+      taskId: 'root-task',
+      host: 'codex',
+      ownerSessionId: 'owner-fixed',
+      nativeSessionId: 'owner-fixed',
+      nativeJobId: 'thread-gen-2',
+      worktree: f.root,
+      processId: null,
+      processIdentity: null,
+      generation: 2,
+      status: 'stopped',
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+      stopIntent: null,
+      nativeGoalState: 'inactive',
+      lastFailure
+    };
+    await f.repository.mutate(f.state.runId, s => ({
+      ...s,
+      workers: [baseWorker]
+    }));
+
+    // Dirty checkout must preserve native thread identity.
+    const dirty = await runEntry.resetStoppedRepairThread(f.repository, f.state.runId, workerId, 2, false);
+    assert.equal(dirty.nativeSessionId, 'owner-fixed', 'Dirty checkout must not reset nativeSessionId');
+    assert.equal(dirty.nativeJobId, 'thread-gen-2', 'Dirty checkout must not reset nativeJobId');
+
+    // Active running worker must preserve native thread identity.
+    await f.repository.mutate(f.state.runId, s => ({
+      ...s,
+      workers: s.workers.map(w => w.workerId === workerId ? {...w, status: 'running'} : w)
+    }));
+    const activeWorker = await runEntry.resetStoppedRepairThread(f.repository, f.state.runId, workerId, 2, true);
+    assert.equal(activeWorker.nativeSessionId, 'owner-fixed', 'Active running worker must not reset nativeSessionId');
+    assert.equal(activeWorker.nativeJobId, 'thread-gen-2', 'Active running worker must not reset nativeJobId');
+
+    // Stopped and fenced workers on a clean checkout must reset nativeSessionId and nativeJobId while keeping failure history.
+    for (const status of ['stopped', 'fenced']) {
+      await f.repository.mutate(f.state.runId, s => ({
+        ...s,
+        workers: s.workers.map(w => w.workerId === workerId ? {
+          ...w,
+          status,
+          nativeSessionId: 'owner-fixed',
+          nativeJobId: 'thread-gen-2'
+        } : w)
+      }));
+      const reset = await runEntry.resetStoppedRepairThread(f.repository, f.state.runId, workerId, 2, true);
+      assert.equal(reset.nativeSessionId, null, `${status} clean worker must reset nativeSessionId to null`);
+      assert.equal(reset.nativeJobId, null, `${status} clean worker must reset nativeJobId to null`);
+      assert.equal(reset.ownerSessionId, 'owner-fixed', 'ownerSessionId must remain intact');
+      assert.equal(reset.generation, 2, 'generation must remain intact until reassignWorker increments it');
+      assert.deepEqual(reset.lastFailure, lastFailure, 'lastFailure history must remain intact across thread reset');
+    }
+  }),
+  'codex-usage-epoch-by-native-job-id': () => fixture(async f => {
+    const {recordNativeRunUsage} = await load('runtime/src/run/usage.js');
+    const workerId = f.state.coordinatorId;
+    const baseWorker = {
+      workerId,
+      taskId: 'root-task',
+      host: 'codex',
+      ownerSessionId: 'owner-shared',
+      nativeSessionId: 'owner-shared',
+      nativeJobId: 'job-1',
+      worktree: f.root,
+      processId: null,
+      processIdentity: null,
+      generation: 1,
+      status: 'running',
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+      stopIntent: null,
+      nativeGoalState: 'active',
+      lastFailure: null
+    };
+    const makeEvent = (total, generation) => ({
+      runId: f.state.runId,
+      workerId,
+      generation,
+      contractHash: f.state.goalHash,
+      host: 'codex',
+      type: 'usage',
+      at: '2026-10-25T00:00:00Z',
+      nativeStatus: 'active',
+      proof: false,
+      payload: {tokenUsage: {total: {inputTokens: total - 2, outputTokens: 2, totalTokens: total}}}
+    });
+    await f.repository.mutate(f.state.runId, s => ({...s, workers: [baseWorker]}));
+    await recordNativeRunUsage(f.repository, makeEvent(13, 1));
+
+    await f.repository.mutate(f.state.runId, s => ({
+      ...s,
+      workers: s.workers.map(w => w.workerId === workerId ? {
+        ...w,
+        generation: 2,
+        ownerSessionId: 'owner-shared',
+        nativeSessionId: 'owner-shared',
+        nativeJobId: 'job-2'
+      } : w)
+    }));
+    await recordNativeRunUsage(f.repository, makeEvent(9, 2));
+    const afterGen2 = await f.repository.read(f.state.runId);
+    assert.equal(afterGen2.usage.length, 2, 'Distinct nativeJobId threads under the same nativeSessionId must record separate usage epochs');
+    assert.equal(afterGen2.budget.usage.tokens, 22, 'Cumulative tokens must sum across distinct nativeJobId threads without overwriting');
+
+    // Fallback when nativeJobId is null must still record usage keyed by nativeSessionId.
+    await f.repository.mutate(f.state.runId, s => ({
+      ...s,
+      workers: s.workers.map(w => w.workerId === workerId ? {
+        ...w,
+        generation: 3,
+        ownerSessionId: 'owner-fallback',
+        nativeSessionId: 'owner-fallback',
+        nativeJobId: null
+      } : w)
+    }));
+    await recordNativeRunUsage(f.repository, makeEvent(6, 3));
+    const afterFallback = await f.repository.read(f.state.runId);
+    assert.equal(afterFallback.usage.length, 3, 'Fallback when nativeJobId is null must record its own usage epoch');
+    assert.equal(afterFallback.budget.usage.tokens, 28);
+  })
 };
