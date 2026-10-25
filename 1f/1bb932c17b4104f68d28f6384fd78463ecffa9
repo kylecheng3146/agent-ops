@@ -1,0 +1,8 @@
+worktree: session-01a173c1 (agent-ops/session-01a173c1)
+session: 01a173c1-08e9-7de1-b295-2760cd069ab1
+agent-ops task task-96be4ae0-00bf-478b-8b62-4265d8f0a3df: Release 0.11.2 after cleaning merged run worktrees
+criteria:
+- release-metadata: package.json and both root lockfile version fields equal 0.11.2; dependency metadata is unchanged and the built packed CLI reports 0.11.2.
+- release-notes: CHANGELOG.md retains Unreleased and prior history and adds a dated 0.11.2 entry accurately describing the existing main changes since v0.11.1; no runtime, dependency or workflow changes are added for release preparation.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/97a8acfc98a962fc9c4bc411fd648248324af9ccc559d00340426e60932fc7f0-1f1bb932c17b4104f68d28f6384fd78463ecffa9.json
+receipt-sha256: ecbb67d50318b08dcd27373c85fdd9caa047a773ada838000586a249682d1e0b
