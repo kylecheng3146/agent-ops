@@ -6,6 +6,8 @@ import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {recordRunVerification} from "../../../runtime/src/run/verification.js";
 import {runOwnedLocalProof} from "./owned-run-step.js";
 import {runRunCommand} from "./commands/run.js";
+import {runFollowupCommand} from "./commands/followup.js";
+import {reconcileRepositoryFollowups} from "./followup-deps.js";
 import {runOfficeCommand} from "./commands/office.js";
 import {ensureBackgroundOffice, observeOfficeSession, officePhaseReporter, openOfficeBrowser, serveOffice} from "./office-entry.js";
 
@@ -363,6 +365,10 @@ process.exitCode = await runCli(
           const root = args.scope === "user"
             ? process.env.AGENT_OPS_HOME ?? homedir()
             : process.cwd();
+          if (args.scope !== "user" && !["init", "update", "uninstall", "followup", "escapes", "office"].includes(args.command)) {
+            const collected = await reconcileRepositoryFollowups(root);
+            for (const warning of collected.warnings) process.stderr.write(`Warning: ${warning}\n`);
+          }
           // Committed work is judged as a range by default; see defaultBase.
           if ((args.command === "verify" || (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {
             const taskId = args.taskId;
@@ -383,6 +389,7 @@ process.exitCode = await runCli(
             const context = await productionRunContext(root);
             return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser)});
           }
+          if (args.command === "followup") return await runFollowupCommand({args, cwd: root});
           if (args.command === "escapes") return await runEscapesCommand({root});
           if (args.command === "office") {
             return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser),

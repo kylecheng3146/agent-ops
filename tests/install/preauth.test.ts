@@ -319,8 +319,8 @@ test("without worktree auto, init writes no pre-authorization at all", async () 
 });
 
 test("the run profile adds agent-ops run to both hosts, and dropping it takes only that back", async (t) => {
-  assert.deepEqual(CLAUDE_PREAUTH_RUN_ALLOW, ["Bash(agent-ops run *)"]);
-  assert.deepEqual(CLAUDE_PREAUTH_RUN_UNSANDBOXED, ["agent-ops run", "agent-ops run *"]);
+  assert.deepEqual(CLAUDE_PREAUTH_RUN_ALLOW, ["Bash(agent-ops run *)", "Bash(agent-ops followup process *)"]);
+  assert.deepEqual(CLAUDE_PREAUTH_RUN_UNSANDBOXED, ["agent-ops run", "agent-ops run *", "agent-ops followup process", "agent-ops followup process *"]);
   const withRun = planClaudeLocalSettings(JSON.stringify(USER_SETTINGS), true, true)?.content ?? "";
   const settings = JSON.parse(withRun) as { permissions: { allow: string[] }; sandbox: { excludedCommands: string[] } };
   assert.deepEqual(settings.permissions.allow, ["Bash(npm test *)", ...CLAUDE_PREAUTH_ALLOW, ...CLAUDE_PREAUTH_RUN_ALLOW]);
@@ -338,12 +338,12 @@ test("the run profile adds agent-ops run to both hosts, and dropping it takes on
   assert.equal(codexRulesContent(false, false), null);
   const rules = codexRulesContent(true, true) ?? "";
   assert.ok(rules.startsWith(CODEX_RULES_CONTENT));
-  assert.equal(rules.match(/^prefix_rule\(/gmu)?.length, 11);
+  assert.equal(rules.match(/^prefix_rule\(/gmu)?.length, 12);
   assert.match(rules, /pattern = \["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "run"\]/u);
   assert.match(rules, /justification = "agent-ops run [^"]*outside the sandbox\."/u);
   const runRules = codexRulesContent(false, true) ?? "";
   assert.ok(runRules.startsWith(CODEX_RULES_MARKER));
-  assert.equal(runRules.match(/^prefix_rule\(/gmu)?.length, 1);
+  assert.equal(runRules.match(/^prefix_rule\(/gmu)?.length, 2);
   assert.ok(rules.endsWith(runRules.slice(CODEX_RULES_MARKER.length + 1)));
 
   const { root, codexHome } = await scratch();
@@ -374,6 +374,10 @@ test("the run profile adds agent-ops run to both hosts, and dropping it takes on
     const check = async (...command: string[]) => JSON.parse(
       (await run("codex", ["execpolicy", "check", "--rules", file, ...command])).stdout
     ) as { decision?: string };
+    const followupPrefix = ["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "followup"];
+    assert.equal((await check(...followupPrefix, "process", "followup-example", "--host", "codex")).decision, "allow");
+    for (const action of ["accept", "defer", "clarify", "import", "show", "list"])
+      assert.equal((await check(...followupPrefix, action, "followup-example")).decision, undefined);
     const prefix = ["env", "-u", "CODEX_SANDBOX_NETWORK_DISABLED", "agent-ops", "run"];
     assert.equal((await check(...prefix, "--goal-file", ".agent-ops/state/run-goal.md", "--host", "codex", "--wait")).decision, "allow");
     assert.equal((await check(...prefix, "respond", "run-1234abcd", "--question-id", "q", "--answer", "yes")).decision, "allow");

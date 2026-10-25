@@ -26,7 +26,8 @@ export const COMMAND_NAMES = [
   "worktree",
   "run",
   "office",
-  "escapes"
+  "escapes",
+  "followup"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -54,9 +55,13 @@ export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
 export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond";
-export type CliAction = RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
+export type FollowupAction = "list" | "show" | "import" | "sync" | "clarify" | "accept" | "defer" | "reopen" | "process";
+export type CliAction = FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
+  followupId?: string;
+  findingFile?: string;
+  reviewOnlyReason?: string;
   debug?: boolean;
   command: CliCommand;
   runAction?: RunAction;
@@ -217,6 +222,7 @@ function parseHookTarget(
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
+  if (argv[0] === "followup") return parseFollowupArgs(argv.slice(1));
   if (argv[0] === "run") return parseRunArgs(argv.slice(1));
   if (argv[0] === "task" && argv[1] === "debug")
     throw new CliArgumentError("TASK_DEBUG_REMOVED", "task debug was removed in 0.11.0. A DEBUG task is task create --debug with a behavioral " +
@@ -1231,5 +1237,49 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
     } else if (args.questionId !== undefined || args.answer !== undefined || args.answerFile !== undefined)
       throw new CliArgumentError("CLI_INVALID_OPTION", "Answer options require run respond.");
   }
+  return args;
+}
+
+function parseFollowupArgs(argv: readonly string[]): ParsedArgs {
+  const args: ParsedArgs = {command: "followup", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
+  if (argv.includes("--help") || argv.includes("-h")) return {...args, command: "help", helpTopic: "followup", json: argv.includes("--json")};
+  const actions: readonly FollowupAction[] = ["list", "show", "import", "sync", "clarify", "accept", "defer", "reopen", "process"];
+  const action = argv[0] === undefined || argv[0].startsWith("-") ? "list" : argv[0];
+  if (!actions.includes(action as FollowupAction)) invalidValue("followup action", action);
+  args.action = action as FollowupAction;
+  const seen = new Set<string>();
+  for (let i = argv[0] === action ? 1 : 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (!token.startsWith("-")) {
+      if (args.followupId !== undefined) throw new CliArgumentError("CLI_UNEXPECTED_ARGUMENT", "Select exactly one followup identity.");
+      if (!/^followup-[a-f0-9]{64}$/u.test(token)) invalidValue("followup identity", token);
+      args.followupId = token;
+      continue;
+    }
+    if (seen.has(token)) duplicate(token);
+    seen.add(token);
+    if (token === "--json") {args.json = true; continue;}
+    if (!["--reason", "--finding-file", "--host", "--review-only-reason"].includes(token))
+      throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown followup option: ${token}`, token);
+    const value = readOptionValue(argv, i++, token);
+    if (value.trim() === "" || value.includes("\0")) invalidValue(token, value);
+    if (token === "--reason") args.reason = value;
+    if (token === "--finding-file") args.findingFile = value;
+    if (token === "--review-only-reason") args.reviewOnlyReason = value;
+    if (token === "--host") {
+      if (value !== "claude" && value !== "codex") invalidValue(token, value);
+      args.host = value as "claude" | "codex";
+    }
+  }
+  const selectsItem = !["list", "import", "sync"].includes(action);
+  if (selectsItem !== (args.followupId !== undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "This action requires exactly one followup identity; list/import/sync take none.");
+  if ((args.reason !== undefined && !["accept", "defer", "reopen", "clarify"].includes(action)) ||
+      (args.findingFile !== undefined && action !== "clarify") ||
+      ((args.host !== undefined || args.reviewOnlyReason !== undefined) && action !== "process"))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "Option does not apply to this followup action.");
+  if ((["accept", "defer", "clarify"].includes(action) && args.reason === undefined) ||
+      (action === "clarify" && args.findingFile === undefined) || (action === "process" && args.host === undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "Accept/defer/clarify need --reason; clarify needs --finding-file; process needs --host.");
   return args;
 }

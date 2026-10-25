@@ -54,6 +54,7 @@ Commands:
   review     Run an independent review or show recorded reports
   run        Start or control a supervised Claude/Codex native goal
   office     Open the local pixel office (Preview; opt-in)
+  followup   Collect and process retained review findings and risk observations
   escapes    Report escaped bugs, gate catches and learned rules (read-only)
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
@@ -101,6 +102,30 @@ Options:
  * rejected.
  */
 export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
+  followup: `Usage: agent-ops followup [list] [--json]
+       agent-ops followup <show|reopen> <followup-id> [--json]
+       agent-ops followup <import|sync> [--json]
+       agent-ops followup <accept|defer> <followup-id> --reason <text> [--json]
+       agent-ops followup clarify <followup-id> --finding-file <json> --reason <text> [--json]
+       agent-ops followup process <followup-id> --host <claude|codex> [--review-only-reason <text>] [--json]
+
+Receipt collection and history import are metadata-only: no model calls or repairs.
+State is private under the Git common directory, shared by linked worktrees.
+Text observations require a concrete nonblocking ReviewFinding JSON clarification
+(severity, blocking=false, title, details, locations, evidence, recommendation,
+criterionIds). Accept/defer require a reason; neither resolves the finding.
+Reopen retains history. Process again to revalidate a selected candidate.
+Process authorizes independent current-source assessment and a new bounded native
+repair only when conclusively PRESENT. UNKNOWN stays unresolved. Native start
+refusals retain the item and exact reason; macOS, clean main, checked-out target,
+trust, run policy and native controls still apply. Run through the trusted outer
+host as: env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops followup process ...
+ABSENT closure requires an explicit justified review-only contract and two fresh
+reviews. Reproducible bugs require corresponding behavioral red-to-green proof.
+Closure records the exact commit and finding-specific evidence; generic PASS,
+changed paths, completed run status, acceptance and deferral cannot resolve.
+Collection warnings are advisory and retryable with followup import.
+`,
   escapes: `Usage: agent-ops escapes [--json]
 
 Read-only Escape Loop report: misses per gate from the tracked

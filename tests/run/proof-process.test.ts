@@ -47,7 +47,7 @@ test("canceling a registered proof group kills a TERM-resistant managed descenda
     await writeFile(join(root, "package.json"), '{"type":"module"}');
     await copyFile(fileURLToPath(new URL("../../packages/cli/src/run-step-entry.js", import.meta.url)), entry);
     const runner = new URL("../../runtime/src/verify/spawn.js", import.meta.url).href;
-    const program = `require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)); process.on('SIGTERM',()=>{}); setInterval(()=>{},1000);`;
+    const program = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)); setInterval(()=>{},1000);`;
     await writeFile(cli, `import {registeredRunProofRunner} from ${JSON.stringify(runner)}; const child=registeredRunProofRunner().start({command:process.execPath,args:['-e',${JSON.stringify(program)}],cwd:process.cwd(),shell:false}); await child.completion;`);
     const child = spawn(process.execPath, [entry, cli], {detached: true, stdio: ["pipe", "pipe", "pipe"]});
     group = child.pid;

@@ -45,8 +45,8 @@ export const CLAUDE_PREAUTH_UNSANDBOXED: readonly string[] = [
 ];
 
 /** Added with the `run` profile: `agent-ops run` starts a launchd supervisor. */
-export const CLAUDE_PREAUTH_RUN_ALLOW: readonly string[] = ["Bash(agent-ops run *)"];
-export const CLAUDE_PREAUTH_RUN_UNSANDBOXED: readonly string[] = ["agent-ops run", "agent-ops run *"];
+export const CLAUDE_PREAUTH_RUN_ALLOW: readonly string[] = ["Bash(agent-ops run *)", "Bash(agent-ops followup process *)"];
+export const CLAUDE_PREAUTH_RUN_UNSANDBOXED: readonly string[] = ["agent-ops run", "agent-ops run *", "agent-ops followup process", "agent-ops followup process *"];
 
 export const CODEX_RULES_PATH = "rules/agent-ops.rules";
 export const CODEX_RULES_MARKER =
@@ -163,10 +163,18 @@ export const CODEX_RUN_RULE = rule({
   notMatch: "env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops trust grant --scope project --yes"
 });
 
+export const CODEX_FOLLOWUP_RULE = rule({
+  withHost: false,
+  command: ["followup", "process"],
+  justification: "agent-ops followup process assesses one selected item and may start a native repair outside the sandbox.",
+  match: "env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops followup process followup-example --host codex",
+  notMatch: "env -u CODEX_SANDBOX_NETWORK_DISABLED agent-ops followup accept followup-example --reason accepted"
+});
+
 /** The rules file for worktree auto mode and the `run` profile, or null for neither. */
 export function codexRulesContent(worktree: boolean, run: boolean): string | null {
   if (!run) return worktree ? CODEX_RULES_CONTENT : null;
-  return `${worktree ? CODEX_RULES_CONTENT : `${CODEX_RULES_MARKER}\n`}${CODEX_RUN_RULE}\n`;
+  return `${worktree ? CODEX_RULES_CONTENT : `${CODEX_RULES_MARKER}\n`}${CODEX_RUN_RULE}\n${CODEX_FOLLOWUP_RULE}\n`;
 }
 
 export interface PreauthChange {
@@ -367,7 +375,7 @@ async function codexChange(
           content,
           expectedHash: current?.hash ?? null
         },
-        summary: `Writes ${join(codexHome, CODEX_RULES_PATH)}: allow rules for ${desired ? `agent-ops review, batch, ${run ? "run, " : ""}doctor --check-auth, worktree commit and lint-staged` : "agent-ops run"}.`,
+        summary: `Writes ${join(codexHome, CODEX_RULES_PATH)}: allow rules for ${desired ? `agent-ops review, batch, ${run ? "run, followup process, " : ""}doctor --check-auth, worktree commit and lint-staged` : "agent-ops run and followup process"}.`,
         ownedContent: true
       };
 }
@@ -382,7 +390,7 @@ export async function planPreauth(options: {
   readonly scope: InstallScope;
   readonly harness: Harness;
   readonly desired: boolean;
-  /** The `run` profile: pre-authorize `agent-ops run`, and nothing else on its own. */
+  /** The `run` profile: pre-authorize native run and selected followup processing only. */
   readonly run?: boolean;
   readonly codexHome?: string;
 }): Promise<readonly PreauthChange[]> {
