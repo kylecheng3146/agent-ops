@@ -40,6 +40,16 @@ wait。回答只消耗此 run 當前 generation 的等待，記錄 `RUN_COORDINA
 發出新 generation。一般 resume 或重播舊回答不得解除新的 wait。child 交付、失敗
 歷史與 policy binding 保持原樣；回答本身不授予額外 command capability。
 
+Run-level proof MUST 符合已保存的 proof PID、process group、程序啟動身分，以及
+目前 coordinator ID 與 generation。此 actor 可讀取 main root 與已註冊 worker
+checkout 的 run policy，包括整合時已交付的 child，且不需改寫其 worker 環境。
+Worker-local proof 仍限於自己的 checkout 與 worker 身分，其紀錄 MUST NOT 遮蔽
+獨立驗證通過的 run-level proof。一般 checkout record 與 integration ownership
+檢查仍有效。錯誤 actor、group、generation 或未註冊 checkout 回傳
+`RUN_WORKER_STALE`；身分核對後，inactive、disabled 或 awaiting-resume run 仍回傳
+`RUN_POLICY_DISABLED`。讀取 policy 不授予額外 capability，也不改動 config、trust、
+registration 或 delivery state。
+
 已知限制：內層 verification command 逾時可能終止共用的 proof 程序群組，使 evidence
 CLI 來不及輸出 JSON。本次 response 恢復沒有修復此程序隔離缺陷；可由既有
 coordinator policy 流程評估有界、僅限該 run 的 command timeout，並保留失敗紀錄。

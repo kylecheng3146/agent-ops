@@ -102,6 +102,18 @@ fresh generation within the job limit. Ordinary resume and replayed answers do
 not consume a new wait. Child delivery, failure history and policy bindings remain
 unchanged; an answer itself grants no additional command capability.
 
+A run-level proof MUST match its persisted proof PID, process group and process
+start identity, plus the current coordinator ID and generation. That actor may
+read the run policy for the main root and registered worker checkouts, including
+delivered children during integration, without changing its worker environment.
+Worker-local proof remains bound to its own checkout and worker identity; its
+record MUST NOT shadow an independently authenticated run-level proof. Ordinary
+checkout record checks and integration ownership checks remain authoritative.
+Invalid actor, group, generation or unregistered checkout claims return
+`RUN_WORKER_STALE`; an inactive, disabled or awaiting-resume run still returns
+`RUN_POLICY_DISABLED` after identity validation. Policy reads grant no additional
+capability and do not alter config, trust, registration or delivery state.
+
 Known limitation: an inner verification command timeout can terminate the shared
 proof process group before the evidence CLI emits JSON. Response recovery does
 not fix this process isolation defect; a bounded run-only command timeout may be
