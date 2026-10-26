@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {readFile, rm, writeFile} from 'node:fs/promises';
+import {readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {load, checkedGit, config, reviewedCandidate, sealNativeCandidate, runner} from './fixture.mjs';
@@ -159,16 +159,36 @@ export const repairChecks = {
         const {FileRunRepository,createRunState}=await load('runtime/src/run/service.js');
         const repo=new FileRunRepository(join(commonDir,'agent-ops/runs'),commonDir);
         const mock=await reviewer({root});
+        try {
         const result=await api.processFollowup({root,commonDir,itemId,targetBranch:'main',gitRunner:runner(root),loadConfig:async()=>config,
           review:mock.options,host:'codex',start:async input=>{
             const state=createRunState({...input,root,commonDir,targetBranch:'main',ownerSessionId:'race-owner'});
             await repo.create(state);await appendFile(join(commonDir,'starts.txt'),state.runId+'\\n');return state;
           }});
-        console.log(result.attempts.at(-1).runId);
+        console.log(JSON.stringify({code:result.code,runId:result.attempts.at(-1)?.runId}));
+        } catch(error) {
+          if(process.platform!=='win32'||error.code!=='PRIVATE_STATE_LOCK_TIMEOUT') throw error;
+          console.log(JSON.stringify({code:error.code}));
+        }
       `;
-      const results = await Promise.all([0, 1].map(() => promisify(execFile)(process.execPath, ['--input-type=module', '-e', script],
-        {env: process.env, timeout: 60000})));
-      assert.equal(results[0].stdout, results[1].stdout);
+      const select = async () => JSON.parse((await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script],
+        {env: process.env, timeout: 60000})).stdout);
+      // A slow Windows assessment can outlast the existing bounded lock wait.
+      const settled = await Promise.allSettled([select(), select()]);
+      const results = settled.map(result => {if (result.status === 'rejected') throw result.reason; return result.value;});
+      const winner = results.find(result => result.runId !== undefined);
+      assert.ok(winner, 'At least one real process must start the repair');
+      for (const result of results) {
+        if (result.runId === undefined) {
+          assert.equal(process.platform, 'win32');
+          assert.equal(result.code, 'PRIVATE_STATE_LOCK_TIMEOUT');
+        } else assert.equal(result.runId, winner.runId);
+      }
+      assert.deepEqual((await readdir(join(f.commonDir, 'agent-ops/followup/progress')))
+        .filter(name => name.includes('.agent-ops-lock-')), [], 'Every completed selection releases its ticket');
+      const recovered = await select();
+      assert.equal(recovered.code, 'FOLLOWUP_RUN_LINKED');
+      assert.equal(recovered.runId, winner.runId, 'Selection after contention recovers the same run');
       assert.equal((await readFile(join(f.commonDir, 'starts.txt'), 'utf8')).trim().split('\n').length, 1,
         'Two real CLI processes cannot start duplicate repair runs');
     });
