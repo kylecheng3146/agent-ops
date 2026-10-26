@@ -79,22 +79,25 @@ export const repairChecks = {
         const {CLI_VERSION} = await load('packages/cli/src/version.js');
         const trusted = (await loadEffectiveConfig(f.root, 'project')).config;
         await trustStore().grant(await repositoryTrustBinding(f.root, trusted, CLI_VERSION));
-        const fresh = await reviewer(f);
-        const started = await api.processFollowup({...options(fresh.options), host: 'codex', start: async input => {
-          const run = await productionRunContext(f.root, {launchd: launchd(true)});
-          return (await run.service.start({...input, root: f.root, commonDir: f.commonDir, targetBranch: 'main', ownerSessionId: 'fixture'})).state;
-        }});
-        assert.equal(started.code, 'FOLLOWUP_RUN_STARTED');
-        const {FileRunRepository} = await load('runtime/src/run/service.js');
-        const repository = new FileRunRepository(join(f.commonDir, 'agent-ops/runs'), f.commonDir);
-        const production = await repository.read(started.attempts.at(-1).runId);
-        assert.ok(production.policyBinding); assert.equal(production.workers[0].status, 'assigned');
-        assert.equal(production.goal, started.attempts.at(-1).goal);
-        await repository.mutate(production.runId, state => ({...state, status: 'failed', disableRestart: true}));
-        assert.equal((await api.processFollowup({...options(fresh.options), host: 'codex', start: memory.start})).status, 'linked');
-        assert.equal(memory.calls.length, 0, 'A failed production run retains its assigned writer instead of starting another');
-        await repository.mutate(production.runId, state => ({...state, status: 'failed', disableRestart: true,
-          workers: state.workers.map(w => ({...w, status: 'stopped'}))}));
+        // The launchd fake does not replace the real macOS GUI audit session.
+        if (process.platform === 'darwin') {
+          const fresh = await reviewer(f);
+          const started = await api.processFollowup({...options(fresh.options), host: 'codex', start: async input => {
+            const run = await productionRunContext(f.root, {launchd: launchd(true)});
+            return (await run.service.start({...input, root: f.root, commonDir: f.commonDir, targetBranch: 'main', ownerSessionId: 'fixture'})).state;
+          }});
+          assert.equal(started.code, 'FOLLOWUP_RUN_STARTED');
+          const {FileRunRepository} = await load('runtime/src/run/service.js');
+          const repository = new FileRunRepository(join(f.commonDir, 'agent-ops/runs'), f.commonDir);
+          const production = await repository.read(started.attempts.at(-1).runId);
+          assert.ok(production.policyBinding); assert.equal(production.workers[0].status, 'assigned');
+          assert.equal(production.goal, started.attempts.at(-1).goal);
+          await repository.mutate(production.runId, state => ({...state, status: 'failed', disableRestart: true}));
+          assert.equal((await api.processFollowup({...options(fresh.options), host: 'codex', start: memory.start})).status, 'linked');
+          assert.equal(memory.calls.length, 0, 'A failed production run retains its assigned writer instead of starting another');
+          await repository.mutate(production.runId, state => ({...state, status: 'failed', disableRestart: true,
+            workers: state.workers.map(w => ({...w, status: 'stopped'}))}));
+        }
         const {productionFollowupContext} = await load('packages/cli/src/followup-deps.js');
         const context = await productionFollowupContext(f.root);
         assert.deepEqual((await context.assessmentOptions(item.id)).review.targets, []);

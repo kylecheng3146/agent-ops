@@ -133,6 +133,11 @@ export const cliChecks = {
       assert.equal(result.envelope.data.progress.status, 'unresolved');
       await checkedGit(f.root, ['worktree', 'remove', '.worktrees/linked']);
       await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify(config));
+      // Native success also needs the real macOS GUI audit session.
+      if (process.platform !== 'darwin') {
+        assert.equal(await readFile(item.provenance.receiptPath, 'utf8'), original);
+        return;
+      }
       const {processFollowup, readFollowupProgress, followupResolutionDescription} = await load('runtime/src/followup/process.js');
       const {productionRunContext} = await load('packages/cli/src/run-deps.js');
       const {loadEffectiveConfig, repositoryTrustBinding} = await load('packages/cli/src/context.js');
