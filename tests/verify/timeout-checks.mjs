@@ -144,11 +144,19 @@ const raw = {
       if (grandPid !== null) {
         try { process.kill(grandPid, 0); grandAlive = true; process.kill(grandPid, 'SIGKILL'); } catch {}
       }
-      const normalRunner = new NodeVerificationProcessRunner();
+      let normalTerminationError;
+      const nativeNormalRunner = new NodeVerificationProcessRunner();
+      const normalRunner = {start(request) {
+        const running = nativeNormalRunner.start(request);
+        return {...running, terminateTree: async grace => {
+          try {await running.terminateTree(grace);}
+          catch(error) {normalTerminationError = {pid: running.pid, code: error.code, message: error.message}; throw error;}
+        }};
+      }};
       const normalResult = await runVerificationCommand({
         id: 'slow-normal-cmd',
-        command: process.execPath,
-        args: ['-e', 'setTimeout(() => {}, 2000)'],
+        command: 'sleep',
+        args: ['2'],
         cwd: '.',
         required: true,
         timeoutMs: 150
@@ -165,7 +173,8 @@ const raw = {
         sharedTimedOut: sharedResult.timedOut,
         sharedFailureClass: sharedResult.failureClass,
         normalTimedOut: normalResult.timedOut,
-        normalFailureClass: normalResult.failureClass
+        normalFailureClass: normalResult.failureClass,
+        normalTerminationError
       }));
     `;
     const probe = await new Promise((resolveProbe, rejectProbe) => {
@@ -188,7 +197,7 @@ const raw = {
     assert.ok(typeof data.grandPid === 'number' && data.grandPid > 0, 'Timed-out command must have spawned its child process');
     assert.equal(data.grandAlive, false, 'Timed-out command descendant subtree must be terminated');
     assert.equal(data.normalTimedOut, true, 'Non-shared runner timeout must still report timedOut=true');
-    assert.equal(data.normalFailureClass, 'timeout', 'Non-shared runner timeout must still classify as timeout');
+    assert.equal(data.normalFailureClass, 'timeout', 'Non-shared runner timeout must still classify as timeout: ' + JSON.stringify(data.normalTerminationError));
   },
 
   'tree-verification-shares-passing-command': async () => {
