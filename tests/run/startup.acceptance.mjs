@@ -150,6 +150,7 @@ const executionId = process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-star
 const phase = process.env.AGENT_OPS_ACCEPTANCE_PHASE ?? 'candidate';
 const results = [];
 for (const [checkId, check] of Object.entries(checks)) {
+  process.stderr.write(`startup: ${checkId}\n`);
   let status = 'PASS', failureClass = 'none', detail = 'Real Git/process assertions completed';
   try {await check();} catch (e) {status = 'FAIL'; failureClass = e.code === 'ERR_ASSERTION' ? 'assertion-failed' : 'infrastructure-error'; detail = String(e.stack ?? e).replace(/[\r\n]/gu, ' ').slice(0,4000);}
   results.push({executionId, phase, framework: 'node-assert', frameworkVersion: '1', checkId, status, failureClass, attempts: 1, evidence: [detail]});

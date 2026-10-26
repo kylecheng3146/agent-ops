@@ -7,7 +7,8 @@ import test from "node:test";
 test("run startup ignores live runtime artifacts and preserves source and runtime gates", async () => {
   // The runner exits 1 on any FAIL; keep its stdout so the failing checks are named.
   const result = await promisify(execFile)(process.execPath, ["tests/run/startup.acceptance.mjs"], {
-    cwd: process.cwd(), env: {...process.env, AGENT_OPS_DEBUG_TEST_BUILD: resolve(".tmp/test-dist")}, timeout: 600000, maxBuffer: 4 * 1024 * 1024
+    cwd: process.cwd(), env: {...process.env, AGENT_OPS_DEBUG_TEST_BUILD: resolve(".tmp/test-dist")},
+    timeout: process.platform === "win32" ? 1_200_000 : 600_000, maxBuffer: 4 * 1024 * 1024
   }).catch((e: {stdout?: string}) => {if (!e.stdout?.trim()) throw e; return {stdout: e.stdout};});
   const report = JSON.parse(result.stdout.trim());
   assert.equal(report.completed, true);

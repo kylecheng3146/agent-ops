@@ -385,14 +385,13 @@ test("POSIX timeout kills descendants after the group leader exits", {
     for (;;) {
       try {
         descendantPid = Number(await readFile(pidPath, "utf8"));
-        assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0);
-        assert.ok((await readFile(heartbeatPath, "utf8")).length > 0);
-        break;
+        if (Number.isSafeInteger(descendantPid) && descendantPid > 0 &&
+            (await readFile(heartbeatPath, "utf8")).length > 0) break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        assert.ok(Date.now() < deadline, "descendant must become ready before the real deadline");
-        await pause(20);
       }
+      assert.ok(Date.now() < deadline, "descendant must become ready before the real deadline");
+      await pause(20);
     }
     t.mock.timers.tick(300);
     t.mock.timers.reset();
