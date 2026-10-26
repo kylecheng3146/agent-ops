@@ -108,6 +108,8 @@ const raw = {
   },
 
   'proof-group-timeout-isolation': async () => {
+    // Windows uses tree termination; this probe requires a shared POSIX group.
+    if (process.platform === 'win32') return;
     const {spawn} = await import('node:child_process');
     const spawnUrl = pathToFileURL(join(build, 'runtime/src/verify/spawn.js')).href;
     const probeScript = `

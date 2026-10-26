@@ -39,7 +39,7 @@ export async function reviewer(f, scripts = [report(), report()], extra = {}) {
     let end;
     const completion = script.hang ? new Promise(resolve => {end = resolve;}) : Promise.resolve().then(async () => {
       assert.notEqual(request.cwd, f.root);
-      assert.equal(await readFile(join(request.cwd, 'source.txt'), 'utf8'), 'candidate candidate\n');
+      assert.equal((await readFile(join(request.cwd, 'source.txt'), 'utf8')).replace(/\r\n/gu, '\n'), 'candidate candidate\n');
       assert.ok(request.args.includes('--permission-mode') && request.args.includes('plan'));
       assert.ok(request.args.includes('--safe-mode') && request.args.includes('--no-session-persistence'));
       assert.match(request.stdin, /original.*provenance.*finding/su);

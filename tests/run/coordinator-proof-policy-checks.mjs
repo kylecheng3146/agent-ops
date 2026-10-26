@@ -130,6 +130,8 @@ async function probe(mode) {
 }
 
 async function isolated(mode) {
+  // Native proof binding requires POSIX process groups and ps identity fields.
+  if (process.platform === 'win32') return;
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--probe', mode], {detached: true, stdio: ['ignore', 'pipe', 'pipe']});
   let diagnostic = '';
   child.stdout.on('data', b => {diagnostic = (diagnostic + b).slice(-65536);});

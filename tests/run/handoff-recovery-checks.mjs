@@ -109,6 +109,8 @@ async function productionBoundary() {
 
 export const handoffRecoveryChecks = {
   'controlled-step-failure-diagnostics': async () => {
+    // The native proof entry reconciles POSIX process groups on child exit.
+    if (process.platform === 'win32') return;
     await diagnostic(`process.stderr.write('handoff-marker token=private-fixture-secret\\n'); process.exit(23);`,async ({error,saved}) => {
       assert.equal(error?.code,'RUN_FINAL_PROOF_INTERRUPTED');
       assert.match(error.message,/handoff-marker/,'An interrupted proof must retain the actual subprocess diagnostic');
