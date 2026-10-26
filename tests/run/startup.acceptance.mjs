@@ -26,6 +26,7 @@ import {cliChecks} from '../followup/cli-checks.mjs';
 import {handoffRecoveryChecks} from './handoff-recovery-checks.mjs';
 import {coordinatorResponseChecks} from './coordinator-response-checks.mjs';
 import {coordinatorProofPolicyChecks} from './coordinator-proof-policy-checks.mjs';
+import {privateWriteChecks} from '../security/private-write-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -67,6 +68,7 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...privateWriteChecks,
   ...cliChecks,
   ...repairChecks,
   ...assessmentChecks,

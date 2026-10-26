@@ -788,7 +788,21 @@ export async function writePrivateFile(
     await handle.close();
     handle = undefined;
     await chmod(temporaryPath, 0o600);
-    await rename(temporaryPath, path);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rename(temporaryPath, path);
+        break;
+      } catch (error) {
+        // Windows readers can temporarily deny replacement of an existing file.
+        if (process.platform !== "win32" || attempt >= 4 ||
+          typeof error !== "object" || error === null || !("code" in error) ||
+          !["EPERM", "EACCES", "EBUSY"].includes(String(error.code))) {
+          throw error;
+        }
+        await delay(50 * (attempt + 1));
+        await inspectPath(path, anchorDirectory, "file");
+      }
+    }
     await chmod(path, 0o600);
     await syncDirectory(parent);
   } catch (error) {

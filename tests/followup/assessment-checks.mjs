@@ -51,7 +51,7 @@ export async function reviewer(f, scripts = [report(), report()], extra = {}) {
       stderr: bytes(''), completion, terminateTree: async () => end?.({exitCode: null, signal: 'SIGTERM'})};
   }};
   return {calls, helps, options: {targets: ['claude'], runner: processRunner,
-    probeBind: async () => true, preflightTarget: async () => 'ok', env: {}, timeoutMs: 2000, ...extra}};
+    probeBind: async () => true, preflightTarget: async () => 'ok', env: {}, timeoutMs: process.platform === 'win32' ? 10000 : 2000, ...extra}};
 }
 
 export async function withAssessment(check) {
