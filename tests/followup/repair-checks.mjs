@@ -228,7 +228,7 @@ export const repairChecks = {
     });
     const originalRunners = config.verification.acceptanceRunners;
     try {
-      config.verification.acceptanceRunners = [{id: 'specific-branch', command: 'node', args: ['check.mjs'], cwd: '.', adapter: 'generic'}];
+      config.verification.acceptanceRunners = [{id: 'specific-branch', command: process.execPath, args: ['check.mjs'], cwd: '.', adapter: 'generic'}];
       await withAssessment(async ({f, item, options}) => {
         const memory = await startFixture(f), mock = await reviewer(f);
         const linked = await api.processFollowup({...options(mock.options), host: 'codex', start: memory.start});
@@ -238,7 +238,7 @@ export const repairChecks = {
           acceptance: {mode: 'behavioral', baselineCommit: baseline, bindings: [{runnerId: 'specific-branch', checkIds: ['original-branch'], redCheckIds: ['original-branch'],
             materials: [{path: 'check.mjs', role: 'test'}]}]}}, {id: 'regression', description: 'Preserve normal behavior.', verifierIds: ['node-test']}];
         const script = `import {readFileSync} from 'node:fs';
-          const pass=readFileSync('source.txt','utf8')==='repair candidate\\n';
+          const pass=readFileSync('source.txt','utf8').replace(/\\r\\n/gu,'\\n')==='repair candidate\\n';
           const executionId=process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID,phase=process.env.AGENT_OPS_ACCEPTANCE_PHASE;
           console.log(JSON.stringify({protocolVersion:1,executionId,phase,framework:'node-assert',frameworkVersion:'1',completed:true,
             completionEvidence:['The original source branch was asserted'],diagnostics:[],results:[{executionId,phase,framework:'node-assert',frameworkVersion:'1',
