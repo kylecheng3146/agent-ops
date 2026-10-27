@@ -2,7 +2,7 @@ import {homedir} from "node:os";
 import {join} from "node:path";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import type {AgentTask} from "../../../runtime/src/contracts.js";
-import {runCriteriaReview, readCriteriaReview, renderCriteriaReview, type CriteriaReviewView} from "../../../runtime/src/review/criteria.js";
+import {runCriteriaReview, readCriteriaReview, renderCriteriaReview, revisionReviewDue, type CriteriaReviewTrigger, type CriteriaReviewView} from "../../../runtime/src/review/criteria.js";
 import {registeredRunProofRunner} from "../../../runtime/src/verify/spawn.js";
 import {appendLocalLog} from "../../../runtime/src/logging/local-log.js";
 import {localStatePaths} from "../../../runtime/src/security/permissions.js";
@@ -26,7 +26,7 @@ export async function criteriaReviewStatus(root: string, task: AgentTask): Promi
 }
 
 /** Only production creation/explicit review installs this hook; TaskService stays model-free. */
-export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun = false): Promise<CriteriaReviewView> {
+export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun = false, trigger?: CriteriaReviewTrigger): Promise<CriteriaReviewView> {
   const controller = new AbortController();
   const interrupt = (signal: "SIGINT" | "SIGTERM"): void => {controller.abort(signal);};
   const int = (): void => interrupt("SIGINT"), term = (): void => interrupt("SIGTERM");
@@ -39,7 +39,7 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
     const parent = await parentScope(root, task).catch(() => undefined);
     process.stderr.write(`Criteria advisory for ${task.id}: waiting for one independent reviewer (no time budget; Ctrl-C cancels).\n`);
     let result = await runCriteriaReview({root, task, parent, target, model: role?.model, effort: role?.effort,
-      rerun, signal: controller.signal, runner: registeredRunProofRunner(),
+      rerun, ...(trigger === undefined ? {} : {trigger}), signal: controller.signal, runner: registeredRunProofRunner(),
       unavailableCode: config === undefined ? "CRITERIA_REVIEW_CONFIG_UNAVAILABLE" : target === undefined && role !== undefined ? "CRITERIA_REVIEW_NO_INDEPENDENT_TARGET" : "CRITERIA_REVIEW_UNCONFIGURED",
       log: async (report, path) => {
         const state = localStatePaths(process.env.AGENT_OPS_HOME ?? homedir());
@@ -55,4 +55,10 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
     process.stderr.write(renderCriteriaReview(result) + "\n");
     return result;
   } finally {process.removeListener("SIGINT", int); process.removeListener("SIGTERM", term);}
+}
+
+/** A revise that changed what the advice judged reruns it once; otherwise it reports the current advisory. */
+export async function reviewRevisedCriteria(root: string, task: AgentTask): Promise<CriteriaReviewView | null> {
+  const view = await criteriaReviewStatus(root, task);
+  return revisionReviewDue(view) ? await reviewCreatedCriteria(root, task, true, "revise") : view;
 }

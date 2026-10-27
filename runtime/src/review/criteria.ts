@@ -70,6 +70,8 @@ export function criteriaReviewPrompt(snapshot: Record<string, unknown>): string 
     JSON.stringify(CRITERIA_REVIEW_SCHEMA), "BEGIN UNTRUSTED DATA", canonicalJson(redactData(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
 export type CriteriaReviewStatus = "RUNNING" | "COMPLETED" | "NOT_RUN" | "CANCELLED";
+/** Why the round ran: task creation, an explicit --rerun, or the one automatic rerun after a substantive revise. */
+export type CriteriaReviewTrigger = "create" | "rerun" | "revise";
 export interface CriteriaReviewReport {
   kind: "criteria-advisory";
   taskId: string;
@@ -86,6 +88,8 @@ export interface CriteriaReviewReport {
   target?: ReviewTargetId;
   advice?: CriteriaAdvice;
   usage?: ReviewUsage;
+  /** Absent on reports written before triggers existed: an initial or explicit round. */
+  trigger?: CriteriaReviewTrigger;
 }
 export interface CriteriaReviewView {
   report: CriteriaReviewReport;
@@ -102,6 +106,7 @@ export interface CriteriaReviewOptions {
   effort?: string;
   unavailableCode?: string;
   rerun?: boolean;
+  trigger?: CriteriaReviewTrigger;
   signal?: AbortSignal;
   runner?: VerificationProcessRunner;
   log?: (report: CriteriaReviewReport, path: string) => Promise<void>;
@@ -115,13 +120,14 @@ async function readReport(path: string, root: string): Promise<CriteriaReviewRep
   if (source === null) return null;
   if (Buffer.byteLength(source) > 512 * 1024) throw new Error("Advisory artifact exceeds limit.");
   const value: unknown = JSON.parse(source);
-  if (!record(value) || Object.keys(value).some(key => !["kind", "taskId", "attemptId", "snapshotHash", "snapshot", "status", "code", "startedAt", "durationMs", "invocations", "ownerPid", "ownerIdentity", "target", "advice", "usage"].includes(key)) ||
+  if (!record(value) || Object.keys(value).some(key => !["kind", "taskId", "attemptId", "snapshotHash", "snapshot", "status", "code", "startedAt", "durationMs", "invocations", "ownerPid", "ownerIdentity", "target", "advice", "usage", "trigger"].includes(key)) ||
     value.kind !== "criteria-advisory" || !validText(value.taskId) || typeof value.attemptId !== "string" || !/^[a-f0-9-]{36}$/u.test(value.attemptId) ||
     !Number.isSafeInteger(value.ownerPid) || (value.ownerPid as number) < 1 ||
     (value.ownerIdentity !== null && !validText(value.ownerIdentity)) ||
     !validText(value.code) || !validText(value.startedAt) || !Number.isFinite(Date.parse(value.startedAt)) ||
     !Number.isSafeInteger(value.durationMs) || (value.durationMs as number) < 0 || ![0, 1].includes(value.invocations as number) ||
     (value.target !== undefined && !["agy", "claude", "codex"].includes(String(value.target))) ||
+    (value.trigger !== undefined && !["create", "rerun", "revise"].includes(String(value.trigger))) ||
     (value.usage !== undefined && (!record(value.usage) || Object.entries(value.usage).some(([key, n]) =>
       !["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd"].includes(key) || typeof n !== "number" || !Number.isFinite(n) || n < 0))) ||
     typeof value.snapshotHash !== "string" || !/^[a-f0-9]{64}$/u.test(value.snapshotHash) || !record(value.snapshot) ||
@@ -137,11 +143,27 @@ async function ownerAlive(report: CriteriaReviewReport): Promise<boolean> {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
+/**
+ * The surface audit is reviewed but is not what the advice is about: classifying
+ * one more discovery hit must not make the criteria look unreviewed. The stored
+ * snapshot is redacted, so the current one is redacted the same way.
+ */
+function criteriaCore(snapshot: Record<string, unknown>): string {
+  const {surface: _surface, ...core} = snapshot;
+  return canonicalJson(core);
+}
+function coreChanged(report: CriteriaReviewReport, snapshot: Record<string, unknown>): boolean {
+  return criteriaCore(report.snapshot) !== criteriaCore(redactData(snapshot) as Record<string, unknown>);
+}
+/** One automatic round after a substantive revise; after it only an explicit --rerun makes another due. */
+export function revisionReviewDue(view: CriteriaReviewView | null): boolean {
+  return view !== null && view.stale && view.report.trigger !== "revise" && view.report.status !== "RUNNING";
+}
 export async function readCriteriaReview(root: string, task: AgentTask, parent?: AgentTask): Promise<CriteriaReviewView | null> {
   try {
     const path = reportPath(root, task.id), report = await readReport(path, root);
     if (report === null || report.taskId !== task.id) return null;
-    return {report, reportPath: path, stale: report.snapshotHash !== sha256(canonicalJson(criteriaSnapshot(task, parent))), warnings: []};
+    return {report, reportPath: path, stale: coreChanged(report, criteriaSnapshot(task, parent)), warnings: []};
   } catch {return null;}
 }
 export function renderCriteriaReview(view: CriteriaReviewView): string {
@@ -151,7 +173,7 @@ export function renderCriteriaReview(view: CriteriaReviewView): string {
     "Private report: " + view.reportPath, (report.advice === undefined ? undefined : safeTaskText(report.advice.summary)) ?? "No completed advice is available.",
     ...(report.advice?.recommendations ?? []).map(r => `[${safeTaskText(r.criterionId)}] ${safeTaskText(r.issue)}\nSuggestion: ${safeTaskText(r.recommendation)}\nWhy: ${safeTaskText(r.reason)}`),
     ...(report.advice?.limitations ?? []).map(s => "Limitation: " + safeTaskText(s)), ...view.warnings,
-    "Advisory only. Decide which suggestions to adopt; use task revise and record reasons, including rejections. Revision does not rerun this review. Final verification and two-round review are still required."
+    "Advisory only. Decide which suggestions to adopt; use task revise and record reasons, including rejections. The first revise that changes criteria, intent or goal reruns this review once; later ones need an explicit --rerun. Final verification and two-round review are still required."
   ].join("\n");
 }
 function cancelled(signal?: AbortSignal): void {
@@ -166,10 +188,10 @@ export async function runCriteriaReview(options: CriteriaReviewOptions): Promise
   let report: CriteriaReviewReport = {kind: "criteria-advisory", taskId: task.id, attemptId: randomUUID(), snapshotHash,
     snapshot: redactData(snapshot) as Record<string, unknown>, status: "RUNNING", code: "CRITERIA_REVIEW_RUNNING",
     startedAt: new Date().toISOString(), durationMs: 0, invocations: 0, ownerPid: process.pid, ownerIdentity: await nativeProcessIdentity(process.pid),
-    ...(options.target === undefined ? {} : {target: options.target})};
+    ...(options.target === undefined ? {} : {target: options.target}), trigger: options.trigger ?? (options.rerun ? "rerun" : "create")};
   const newAttempt = report;
   const warnings: string[] = [];
-  const view = (): CriteriaReviewView => ({report, reportPath: path, stale: report.snapshotHash !== snapshotHash, warnings});
+  const view = (): CriteriaReviewView => ({report, reportPath: path, stale: coreChanged(report, snapshot), warnings});
   let claimed = false;
   try {
     for (;;) {

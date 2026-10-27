@@ -118,7 +118,7 @@ export function coordinatorWakeNote(state: RunState, coordinator: RunWorkerRecor
 export function workerInstructionLines(): readonly string[] {
   return ["Keep the original goal fixed. Read this repository's AGENTS.md and use its existing verifier authority.",
     "Plan 2–5 substantive acceptance criteria. Submit a plan request before changing product files; the supervisor creates the task with the fixed goal.",
-    "Read the criteria advisory before implementation. Decide which suggestions to adopt and use task revise with reasons (including rejected advice). A revision does not automatically rerun criteria review; formal final proof remains required.",
+    "Read the criteria advisory before implementation. Decide which suggestions to adopt and use task revise with reasons (including rejected advice). The first revision that changes criteria, intent or goal reruns criteria review once and waits for it; later ones do not. Formal final proof remains required.",
     "For every mechanically testable requirement use a configured acceptance runner; explicit review-only fallback requires a recorded reason and fresh goal review.",
     "Implement, run targeted fast checks on changed code, commit and submit action=handoff so the supervisor runs full verification outside your context window. Do not poll full-suite verification in a loop. Repair failed checks and pin mechanically testable review findings into regression criteria. Never disable a mandatory policy verifier.",
     "Only registered run workers may write. Use isolated worktrees and supervisor-issued leases; do not launch an unregistered writing subagent.",
