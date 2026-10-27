@@ -112,6 +112,40 @@ successful refutation MUST make the run FAIL.
   replays the recorded queries and reads every listed `valueChanges` consumer;
   this is the only exception to "do not survey the repository".
 
+## REVIEW-ORIGIN-001
+
+A defect the change did not cause MUST NOT block the change; it MUST be
+reported as `origin: "pre-existing"` with `blocking: false` and flow to the
+followup ledger.
+
+- Trigger: A reviewer meets a defect while reading for the review.
+- Action: Mark it pre-existing only when it is present identically at the base
+  and the change did not introduce, expose, worsen or depend on it. Report only
+  defects met on the normal read path; do not search for old ones.
+- Evidence: The report validator rejects a pre-existing finding with
+  `blocking: true` at any severity, including critical. A finding without
+  `origin` means introduced and keeps the old severity rules, so stored reports
+  stay valid. Nonblocking findings of a delivered PASS reach followup as before.
+- Positive: `A critical injection in an untouched helper is reported as pre-existing, nonblocking, and collected into followup.`
+- Negative: `A caller in an unchanged file breaks because of this change and is marked pre-existing because its lines were not edited.`
+
+## REVIEW-ROUNDS-001
+
+Review MUST stop after three failed reviews of one task contract and ask for a
+new approach instead of another fix round.
+
+- Trigger: `review` (directly or through `batch`, `task advance` or a run) for a
+  task with three or more FAIL reports bound to its current task contract hash
+  and newer than its latest PASS.
+- Action: Return NOT_RUN `round-cap` before resolving scope or starting any
+  reviewer, printing the exact `task revise` command. Reconsider the approach and
+  revise the criteria or intent with a reason, or ask the user.
+- Evidence: NOT_RUN reports never count; each source fingerprint keeps one
+  report, so re-reviewing unchanged code adds nothing; a contract revision or a
+  newer PASS starts the count again. The cap is a constant, not configuration.
+- Positive: `Third FAIL on the same contract; the agent revises the intent to a different design and reviews again.`
+- Negative: `Keep committing one fix per finding through a fifth review of the same contract.`
+
 ## REVIEW-HOST-001
 
 A host that cannot provide network and loopback capability MUST fail closed

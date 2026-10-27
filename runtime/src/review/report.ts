@@ -21,6 +21,8 @@ export interface ReviewFinding {
   readonly evidence: readonly string[];
   readonly recommendation: string;
   readonly criterionIds: readonly string[];
+  /** Absent means introduced. A pre-existing defect is never blocking: it goes to followup. */
+  readonly origin?: "introduced" | "pre-existing";
 }
 
 export interface ReviewReport {
@@ -139,7 +141,8 @@ function finding(
   errors: ReviewValidationError[]
 ): ReviewFinding | undefined {
   if (!isRecord(value) || !exactFields(value, [
-    "severity", "blocking", "title", "details", "locations", "evidence", "recommendation", "criterionIds"
+    "severity", "blocking", "title", "details", "locations", "evidence", "recommendation", "criterionIds",
+    ...("origin" in value ? ["origin"] : [])
   ], path, errors)) {
     return undefined;
   }
@@ -148,8 +151,10 @@ function finding(
     !Array.isArray(value.locations) || value.locations.length > MAX_ARRAY ||
     !textArray(value.evidence) || value.evidence.length === 0 || !isText(value.recommendation) ||
     !textArray(value.criterionIds) || new Set(value.criterionIds).size !== value.criterionIds.length ||
-    (value.severity === "critical" && value.blocking !== true) ||
-    (value.severity === "minor" && value.blocking !== false)) {
+    (value.origin !== undefined && value.origin !== "introduced" && value.origin !== "pre-existing") ||
+    (value.origin === "pre-existing" ? value.blocking !== false :
+      (value.severity === "critical" && value.blocking !== true) ||
+      (value.severity === "minor" && value.blocking !== false))) {
     invalid(errors, path, "INVALID_FINDING", "Finding is invalid.");
     return undefined;
   }
@@ -165,7 +170,8 @@ function finding(
     locations: locations as ReviewFindingLocation[],
     evidence: [...value.evidence],
     recommendation: value.recommendation,
-    criterionIds: [...value.criterionIds]
+    criterionIds: [...value.criterionIds],
+    ...(value.origin === undefined ? {} : { origin: value.origin as NonNullable<ReviewFinding["origin"]> })
   };
 }
 

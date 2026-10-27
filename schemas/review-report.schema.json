@@ -41,7 +41,8 @@
         "locations": { "type": "array", "items": { "$ref": "#/$defs/location" } },
         "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" } },
         "recommendation": { "$ref": "#/$defs/text" },
-        "criterionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/text" } }
+        "criterionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "origin": { "enum": ["introduced", "pre-existing"] }
       }
     }
   }

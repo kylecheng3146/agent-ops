@@ -5,6 +5,7 @@ import {
   reviewReportStatus,
   validateReviewReport
 } from "../../runtime/src/review/report.js";
+import { validateFollowupFinding } from "../../runtime/src/followup/store.js";
 import { reportFor } from "./report-fixture.js";
 
 const criteria = [{ id: "tests" }];
@@ -43,6 +44,38 @@ test("rejects duplicate criteria, unlinked failures, and invalid finding severit
     criterionIds: []
   }];
   assert.equal(validateReviewReport(critical, ["tests"]).ok, false);
+});
+
+test("finding origin: pre-existing is never blocking, absent keeps the old rules", () => {
+  const withFinding = (finding: Record<string, unknown>) => {
+    const report = reportFor(criteria) as unknown as Record<string, unknown>;
+    report.findings = [{
+      severity: "critical", blocking: false, title: "Old bug.", details: "Present at base.", locations: [],
+      evidence: ["source"], recommendation: "Fix later.", criterionIds: [], ...finding
+    }];
+    return validateReviewReport(report, ["tests"]);
+  };
+  const preExisting = withFinding({ origin: "pre-existing" });
+  assert.equal(preExisting.ok, true, "critical pre-existing may be non-blocking");
+  assert.equal(preExisting.ok && preExisting.value.findings[0]!.origin, "pre-existing");
+  assert.equal(withFinding({ origin: "pre-existing", severity: "minor" }).ok, true);
+
+  const blocked = withFinding({ origin: "pre-existing", blocking: true });
+  assert.equal(blocked.ok, false);
+  assert.equal(!blocked.ok && blocked.errors[0]!.code, "INVALID_FINDING");
+  const unknown = withFinding({ origin: "legacy" });
+  assert.equal(!unknown.ok && unknown.errors[0]!.code, "INVALID_FINDING");
+
+  assert.equal(withFinding({ origin: "introduced" }).ok, false, "introduced critical must block");
+  assert.equal(withFinding({}).ok, false, "absent origin keeps critical=>blocking");
+  const legacy = withFinding({ blocking: true });
+  assert.equal(legacy.ok, true);
+  assert.equal(legacy.ok && "origin" in legacy.value.findings[0]!, false, "absent origin stays absent");
+
+  assert.equal(validateFollowupFinding({
+    severity: "important", blocking: false, title: "Old bug.", details: "Present at base.", locations: [],
+    evidence: ["source"], recommendation: "Fix later.", criterionIds: [], origin: "pre-existing"
+  }), true);
 });
 
 test("accepts reviewed paths with spaces or non-ASCII letters", () => {

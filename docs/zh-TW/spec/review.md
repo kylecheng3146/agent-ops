@@ -100,6 +100,26 @@ PASS MUST 交給第二個規劃的 target 嘗試反駁，且反駁成立時 MUST
 - Note: 只有一個設定 target 時，會在全新 session 再呼叫同一 target。FAIL 已是終局，不再複查。
 - Note: 有 surface 的 task，第二輪也會在 `surface-coverage` 下搜尋未列出的 surface 與情境：檢查五個固定情境維度，每個軸向最多可新增 3 個 `git grep -F` 查詢。第一輪重放記錄的查詢並閱讀每個列出的 `valueChanges` consumer；這是「不要普查 repository」唯一的例外。
 
+## REVIEW-ORIGIN-001
+
+不是本次變更造成的缺陷 MUST NOT 擋下變更；MUST 以 `origin: "pre-existing"`、`blocking: false` 回報，並流入 followup ledger。
+
+- Trigger: reviewer 在審查閱讀過程中碰到缺陷。
+- Action: 只有當缺陷在 base 以相同形式存在，且本次變更沒有引入、暴露、加劇或依賴它時，才標為 pre-existing。只回報正常閱讀路徑上碰到的缺陷；不主動搜尋舊問題。
+- Evidence: report validator 拒絕任何 severity（包含 critical）的 pre-existing finding 帶 `blocking: true`。沒有 `origin` 的 finding 視為 introduced，沿用原本的 severity 規則，因此既有 report 仍然有效。已交付 PASS 的 nonblocking finding 照舊進入 followup。
+- Positive: `未改動 helper 裡的 critical injection 標為 pre-existing、nonblocking，並收進 followup。`
+- Negative: `未改動檔案中的 caller 因本次變更而壞掉，卻因為那幾行沒被修改就標為 pre-existing。`
+
+## REVIEW-ROUNDS-001
+
+同一份 task contract 的 review 失敗三次後 MUST 停止，要求換方案，而不是再修一輪。
+
+- Trigger: 對某 task 執行 `review`（直接執行，或經由 `batch`、`task advance`、run），且該 task 在目前 task contract hash 下、最近一次 PASS 之後已有三份以上 FAIL report。
+- Action: 在解析 scope 或啟動任何 reviewer 之前回傳 NOT_RUN `round-cap`，並印出完整的 `task revise` 指令。重新檢討做法，附上理由修訂 criteria 或 intent，或詢問使用者。
+- Evidence: NOT_RUN report 不計入；每個 source fingerprint 只保留一份 report，所以對未改動的程式碼重跑不會增加次數；contract 修訂或較新的 PASS 會讓計數歸零。上限是常數，不是設定項。
+- Positive: `同一份 contract 第三次 FAIL；agent 把 intent 改成另一種設計後再審。`
+- Negative: `同一份 contract 審到第五次，仍然每個 finding 修一個 commit。`
+
 ## REVIEW-HOST-001
 
 Host 缺少 network 或 loopback 能力時，MUST 在任何 reviewer invocation 前

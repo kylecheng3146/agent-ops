@@ -448,6 +448,19 @@ test("both prompts ask for every blocking defect in one reply", () => {
   assert.doesNotMatch(adversarial, /look for a blocking defect/);
 });
 
+test("both prompts route pre-existing defects to followup without surveying, and the schema allows origin", async () => {
+  for (const prompt of [buildReviewPrompt(invocation), buildAdversarialPrompt(invocation, reportFor(invocation.packet.criteria))]) {
+    assert.match(prompt, /pre-existing when it is present identically at the base and this change did not introduce, expose, worsen or depend on it/);
+    assert.match(prompt, /meet while reading for this review; do not search for them/);
+    assert.match(prompt, /origin 'pre-existing' and blocking false, whatever its severity/);
+    assert.ok(prompt.includes("origin?:'introduced'|'pre-existing'"));
+  }
+  const { readFile } = await import("node:fs/promises");
+  const schema = JSON.parse(await readFile("schemas/review-report.schema.json", "utf8"));
+  assert.deepEqual(schema.$defs.finding.properties.origin, { enum: ["introduced", "pre-existing"] });
+  assert.equal(schema.$defs.finding.required.includes("origin"), false);
+});
+
 test("prior failing findings reach both prompts fenced, without narrowing scope", () => {
   const withPrior: ReviewInvocation = {
     ...invocation,
