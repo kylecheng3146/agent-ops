@@ -138,6 +138,7 @@ export type ReviewUnavailableReason =
   | "missing-verification-evidence"
   | "unreadable-verification-evidence"
   | "stale-verification"
+  | "round-cap"
   | "surface-missing"
   | "surface-unclassified"
   | "surface-query-too-broad"
@@ -244,6 +245,12 @@ const CONTRACT_INSTRUCTIONS = [
     "every changed path is still required and is checked on your reply.",
   "Report every blocking defect you find in this one reply, not only the " +
     "first: each defect left for a later round costs another full review.",
+  "A defect is pre-existing when it is present identically at the base and " +
+    "this change did not introduce, expose, worsen or depend on it. Report " +
+    "only pre-existing defects you meet while reading for this review; do not " +
+    "search for them. Give each one origin 'pre-existing' and blocking false, " +
+    "whatever its severity: it goes to followup, not to this change. Every " +
+    "other finding has origin 'introduced'.",
   "Every FAIL criterion must have at least one blocking finding whose " +
     "criterionIds includes it. Blocking findings may reference only FAIL " +
     "criteria.",
@@ -252,7 +259,8 @@ const CONTRACT_INSTRUCTIONS = [
     "summary:string,evidence:string[]}],findings:[{severity:'critical'|" +
     "'important'|'minor',blocking:boolean,title:string,details:string," +
     "locations:[{path:string,line?:integer}],evidence:string[]," +
-    "recommendation:string,criterionIds:string[]}],residualRisks:string[]," +
+    "recommendation:string,criterionIds:string[]," +
+    "origin?:'introduced'|'pre-existing'}],residualRisks:string[]," +
     "changedFilesInspected:string[],supportingFilesInspected:string[]}. " +
     "All descriptive strings and evidence arrays must be non-empty."
 ] as const;
@@ -529,7 +537,8 @@ export function redactReviewReport(report: ReviewReport): ReviewReport {
       })),
       evidence: finding.evidence.map((value) => safeTaskText(redactSecrets(value))),
       recommendation: safeTaskText(redactSecrets(finding.recommendation)),
-      criterionIds: finding.criterionIds.map((value) => safeTaskText(redactSecrets(value)))
+      criterionIds: finding.criterionIds.map((value) => safeTaskText(redactSecrets(value))),
+      ...(finding.origin === undefined ? {} : { origin: finding.origin })
     })),
     residualRisks: report.residualRisks.map((value) => safeTaskText(redactSecrets(value))),
     changedFilesInspected: report.changedFilesInspected.map((value) => safeTaskText(redactSecrets(value))),

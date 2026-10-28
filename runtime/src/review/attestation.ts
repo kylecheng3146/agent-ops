@@ -634,16 +634,14 @@ function blockingFindings(
 }
 
 /**
- * Blocking findings of this task's most recent decided review, when that
- * review failed. NOT_RUN artifacts decide nothing and are skipped; a newer
- * PASS settles the earlier findings, so none are returned. Any unreadable
- * record is ignored: these are a hint for the next reviewer, and without them
- * the review simply runs as it always has.
+ * This task's decided reviews: PASS, or FAIL with a report. NOT_RUN artifacts
+ * decide nothing and are skipped, as is any unreadable record: callers use
+ * these as hints, and without them review simply runs as it always has.
  */
-export async function findPriorFailingFindings(
+async function decidedTaskReviews(
   root: string,
   taskId: string
-): Promise<readonly PriorReviewFinding[]> {
+): Promise<readonly ReviewReportArtifact[]> {
   const directory = join(root, ...REVIEW_ATTESTATION_DIRECTORY.split("/"));
   let names: string[];
   try {
@@ -652,7 +650,7 @@ export async function findPriorFailingFindings(
     return [];
   }
   // ponytail: linear scan of every report; index by task if the directory grows large.
-  let latest: ReviewReportArtifact | undefined;
+  const decided: ReviewReportArtifact[] = [];
   for (const name of names) {
     // `<fingerprint>` or `<fingerprint>.<task id>`, then the suffix.
     const key = name.slice(0, -REVIEW_REPORT_ARTIFACT_SUFFIX.length);
@@ -667,22 +665,56 @@ export async function findPriorFailingFindings(
         continue;
       }
       const value = JSON.parse(source) as ReviewReportArtifact;
-      const decided = value.status === "PASS" ||
-        (value.status === "FAIL" && value.report !== undefined);
       if (
         ![1, 2].includes(value?.schemaVersion) ||
         value.sourceFingerprint !== fingerprint ||
         value.taskId !== taskId ||
-        !decided ||
+        !(value.status === "PASS" || (value.status === "FAIL" && value.report !== undefined)) ||
         !Number.isFinite(Date.parse(value.createdAt))
       ) {
         continue;
       }
-      if (latest === undefined || Date.parse(value.createdAt) > Date.parse(latest.createdAt)) {
-        latest = value;
-      }
+      decided.push(value);
     } catch {
       continue;
+    }
+  }
+  return decided;
+}
+
+/** After this many failed reviews of one contract, review stops and asks for a rethink. */
+export const REVIEW_ROUND_CAP = 3;
+
+/**
+ * Failed reviews of this task under its current contract since its latest
+ * PASS. Each source fingerprint keeps one report, so re-reviewing unchanged
+ * code does not add a round; a contract revision starts the count again.
+ */
+export async function countFailedReviewRounds(
+  root: string,
+  taskId: string,
+  contractHash: string
+): Promise<number> {
+  const reviews = await decidedTaskReviews(root, taskId);
+  const lastPass = Math.max(-Infinity, ...reviews.filter(review => review.status === "PASS")
+    .map(review => Date.parse(review.createdAt)));
+  return reviews.filter(review => review.status === "FAIL" && review.taskContractHash === contractHash &&
+    Date.parse(review.createdAt) > lastPass).length;
+}
+
+/**
+ * Blocking findings of this task's most recent decided review, when that
+ * review failed. A newer PASS settles the earlier findings, so none are
+ * returned.
+ */
+export async function findPriorFailingFindings(
+  root: string,
+  taskId: string
+): Promise<readonly PriorReviewFinding[]> {
+  let latest: ReviewReportArtifact | undefined;
+  for (const value of await decidedTaskReviews(root, taskId)) {
+    if (latest === undefined || Date.parse(value.createdAt) > Date.parse(latest.createdAt)) {
+      latest = value;
     }
   }
   if (latest?.status !== "FAIL") {

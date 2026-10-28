@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {reviewCreatedCriteria, criteriaReviewStatus} from "./criteria-review.js";
+import {reviewCreatedCriteria, reviewRevisedCriteria, criteriaReviewStatus} from "./criteria-review.js";
 import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
 import {advancePhaseObserver, productionRunContext} from "./run-deps.js";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
@@ -666,6 +666,7 @@ process.exitCode = await runCli(
               service: taskService,
               onTaskCreated: async (record, createdRoot) => await reviewCreatedCriteria(createdRoot ?? root, record.task),
               criteriaStatus: async record => await criteriaReviewStatus(root, record.task),
+              onTaskRevised: async record => await reviewRevisedCriteria(root, record.task),
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId }),
               ...(fromMain

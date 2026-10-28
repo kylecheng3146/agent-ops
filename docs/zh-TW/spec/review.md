@@ -1,20 +1,20 @@
 # 審查
 
-English source version: 2026-10-23. Revalidate: when the English specification changes.
+English source version: 2026-10-27. Revalidate: when the English specification changes.
 
 ## REVIEW-CRITERIA-001
 
 - Trigger: 正式 task 的 criteria 就緒、尚未開始實作。
 - Action: 等待一輪限定範圍的 advisory，由 writer 記錄採納或拒絕理由。
 - Evidence: 私人快照報告與安全 local 狀態／用量 log；不產生完成證明。
-- Positive: `修訂後顯示歷史建議；只有明確 rerun 才再花一輪。`
-- Negative: `每次 revise 都自動重審，或把建議當正式 PASS 證明。`
+- Positive: `依建議改寫 criterion；該次 revise 自動重跑一輪 advisory 並顯示新建議。`
+- Negative: `每次 revise（包含只改 surface）都重審，或把建議當正式 PASS 證明。`
 
 每個正式 task 建立入口（含 DEBUG、replan 新子任務及 native run root/child）MUST 在首次實作前等待一輪獨立 criteria advisory。使用設定的 independent-review target 與全新 session，優先選擇不同於 host 的 target；只提供原始 goal、指派 intent/covers、criteria 與 surface audit，並在空白暫存工作區執行。MUST NOT 掃描 repository 或跑測試。缺 goal 須明示資訊不足；子任務只對指派範圍判完整性。材料是否存在、是否載入產品程式留待實作驗證；有理由的 review-only 條件合法。
 
 advisory 不設 agent-ops 執行 deadline、stall cutoff 或 token budget。provider 限制、真正啟動／認證／輸出錯誤與人工取消仍有效。錯誤回報 NOT_RUN 後可繼續；人工取消保留 task 並 MUST 停止實作。native 審查程序仍受註冊與停止機制管理。一般 verify 與正式雙輪 review 的既有時間限制及 gate 保持有效。
 
-task 建立回應呈現建議與私人報告位置。writer 自行判斷採納，透過 task revise 記錄採納及拒絕理由（可用相同 criteria 修訂記錄拒絕建議）。需求歧義或擴大範圍才向使用者澄清。報告綁定 task／goal／criteria／surface 快照；輸入改變後 status 與 revise 顯示歷史報告已過期。修訂 MUST NOT 自動重審。重複初審請求重用第一次嘗試，包含 NOT_RUN；只有明確執行 `agent-ops review --criteria --task <id> --rerun --yes` 才開始新的一輪。省略 --rerun 時讀取／等待目前嘗試。
+task 建立回應呈現建議與私人報告位置。writer 自行判斷採納，透過 task revise 記錄採納及拒絕理由（可用相同 criteria 修訂記錄拒絕建議）。需求歧義或擴大範圍才向使用者澄清。報告綁定 task／goal／criteria／surface 快照，並記錄觸發來源（`create`、`rerun` 或 `revise`；舊報告沒有此欄位）。goal、intent、criteria 或指派範圍改變後，status 與 revise 顯示報告已過期；只改 surface 時報告仍視為最新。第一次讓目前報告過期的已儲存修訂，若該報告本身不是 revise 觸發，MUST 等待一輪自動的新審查（觸發來源 `revise`）並顯示建議；不論該輪完成、回報 NOT_RUN 或被取消，修訂都會保留。之後的修訂 MUST NOT 自動重審，直到明確 rerun 為止。重複初審請求重用第一次嘗試，包含 NOT_RUN；除了那一輪自動審查，只有明確執行 `agent-ops review --criteria --task <id> --rerun --yes` 才開始新的一輪。省略 --rerun 時讀取／等待目前嘗試。
 
 詳細報告經遮蔽後私存於 `.agent-ops/reviews/criteria-<task-id>*.json`；local log 只記狀態、耗時、數量、可得用量及報告參照。CLI 呼叫數與 provider 模型呼叫數分開，後者可能未回報。報告／log 故障 MUST NOT 回滾 task 或偽造證據。advisory 產物 MUST NOT 滿足 verify、正式 review 或 finish。
 
@@ -99,6 +99,26 @@ PASS MUST 交給第二個規劃的 target 嘗試反駁，且反駁成立時 MUST
 - Negative: `為了讓複查看起來有效而編造反駁。`
 - Note: 只有一個設定 target 時，會在全新 session 再呼叫同一 target。FAIL 已是終局，不再複查。
 - Note: 有 surface 的 task，第二輪也會在 `surface-coverage` 下搜尋未列出的 surface 與情境：檢查五個固定情境維度，每個軸向最多可新增 3 個 `git grep -F` 查詢。第一輪重放記錄的查詢並閱讀每個列出的 `valueChanges` consumer；這是「不要普查 repository」唯一的例外。
+
+## REVIEW-ORIGIN-001
+
+不是本次變更造成的缺陷 MUST NOT 擋下變更；MUST 以 `origin: "pre-existing"`、`blocking: false` 回報，並流入 followup ledger。
+
+- Trigger: reviewer 在審查閱讀過程中碰到缺陷。
+- Action: 只有當缺陷在 base 以相同形式存在，且本次變更沒有引入、暴露、加劇或依賴它時，才標為 pre-existing。只回報正常閱讀路徑上碰到的缺陷；不主動搜尋舊問題。
+- Evidence: report validator 拒絕任何 severity（包含 critical）的 pre-existing finding 帶 `blocking: true`。沒有 `origin` 的 finding 視為 introduced，沿用原本的 severity 規則，因此既有 report 仍然有效。已交付 PASS 的 nonblocking finding 照舊進入 followup。
+- Positive: `未改動 helper 裡的 critical injection 標為 pre-existing、nonblocking，並收進 followup。`
+- Negative: `未改動檔案中的 caller 因本次變更而壞掉，卻因為那幾行沒被修改就標為 pre-existing。`
+
+## REVIEW-ROUNDS-001
+
+同一份 task contract 的 review 失敗三次後 MUST 停止，要求換方案，而不是再修一輪。
+
+- Trigger: 對某 task 執行 `review`（直接執行，或經由 `batch`、`task advance`、run），且該 task 在目前 task contract hash 下、最近一次 PASS 之後已有三份以上 FAIL report。
+- Action: 在解析 scope 或啟動任何 reviewer 之前回傳 NOT_RUN `round-cap`，並印出完整的 `task revise` 指令。重新檢討做法，附上理由修訂 criteria 或 intent，或詢問使用者。
+- Evidence: NOT_RUN report 不計入；每個 source fingerprint 只保留一份 report，所以對未改動的程式碼重跑不會增加次數；contract 修訂或較新的 PASS 會讓計數歸零。上限是常數，不是設定項。
+- Positive: `同一份 contract 第三次 FAIL；agent 把 intent 改成另一種設計後再審。`
+- Negative: `同一份 contract 審到第五次，仍然每個 finding 修一個 commit。`
 
 ## REVIEW-HOST-001
 

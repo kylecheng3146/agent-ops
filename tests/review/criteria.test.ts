@@ -5,7 +5,9 @@ import {join} from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
 import test from "node:test";
 import type {AgentTask} from "../../runtime/src/contracts.js";
-import {runCriteriaReview, readCriteriaReview, criteriaSnapshot, criteriaReviewPrompt, renderCriteriaReview, validateCriteriaAdvice} from "../../runtime/src/review/criteria.js";
+import {runCriteriaReview, readCriteriaReview, criteriaSnapshot, criteriaReviewPrompt, renderCriteriaReview, revisionReviewDue, validateCriteriaAdvice} from "../../runtime/src/review/criteria.js";
+import {AgentOpsError} from "../../runtime/src/fs/paths.js";
+import {taskContractHash} from "../../runtime/src/task/contract.js";
 import type {ProcessRequest, VerificationProcessRunner} from "../../runtime/src/verify/spawn.js";
 import {findReviewAttestation} from "../../runtime/src/review/attestation.js";
 import {TaskService} from "../../runtime/src/task/service.js";
@@ -135,6 +137,102 @@ test("production task callback runs after persistence and before create returns;
       onTaskCreated: async () => {throw new Error("must not rerun");}, criteriaStatus: async record => await readCriteriaReview(root, record.task)});
     assert.equal(revised.status, "ok"); assert.equal(revised.data!.criteriaReview!.stale, true); assert.equal(calls, 1);
     assert.match(revised.data!.text, /historical snapshot/);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("a substantive revise is due once; surface-only changes stay current; an explicit rerun re-arms it", async () => {
+  const root = await fixture(), requests: ProcessRequest[] = [];
+  try {
+    assert.equal(revisionReviewDue(await readCriteriaReview(root, task)), false, "no report: never due");
+    const first = await runCriteriaReview({root, task, target: "codex", runner: runner(requests)});
+    assert.equal(first.report.trigger, "create");
+    assert.equal(revisionReviewDue(first), false);
+
+    const surfaced = {...task, surface: {axes: {}, included: [], excluded: [], unknown: [], contracts: [], scenarios: {}}} as unknown as AgentTask;
+    const surfaceOnly = await readCriteriaReview(root, surfaced);
+    assert.equal(surfaceOnly!.stale, false, "surface-only changes leave the advice current");
+    assert.equal(revisionReviewDue(surfaceOnly), false);
+
+    for (const changed of [
+      {...task, criteria: task.criteria.map(c => ({...c, description: c.description + " changed"}))},
+      {...task, intent: "Different assigned behavior"},
+      {...task, goal: "A different goal"}
+    ]) assert.equal(revisionReviewDue(await readCriteriaReview(root, changed)), true);
+
+    const revised = {...task, intent: "Different assigned behavior"};
+    const auto = await runCriteriaReview({root, task: revised, target: "codex", runner: runner(requests), rerun: true, trigger: "revise"});
+    assert.equal(auto.report.trigger, "revise"); assert.equal(requests.length, 2);
+    const again = {...revised, criteria: task.criteria.map(c => ({...c, description: c.description + " again"}))};
+    const afterAuto = await readCriteriaReview(root, again);
+    assert.equal(afterAuto!.stale, true);
+    assert.equal(revisionReviewDue(afterAuto), false, "only one automatic rerun");
+
+    const manual = await runCriteriaReview({root, task: again, target: "codex", runner: runner(requests), rerun: true});
+    assert.equal(manual.report.trigger, "rerun");
+    const third = {...again, intent: "Third intent"};
+    assert.equal(revisionReviewDue(await readCriteriaReview(root, third)), true, "an explicit rerun re-arms one automatic rerun");
+    assert.match(renderCriteriaReview(manual), /reruns this review once; later ones need an explicit --rerun/);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("a report with an unknown trigger is unreadable; one without a trigger stays valid", async () => {
+  const root = await fixture();
+  try {
+    const view = await runCriteriaReview({root, task, target: "codex", runner: runner([])});
+    const {trigger: _trigger, ...legacy} = view.report;
+    await writeFile(view.reportPath, JSON.stringify(legacy), {mode: 0o600});
+    assert.equal((await readCriteriaReview(root, task))!.report.trigger, undefined);
+    await writeFile(view.reportPath, JSON.stringify({...legacy, trigger: "nightly"}), {mode: 0o600});
+    assert.equal(await readCriteriaReview(root, task), null);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("task revise runs the due advisory after saving; NOT_RUN keeps TASK_REVISED and cancellation keeps the revision", async () => {
+  const root = await fixture(), requests: ProcessRequest[] = [];
+  const service = new TaskService(new FileTaskStore(join(root, ".agent-ops/tasks/state.json"), root));
+  try {
+    let result: unknown = advice, exitCode = 0, cancel = false;
+    const onTaskRevised = async (record: {task: AgentTask}) => {
+      const view = await readCriteriaReview(root, record.task);
+      if (!revisionReviewDue(view)) return view;
+      if (cancel) throw new AgentOpsError("CRITERIA_REVIEW_CANCELLED", "Criteria review cancelled; task preserved.");
+      return await runCriteriaReview({root, task: record.task, target: "codex", runner: runner(requests, result, exitCode), rerun: true, trigger: "revise"});
+    };
+    const created = await runTaskCommand({service, args: parseArgs(["task", "create", "--title", "Goal", "--goal", "Original goal",
+      "--surface-file", join(process.cwd(), "tests/fixtures/surface/minimal.json"), ...task.criteria.flatMap(c => ["--criterion", JSON.stringify(c)])]),
+      onTaskCreated: async record => await runCriteriaReview({root, task: record.task, target: "codex", runner: runner(requests)})});
+    assert.equal(requests.length, 1);
+    const revise = async (suffix: string) => {
+      const current = (await service.status({taskId: created.data!.record!.task.id})).task;
+      const file = join(root, `criteria-${suffix}.json`);
+      await writeFile(file, JSON.stringify(current.criteria.map(c => ({...c, description: c.description + suffix}))));
+      return await runTaskCommand({service, onTaskRevised, args: parseArgs(["task", "revise", "--task", current.id,
+        "--expected-contract", taskContractHash(current), "--criteria-file", file, "--reason", "Adopt advice"])});
+    };
+
+    exitCode = 1; result = {};
+    const notRun = await revise(" a");
+    assert.equal(notRun.code, "TASK_REVISED"); assert.equal(requests.length, 2);
+    assert.equal(notRun.data!.criteriaReview!.report.status, "NOT_RUN"); assert.equal(notRun.data!.criteriaReview!.report.trigger, "revise");
+
+    const settled = await revise(" b");
+    assert.equal(settled.code, "TASK_REVISED"); assert.equal(requests.length, 2, "the automatic rerun was spent");
+    assert.equal(settled.data!.criteriaReview!.stale, true);
+
+    await runCriteriaReview({root, task: (await service.status({taskId: created.data!.record!.task.id})).task, target: "codex",
+      runner: runner(requests), rerun: true});
+    exitCode = 0; result = advice;
+    const shown = await revise(" c");
+    assert.equal(requests.length, 4);
+    assert.equal(shown.data!.criteriaReview!.report.status, "COMPLETED");
+    assert.match(shown.data!.text, /Missing empty input/);
+
+    await runCriteriaReview({root, task: (await service.status({taskId: created.data!.record!.task.id})).task, target: "codex",
+      runner: runner(requests), rerun: true});
+    cancel = true;
+    const cancelled = await revise(" d");
+    assert.equal(cancelled.status, "error"); assert.equal(cancelled.code, "CRITERIA_REVIEW_CANCELLED");
+    assert.match((await service.status({taskId: created.data!.record!.task.id})).task.criteria[0]!.description, / d$/, "revision kept");
   } finally {await rm(root, {recursive: true, force: true});}
 });
 

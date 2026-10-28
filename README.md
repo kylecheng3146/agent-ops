@@ -17,7 +17,9 @@ command behavior may change before 1.0.
 Every new task, including DEBUG and native run parent/child tasks, waits for one
 independent advisory review of its goal, criteria and assigned surface before
 implementation. Read the suggestions, decide which to adopt, and record reasons
-through `task revise`. Revisions do not automatically re-review.
+through `task revise`. The first revision that changes criteria, intent or
+goal reruns the advisory once; surface-only revisions do not, and later
+reruns are explicit (`review --criteria --rerun`).
 
 The advisory has no time/token budget; explicit cancellation stops work. Genuine
 execution errors report NOT_RUN and allow work. Detailed reports remain private;

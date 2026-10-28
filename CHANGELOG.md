@@ -4,6 +4,22 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-10-28
+
+- The first `task revise` that changes criteria, intent or goal reruns the
+  criteria advisory once and waits for it, so adopted advice is reviewed
+  again. Surface-only revisions neither rerun it nor mark it stale; later
+  reruns stay explicit (`review --criteria --rerun`), which re-arms the
+  automatic one.
+- Review findings carry an optional `origin`. A defect the change did not
+  introduce, expose, worsen or depend on is reported as `pre-existing` and is
+  never blocking, at any severity; it reaches the followup ledger instead of
+  failing the change. Reports without `origin` keep the previous rules.
+- Review stops with NOT_RUN `round-cap` after three failed reviews of one task
+  contract since its latest PASS, before any reviewer runs, and prints the
+  `task revise` command for a new approach. A contract revision or a newer PASS
+  resets the count.
+
 ## [0.11.2] - 2026-10-26
 
 - Retain nonblocking review findings and residual risks in a private followup

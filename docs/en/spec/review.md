@@ -5,14 +5,14 @@
 - Trigger: Production task criteria become ready before implementation.
 - Action: Await one scoped advisory and let the writer record adoption/rejection reasons.
 - Evidence: Private snapshot report plus safe local status/usage log; no completion attestation.
-- Positive: `A revised task shows historical advice and only an explicit rerun spends another round.`
-- Negative: `Automatically re-review every revise or treat advice as final PASS proof.`
+- Positive: `Adopting advice rewrites a criterion; that revise reruns the advisory once and shows the new advice.`
+- Negative: `Re-review every revise, including surface-only ones, or treat advice as final PASS proof.`
 
 Every production task creation (including DEBUG, replan children and native run root/child tasks) MUST wait for one independent criteria advisory before implementation. A fresh session uses one configured independent-review target, preferring a different target from the host. It receives only the original goal, assigned intent/covers, criteria and surface audit in an empty disposable workspace. It MUST NOT inspect repository files or run tests. Missing goals are insufficient information; child completeness is scoped to its assignment. Verification materials/import validity remain deferred until implementation; reasoned review-only acceptance is valid.
 
 The advisory has no agent-ops execution deadline, stall cutoff or token budget. Provider limitations, genuine launch/auth/output errors and explicit cancellation remain effective. Errors produce NOT_RUN and permit work; cancellation preserves the task and MUST stop implementation. Native review processes remain registered and stoppable. Normal verification and final two-round review retain their existing deadlines and gates.
 
-Task creation shows advice and a private report reference. The writer decides which recommendations to adopt and records acceptance/rejection reasons through task revise (a same-criteria revision may record rejected advice). Requirements that are ambiguous or expand scope require user clarification. Reports bind the original task/goal/criteria/surface snapshot; task status and revise show historical reports as stale when those inputs change. A revision MUST NOT automatically re-review. Repeated initial requests reuse the first attempt, including NOT_RUN; only explicit `agent-ops review --criteria --task <id> --rerun --yes` starts another fresh single round. Without --rerun the same command reads/waits for the current attempt.
+Task creation shows advice and a private report reference. The writer decides which recommendations to adopt and records acceptance/rejection reasons through task revise (a same-criteria revision may record rejected advice). Requirements that are ambiguous or expand scope require user clarification. Reports bind the original task/goal/criteria/surface snapshot and record their trigger (`create`, `rerun` or `revise`; absent on older reports). Task status and revise show a report as stale when the goal, intent, criteria or assigned scope change; a surface-only change leaves it current. The first saved revision that makes the current report stale, when that report was not itself revise-triggered, MUST wait for one automatic fresh round (trigger `revise`) and show its advice; the revision is kept whether that round completes, reports NOT_RUN or is cancelled. Further revisions MUST NOT automatically re-review until an explicit rerun. Repeated initial requests reuse the first attempt, including NOT_RUN; outside that one automatic round, only explicit `agent-ops review --criteria --task <id> --rerun --yes` starts another fresh single round. Without --rerun the same command reads/waits for the current attempt.
 
 Detailed redacted reports remain private in `.agent-ops/reviews/criteria-<task-id>*.json`; the local log contains only status, duration, counts, reported usage and report reference. CLI invocation counts are distinct from provider model calls, which may be unreported. Report/log failures MUST NOT roll back a task or fabricate evidence. These advisory artifacts MUST NOT satisfy verify, final review or finish.
 
@@ -111,6 +111,40 @@ successful refutation MUST make the run FAIL.
   dimensions and may run at most 3 new `git grep -F` queries per axis. Round 1
   replays the recorded queries and reads every listed `valueChanges` consumer;
   this is the only exception to "do not survey the repository".
+
+## REVIEW-ORIGIN-001
+
+A defect the change did not cause MUST NOT block the change; it MUST be
+reported as `origin: "pre-existing"` with `blocking: false` and flow to the
+followup ledger.
+
+- Trigger: A reviewer meets a defect while reading for the review.
+- Action: Mark it pre-existing only when it is present identically at the base
+  and the change did not introduce, expose, worsen or depend on it. Report only
+  defects met on the normal read path; do not search for old ones.
+- Evidence: The report validator rejects a pre-existing finding with
+  `blocking: true` at any severity, including critical. A finding without
+  `origin` means introduced and keeps the old severity rules, so stored reports
+  stay valid. Nonblocking findings of a delivered PASS reach followup as before.
+- Positive: `A critical injection in an untouched helper is reported as pre-existing, nonblocking, and collected into followup.`
+- Negative: `A caller in an unchanged file breaks because of this change and is marked pre-existing because its lines were not edited.`
+
+## REVIEW-ROUNDS-001
+
+Review MUST stop after three failed reviews of one task contract and ask for a
+new approach instead of another fix round.
+
+- Trigger: `review` (directly or through `batch`, `task advance` or a run) for a
+  task with three or more FAIL reports bound to its current task contract hash
+  and newer than its latest PASS.
+- Action: Return NOT_RUN `round-cap` before resolving scope or starting any
+  reviewer, printing the exact `task revise` command. Reconsider the approach and
+  revise the criteria or intent with a reason, or ask the user.
+- Evidence: NOT_RUN reports never count; each source fingerprint keeps one
+  report, so re-reviewing unchanged code adds nothing; a contract revision or a
+  newer PASS starts the count again. The cap is a constant, not configuration.
+- Positive: `Third FAIL on the same contract; the agent revises the intent to a different design and reviews again.`
+- Negative: `Keep committing one fix per finding through a fifth review of the same contract.`
 
 ## REVIEW-HOST-001
 

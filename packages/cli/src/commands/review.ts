@@ -19,7 +19,9 @@ import {
 import { renderReviewResult } from "../../../../runtime/src/review/render.js";
 import { reviewReportResults } from "../../../../runtime/src/review/report.js";
 import {
+  countFailedReviewRounds,
   findPriorFailingFindings,
+  REVIEW_ROUND_CAP,
   findReviewAttestation,
   invalidateReviewAttestation,
   readReviewReportArtifact,
@@ -858,6 +860,20 @@ export async function runReviewCommand(
     ? await treeContext(options)
     : await taskContext(options);
   options = {...options, noChangePaths: options.noChangePaths ?? context?.records.find(r => r.task.id === context.taskId)?.noChangePaths};
+  // Before any scope, surface or reviewer cost: a contract that keeps failing
+  // needs a new approach, not another round of one-by-one fixes.
+  if (context !== undefined && options.root !== undefined) {
+    const own = context.records.find(r => r.task.id === context.taskId)!.task;
+    if (await countFailedReviewRounds(options.root, context.taskId, taskContractHash(own)) >= REVIEW_ROUND_CAP) {
+      const result: ReviewRunResult = {...resultBase, status: "NOT_RUN", reason: "round-cap", taskId: context.taskId};
+      const message = "Independent review was not run.";
+      return {code: "REVIEW_NOT_RUN", status: "error", errors: [{code: "REVIEW_NOT_RUN", message}], data: {message, result,
+        text: renderReviewResult(result) +
+          `Review failed ${REVIEW_ROUND_CAP} times under this contract. Stop fixing findings one by one: reconsider ` +
+          "the approach, then record the new plan (criteria or intent) with a reason, or ask the user how to proceed:\n" +
+          `  agent-ops task revise --task ${context.taskId} --expected-contract ${taskContractHash(own)} --reason "<what changed in the approach>"\n`}};
+    }
+  }
   const evidenceRequirements: ReviewEvidenceRequirement[] = (
     options.args.evidence ?? []
   ).map((value) => {

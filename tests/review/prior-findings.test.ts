@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  countFailedReviewRounds,
   findPriorFailingFindings,
   MAX_PRIOR_FINDINGS,
   MAX_PRIOR_FINDINGS_BYTES,
@@ -49,6 +50,7 @@ async function artifact(
     readonly taskId?: string;
     readonly primary?: ReviewReport;
     readonly adversarial?: { readonly refuted: boolean; readonly report: ReviewReport };
+    readonly contract?: string;
   }
 ): Promise<void> {
   const fingerprint = (++sequence).toString(16).padStart(64, "0");
@@ -65,6 +67,7 @@ async function artifact(
       plannedTargets: ["agy", "agy"],
       attempts: [],
       preflight: [],
+      ...(value.contract === undefined ? {} : { taskContractHash: value.contract }),
       ...(value.primary === undefined ? {} : { report: value.primary }),
       ...(value.adversarial === undefined
         ? {}
@@ -143,6 +146,31 @@ test("a newer PASS settles earlier findings; NOT_RUN decides nothing", async () 
       adversarial: { refuted: false, report: report([]) }
     });
     assert.deepEqual(await findPriorFailingFindings(root, TASK), []);
+  });
+});
+
+test("failed rounds count per contract since the latest PASS; NOT_RUN and other tasks never count", async () => {
+  await withRoot(async (root) => {
+    const fail = (day: number, contract = "contract-a", taskId = TASK) => artifact(root, {
+      status: "FAIL", createdAt: `2026-09-0${day}T00:00:00.000Z`, contract, taskId, primary: report([finding(`Defect ${day}`)])
+    });
+    assert.equal(await countFailedReviewRounds(root, TASK, "contract-a"), 0);
+    await fail(1);
+    await fail(2);
+    await artifact(root, { status: "NOT_RUN", createdAt: "2026-09-03T00:00:00.000Z", contract: "contract-a" });
+    await fail(3, "contract-a", "task-other");
+    assert.equal(await countFailedReviewRounds(root, TASK, "contract-a"), 2, "no PASS yet: every FAIL counts");
+    await fail(4);
+    await fail(5);
+    assert.equal(await countFailedReviewRounds(root, TASK, "contract-a"), 4);
+    assert.equal(await countFailedReviewRounds(root, TASK, "contract-b"), 0, "a revised contract starts over");
+    await artifact(root, {
+      status: "PASS", createdAt: "2026-09-06T00:00:00.000Z", contract: "contract-a",
+      primary: report([]), adversarial: { refuted: false, report: report([]) }
+    });
+    assert.equal(await countFailedReviewRounds(root, TASK, "contract-a"), 0, "a newer PASS resets");
+    await fail(7);
+    assert.equal(await countFailedReviewRounds(root, TASK, "contract-a"), 1);
   });
 });
 

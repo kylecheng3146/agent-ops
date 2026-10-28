@@ -29,6 +29,8 @@ export interface TaskCommandOptions {
   readonly sessionId?: string;
   readonly onTaskCreated?: (record: StoredTaskRecord, root?: string) => Promise<CriteriaReviewView>;
   readonly criteriaStatus?: (record: StoredTaskRecord) => Promise<CriteriaReviewView | null>;
+  /** After a saved revision: reruns the criteria advisory once when it is due, else reports its status. */
+  readonly onTaskRevised?: (record: StoredTaskRecord) => Promise<CriteriaReviewView | null>;
   readonly policyConfigHash?: string;
   /**
    * Worktree auto mode from the main checkout: the session's worktree,
@@ -58,7 +60,11 @@ export interface TaskCommandData {
 
 async function withCriteriaStatus(envelope: CliEnvelope<TaskCommandData | null>, options: TaskCommandOptions): Promise<CliEnvelope<TaskCommandData | null>> {
   const item = envelope.data?.record;
-  const advice = item === undefined ? null : await options.criteriaStatus?.(item).catch(() => null);
+  // A status read is best effort; a cancelled advisory round must still stop the caller.
+  const advice = item === undefined ? null : await options.criteriaStatus?.(item).catch((error: unknown) => {
+    if (error instanceof AgentOpsError && error.code === "CRITERIA_REVIEW_CANCELLED") throw error;
+    return null;
+  });
   return advice == null || envelope.data === null ? envelope : {...envelope, data: {...envelope.data, criteriaReview: advice,
     text: envelope.data.text + "\n\n" + renderCriteriaReview(advice)}};
 }
@@ -291,8 +297,10 @@ export async function runTaskCommand(
         ...(origin === undefined ? {} : {origin}),
         reason: options.args.reason!, ...(options.args.baseline === undefined ? {} : {baseline: options.args.baseline})
       });
+      // The revision is saved first: an advisory NOT_RUN keeps TASK_REVISED, and a cancelled round throws with it kept.
       return await withCriteriaStatus(await withEscape(taskEnvelope(action, "TASK_REVISED", "Contract revised; obtain a fresh review, and new verification if the criteria or configuration changed.", record),
-        origin === undefined ? undefined : await options.service.declareEscape(record.task.id), options.service), options);
+        origin === undefined ? undefined : await options.service.declareEscape(record.task.id), options.service),
+        options.onTaskRevised === undefined ? options : {...options, criteriaStatus: options.onTaskRevised});
     }
     if (action === "replan") {
       const payload = await jsonFile(options.args.planFile!);
