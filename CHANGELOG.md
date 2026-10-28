@@ -4,12 +4,13 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-10-28
+
 - The first `task revise` that changes criteria, intent or goal reruns the
   criteria advisory once and waits for it, so adopted advice is reviewed
   again. Surface-only revisions neither rerun it nor mark it stale; later
   reruns stay explicit (`review --criteria --rerun`), which re-arms the
   automatic one.
-
 - Review findings carry an optional `origin`. A defect the change did not
   introduce, expose, worsen or depend on is reported as `pre-existing` and is
   never blocking, at any severity; it reaches the followup ledger instead of
