@@ -1054,11 +1054,9 @@ test("doctor names an installation that has no way to verify anything", async ()
     });
     const empty = report.checks.find(({ id }) => id === "verification-commands");
     assert.ok(empty);
-    // A fresh temp install detects no stack, so it configures no verifier —
-    // and every task completion needs current PASS evidence from a required
-    // one. Reporting this install as healthy is what hid the dead loop.
+    // A fresh temp install detects no stack, so legacy criteria lack a required verifier.
     assert.equal(empty.status, "DEGRADED");
-    assert.match(empty.message, /no task can be completed/u);
+    assert.match(empty.message, /legacy criteria need a required verifier/u);
     assert.match(empty.remediation ?? "", /\.agent-ops\/config\.json/u);
     // Codeless: the remedy is a configuration edit, not an agent-ops command,
     // so this must not force a non-zero exit.

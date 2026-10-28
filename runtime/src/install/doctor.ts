@@ -839,10 +839,8 @@ async function checkRegistrationDrift(
 }
 
 /**
- * Whether anything can ever be verified here. Completion requires current PASS
- * evidence from a required verifier, so an empty list is not a light
- * configuration — it is a loop that cannot close, and an installation reaches
- * that state quietly whenever stack detection declines to guess.
+ * Legacy criteria need required verifiers; typed acceptance can use runners
+ * even when no ordinary verification command is configured.
  */
 function checkVerificationCommands(
   config: AgentOpsConfig | undefined
@@ -858,7 +856,7 @@ function checkVerificationCommands(
     return check(
       "verification-commands",
       "DEGRADED",
-      "No verification command is configured, so no task can be completed.",
+      "No verification command is configured; legacy criteria need a required verifier.",
       // Codeless on purpose: the fix is an edit to the configuration file, not
       // an agent-ops command, and a code here would force a non-zero exit on
       // every installation whose stack detection declined to guess.

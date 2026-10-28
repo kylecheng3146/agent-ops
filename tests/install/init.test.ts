@@ -137,7 +137,7 @@ test("init warns about an unavailable agy without blocking the plan", async () =
     // A temp fixture has no detectable stack, so init also says the loop was
     // installed without a verifier — the silence this warning replaced.
     assert.deepEqual(result.data?.warnings, [
-      "No verification command is configured, so no task can be completed. " +
+      "No verification command is configured; legacy criteria need a required verifier. " +
       "Add verification.commands to .agent-ops/config.json. Detection stopped " +
       "because — No supported technology stack was detected.",
       "agy is not installed"
@@ -168,7 +168,7 @@ test("init shows agy warnings before interactive confirmation", async () => {
     // The verifier warning reaches the confirmation prompt too: the decision
     // to install is the moment it still costs nothing to fix.
     assert.deepEqual(shown, [
-      "No verification command is configured, so no task can be completed. " +
+      "No verification command is configured; legacy criteria need a required verifier. " +
       "Add verification.commands to .agent-ops/config.json. Detection stopped " +
       "because — No supported technology stack was detected.",
       "agy is not installed"
