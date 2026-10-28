@@ -1,0 +1,10 @@
+worktree: session-01a1825f (agent-ops/session-01a1825f)
+session: 01a1825f-a10d-7f32-b3e6-a51661321d78
+agent-ops task task-2dfed928-5944-4af7-803b-600e217bdfdc: Preserve acceptance runners through update and correct empty-verifier diagnostics
+intent: Fix only verification-block preservation for runner-only installs and inaccurate doctor/init warnings; add shared regression checks and retain existing CLI statuses, trust, schema and general verifier behavior. Do not build onboarding or new runner configuration.
+criteria:
+- runner-update-preservation: With commands empty and acceptance runners configured, actual managed update preserves every runner field with and without detected test commands; a second applied update is identical and init replanning also preserves verification.
+- runner-diagnostic-accuracy: Doctor and init never claim that no task can be completed merely because commands is empty, including runner-only installations; preserve existing diagnostic status, remediation and warnings for legacy criteria.
+- installation-regressions: All existing installation tests pass, together with the required repository test suite; no new dependencies, runner setup UI, configuration schema or trust changes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/9610d1ef9380ee20732a55f29f3388bbfa8583a1d338b92bd23f908f546b64e7-7d86759c3bd820934c2926b162b893a38f556149.json
+receipt-sha256: 97dc642610d6ac62b480b0554c08b3a91d604f420dbf378b3598af191819ef2d
