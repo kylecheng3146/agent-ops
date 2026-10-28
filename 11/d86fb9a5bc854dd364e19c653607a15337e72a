@@ -21,3 +21,13 @@ criteria:
 - spec-docs: REVIEW-CRITERIA-001 in docs/en/spec/review.md and docs/zh-TW/spec/review.md describes the once-automatic rerun and core staleness (positive and negative examples updated), and CHANGELOG.md has an Unreleased entry.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/79ff1c4747614de7f955d3d82aece88a53109d2dc58815a6ea8fda101bac22c9-64216c800237e957a79a39c83cc45b402993494c.json
 receipt-sha256: c430c53c4c7b2dfbbf91da6add61d55f5807711eb399a26fae882cc21e889ea2
+
+worktree: session-949f4e7c (agent-ops/session-949f4e7c)
+session: 949f4e7c-30a9-46b1-a2b5-1c775132e8f1
+agent-ops task task-5d0fb2ca-54a6-4f2b-af0e-8e2db93e36ef: Release 0.11.3
+intent: Bump package.json and package-lock.json to 0.11.3 and move the four Unreleased CHANGELOG entries under a dated 0.11.3 heading, leaving an empty Unreleased heading. No code change.
+criteria:
+- version-bump: package.json and package-lock.json root entries report version 0.11.3, and the built CLI --version prints 0.11.3.
+- changelog-section: CHANGELOG.md keeps an empty ## [Unreleased] heading followed by ## [0.11.3] - 2026-10-28 containing the four previously unreleased entries unchanged; the full test suite passes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/79ff1c4747614de7f955d3d82aece88a53109d2dc58815a6ea8fda101bac22c9-00aeedd3102df6449ddf0e74166b149beed5c175.json
+receipt-sha256: 56b007b27d8effda6aef22a15bdb608a6d27129abd9a858c232295d73389777b
