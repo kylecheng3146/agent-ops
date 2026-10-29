@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-10-29
+
 - The surface gate caps `included` and `unknown` path globs like exclusions:
   one glob covering more than 10 tracked files outside the diff stops review
   with `SURFACE_INCLUSION_TOO_BROAD`, so `**` or `docs/**` can no longer
