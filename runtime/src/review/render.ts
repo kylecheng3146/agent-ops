@@ -155,6 +155,12 @@ export function renderReviewResult(result: ReviewRunResult): string {
         "the host identity was not guessed."
       );
     }
+    if (result.reason === "checkpoint-invalid") {
+      lines.push(
+        "The saved final-proof review checkpoint is unreadable or does not match " +
+        "this review, so no round was resumed or repeated automatically."
+      );
+    }
     if (result.reason === "evidence-write-failed") {
       lines.push(
         "Reviewers may have completed, but the required evidence could not be " +

@@ -9,6 +9,9 @@ import { readWorktreeRecord, resolveCheckouts, sessionWorktreeName, worktreePath
 import { resolveReviewScope } from "../../../../runtime/src/review/scope.js";
 import { renderReviewDetails, renderReviewHighlights, type ReviewDisplayArtifact } from "../../../../runtime/src/review/render.js";
 import { calculateSourceFingerprint } from "../../../../runtime/src/verify/source-fingerprint.js";
+import { FileEvidenceStore } from "../../../../runtime/src/verify/evidence.js";
+import { parseArgs } from "../args.js";
+import { hasFreshVerification } from "./review.js";
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 import { readFinishedReview } from "./review-show.js";
@@ -61,6 +64,17 @@ function runner(deps: FinishDependencies, cwd: string): GitRunner {
     const result = await deps.git(cwd, args);
     return { exitCode: result.exitCode, stdout: Buffer.from(result.stdout, "utf8") };
   } };
+}
+
+/** Current passing evidence for this candidate, by the rule review's own preflight applies; anything unreadable re-verifies. */
+async function freshlyVerified(deps: FinishDependencies, cwd: string, taskId: string, base: string): Promise<boolean> {
+  try {
+    return await hasFreshVerification({args: parseArgs(["review", "--task", taskId, "--base", base, "--yes"]), authorized: true,
+      tasks: deps.tasks(cwd), root: cwd, gitRunner: runner(deps, cwd), config: await deps.loadConfig(cwd),
+      evidenceStore: new FileEvidenceStore(cwd, cwd)}, taskId, base);
+  } catch {
+    return false;
+  }
 }
 
 async function git(deps: FinishDependencies, cwd: string, args: readonly string[]): Promise<string> {
@@ -166,6 +180,10 @@ export async function runAdvanceCommand(options: {
     const onPhase = options.onPhase ?? (async () => {});
     await onPhase("verifying");
     for (const task of ordered) {
+      if (await freshlyVerified(deps, record.path, task.task.id, target)) {
+        await onPhase("verifying", {taskId: task.task.id, update: {verify: "PASS"}});
+        continue;
+      }
       const verified = await step(record.path, ["verify", "--task", task.task.id, "--base", target]);
       await onPhase("verifying", {taskId: task.task.id, update: {verify: verified.status === "ok" ? "PASS" : "FAIL",
         ...criteriaProgress(task.task.criteria, verified.data?.report ?? {})}});

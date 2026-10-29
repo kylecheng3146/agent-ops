@@ -4,6 +4,28 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.6] - 2026-10-30
+
+- Native run final proof recovers on its own from an interrupted step: a
+  killed or broken proof process with nothing left running, a review chain
+  ending on a dropped call or lost agy turn, or a supervisor restart while the
+  proof was pending. Each attempt (candidate, target, contract, policy) gets
+  one automatic recovery, started before any writer; restarts never refund
+  it, and stops, timeouts, substantive FAILs and dirty checkouts still go to
+  the existing repair path. `run status` shows the allowance and the first and
+  last failure.
+- Inside that proof the necessary review's PASS is saved before the
+  adversarial round, so a recovery runs only the second round in a fresh
+  session, and a saved complete pair is rebuilt without any model call.
+  Each checkpoint file is trusted only through the digest the proof recorded
+  in the locked run state; an unrecorded file is ignored. A refuted pair is
+  never resumed; a recorded checkpoint that is corrupt or missing stops with
+  NOT_RUN `checkpoint-invalid`. The reviewer's in-process retry is off there, so
+  retries never multiply. Standalone `review` and `batch` are unchanged.
+- `task advance` skips `verify` for a task whose passing evidence still holds
+  for the candidate, by the same rule review's preflight applies; missing or
+  stale evidence is verified again.
+
 ## [0.11.5] - 2026-10-29
 
 - The surface gate caps `included` and `unknown` path globs like exclusions:

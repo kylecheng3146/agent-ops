@@ -328,3 +328,40 @@ test("after a partial landing the run resumes and finalizes with every delivery 
     assert.deepEqual(delivers, ["deliver a.txt", "deliver b.txt", "deliver c.txt"]);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+test("task advance reuses current passing verification and re-verifies stale evidence before any review", async () => {
+  const f = await pausedRun([]);
+  try {
+    await new RunService(f.runs).resume(f.runId);
+    const commit = async (content: string) => {
+      await write(f.coordinator.path, "root.txt", content);
+      await git(f.coordinator.path, "add", "root.txt");
+      await git(f.coordinator.path, "commit", "-qm", `root ${content.trim()}`);
+    };
+    await commit("one\n");
+    let verifies = 0, reviews = 0, reviewFails = true, verifyFails = false;
+    const inner = fixtureStep({ failVerify: () => verifyFails });
+    const step: AdvanceStep = async (cwd, args) => {
+      if (args[0] === "verify") verifies += 1;
+      else {
+        reviews += 1;
+        if (reviewFails) return { code: "REVIEW_NOT_RUN", status: "error", data: { result: { status: "NOT_RUN", reason: "network-unreachable" } } };
+      }
+      return await inner(cwd, args);
+    };
+    const advance = () => runAdvanceCommand({ cwd: f.root, sessionId: SESSION, parentTaskId: f.rootTaskId, deps: f.d, step });
+    await assert.rejects(advance(), { code: "REVIEW_NOT_RUN" });
+    assert.deepEqual([verifies, reviews], [1, 1]);
+    await assert.rejects(advance(), { code: "REVIEW_NOT_RUN" });
+    assert.deepEqual([verifies, reviews], [1, 2], "current passing evidence is reused, not re-run");
+    await commit("two\n");
+    verifyFails = true;
+    await assert.rejects(advance(), { code: "VERIFICATION_FAILED" });
+    assert.deepEqual([verifies, reviews], [2, 2], "stale evidence is re-verified and its FAIL stops before review");
+    verifyFails = false;
+    reviewFails = false;
+    const result = await advance();
+    assert.equal(result.status, "ok");
+    assert.deepEqual([verifies, reviews], [3, 3]);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});

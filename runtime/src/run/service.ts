@@ -220,6 +220,24 @@ export interface RunState {
   readonly landings?: readonly RunLanding[];
   /** Held while `run land` proves a subset; blocks every writer restart. */
   readonly landing?: RunLandingMarker | null;
+  /** Native coordinator final proof: one automatic recovery per immutable attempt. Absent on older runs. */
+  readonly finalProof?: RunFinalProof | null;
+}
+
+export interface RunFinalProof {
+  /** sha256 of candidate, target, tree contract and policy config/runtime; a new key starts a new allowance. */
+  readonly attemptKey: string;
+  readonly recoveries: 0 | 1;
+  /** A proof step was started and has not been settled; found at startup it means the step was interrupted. */
+  readonly pending: boolean;
+  /** Set by the final review when its chain ended on a transient attempt; cleared before each step. */
+  readonly reviewTransient: boolean;
+  /** First and latest failure; a retry never overwrites the first. */
+  readonly failures: readonly {readonly code: string; readonly at: string}[];
+  /** Automatic recovery will not run again for this attempt key. */
+  readonly stopped: boolean;
+  /** Review checkpoint binding to the sha256 of its saved file; only recorded files are trusted. */
+  readonly checkpoints?: Readonly<Record<string, string>>;
 }
 
 export interface RunLanding {
@@ -417,6 +435,15 @@ export function assertRunState(value: unknown): asserts value is RunState {
     state.landing.processId < 1 || typeof state.landing.hostname !== "string" || state.landing.hostname.length > 256 ||
     !Number.isFinite(Date.parse(String(state.landing.startedAt)))))
     return invalid("Invalid run landing marker.");
+  if (state.finalProof != null && (!plain(state.finalProof) || !SHA256.test(String(state.finalProof.attemptKey)) ||
+    ![0, 1].includes(state.finalProof.recoveries) || typeof state.finalProof.pending !== "boolean" ||
+    typeof state.finalProof.reviewTransient !== "boolean" || typeof state.finalProof.stopped !== "boolean" ||
+    !boundedArray(state.finalProof.failures, 2) || state.finalProof.failures.some(f => !plain(f) ||
+      typeof f.code !== "string" || f.code.length === 0 || f.code.length > 128 || !Number.isFinite(Date.parse(String(f.at)))) ||
+    (state.finalProof.checkpoints !== undefined && (!plain(state.finalProof.checkpoints) ||
+      Object.keys(state.finalProof.checkpoints).length > 64 ||
+      Object.entries(state.finalProof.checkpoints).some(([binding, digest]) => !SHA256.test(binding) || !SHA256.test(String(digest)))))))
+    return invalid("Invalid final proof recovery record.");
   if (state.proofProcess != null && (!plain(state.proofProcess) || !Number.isSafeInteger(state.proofProcess.processId) ||
     state.proofProcess.processId < 1 || typeof state.proofProcess.processIdentity !== "string" ||
     state.proofProcess.processIdentity.length === 0 || state.proofProcess.processIdentity.length > 256))

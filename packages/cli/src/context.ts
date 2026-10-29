@@ -296,7 +296,8 @@ export async function runPolicyContext(root: string, renew = false) {
   const state = renew ? await ensureRunPolicy(repository, saved) : saved;
   const policy = await readRunPolicy(state, await runRuntimeHash());
   if (policy === null) return null;
-  return {repository, state, policy, worker};
+  // `proof`: this process runs inside the supervisor's registered run-level proof group.
+  return {repository, state, policy, worker, proof: globalProof};
 }
 
 /** Only active execution paths call this; status, installation and recovery reads never renew. */

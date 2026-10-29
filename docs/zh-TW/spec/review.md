@@ -250,3 +250,14 @@ permission bypass。外部 host runner 不可用時，結果 MUST 保持 NOT_RUN
 - Evidence: envelope code 與 exit code 與各 task 的結果一致。
 - Positive: `一個 FAIL 與一個 NOT_RUN 以 1 結束，先處理缺陷。`
 - Negative: `仍有 task 是 NOT_RUN 卻以 0 結束。`
+
+## REVIEW-RESUME-001
+
+native run 的 coordinator 最終驗收 MUST NOT 為同一份審查中已經回答過的輪次再付一次費用，且每個不可變的最終驗收 attempt MUST 至多自動重試一次。
+
+- Trigger: run 的最終驗收中斷：proof process group 被終止或回傳損壞的結果（不是 stop、run 期限、輸出上限或啟動失敗造成，且該 group 已沒有任何程序），審查鏈以 transient attempt（連線中斷或 agy 遺失回合）結束，或 supervisor 在驗收 pending 時重啟。
+- Action: 在 supervisor 已註冊的 proof group 內，審查於來源再檢查之後、adversarial 輪之前保存必要 PASS，之後保存已回答的雙輪，存於 run 的私有目錄，綁定 primary prompt、規劃的雙 target、model 與 effort，並像 run 的 answers 與 plans 一樣把每個檔案的 digest 記在加鎖的 run state：沒有紀錄的檔案一律忽略，植入的 PASS 雙輪無法略過審查；此情境關閉 reviewer 的程序內 retry。supervisor 以 candidate、target、tree contract、policy config 與 runtime 作為 attempt key，只在 coordinator checkout 乾淨、沒有 integration transaction 且 run 仍 active 時花掉那一次恢復。重放不啟動任何 writer，以全新 adversarial session 接續已保存的 PASS，已保存的 PASS 雙輪不呼叫任何模型直接重建，且仍須標準 attestation、finish 與 receipt。`task advance` 對所有呼叫者，若某 task 的 PASS 證據依審查 preflight 的同一規則對 candidate 仍有效，就略過 `verify`。
+- Evidence: `run status` 顯示 `Final proof recovery: <n>/1 used; first failure …; last failure …; automatic recovery stopped|in progress|available`，run 事件記錄 `RUN_FINAL_PROOF_RECOVERING` 或 `RUN_FINAL_PROOF_RECOVERY_STOPPED`。已記錄但損壞、遺失或不相符的 checkpoint 使審查以 NOT_RUN `checkpoint-invalid` 結束，且不呼叫任何 reviewer。被反駁的雙輪永不續用。run 的 receipt 被接受後即刪除 checkpoint。
+- Positive: `第二輪連線中斷；supervisor 重放一次，必要 reviewer 沒有再被呼叫，run 以 receipt 完成。`
+- Negative: `一直重試直到 adversarial reviewer 通過，或在 stop、timeout、實質 FAIL 之後重放。`
+- Note: standalone `review`、`batch` 與 child handoff 保留程序內 retry，永不讀寫 checkpoint。有未提交修改的 coordinator checkout 永不重放，原樣保留給既有 repair 處理。

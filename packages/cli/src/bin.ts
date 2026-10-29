@@ -4,6 +4,7 @@ import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
 import {advancePhaseObserver, productionRunContext} from "./run-deps.js";
 import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {recordRunVerification} from "../../../runtime/src/run/verification.js";
+import {runReviewCheckpoints} from "../../../runtime/src/run/proof-recovery.js";
 import {runOwnedLocalProof} from "./owned-run-step.js";
 import {runRunCommand} from "./commands/run.js";
 import {runFollowupCommand} from "./commands/followup.js";
@@ -713,6 +714,10 @@ process.exitCode = await runCli(
             progressPrefix = ""
           ): Promise<ReviewCommandOptions> => {
             const reviewSessionId = process.env.AGENT_OPS_SESSION_ID;
+            // Only the coordinator's registered run proof group, during a final proof, resumes saved rounds.
+            const run = await runPolicyContext(root).catch(() => null);
+            const checkpoints = run?.proof === true && run.worker?.workerId === run.state.coordinatorId &&
+              run.state.finalProof?.pending === true ? runReviewCheckpoints(run.repository, run.state) : undefined;
             const reviewGit = gitRunner(root);
             const reviewConfig = (await loadEffectiveConfig(
               root,
@@ -793,6 +798,7 @@ process.exitCode = await runCli(
                   ? {}
                   : { timeoutMs: reviewRole.timeoutMs }),
                 preflightTarget,
+                ...(checkpoints === undefined ? {} : {checkpoints}),
                 verifySourceFingerprint: async (expected, scope) => {
                   const currentScope = await resolveReviewScope({
                     root,
