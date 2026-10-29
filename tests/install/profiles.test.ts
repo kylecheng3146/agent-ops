@@ -386,7 +386,7 @@ test("auto-run hands more than five criteria to agent-ops run on Claude Code and
     assert.match(content, /relay the question to the user, run `agent-ops run respond <id> --question-id <q> --answer <text>`/u, id);
     assert.match(content, /`RUN_TARGET_REQUIRED`, `RUN_BACKGROUND_UNSUPPORTED`, `RUN_TARGET_DIRTY` or `WORKTREE_NESTED`, say so in one line naming the code and fall back to the subtask flow/u, id);
     assert.match(content, /`RUN_REPO_UNTRUSTED` means stop and ask the user; never work around trust/u, id);
-    assert.match(content, /`agent-ops run status <id>` state and code, the last `agent-ops run logs <id>` events, and the exact `agent-ops run resume <id>` and `agent-ops run stop <id>` commands, then stop: never resume automatically/u, id);
+    assert.match(content, /`agent-ops run status <id>` state and code, the last `agent-ops run logs <id>` events, and the exact `agent-ops run resume <id>` and `agent-ops run stop <id>` commands, plus `agent-ops run land <id> --yes` when it has delivered tasks, then stop: never resume or land automatically/u, id);
     // The hand-off sits in the task-split paragraph, after the subtask rule it replaces for large changes.
     assert.ok(content.indexOf("completing one never completes its parent.") < content.indexOf("With the `run` profile"), id);
     // Without auto-run, the same harness says nothing about run.

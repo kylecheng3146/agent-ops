@@ -255,7 +255,7 @@ function buildConfig(
     existing?.verification !== undefined &&
     existing.verification.commands.length > 0
       ? existing.verification
-      : { commands: [...detectedCommands] };
+      : { ...existing?.verification, commands: [...detectedCommands] };
   // Pre-0.11 DEBUG budget settings are dropped on rewrite.
   const existingFeatures = existing === undefined ? undefined : (({ debug: _legacyDebug, ...rest }) => rest)(existing.features);
   const effectiveWorktree: WorktreeConfig | undefined =

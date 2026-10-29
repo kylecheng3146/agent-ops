@@ -226,13 +226,10 @@ export async function runInitCommand(
       : { worktree: worktreeConfig })
   });
   const trust = await trustChange(options, plan);
-  // An installation with no verifier looks finished and is not: every task
-  // completion needs current PASS evidence from a required verifier, so the
-  // loop can never close. Detection stays conservative on purpose — it will
-  // not guess a test command — which makes saying so out loud the whole fix.
+  // Empty commands block legacy criteria, not typed acceptance backed by runners.
   const verificationWarnings = plan.config.verification.commands.length === 0
     ? [
-        "No verification command is configured, so no task can be completed. " +
+        "No verification command is configured; legacy criteria need a required verifier. " +
         "Add verification.commands to .agent-ops/config.json." +
         (plan.verificationBlockers.length === 0
           ? ""

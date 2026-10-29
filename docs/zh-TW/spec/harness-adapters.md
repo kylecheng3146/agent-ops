@@ -150,8 +150,8 @@ byte-identical。Update MUST 保留此 profile，除非提供 `--auto-run on|off
   一行說明該 code，並退回 subtask flow；`RUN_REPO_UNTRUSTED` 則停止並詢問使用者。
   未完成即結束的 run（blocked、budget exhausted、stopped、review 失敗）須回報其
   `run status` state 與 code、最後的 `run logs` event，以及確切的
-  `agent-ops run resume <id>` 與 `agent-ops run stop <id>` command，且永不自動
-  resume 或由 session 接手。在 worktree auto mode 下，Claude `PreToolUse`
+  `agent-ops run resume <id>` 與 `agent-ops run stop <id>` command；有已交付 task
+  時另附 `agent-ops run land <id> --yes`，且永不自動 resume、land 或由 session 接手。在 worktree auto mode 下，Claude `PreToolUse`
   worktree guard 允許在 main checkout 寫入恰為 `.agent-ops/state/run-goal.md`
   的路徑，且不建立 worktree。確認後的 init/update 會預先授權 `agent-ops run`：
   Claude Code 為 `Bash(agent-ops run *)`，Codex 為

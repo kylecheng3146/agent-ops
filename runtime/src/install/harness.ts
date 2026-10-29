@@ -636,7 +636,8 @@ function autoRunInstruction(
     "report the `agent-ops run status",
     "<id>` state and code, the last `agent-ops run logs <id>` events, and the",
     "exact `agent-ops run resume <id>` and `agent-ops run stop <id>` commands,",
-    "then stop: never resume automatically or take over the run's work.",
+    "plus `agent-ops run land <id> --yes` when it has delivered tasks,",
+    "then stop: never resume or land automatically or take over the run's work.",
     ""
   ];
 }

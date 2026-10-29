@@ -154,6 +154,7 @@ The URL carries an access token; do not share it.
        agent-ops run resume <run-id> [--retry-approval <auth-event-id>]... [--json]
        agent-ops run resume <run-id> --retry-delivery <task-id> [--json]
        agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
+       agent-ops run land <run-id> [--task <task-id>]... --yes [--json]
 
 New runs have no total time cap. Manual resume upgrades legacy finite runs and keeps accounting.
 Command/review timeouts, provider limits and stop controls remain effective.
@@ -168,6 +169,10 @@ Status includes phase, original cause, recorded sealed proof, cleanup state,
 resumability and remediation. Resume revalidates authority and sealed artifacts;
 receipt-bound recovery executes only missing cleanup steps. Resolve the saved
 blocker before retrying: unchanged cleanup inputs are refused.
+land merges delivered children of a paused, blocked or budget-limited run ahead
+of the rest: it verifies them, runs the two-round review and finishes with a
+receipt, leaving the run resumable. --task picks a subset; each one's
+dependencies must be picked too or already landed.
 `,
   init: `Usage: agent-ops init [options]
 
