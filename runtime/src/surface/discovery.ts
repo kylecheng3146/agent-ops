@@ -11,22 +11,22 @@ import { localStatePaths, readPrivateFile, writePrivateFile } from "../security/
 import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, type SurfaceAudit, type TaskSurface } from "./schema.js";
 
 export type SurfaceCode = "SURFACE_MISSING" | "SURFACE_UNCLASSIFIED" | "SURFACE_QUERY_TOO_BROAD" |
-  "SURFACE_EXCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED" |
+  "SURFACE_EXCLUSION_TOO_BROAD" | "SURFACE_INCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED" |
   "ESCAPE_RULE_INVALID" | "ESCAPE_RULE_UNSAFE" | "ESCAPE_RULE_NO_EXCLUDE" | "SURFACE_DISMISSAL_TOO_BROAD" | "SURFACE_DISMISSAL_INVALID";
 /** Cheapest first: a budget overrun stops before the long tail of diff tokens. */
 export const DISCOVERY_SOURCES = ["agent", "hunk-header", "template-fragment", "diff-token"] as const;
 export type DiscoverySource = typeof DISCOVERY_SOURCES[number];
 
 export const SURFACE_LIMITS = {
-  // ponytail: derived queries over 10 files are skipped as generic; incidental ones under that are dismissed by query.
-  agentQueryFiles: 200, derivedQueryFiles: 10, exclusionFiles: 10, dismissals: 128, dismissMinFiles: 4, budgetMs: 120_000, queryTimeoutMs: 30_000,
+  // ponytail: derived queries over 10 files outside the diff are skipped as generic; incidental ones under that are dismissed by query.
+  agentQueryFiles: 200, derivedQueryFiles: 10, exclusionFiles: 10, inclusionFiles: 10, dismissals: 128, dismissMinFiles: 4, budgetMs: 120_000, queryTimeoutMs: 30_000,
   tokenLength: 6, fragmentLength: 4, derivedQueries: 400
 } as const;
 
 export interface SurfaceDiscovery {
   readonly cached: boolean;
   readonly sources: Readonly<Record<DiscoverySource, { readonly queries: number; readonly files: number }>>;
-  /** Derived queries too generic to classify (> derivedQueryFiles hits); never agent queries. */
+  /** Derived queries too generic to classify (> derivedQueryFiles hits outside the diff), fewest first; never agent queries. */
   readonly skipped: readonly { readonly source: DiscoverySource; readonly query: string; readonly files: number }[];
   /** Exclusions that now hide a file an earlier SURFACE_UNCLASSIFIED block named. */
   readonly postBlockExclusions: readonly { readonly path: string; readonly glob: string; readonly reason: string }[];
@@ -183,13 +183,22 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   const changed = new Set(input.changedFiles);
   const tracked = await git(input.root, ["ls-files", "-z"], Math.min(SURFACE_LIMITS.queryTimeoutMs, Math.max(1, remaining())));
   if (tracked.timedOut || remaining() <= 0) return notRun("SURFACE_BUDGET_EXCEEDED", "Discovery budget exhausted listing files.", []);
+  const trackedFiles = zList(tracked.stdout);
   const exclusions = surface.excluded.map(row => ({...row, match: globMatcher(row.glob)}));
   for (const row of exclusions) {
-    const files = zList(tracked.stdout).filter(row.match);
+    const files = trackedFiles.filter(row.match);
     const diffFiles = [...changed].filter(row.match);
     if (files.length > SURFACE_LIMITS.exclusionFiles || diffFiles.length > 0)
       return notRun("SURFACE_EXCLUSION_TOO_BROAD", diffFiles.length > 0 ? "Files in the diff cannot be excluded."
         : `One exclusion may hide at most ${SURFACE_LIMITS.exclusionFiles} files.`, [{glob: row.glob, files: files.length, diffFiles}]);
+  }
+  // An included or UNKNOWN glob classifies every hit it matches, so it is capped like an exclusion.
+  for (const glob of [...surface.included.map(row => row.path), ...surface.unknown.flatMap(row => row.path === undefined ? [] : [row.path])]) {
+    const match = globMatcher(glob);
+    const files = trackedFiles.filter(path => match(path) && !changed.has(path)).length;
+    if (files > SURFACE_LIMITS.inclusionFiles)
+      return notRun("SURFACE_INCLUSION_TOO_BROAD", `One included or UNKNOWN glob may cover at most ${SURFACE_LIMITS.inclusionFiles} ` +
+        "files outside the diff; list narrower paths, each with its own behavior.", [{glob, files}]);
   }
   const head = (await git(input.root, ["rev-parse", "HEAD"], SURFACE_LIMITS.queryTimeoutMs)).stdout.toString("utf8").trim();
   const diff = (await git(input.root, ["diff", "-U0", "--no-color", "--no-ext-diff", input.base ?? "HEAD", "--"],
@@ -246,7 +255,7 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
     if (recorded.has(query)) return notRun("SURFACE_DISMISSAL_INVALID", "A recorded axis query cannot be dismissed; classify its hits.", [{query}]);
     const hit = hits.find(row => row.query === query && row.source !== "agent");
     const outside = hit === undefined ? [] : hit.files.filter(path => !changed.has(path));
-    if (hit !== undefined && outside.length < SURFACE_LIMITS.dismissMinFiles && hit.files.length <= SURFACE_LIMITS.derivedQueryFiles)
+    if (hit !== undefined && outside.length < SURFACE_LIMITS.dismissMinFiles)
       return notRun("SURFACE_DISMISSAL_INVALID", `A query reaching fewer than ${SURFACE_LIMITS.dismissMinFiles} files outside the diff ` +
         "is the likeliest sibling signal and cannot be dismissed; classify its files.", [{query, files: outside}]);
     if (hit !== undefined) dismissed.push({query, files: outside.length, postBlock: outside.some(path => blocked.includes(path))});
@@ -256,8 +265,9 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
     if (hit.source === "agent" && hit.files.length > SURFACE_LIMITS.agentQueryFiles)
       return notRun("SURFACE_QUERY_TOO_BROAD", `Query hits more than ${SURFACE_LIMITS.agentQueryFiles} files; record a more specific fixed string.`,
         [{query: hit.query, files: hit.files.length}]);
-    if (hit.source !== "agent" && hit.files.length > SURFACE_LIMITS.derivedQueryFiles) {
-      skipped.push({source: hit.source, query: hit.query, files: hit.files.length});
+    const outside = hit.files.filter(path => !changed.has(path)).length;
+    if (hit.source !== "agent" && outside > SURFACE_LIMITS.derivedQueryFiles) {
+      skipped.push({source: hit.source, query: hit.query, files: outside});
       continue;
     }
     if (hit.source !== "agent" && dismissals.has(hit.query)) continue;
@@ -294,7 +304,8 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   if (noExclude.length > 0)
     return notRun("ESCAPE_RULE_NO_EXCLUDE", "A learned escape rule marks these places noExclude: include them or mark them UNKNOWN.", noExclude);
   for (const source of DISCOVERY_SOURCES) sources[source].files = metrics.get(source)!.hits.size;
-  const discovery: SurfaceDiscovery = {cached, sources, skipped: skipped.slice(0, 50), postBlockExclusions, dismissed};
+  const discovery: SurfaceDiscovery = {cached, sources, skipped: skipped
+    .sort((a, b) => a.files - b.files || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0)).slice(0, 50), postBlockExclusions, dismissed};
   if (input.metrics === true) await logMetrics(input.logHome ?? process.env.AGENT_OPS_HOME ?? homedir(), DISCOVERY_SOURCES.map(source => ({source,
     hits: metrics.get(source)!.hits.size, included: metrics.get(source)!.included.size, excluded: metrics.get(source)!.excluded.size,
     postBlockExclusions: postBlockExclusions.length, residualRisks: 0})));
