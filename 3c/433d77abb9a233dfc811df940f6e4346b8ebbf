@@ -1,0 +1,10 @@
+worktree: session-ee981ef2 (agent-ops/session-ee981ef2)
+session: ee981ef2-1180-453d-b924-86e01f87f264
+agent-ops task task-389b6bd6-a2ef-4577-ad1f-2bfc6a9b0d96: Release 0.11.6
+intent: Bump the package version to 0.11.6 and add the dated CHANGELOG section for native final-proof recovery; no product code changes.
+criteria:
+- version-bumped: package.json and package-lock.json (root and packages[""]) report version 0.11.6 and no tracked source still names 0.11.5 as the current version.
+- changelog-entry: CHANGELOG.md keeps an empty ## [Unreleased] heading followed by a dated ## [0.11.6] - 2026-10-30 section that describes native final-proof recovery, the saved primary review checkpoint and task advance verification reuse.
+- release-checks: The full test suite passes on the release candidate, and npm run package:check and node scripts/scan-source.mjs pass.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/7414d36fc15b7062b33ea08e2ced112212955dda1135289b75a721908ce94a32-3c433d77abb9a233dfc811df940f6e4346b8ebbf.json
+receipt-sha256: 85ba57eeeb9be401558b9b072ff0cc8668cdd5e9c5fe2830b2cf7ee43639470c
