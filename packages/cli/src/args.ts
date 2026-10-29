@@ -54,7 +54,7 @@ export type TaskAction =
 export type ReviewAction = "show";
 export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "resume";
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
-export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond";
+export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond" | "land";
 export type FollowupAction = "list" | "show" | "import" | "sync" | "clarify" | "accept" | "defer" | "reopen" | "process";
 export type CliAction = FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
@@ -68,6 +68,8 @@ export interface ParsedArgs {
   runId?: string;
   retryApprovalIds?: readonly string[];
   retryDeliveryTaskId?: string;
+  /** run land: delivered run tasks to land; absent lands every unlanded delivered task. */
+  landTaskIds?: readonly string[];
   goal?: string;
   goalFile?: string;
   host?: "claude" | "codex";
@@ -1183,7 +1185,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 }
 
 function parseRunArgs(argv: readonly string[]): ParsedArgs {
-  const actions: readonly RunAction[] = ["start", "status", "logs", "resume", "stop", "respond"];
+  const actions: readonly RunAction[] = ["start", "status", "logs", "resume", "stop", "respond", "land"];
   if (argv.includes("--help") || argv.includes("-h")) return {command: "help", helpTopic: "run", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
   const action = actions.includes(argv[0] as RunAction) ? argv[0] as RunAction : "start";
   const args: ParsedArgs = {command: "run", action, runAction: action, profiles: [], dryRun: false, json: false, yes: false, rerun: false};
@@ -1195,14 +1197,18 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
       if (positional !== undefined) throw new CliArgumentError("CLI_UNEXPECTED_ARGUMENT", "Quote the goal as one argument; control actions take one run ID.");
       positional = token; continue;
     }
-    if (seen.has(token) && token !== "--retry-approval") duplicate(token);
+    if (seen.has(token) && token !== "--retry-approval" && token !== "--task") duplicate(token);
     seen.add(token);
     if (token === "--json") {args.json = true; continue;}
+    if (token === "--yes") {args.yes = true; continue;}
     if (token === "--wait") {args.wait = true; continue;}
-    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file", "--retry-approval", "--retry-delivery"].includes(token))
+    if (!["--host", "--goal-file", "--time-budget", "--jobs", "--question-id", "--answer", "--answer-file", "--retry-approval", "--retry-delivery", "--task"].includes(token))
       throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown run option: ${token}`, token);
     const value = readOptionValue(argv, i++, token);
     switch (token) {
+      case "--task":
+        if (!/^[A-Za-z0-9._:/-]{1,256}$/u.test(value) || args.landTaskIds?.includes(value)) invalidValue(token, value);
+        args.landTaskIds = [...(args.landTaskIds ?? []), value]; break;
       case "--retry-delivery":
         if (!/^task-[a-z0-9-]{1,128}$/u.test(value)) invalidValue(token, value);
         args.retryDeliveryTaskId = value; break;
@@ -1225,6 +1231,11 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
     }
   }
   if (args.retryApprovalIds !== undefined && action !== "resume") throw new CliArgumentError("CLI_INVALID_OPTION", "--retry-approval requires run resume.");
+  if (args.landTaskIds !== undefined && action !== "land") throw new CliArgumentError("CLI_INVALID_OPTION", "--task requires run land.");
+  if (args.yes !== (action === "land"))
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", action === "land"
+      ? "Run land requires --yes to authorize its verification and both reviewer sessions."
+      : "--yes is accepted only by run land.");
   if (args.retryDeliveryTaskId !== undefined && (action !== "resume" || args.retryApprovalIds !== undefined))
     throw new CliArgumentError("CLI_INVALID_OPTION", "--retry-delivery requires run resume without --retry-approval.");
   if (action === "start") {

@@ -234,12 +234,14 @@ export async function integrateSessionChildren(
   deps: FinishDependencies,
   coordinator: WorktreeRecord,
   parentTaskId: string,
-  eligibleRunWorkerIds?: readonly string[]
+  eligibleRunWorkerIds?: readonly string[],
+  /** Another session's children chosen by the caller (`run land`); replaces the session filter only. */
+  explicitChildren?: readonly WorktreeRecord[]
 ): Promise<readonly IntegratedChild[]> {
-  const statuses = await listWorktrees(deps, coordinator.mainRoot);
-  const children = statuses.map(({ record }) => record)
+  const statuses = explicitChildren === undefined ? await listWorktrees(deps, coordinator.mainRoot) : [];
+  const children = (explicitChildren ?? statuses.map(({ record }) => record)
     .filter((record) => record.name !== coordinator.name && record.sessionId === coordinator.sessionId &&
-      (record.agentId !== undefined || (coordinator.runId !== undefined && record.runId === coordinator.runId)))
+      (record.agentId !== undefined || (coordinator.runId !== undefined && record.runId === coordinator.runId))))
     .filter(record => eligibleRunWorkerIds === undefined || (record.workerId !== undefined && eligibleRunWorkerIds.includes(record.workerId)))
     .sort((a, b) => a.name.localeCompare(b.name));
   const integrated = await previous(coordinator);

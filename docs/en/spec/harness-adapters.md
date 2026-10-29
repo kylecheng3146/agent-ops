@@ -174,7 +174,8 @@ removes only `run` and keeps `loop`.
   ends without completing (blocked, budget exhausted, stopped, failing review)
   is reported with its `run status` state and code, its last `run logs` events,
   and the exact `agent-ops run resume <id>` and `agent-ops run stop <id>`
-  commands, and is never resumed automatically or taken over by the session.
+  commands, plus `agent-ops run land <id> --yes` when it has delivered tasks,
+  and is never resumed or landed automatically or taken over by the session.
   With worktree auto mode, the Claude `PreToolUse` worktree guard allows a
   write to exactly `.agent-ops/state/run-goal.md` in the main checkout without
   creating a worktree. Confirmed init/update pre-authorizes `agent-ops run`:

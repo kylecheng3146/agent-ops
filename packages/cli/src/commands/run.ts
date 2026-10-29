@@ -8,10 +8,11 @@ import {
   type RunService,
   type RunState
 } from "../../../../runtime/src/run/service.js";
+import type { LandRunResult } from "../../../../runtime/src/run/land.js";
 import type { ParsedArgs } from "../args.js";
 import { errorEnvelope, okEnvelope, type CliEnvelope } from "../output.js";
 
-export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond";
+export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond" | "land";
 
 /** ParsedArgs is extended by the root CLI wiring; keeping this view local lets
  * the command module remain usable while the parser/entrypoint is migrated. */
@@ -36,6 +37,8 @@ export interface RunCommandService {
   readonly resume: RunService["resume"];
   readonly stop: RunService["stop"];
   readonly respond: RunService["respond"];
+  /** Optional so control-only fakes stay valid; production wires `landRun`. */
+  readonly land?: (runId: string, taskIds?: readonly string[]) => Promise<LandRunResult>;
 }
 
 export interface RunCommandOptions {
@@ -61,6 +64,8 @@ export interface RunCommandData {
   readonly text: string;
   readonly officeUrl?: string;
   readonly recovery: ReturnType<typeof describeRunRecovery>;
+  readonly landedTaskIds?: readonly string[];
+  readonly receipt?: string;
 }
 
 function dynamic(args: RunParsedArgs): Record<string, unknown> {
@@ -70,7 +75,7 @@ function dynamic(args: RunParsedArgs): Record<string, unknown> {
 function actionOf(args: RunParsedArgs): RunAction {
   const value = dynamic(args).runAction ?? dynamic(args).action;
   if (value === undefined || value === "start") return "start";
-  if (["status", "logs", "resume", "stop", "respond"].includes(String(value))) return value as RunAction;
+  if (["status", "logs", "resume", "stop", "respond", "land"].includes(String(value))) return value as RunAction;
   throw new AgentOpsError("RUN_ACTION_INVALID", `Unsupported run action: ${String(value)}`);
 }
 
@@ -169,6 +174,13 @@ export async function runRunCommand(options: RunCommandOptions): Promise<CliEnve
       return okEnvelope("RUN_LOGS", { ...stateData(action, state, `Read ${events.length} event(s) for run ${runId}.`), events });
     }
     if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId, options.args.retryApprovalIds, true, options.args.retryDeliveryTaskId)));
+    if (action === "land") {
+      if (options.service.land === undefined) throw new AgentOpsError("RUN_LAND_UNSUPPORTED", "This CLI cannot land run deliveries.");
+      const landed = await options.service.land(runId, options.args.landTaskIds);
+      const message = `Landed ${landed.taskIds.join(", ")} from run ${runId}. Receipt: ${landed.receipt}.\n` +
+        `The run stays ${landed.state.status}; continue the rest with: agent-ops run resume ${runId}`;
+      return okEnvelope("RUN_LANDED", {...data(action, {state: landed.state, message}), landedTaskIds: landed.taskIds, receipt: landed.receipt});
+    }
     if (action === "stop") return okEnvelope("RUN_STOP_REQUESTED", data(action, await options.service.stop(runId, options.args.answer ?? "user requested stop")));
     const questionId = options.args.questionId;
     if (questionId === undefined || questionId.trim() === "") throw new AgentOpsError("RUN_QUESTION_REQUIRED", "Run respond requires --question-id.");

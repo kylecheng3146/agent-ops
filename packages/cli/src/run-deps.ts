@@ -9,7 +9,8 @@ import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {sha256} from "../../../runtime/src/fs/hash.js";
 import {resolveCheckouts, ensureSessionWorktree, readWorktreeRecord, writeWorktreeRecord, sessionWorktreeName} from "../../../runtime/src/parallel/service.js";
 import {createLaunchdDescriptor, LaunchdController, readBootIdentity, readGuiLoginIdentity} from "../../../runtime/src/run/macOS.js";
-import {FileRunRepository, RunService, validateDeliveryRetry, type RunState} from "../../../runtime/src/run/service.js";
+import {FileRunRepository, RunService, landingMarkerLive, validateDeliveryRetry, type RunState} from "../../../runtime/src/run/service.js";
+import {landRun} from "../../../runtime/src/run/land.js";
 import {readPrivateFile, writePrivateFile} from "../../../runtime/src/security/permissions.js";
 import {collectChangeSurface} from "../../../runtime/src/verify/change-surface.js";
 import {worktreeDependencies, gitRunner, trustStore} from "./parallel-deps.js";
@@ -30,7 +31,7 @@ import {nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {redactSecrets} from "../../../runtime/src/security/redact.js";
 import {RunControlService} from "../../../runtime/src/run/controls.js";
 import {recordRunPhase} from "../../../runtime/src/run/phase.js";
-import type {AdvancePhaseObserver} from "./commands/advance.js";
+import {runAdvanceCommand, type AdvancePhaseObserver} from "./commands/advance.js";
 
 /** Worktree construction happens before a native lease exists; it must never write global trust. */
 export async function runWorktreeDependencies(deps: FinishDependencies, state: RunState): Promise<FinishDependencies> {
@@ -202,6 +203,8 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
   };
   const resume: RunCommandService["resume"] = async (runId, retryApprovalIds = [], upgradeBudget = true, retryDeliveryTaskId) => {
     const before = await service.status(runId);
+    if (landingMarkerLive(before.landing))
+      throw new AgentOpsError("RUN_LANDING_IN_PROGRESS", `Run ${runId} is landing delivered work; wait for run land to finish.`);
     const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(before, retryDeliveryTaskId);
     const runtimeHash = await runRuntimeHash();
     const policy = await readRunPolicy(before, before.policyBinding?.runtimeHash ?? runtimeHash, Date.now(), true);
@@ -285,6 +288,17 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     }
     return {state, message: `Run ${runId} stopped; registered native process death was confirmed.`};
   };
+  const land: NonNullable<RunCommandService["land"]> = async (runId, taskIds) => {
+    if (checkouts.currentRoot !== checkouts.mainRoot) throw new AgentOpsError("WORKTREE_NESTED", "Land a run from the main checkout.");
+    return await landRun({repository, runId, ...(taskIds === undefined ? {} : {taskIds}), deps,
+      advance: async input => {
+        const result = await runAdvanceCommand({...input, deps});
+        const receipt = (result.data as {receipt?: unknown} | null)?.receipt;
+        if (result.status !== "ok" || typeof receipt !== "string")
+          throw new AgentOpsError(result.code, "Landing proof did not finish with a receipt.");
+        return {receipt};
+      }});
+  };
   const respond: RunCommandService["respond"] = async (runId, questionId, answer) => {
     const state = await service.status(runId);
     if (!state.questions.some(q => q.questionId === questionId && q.answeredAt === null))
@@ -301,7 +315,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     }
   };
   return {...checkouts, targetBranch: target.stdout.trim(), ownerSessionId: randomUUID(), repository,
-    service: {start, resume, stop, respond, status: service.status.bind(service), logs: service.logs.bind(service)},
+    service: {start, resume, stop, respond, land, status: service.status.bind(service), logs: service.logs.bind(service)},
     waitForCompletion: async (runId: string): Promise<RunState> => {
       for (;;) {
         const state = await service.status(runId);

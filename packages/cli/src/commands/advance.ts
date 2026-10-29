@@ -5,7 +5,7 @@ import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import { finishWorktree, type FinishDependencies } from "../../../../runtime/src/parallel/finish.js";
 import { followupFinishText } from "./parallel.js";
 import { integrateSessionChildren } from "../../../../runtime/src/parallel/integrate.js";
-import { readWorktreeRecord, resolveCheckouts, sessionWorktreeName, worktreePath } from "../../../../runtime/src/parallel/service.js";
+import { readWorktreeRecord, resolveCheckouts, sessionWorktreeName, worktreePath, type WorktreeRecord } from "../../../../runtime/src/parallel/service.js";
 import { resolveReviewScope } from "../../../../runtime/src/review/scope.js";
 import { renderReviewDetails, renderReviewHighlights, type ReviewDisplayArtifact } from "../../../../runtime/src/review/render.js";
 import { calculateSourceFingerprint } from "../../../../runtime/src/verify/source-fingerprint.js";
@@ -105,6 +105,8 @@ export async function runAdvanceCommand(options: {
   readonly step?: AdvanceStep;
   /** Display-only progress for the office view; never part of the proof. */
   readonly onPhase?: AdvancePhaseObserver;
+  /** `run land`: integrate these run children instead of this session's, and leave them in place. */
+  readonly children?: readonly WorktreeRecord[];
 }): Promise<CliEnvelope<unknown>> {
   const { deps, cwd } = options;
   if (options.sessionId === undefined || options.parentTaskId === undefined) {
@@ -129,7 +131,7 @@ export async function runAdvanceCommand(options: {
   if (parent.status !== "active" || parent.task.parentTaskId !== undefined) {
     throw new AgentOpsError("ADVANCE_PARENT_INVALID", "Advance requires an active root task in the coordinator worktree.");
   }
-  const children = await integrateSessionChildren(deps, record, parent.task.id);
+  const children = await integrateSessionChildren(deps, record, parent.task.id, undefined, options.children);
   const step = options.step ?? runAdvanceStep;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const target = await git(deps, mainRoot, ["rev-parse", `${record.targetBranch}^{commit}`]);
@@ -183,6 +185,7 @@ export async function runAdvanceCommand(options: {
       ...(noChangePaths === undefined ? {} : {noChangePaths}) });
     const sourceFingerprint = await calculateSourceFingerprint(record.path, scope, runner(deps, record.path));
     const finalProof = {target, head, sourceFingerprint, children,
+      ...(options.children === undefined ? {} : {keepChildren: true as const}),
       ...(noChangePaths === undefined ? {} : {noChange: {sourceCommit: head,
         contractDigest: await deps.tasks(record.path).treeContract(parent.task.id), reviewScope: scope,
         artifactRefs: Object.values((await deps.tasks(record.path).status({taskId: parent.task.id})).evidence).flat()}})};

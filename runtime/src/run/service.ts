@@ -1,6 +1,7 @@
 import type {UsageHighWater} from "./types.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir } from "node:fs/promises";
+import { hostname } from "node:os";
 import { basename, join } from "node:path";
 
 import { sha256 } from "../fs/hash.js";
@@ -215,6 +216,44 @@ export interface RunState {
   readonly policyBinding?: RunPolicyBinding;
   /** Optional for runs written before phases existed; absence reads as unknown. */
   readonly phase?: RunPhase;
+  /** Delivered subsets already merged by `run land`; their tasks stay delivered. */
+  readonly landings?: readonly RunLanding[];
+  /** Held while `run land` proves a subset; blocks every writer restart. */
+  readonly landing?: RunLandingMarker | null;
+}
+
+export interface RunLanding {
+  readonly taskIds: readonly string[];
+  readonly receipt: string;
+  readonly target: string;
+  readonly landedAt: string;
+}
+
+export interface RunLandingMarker {
+  readonly processId: number;
+  readonly hostname: string;
+  readonly startedAt: string;
+}
+
+/**
+ * A marker from another host is treated as live: its process cannot be probed.
+ *
+ * ponytail: a reused pid on this host reads as live; clear the marker by hand if that ever bites.
+ */
+export function landingMarkerLive(marker: RunLandingMarker | null | undefined): boolean {
+  if (marker == null) return false;
+  if (marker.hostname !== hostname()) return true;
+  try {
+    process.kill(marker.processId, 0);
+    return true;
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function refuseWhileLanding(state: RunState): void {
+  if (landingMarkerLive(state.landing))
+    throw new AgentOpsError("RUN_LANDING_IN_PROGRESS", `Run ${state.runId} is landing delivered work; wait for run land to finish.`);
 }
 
 export interface RunControlRecord {
@@ -369,6 +408,15 @@ export function assertRunState(value: unknown): asserts value is RunState {
     return invalid("Run phase or task progress is invalid.");
   if (state.policyBinding !== undefined && !validPolicyBinding(state.policyBinding))
     return invalid("Invalid run policy binding.");
+  if (state.landings !== undefined && (!boundedArray(state.landings, 512) || state.landings.some(l => !plain(l) ||
+    !boundedArray(l.taskIds, 512) || l.taskIds.length === 0 || l.taskIds.some(id => !ID.test(String(id))) ||
+    typeof l.receipt !== "string" || l.receipt.length === 0 || l.receipt.length > 4096 ||
+    !SHA.test(String(l.target)) || !Number.isFinite(Date.parse(String(l.landedAt))))))
+    return invalid("Invalid run landing record.");
+  if (state.landing != null && (!plain(state.landing) || !Number.isSafeInteger(state.landing.processId) ||
+    state.landing.processId < 1 || typeof state.landing.hostname !== "string" || state.landing.hostname.length > 256 ||
+    !Number.isFinite(Date.parse(String(state.landing.startedAt)))))
+    return invalid("Invalid run landing marker.");
   if (state.proofProcess != null && (!plain(state.proofProcess) || !Number.isSafeInteger(state.proofProcess.processId) ||
     state.proofProcess.processId < 1 || typeof state.proofProcess.processIdentity !== "string" ||
     state.proofProcess.processIdentity.length === 0 || state.proofProcess.processIdentity.length > 256))
@@ -714,6 +762,7 @@ export class RunService {
   async resume(runId: string, retryApprovalIds: readonly string[] = [], upgradeBudget = true,
     retryDeliveryTaskId?: string, expectedFailureId?: string): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, async (current) => {
+      refuseWhileLanding(current);
       if (retryDeliveryTaskId !== undefined && retryApprovalIds.length > 0)
         throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Delivery and approval retries require separate explicit controls.");
       const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(current, retryDeliveryTaskId, Date.parse(this.#now()));
@@ -762,6 +811,7 @@ export class RunService {
     const cleanAnswer = bounded(answer.trim(), "answer", MAX_GOAL_LENGTH);
     const state = await this.#repository.mutate(runId, (current) => {
       const question = current.questions.find((item) => item.questionId === cleanQuestion);
+      refuseWhileLanding(current);
       if (current.status !== "awaiting-input" || current.disableRestart)
         throw new AgentOpsError("RUN_NOT_AWAITING_INPUT", "Respond cannot restart a stopped or terminal run.");
       if (question === undefined) throw new AgentOpsError("RUN_QUESTION_NOT_FOUND", `Question not found: ${cleanQuestion}`);

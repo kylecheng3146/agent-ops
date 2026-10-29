@@ -67,6 +67,8 @@ export interface FinalCandidateProof {
   readonly head: string;
   readonly sourceFingerprint: string;
   readonly children: readonly IntegratedChild[];
+  /** `run land`: the children belong to a run that continues; pin them, never clean them up. */
+  readonly keepChildren?: true;
   /** An explicit review scope for an already-satisfied, unchanged target. */
   readonly noChange?: {
     readonly sourceCommit: string;
@@ -388,9 +390,12 @@ export async function finishWorktree(
   return await withActivity(commonDir, {kind: "finish", root: record.path, sessionId: record.sessionId, worktree: name}, async () => await withFinishLock(deps, commonDir, async () => {
     const listing = await git(deps, mainRoot, ["worktree", "list", "--porcelain"], "WORKTREE_LIST_FAILED", "Cannot list cleanup worktrees.");
     const records = await Promise.all(parseWorktreeListPorcelain(listing).map(child => readWorktreeRecord(child.path)));
+    const keepChildren = options.finalProof?.keepChildren === true;
     const sessionChildren = records
-      .filter((child): child is WorktreeRecord => child !== null && child.path !== record.path && child.sessionId === record.sessionId &&
-        (child.agentId !== undefined || (record.runId !== undefined && child.runId === record.runId)));
+      .filter((child): child is WorktreeRecord => child !== null && child.path !== record.path && (keepChildren
+        ? options.finalProof!.children.some(({ name }) => name === child.name)
+        : child.sessionId === record.sessionId &&
+          (child.agentId !== undefined || (record.runId !== undefined && child.runId === record.runId))));
     if (options.finalProof?.recovery === true && record.runId !== undefined) {
       const saved = await new FileRunRepository(join(commonDir, "agent-ops/runs"), commonDir).read(record.runId);
       if (["receipt-written", "cleaned"].includes(saved?.integration?.status ?? ""))
@@ -657,7 +662,7 @@ export async function finishWorktree(
         // this session began would leave it reading the merge as its own change.
         // Only this worktree leaves the session; its other roots stay covered.
         await mainGate.afterFinish(record.sessionId, record.path, after);
-        if (options.finalProof !== undefined) {
+        if (options.finalProof !== undefined && !keepChildren) {
           for (const child of sessionChildren) {
             await mainGate.afterFinish(record.sessionId, child.path, after);
           }
@@ -669,7 +674,7 @@ export async function finishWorktree(
     await markOfficeSessionCompleted(commonDir, record.sessionId).catch(() => undefined);
     await attempt("trust", async () => await deps.trust.revoke(record.path, worktreeConfig));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "receipt-written", "trust");
-    if (options.finalProof !== undefined) {
+    if (options.finalProof !== undefined && !keepChildren) {
       for (const child of sessionChildren) {
         await attempt(`child ${child.name}`, async () => {
           const pinnedHead = await assertPinnedChild(child);

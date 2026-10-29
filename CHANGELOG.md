@@ -4,6 +4,16 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- `agent-ops run land <run-id> [--task <task-id>]... --yes` merges the delivered
+  children of a paused, blocked or budget-limited run without waiting for the
+  rest. It proves them in a fresh landing worktree (required verifiers, a
+  review-only coherence criterion, two-round tree review, receipt) and leaves
+  the run's checkouts untouched. Landed tasks stay delivered and the run stays
+  resumable; its final proof re-verifies the whole goal on the new target.
+  `--task` needs every dependency selected or already landed
+  (`RUN_LAND_DEPENDENCY_OPEN`), and a landing marker refuses resume, respond and
+  a second land until it finishes (`RUN_LANDING_IN_PROGRESS`).
+
 ## [0.11.3] - 2026-10-28
 
 - The first `task revise` that changes criteria, intent or goal reruns the

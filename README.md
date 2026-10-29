@@ -53,7 +53,13 @@ agent-ops run logs <run-id>
 agent-ops run respond <run-id> --question-id <id> --answer "Clarification"
 agent-ops run stop <run-id>
 agent-ops run resume <run-id>
+agent-ops run land <run-id> [--task <task-id>]... --yes
 ```
+
+`run land` merges the delivered children of a paused, blocked or budget-limited
+run ahead of the rest: it verifies them, runs the two-round review and finishes
+with a receipt in a separate landing worktree, while the run stays resumable and
+its final proof re-verifies the whole goal.
 
 `--host claude` uses Claude Code; `--wait` waits for a terminal or input state.
 The coordinator counts toward the two writer slots. Native processes write only
@@ -268,7 +274,8 @@ question through `agent-ops run respond`. A start refused with
 `WORKTREE_NESTED` falls back to the subtask flow; `RUN_REPO_UNTRUSTED` stops and
 asks you. A run that ends without completing is reported with its status, last
 log events, and the `agent-ops run resume <id>` / `agent-ops run stop <id>`
-commands; it is never resumed automatically. agy keeps the subtask flow.
+commands (plus `agent-ops run land <id> --yes` when it has delivered tasks); it
+is never resumed or landed automatically. agy keeps the subtask flow.
 Init and update pre-authorize `agent-ops run` for Claude Code and Codex.
 
 ```bash

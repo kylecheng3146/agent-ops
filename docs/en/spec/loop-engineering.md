@@ -73,6 +73,19 @@
   Interrupted controlled proof MUST record bounded redacted exit/signal, result
   failure stage and subprocess diagnostics without treating invalid output or a
   nonzero successful envelope as proof.
+- `run land <id> [--task <task-id>]... --yes` MAY merge delivered children of a
+  paused, blocked or budget-limited run with no live worker ahead of the rest.
+  Every selected task's dependencies MUST be selected or already landed
+  (`RUN_LAND_DEPENDENCY_OPEN`). Proof runs in a fresh landing worktree from the
+  target under a generated root task (required verifiers plus a review-only
+  coherence criterion, the run root's surface), then the usual verification,
+  two-round tree review and receipt-bound finish. The run's checkouts are pinned
+  and never removed; landed tasks stay delivered, the run stays resumable and
+  records `landings[]` and `RUN_PARTIAL_LANDED`, and its final proof re-verifies
+  the whole goal on the new target. While landing, a marker refuses resume,
+  respond and another land (`RUN_LANDING_IN_PROGRESS`); a marker of a process
+  that no longer exists does not block. A failure leaves the target unchanged
+  and keeps the landing worktree until the next land removes it.
   Initial recovery after a current manual resume MAY ignore an owned Codex limit
   snapshot received before activation whose native update second strictly predates
   that resume. Automatic restarts, unknown/equal/future timestamps, clock rollback,
