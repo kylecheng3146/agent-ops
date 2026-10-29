@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-10-29
+
 - `agent-ops run land <run-id> [--task <task-id>]... --yes` merges the delivered
   children of a paused, blocked or budget-limited run without waiting for the
   rest. It proves them in a fresh landing worktree (required verifiers, a
@@ -13,6 +15,10 @@ All notable changes to the project are documented here.
   `--task` needs every dependency selected or already landed
   (`RUN_LAND_DEPENDENCY_OPEN`), and a landing marker refuses resume, respond and
   a second land until it finishes (`RUN_LANDING_IN_PROGRESS`).
+- `init` and `update` keep configured `verification.acceptanceRunners` when they
+  rewrite detected verification commands, and the missing-verifier warning now
+  says only legacy criteria need a required verifier; typed acceptance can rely
+  on runners.
 
 ## [0.11.3] - 2026-10-28
 
