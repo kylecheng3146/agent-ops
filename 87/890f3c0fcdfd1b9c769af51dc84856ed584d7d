@@ -1,0 +1,9 @@
+worktree: session-286d18cc (agent-ops/session-286d18cc)
+session: 286d18cc-22c0-4e13-8485-e69b2fe661f7
+agent-ops task task-13a5767f-0d87-4c71-a02e-64c1c45c686f: Release 0.11.5
+intent: Prepare release 0.11.5: bump package.json and package-lock.json to 0.11.5 and move the Unreleased surface-cap changelog entries under a dated 0.11.5 heading below an empty Unreleased. No code changes.
+criteria:
+- version-bumped: package.json and both package-lock.json version fields read 0.11.5 and the full test suite passes
+- changelog-dated: CHANGELOG.md has an empty ## [Unreleased] heading followed by ## [0.11.5] - 2026-10-29 holding the two surface-cap entries; docs tests requiring Unreleased pass
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/df28411a119c3f598471284ea4c5b3ad91b313065e3a92bdd8ef10e5aef0bc8e-87890f3c0fcdfd1b9c769af51dc84856ed584d7d.json
+receipt-sha256: 83b8fbc34dc7325279cf3494ae3d61b36ac98aa258098ba6dafe135ae99912be
