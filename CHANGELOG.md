@@ -16,9 +16,11 @@ All notable changes to the project are documented here.
   last failure.
 - Inside that proof the necessary review's PASS is saved before the
   adversarial round, so a recovery runs only the second round in a fresh
-  session, and a saved complete pair is rebuilt without any model call. A
-  refuted pair is never resumed; a corrupt checkpoint stops with NOT_RUN
-  `checkpoint-invalid`. The reviewer's in-process retry is off there, so
+  session, and a saved complete pair is rebuilt without any model call.
+  Each checkpoint file is trusted only through the digest the proof recorded
+  in the locked run state; an unrecorded file is ignored. A refuted pair is
+  never resumed; a recorded checkpoint that is corrupt or missing stops with
+  NOT_RUN `checkpoint-invalid`. The reviewer's in-process retry is off there, so
   retries never multiply. Standalone `review` and `batch` are unchanged.
 - `task advance` skips `verify` for a task whose passing evidence still holds
   for the candidate, by the same rule review's preflight applies; missing or

@@ -9,6 +9,7 @@ import test from "node:test";
 
 import { runRunCommand } from "../../packages/cli/src/commands/run.js";
 import { runControlledStep } from "../../packages/cli/src/run-entry.js";
+import { sha256 } from "../../runtime/src/fs/hash.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 import { beginFinalProof, discardReviewCheckpoints, finalProofAttemptKey, InterruptedStepError, processGroupAlive,
   runFinalProof, runReviewCheckpoints, settleFinalProofFailure } from "../../runtime/src/run/proof-recovery.js";
@@ -135,15 +136,30 @@ test("final proof spends its one recovery only on a replayable failure of an unt
 test("checkpoints are private to the run and discarded after delivery", async () => {
   await fixture(async ({ repository, state }) => {
     const journal = runReviewCheckpoints(repository, state);
+    const binding = "b".repeat(64);
+    const checkpoint = { binding, primary: { target: "codex" as const, sessionId: "s1", metrics: { promptBytes: 1, durationMs: 1 },
+      report: { summary: "ok", results: [], findings: [], residualRisks: [], changedFilesInspected: [], supportingFilesInspected: [] } } };
     await assert.rejects(journal.load("../escape"), /sha256/u);
-    assert.equal(await journal.load("b".repeat(64)), null);
-    await journal.save({ binding: "b".repeat(64), primary: { target: "codex", sessionId: "s1", metrics: { promptBytes: 1, durationMs: 1 },
-      report: { summary: "ok", results: [], findings: [], residualRisks: [], changedFilesInspected: [], supportingFilesInspected: [] } } });
-    assert.equal((await journal.load("b".repeat(64)))!.primary.sessionId, "s1");
+    assert.equal(await journal.load(binding), null);
     await journal.transient();
     assert.equal((await repository.read(state.runId))!.finalProof, undefined, "no record, nothing to mark");
+    await assert.rejects(journal.save(checkpoint), { code: "RUN_REVIEW_CHECKPOINT_UNBOUND" }, "only a final proof records checkpoints");
+    assert.equal(await journal.load(binding), null, "the file written without a record is never trusted");
+
+    await beginFinalProof(repository, state.runId, KEY);
+    await journal.save(checkpoint);
+    assert.equal((await journal.load(binding))!.primary.sessionId, "s1");
+    await beginFinalProof(repository, state.runId, KEY);
+    assert.equal((await journal.load(binding))!.primary.sessionId, "s1", "the same attempt keeps its records");
+    await assert.rejects(repository.mutate(state.runId, s => ({ ...s, finalProof: { ...s.finalProof!, checkpoints: { "not-a-digest": "x" } } })),
+      /Invalid final proof recovery record/u);
+    await assert.rejects(repository.mutate(state.runId, s => ({ ...s, finalProof: { ...s.finalProof!,
+      checkpoints: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [sha256(String(i)), sha256(String(i))])) } })),
+      /Invalid final proof recovery record/u);
+    await beginFinalProof(repository, state.runId, keyOf(99));
+    assert.equal(await journal.load(binding), null, "a new attempt starts without records");
     await discardReviewCheckpoints(state);
-    assert.equal(await journal.load("b".repeat(64)), null);
+    assert.equal(await journal.load(binding), null);
   });
 });
 

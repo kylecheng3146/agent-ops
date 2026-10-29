@@ -236,6 +236,8 @@ export interface RunFinalProof {
   readonly failures: readonly {readonly code: string; readonly at: string}[];
   /** Automatic recovery will not run again for this attempt key. */
   readonly stopped: boolean;
+  /** Review checkpoint binding to the sha256 of its saved file; only recorded files are trusted. */
+  readonly checkpoints?: Readonly<Record<string, string>>;
 }
 
 export interface RunLanding {
@@ -437,7 +439,10 @@ export function assertRunState(value: unknown): asserts value is RunState {
     ![0, 1].includes(state.finalProof.recoveries) || typeof state.finalProof.pending !== "boolean" ||
     typeof state.finalProof.reviewTransient !== "boolean" || typeof state.finalProof.stopped !== "boolean" ||
     !boundedArray(state.finalProof.failures, 2) || state.finalProof.failures.some(f => !plain(f) ||
-      typeof f.code !== "string" || f.code.length === 0 || f.code.length > 128 || !Number.isFinite(Date.parse(String(f.at))))))
+      typeof f.code !== "string" || f.code.length === 0 || f.code.length > 128 || !Number.isFinite(Date.parse(String(f.at)))) ||
+    (state.finalProof.checkpoints !== undefined && (!plain(state.finalProof.checkpoints) ||
+      Object.keys(state.finalProof.checkpoints).length > 64 ||
+      Object.entries(state.finalProof.checkpoints).some(([binding, digest]) => !SHA256.test(binding) || !SHA256.test(String(digest)))))))
     return invalid("Invalid final proof recovery record.");
   if (state.proofProcess != null && (!plain(state.proofProcess) || !Number.isSafeInteger(state.proofProcess.processId) ||
     state.proofProcess.processId < 1 || typeof state.proofProcess.processIdentity !== "string" ||

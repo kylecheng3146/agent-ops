@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { ReviewTargetId } from "../../runtime/src/contracts.js";
+import { sha256 } from "../../runtime/src/fs/hash.js";
 import { reviewReportDigest } from "../../runtime/src/review/attestation.js";
 import { createReviewExecutor, type ReviewCheckpointJournal } from "../../runtime/src/review/execute.js";
 import { redactReviewReport, type ReviewExecutionRequest } from "../../runtime/src/review/runner.js";
@@ -90,10 +91,13 @@ test("an interrupted second round resumes from the saved primary PASS with no se
     assert.notEqual(adversarial!.sessionId, primary!.sessionId);
     assert.notEqual(adversarial!.sessionId, first.result.attempts![1]!.sessionId);
     const [path] = await saved();
-    const checkpoint = JSON.parse(await readFile(path!, "utf8")).checkpoint;
+    const source = await readFile(path!, "utf8");
+    const checkpoint = JSON.parse(source).checkpoint;
     assert.equal(reviewReportDigest(redactReviewReport(second.result.report!)), reviewReportDigest(checkpoint.primary.report),
       "the attested primary digest is the checkpoint's");
     assert.equal(checkpoint.adversarial.sessionId, adversarial!.sessionId);
+    assert.deepEqual(Object.values((await repository.read(runId))!.finalProof!.checkpoints!), [sha256(source)],
+      "saving the answered pair replaces the binding's recorded digest");
 
     const third = await review([]);
     assert.equal(third.result.status, "PASS");
@@ -122,25 +126,45 @@ test("a refuted pair is never resumed and a dropped primary is not retried in pr
   });
 });
 
-test("a corrupt or mismatched checkpoint stops the review without calling any reviewer", async () => {
-  await fixture(async ({ review, saved }) => {
+test("a corrupt, missing or mismatched checkpoint stops the review without calling any reviewer", async () => {
+  await fixture(async ({ repository, runId, review, saved }) => {
     await review([{ stdout: answer("PASS", "codex") }, dropped]);
     const [path] = await saved();
     const source = await readFile(path!, "utf8");
+    const reason = (result: { status: string; reason?: string }) => result.status === "NOT_RUN" ? result.reason : undefined;
     await writeFile(path!, source.replace("Review complete.", "Review altered."));
     const altered = await review([{ stdout: answer("PASS", "claude") }]);
-    assert.equal(altered.result.status, "NOT_RUN");
-    assert.equal(altered.result.status === "NOT_RUN" ? altered.result.reason : undefined, "checkpoint-invalid");
+    assert.equal(reason(altered.result), "checkpoint-invalid", "content no longer matches the recorded digest");
     assert.deepEqual(altered.calls, []);
 
-    const saved_ = JSON.parse(source);
-    saved_.checkpoint.primary.report.results[0].status = "FAIL";
-    const { sha256 } = await import("../../runtime/src/fs/hash.js");
-    saved_.digest = sha256(JSON.stringify(saved_.checkpoint));
-    await writeFile(path!, JSON.stringify(saved_));
+    await rm(path!);
+    const missing = await review([{ stdout: answer("PASS", "claude") }]);
+    assert.equal(reason(missing.result), "checkpoint-invalid", "a recorded checkpoint whose file is gone fails closed");
+    assert.deepEqual(missing.calls, []);
+
+    // Even a recorded, intact file is checked against the review it claims to resume.
+    const forged = JSON.parse(source);
+    forged.checkpoint.primary.report.results[0].status = "FAIL";
+    const content = JSON.stringify(forged);
+    await writeFile(path!, content);
+    await repository.mutate(runId, s => ({ ...s, finalProof: { ...s.finalProof!,
+      checkpoints: Object.fromEntries(Object.keys(s.finalProof!.checkpoints!).map(binding => [binding, sha256(content)])) } }));
     const mismatched = await review([{ stdout: answer("PASS", "claude") }]);
-    assert.equal(mismatched.result.status === "NOT_RUN" ? mismatched.result.reason : undefined, "checkpoint-invalid");
+    assert.equal(reason(mismatched.result), "checkpoint-invalid");
     assert.deepEqual(mismatched.calls, []);
+  });
+});
+
+test("a checkpoint file the proof did not record is ignored, so a planted PASS pair cannot skip review", async () => {
+  await fixture(async ({ repository, runId, review, saved }) => {
+    await review([{ stdout: answer("PASS", "codex") }, { stdout: answer("PASS", "claude") }]);
+    const [path] = await saved();
+    const planted = await readFile(path!, "utf8");
+    await repository.mutate(runId, s => ({ ...s, finalProof: { ...s.finalProof!, checkpoints: undefined } }));
+    await writeFile(path!, planted);
+    const fresh = await review([{ stdout: answer("PASS", "codex") }, { stdout: answer("PASS", "claude") }]);
+    assert.equal(fresh.result.status, "PASS");
+    assert.deepEqual(fresh.calls, ["codex", "claude"], "both rounds run; the unrecorded pair is never trusted");
   });
 });
 

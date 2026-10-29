@@ -660,7 +660,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const finalContract = treeContractHash(receipt.tasks.map(record => record.task));
       await repository.mutate(runId, current => ({...current, currentContractHash: finalContract,
         contractRevision: current.contractRevision + (current.currentContractHash === finalContract ? 0 : 1),
-        ...(current.finalProof == null ? {} : {finalProof: {...current.finalProof, pending: false}})}));
+        ...(current.finalProof == null ? {} : {finalProof: {...current.finalProof, pending: false, checkpoints: undefined}})}));
       await discardReviewCheckpoints(current).catch(() => {});
       await supervisor.finalize(runId, {targetCommit: receipt.candidateHead, candidateCommit: receipt.candidateHead,
         verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: sha256(source)});

@@ -10,6 +10,8 @@ import type {RunFinalProof, RunRepository, RunState} from "./service.js";
 
 const MAX_CHECKPOINT_BYTES = 4 * 1024 * 1024;
 const BINDING = /^[a-f0-9]{64}$/u;
+/** Matches the run state validator; the oldest record is dropped first. */
+const MAX_CHECKPOINTS = 64;
 
 /** One immutable final attempt: a new candidate, target, contract or policy starts a new allowance. */
 export function finalProofAttemptKey(parts: {readonly candidate: string; readonly target: string;
@@ -21,7 +23,12 @@ function checkpointDirectory(state: Pick<RunState, "commonDir" | "runId">): stri
   return join(state.commonDir, "agent-ops", "runs", state.runId, "final-review");
 }
 
-/** Saved rounds live beside the run state; `transient` marks the run's final-proof record. */
+/**
+ * Saved rounds live beside the run state, and each file is trusted only
+ * through the digest the proof recorded in the locked run state, like run
+ * answers and plans: a file nobody recorded is ignored, so a writer that can
+ * reach the directory cannot plant a PASS. `transient` marks the same record.
+ */
 export function runReviewCheckpoints(repository: RunRepository, state: Pick<RunState, "commonDir" | "runId">): ReviewCheckpointJournal {
   const path = (binding: string): string => {
     if (!BINDING.test(binding)) throw new AgentOpsError("RUN_REVIEW_CHECKPOINT_INVALID", "Checkpoint binding must be a sha256 digest.");
@@ -29,20 +36,31 @@ export function runReviewCheckpoints(repository: RunRepository, state: Pick<RunS
   };
   return {
     async load(binding) {
-      const source = await readPrivateFile(path(binding), state.commonDir);
-      if (source === null) return null;
-      const saved = Buffer.byteLength(source) > MAX_CHECKPOINT_BYTES ? null
-        : JSON.parse(source) as {schemaVersion?: unknown; checkpoint?: ReviewCheckpoint | null; digest?: unknown} | null;
-      if (saved === null || typeof saved !== "object" || saved.schemaVersion !== 1 || typeof saved.checkpoint !== "object" ||
-        saved.checkpoint === null || saved.digest !== sha256(JSON.stringify(saved.checkpoint)))
-        throw new AgentOpsError("RUN_REVIEW_CHECKPOINT_INVALID", "Saved review checkpoint is unreadable or altered.");
+      const file = path(binding);
+      const recorded = (await repository.read(state.runId))?.finalProof?.checkpoints?.[binding];
+      if (recorded === undefined) return null;
+      const source = await readPrivateFile(file, state.commonDir);
+      const saved = source === null || Buffer.byteLength(source) > MAX_CHECKPOINT_BYTES || sha256(source) !== recorded ? null
+        : JSON.parse(source) as {schemaVersion?: unknown; checkpoint?: ReviewCheckpoint | null} | null;
+      if (saved === null || typeof saved !== "object" || saved.schemaVersion !== 1 ||
+        typeof saved.checkpoint !== "object" || saved.checkpoint === null)
+        throw new AgentOpsError("RUN_REVIEW_CHECKPOINT_INVALID", "Saved review checkpoint is missing, altered or does not match its run state record.");
       return saved.checkpoint;
     },
     async save(checkpoint) {
-      const content = JSON.stringify({schemaVersion: 1, checkpoint, digest: sha256(JSON.stringify(checkpoint))});
+      const file = path(checkpoint.binding);
+      const content = JSON.stringify({schemaVersion: 1, checkpoint});
       if (Buffer.byteLength(content) > MAX_CHECKPOINT_BYTES)
         throw new AgentOpsError("RUN_REVIEW_CHECKPOINT_TOO_LARGE", "Review checkpoint exceeds 4 MiB.");
-      await writePrivateFile(path(checkpoint.binding), content, state.commonDir);
+      await writePrivateFile(file, content, state.commonDir);
+      await repository.mutate(state.runId, current => {
+        if (current.finalProof == null)
+          throw new AgentOpsError("RUN_REVIEW_CHECKPOINT_UNBOUND", "A review checkpoint needs the run's final-proof record.");
+        const kept = Object.entries(current.finalProof.checkpoints ?? {}).filter(([binding]) => binding !== checkpoint.binding)
+          .slice(-(MAX_CHECKPOINTS - 1));
+        return {...current, finalProof: {...current.finalProof,
+          checkpoints: Object.fromEntries([...kept, [checkpoint.binding, sha256(content)]])}};
+      });
     },
     async transient() {
       await repository.mutate(state.runId, current => current.finalProof == null ? current
