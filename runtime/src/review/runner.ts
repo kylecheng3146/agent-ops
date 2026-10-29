@@ -143,6 +143,7 @@ export type ReviewUnavailableReason =
   | "surface-unclassified"
   | "surface-query-too-broad"
   | "surface-exclusion-too-broad"
+  | "surface-inclusion-too-broad"
   | "surface-dismissal-too-broad"
   | "surface-dismissal-invalid"
   | "scenario-missing"
@@ -334,6 +335,8 @@ function taskDataBlock(invocation: ReviewInvocation): readonly string[] {
  */
 function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversarial"): readonly string[] {
   if (invocation.packet.surface === undefined) return [];
+  const discovery = invocation.packet.surface.discovery as {skipped?: readonly {query: string; files: number}[]} | null;
+  const skipped = round === "adversarial" ? discovery?.skipped ?? [] : [];
   return [
     "",
     "Surface coverage (narrow exception to \"Do not survey\"): task data carries the surface audit, its revision " +
@@ -347,7 +350,10 @@ function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversar
         "and indirect consumer. Do not run other searches beyond callers a specific question needs."
       : "Round 2: check the five fixed scenarios (initialState, redo, timeBoundary, identitySwitch, concurrency) against " +
         "the code, and hunt unlisted surfaces with at most 3 new `git grep -F` queries per axis (dependents, duplicates, " +
-        "otherPaths, sharedState); cite each query you ran in evidence."
+        "otherPaths, sharedState); cite each query you ran in evidence.",
+    ...(skipped.length === 0 ? [] : ["Skipped derived queries (over 10 files outside the diff, so discovery never gated them; " +
+      `fewest first): ${skipped.map(row => `\`${row.query}\` (${row.files})`).join(", ")}. Beyond the per-axis budget, run at most 3 ` +
+      "extra `git grep -F` queries in total over these to find copied siblings the change missed; cite each in evidence."])
   ];
 }
 

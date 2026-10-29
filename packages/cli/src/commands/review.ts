@@ -475,6 +475,7 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   SURFACE_UNCLASSIFIED: "surface-unclassified",
   SURFACE_QUERY_TOO_BROAD: "surface-query-too-broad",
   SURFACE_EXCLUSION_TOO_BROAD: "surface-exclusion-too-broad",
+  SURFACE_INCLUSION_TOO_BROAD: "surface-inclusion-too-broad",
   SCENARIO_MISSING: "scenario-missing",
   SURFACE_BUDGET_EXCEEDED: "surface-budget-exceeded",
   SURFACE_UNASSIGNED: "surface-unassigned",

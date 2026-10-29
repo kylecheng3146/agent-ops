@@ -4,6 +4,16 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- The surface gate caps `included` and `unknown` path globs like exclusions:
+  one glob covering more than 10 tracked files outside the diff stops review
+  with `SURFACE_INCLUSION_TOO_BROAD`, so `**` or `docs/**` can no longer
+  classify every discovery hit at once.
+- A derived discovery query is skipped as too generic only above 10 hit files
+  outside the diff; changed files no longer count, so a token spread across a
+  cross-file change still gates its unlisted siblings. Skipped queries reach
+  the second reviewer fewest hits first, with up to 3 extra `git grep -F`
+  queries over them.
+
 ## [0.11.4] - 2026-10-29
 
 - `agent-ops run land <run-id> [--task <task-id>]... --yes` merges the delivered

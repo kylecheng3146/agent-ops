@@ -98,7 +98,7 @@ PASS MUST 交給第二個規劃的 target 嘗試反駁，且反駁成立時 MUST
 - Positive: `codex 判 PASS，claude 找到 blocking 缺陷，整體判定 FAIL。`
 - Negative: `為了讓複查看起來有效而編造反駁。`
 - Note: 只有一個設定 target 時，會在全新 session 再呼叫同一 target。FAIL 已是終局，不再複查。
-- Note: 有 surface 的 task，第二輪也會在 `surface-coverage` 下搜尋未列出的 surface 與情境：檢查五個固定情境維度，每個軸向最多可新增 3 個 `git grep -F` 查詢。第一輪重放記錄的查詢並閱讀每個列出的 `valueChanges` consumer；這是「不要普查 repository」唯一的例外。
+- Note: 有 surface 的 task，第二輪也會在 `surface-coverage` 下搜尋未列出的 surface 與情境：檢查五個固定情境維度，每個軸向最多可新增 3 個 `git grep -F` 查詢，另外可針對 discovery 因太通用而略過的衍生查詢（prompt 會列出它們與命中數）總計最多再跑 3 個。第一輪重放記錄的查詢並閱讀每個列出的 `valueChanges` consumer；這是「不要普查 repository」唯一的例外。
 
 ## REVIEW-ORIGIN-001
 

@@ -62,7 +62,8 @@ English source version: 2026-10-20. Revalidate: when the English specification c
 - `included` 列含 `id`、`path` glob 與 `behavior`；`excluded` 列含 `glob` 與說明
   該 surface 為何不受影響的理由（「out of scope」不是理由）；`unknown` 列記錄
   repository 看不到的讀取者。`contracts` 宣告 `compatible` 或 `breaking`。只有單一
-  surface 也可以。
+  surface 也可以。`included` 或 `unknown` 的 path glob 與排除一樣，至多涵蓋 diff
+  以外 10 個 tracked 檔案；請改列更窄的路徑，各自寫出 behavior。
 - 值的語意改變（clear、redact、default、normalize、unit/format）時，
   `valueChanges` `[{producer, kind, change, consumers, indirectConsumers}]` 列出兩層
   consumer。
@@ -75,8 +76,8 @@ English source version: 2026-10-20. Revalidate: when the English specification c
   不以 task 文字組 regex），由便宜的來源先跑：記錄的查詢；diff hunk header 的外層
   函式名；template literal 固定片段（至少 4 字元且以分隔符界定，例如 `order:`、
   `user_`、`menu.`）；新增與刪除行的複合識別字（snake_case、camelCase 或含數字，
-  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元；命中超過 10 個檔案〈含
-  變更檔案〉視為太通用而略過）。diff 與 surface 清單之外的任何命中都會擋下 review。
+  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元）。衍生查詢在 diff 以外命中
+  超過 10 個檔案時視為太通用而略過；略過的查詢依命中數由少到多交給第二輪 reviewer。diff 與 surface 清單之外的任何命中都會擋下 review。
 - 衍生查詢（diff 字詞、template 片段或 hunk header 函式名）的命中若只是巧合，可在
   surface 選用的 `dismissed` 清單中以一筆 `{query, reason}` 排除（理由至多 256
   字元，「out of scope」不是理由），不必逐檔排除。記錄的軸查詢與 escape rule 命中
@@ -88,7 +89,8 @@ English source version: 2026-10-20. Revalidate: when the English specification c
 - Review 以 NOT_RUN 回報：`SURFACE_MISSING`（沒有或無法解析的 surface；
   task 建立時也會拒絕）、`SURFACE_UNCLASSIFIED`、`SURFACE_QUERY_TOO_BROAD`（單一
   記錄查詢超過 200 個檔案）、`SURFACE_EXCLUSION_TOO_BROAD`（單一 glob 超過 10 個
-  檔案，或包含 diff 內的檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
+  檔案，或包含 diff 內的檔案）、`SURFACE_INCLUSION_TOO_BROAD`（單一 included 或
+  UNKNOWN glob 涵蓋 diff 以外超過 10 個檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
   `SURFACE_DISMISSAL_INVALID`（記錄的查詢或稀有查詢）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
   （總計 120 秒，絕不默默略過）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
   included 不一致；每次 review 都檢查，包含 advance 與 batch）。

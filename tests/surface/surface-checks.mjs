@@ -97,8 +97,8 @@ const IMAGE_FILES = {
 const SIBLINGS = ['src/pages/ComboDetailPage.tsx', 'src/pages/ComboStepFlowPage.tsx', 'src/pages/PackDetailPage.tsx', 'src/pages/PackDetailStepFlow.tsx'];
 
 /** A real review command run over a committed 864dbbe2-shaped change. */
-async function reviewFixture(check) {
-  return withRepo(IMAGE_FILES, async fixture => {
+async function reviewFixture(check, extra = {}) {
+  return withRepo({...IMAGE_FILES, ...extra}, async fixture => {
     const {TaskService} = await load('runtime/src/task/service.js');
     const {FileTaskStore} = await load('runtime/src/task/store.js');
     const {parseArgs} = await load('packages/cli/src/args.js');
@@ -164,7 +164,7 @@ const raw = {
       const rule = section(await doc('acceptance-and-evidence.md'), 'EVIDENCE-SURFACE-001');
       for (const token of ['dependents', 'duplicates', 'otherPaths', 'sharedState', 'valueChanges', 'covers', 'initialState', 'redo',
         'timeBoundary', 'identitySwitch', 'concurrency', 'git grep -F', '--surface-file', 'surface-coverage', 'SURFACE_MISSING',
-        'SURFACE_UNCLASSIFIED', 'SURFACE_QUERY_TOO_BROAD', 'SURFACE_EXCLUSION_TOO_BROAD', 'SCENARIO_MISSING', 'SURFACE_BUDGET_EXCEEDED',
+        'SURFACE_UNCLASSIFIED', 'SURFACE_QUERY_TOO_BROAD', 'SURFACE_EXCLUSION_TOO_BROAD', 'SURFACE_INCLUSION_TOO_BROAD', 'SCENARIO_MISSING', 'SURFACE_BUDGET_EXCEEDED',
         'SURFACE_UNASSIGNED', 'out of scope', 'worktree finish'])
         assert.ok(rule.includes(token), `${lang} EVIDENCE-SURFACE-001 lacks ${token}`);
       assert.match(section(await doc('loop-engineering.md'), 'LOOP-START-001'), /EVIDENCE-SURFACE-001/u, lang);
@@ -283,14 +283,51 @@ const raw = {
 
   'surface-token-cap': () => withRepo({
     'src/main.ts': 'export const main = 1;\n',
-    ...Object.fromEntries(Array.from({length: 10}, (_, i) => [`src/wide/w${i}.ts`, `export const w${i} = wideToken_name;\n`])),
+    ...Object.fromEntries(Array.from({length: 11}, (_, i) => [`src/wide/w${i}.ts`, `export const w${i} = wideToken_name;\n`])),
     ...Object.fromEntries(Array.from({length: 9}, (_, i) => [`src/mid/m${i}.ts`, `export const m${i} = midToken_name;\n`]))
   }, async fixture => {
-    // Derived tokens reaching more than 10 files (the changed file included) are generic: skipped, never blocking.
+    // Derived tokens reaching more than 10 files outside the diff are generic: skipped, never blocking.
     const changed = await fixture.commit({'src/main.ts': 'export const main = [wideToken_name, midToken_name];\n'});
     const result = await gate(fixture, audit({included: [['main', 'src/main.ts']]}), changed);
     assert.deepEqual(unclassified(result), Array.from({length: 9}, (_, i) => `src/mid/m${i}.ts`).sort());
     assert.ok(result.discovery.skipped.some(row => row.query === 'wideToken_name' && row.files === 11), JSON.stringify(result.discovery.skipped));
+  }),
+
+  'surface-skip-outside-diff': () => withRepo({
+    ...Object.fromEntries(Array.from({length: 8}, (_, i) => [`src/a/a${i}.ts`, `export const a${i} = 1;\n`])),
+    ...Object.fromEntries(Array.from({length: 3}, (_, i) => [`src/sib/s${i}.ts`, `export const s${i} = spreadToken_name;\n`])),
+    ...Object.fromEntries(Array.from({length: 12}, (_, i) => [`src/b/b${i}.ts`, `export const b${i} = [bbbToken_name, aaaToken_name];\n`])),
+    ...Object.fromEntries(Array.from({length: 11}, (_, i) => [`src/c/c${i}.ts`, `export const c${i} = cccToken_name;\n`]))
+  }, async fixture => {
+    // Changed files no longer count toward the skip threshold: 8 in the diff plus 3 siblings is 3 outside, so it gates.
+    const changed = await fixture.commit(Object.fromEntries(Array.from({length: 8}, (_, i) =>
+      [`src/a/a${i}.ts`, `export const a${i} = [spreadToken_name, bbbToken_name, aaaToken_name, cccToken_name];\n`])));
+    const result = await gate(fixture, audit({included: [['a', 'src/a/*.ts']]}), changed);
+    assert.deepEqual(unclassified(result), ['src/sib/s0.ts', 'src/sib/s1.ts', 'src/sib/s2.ts']);
+    // Skipped rows carry the outside count, fewest first, ties by query.
+    assert.deepEqual(result.discovery.skipped.map(({query, files}) => [query, files]),
+      [['cccToken_name', 11], ['aaaToken_name', 12], ['bbbToken_name', 12]]);
+  }),
+
+  'surface-inclusion-cap': () => withRepo({
+    'src/target.ts': 'export const target = "shared_marker";\n',
+    ...Object.fromEntries(Array.from({length: 12}, (_, i) => [`lib/module${i}.ts`, `export const m${i} = ${i};\n`]))
+  }, async fixture => {
+    const changed = await fixture.commit({'src/target.ts': 'export const target = "shared_marker_v2";\n',
+      'lib/module10.ts': 'export const m10 = 10.5;\n', 'lib/module11.ts': 'export const m11 = 11.5;\n'});
+    const expectCode = result => {
+      assert.equal(result.status, 'NOT_RUN', JSON.stringify(result));
+      assert.equal(result.code, 'SURFACE_INCLUSION_TOO_BROAD', JSON.stringify(result));
+      // .gitignore and lib/module0-9.ts: the three changed files do not count.
+      assert.deepEqual(result.details, [{glob: '**', files: 11}]);
+    };
+    // An included or UNKNOWN glob may cover at most 10 files outside the diff, like an exclusion.
+    expectCode(await gate(fixture, audit({included: [['all', '**']]}), changed));
+    expectCode(await gate(fixture, audit({included: [['target', 'src/target.ts']],
+      unknown: [{id: 'reader', reader: 'An external consumer reads every file.', behavior: 'It sees the new value.', path: '**'}]}), changed));
+    // lib/module*.ts spans 12 files, 2 of them in the diff: 10 outside passes.
+    const passed = await gate(fixture, audit({included: [['target', 'src/target.ts'], ['modules', 'lib/module*.ts']]}), changed);
+    assert.equal(passed.status, 'PASS', JSON.stringify(passed));
   }),
 
   'surface-dismiss-query': () => withRepo({
@@ -362,7 +399,7 @@ const raw = {
     const expectPass = result => assert.equal(result.status, 'PASS', JSON.stringify(result));
     expectPass(await gate(fixture, ok, changed));
     // SURFACE_QUERY_TOO_BROAD: one recorded query hits more than 200 files.
-    expectCode(await gate(fixture, audit({included: [['target', 'src/target.ts'], ['gen', 'gen/**']], queries: {duplicates: ['common_marker']}}), changed),
+    expectCode(await gate(fixture, audit({included: [['target', 'src/target.ts']], queries: {duplicates: ['common_marker']}}), changed),
       'SURFACE_QUERY_TOO_BROAD');
     expectPass(await gate(fixture, audit({included: [['target', 'src/target.ts']], queries: {duplicates: ['shared_marker']}}), changed));
     // SURFACE_EXCLUSION_TOO_BROAD: one glob hides more than 10 files, or a file in the diff.
@@ -473,6 +510,18 @@ const raw = {
     }
   }),
 
+  'surface-inclusion-review': () => reviewFixture(async ({tasks, verified, review, policyConfigHash}) => {
+    const surface = audit({included: [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx'],
+      ['notes', 'docs/notes/**']]});
+    const task = await tasks.create({title: 'Image size', criteria: CRITERIA, policyConfigHash, requireSurface: true, surface});
+    await verified(task.task.id);
+    let spawned = 0;
+    const blocked = await review(task.task.id, async () => {spawned += 1; throw new Error('blocked review must not start');});
+    assert.equal(spawned, 0);
+    assert.equal(blocked.code, 'SURFACE_INCLUSION_TOO_BROAD', JSON.stringify(blocked));
+    assert.equal(blocked.data.result.reason, 'surface-inclusion-too-broad');
+  }, Object.fromEntries(Array.from({length: 11}, (_, i) => [`docs/notes/n${i}.md`, `Note ${i}.\n`]))),
+
   'surface-review-packet': () => reviewFixture(async ({tasks, verified, review, policyConfigHash, taskContractHash}) => {
     const {buildAdversarialPrompt, buildReviewPrompt} = await load('runtime/src/review/runner.js');
     const listed = [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx']];
@@ -512,6 +561,16 @@ const raw = {
     const challenge = buildAdversarialPrompt(seen.invocation, report(packet.criteria));
     assert.match(challenge, /Round 2: check the five fixed scenarios/u);
     assert.match(challenge, /at most 3 new `git grep -F` queries per axis/u);
+    // Skipped derived queries reach round 2 only, with their own 3-query budget.
+    assert.ok(!challenge.includes('Skipped derived queries'), 'no skipped sentence without skipped queries');
+    const withSkipped = {...seen.invocation, packet: {...packet, surface: {...packet.surface,
+      discovery: {...packet.surface.discovery, skipped: [{source: 'diff-token', query: 'wideToken_name', files: 11}]}}}};
+    const skippedChallenge = buildAdversarialPrompt(withSkipped, report(packet.criteria));
+    assert.match(skippedChallenge, /Skipped derived queries .*`wideToken_name` \(11\)/u);
+    assert.match(skippedChallenge, /at most 3 extra `git grep -F` queries in total/u);
+    // Round 1 still only replays recorded queries: the packet data carries skipped rows, the instructions do not.
+    const skippedPrimary = buildReviewPrompt(withSkipped);
+    assert.ok(!skippedPrimary.includes('Skipped derived queries') && !skippedPrimary.includes('extra `git grep -F`'), 'round 1 is unchanged');
     assert.ok(primary.includes('PackDetailStepFlow.tsx') && challenge.includes('PackDetailStepFlow.tsx'), 'reviewers see the post-block exclusion');
   }),
 
