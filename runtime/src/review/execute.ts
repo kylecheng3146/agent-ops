@@ -39,7 +39,7 @@ import {
   type ReviewPreflightAttempt,
   type ReviewUnavailableReason
 } from "./runner.js";
-import { MAX_ADVERSARIAL_PROMPT_BYTES } from "./runner.js";
+import { MAX_ADVERSARIAL_PROMPT_BYTES, redactReviewReport } from "./runner.js";
 import { extractUsage, sumUsage, type ReviewUsage } from "./usage.js";
 
 export type ReviewTargetPreflightResult =
@@ -151,6 +151,36 @@ export interface ReviewExecutorOptions {
    * probe, again by the clone and again by the reviewer.
    */
   readonly deadlineAt?: number;
+  /**
+   * Native run final proof only. Rounds are saved as they finish so a resumed
+   * proof never pays for one twice, and the in-process retry is off: the run
+   * supervisor owns the single automatic retry.
+   */
+  readonly checkpoints?: ReviewCheckpointJournal;
+}
+
+/** One finished round, kept so a resumed final proof does not repeat it. */
+export interface ReviewCheckpointRound {
+  readonly target: ReviewTargetId;
+  readonly sessionId: string;
+  readonly report: ReviewReport;
+  readonly metrics: ReviewAttemptMetrics;
+}
+
+/** Bound to the primary prompt, the planned pair and the reviewer settings. */
+export interface ReviewCheckpoint {
+  readonly binding: string;
+  readonly primary: ReviewCheckpointRound;
+  /** Present once the second round answered; a refuted pair is never resumed. */
+  readonly adversarial?: ReviewCheckpointRound;
+}
+
+export interface ReviewCheckpointJournal {
+  /** Null when nothing is saved; throws when a saved checkpoint is unreadable or altered. */
+  load(binding: string): Promise<ReviewCheckpoint | null>;
+  save(checkpoint: ReviewCheckpoint): Promise<void>;
+  /** The chain ended on a transient attempt, which the supervisor may replay once. */
+  transient(): Promise<void>;
 }
 
 /**
@@ -1061,7 +1091,7 @@ async function attemptTargetWithRetry(
   options: ReviewExecutorOptions
 ): Promise<TargetAttemptOutcome> {
   const first = await attemptTarget(request, options);
-  if (first.kind !== "skip" || first.transient !== true || budgetSpent(options)) {
+  if (first.kind !== "skip" || first.transient !== true || budgetSpent(options) || options.checkpoints !== undefined) {
     return first;
   }
   options.onProgress?.(`${request.target}: ${first.diagnostic} → retrying once`);
@@ -1129,10 +1159,60 @@ export function createReviewExecutor(
         attempts: []
       };
     }
+    const expectedCriterionIds = request.invocation.packet.criteria.map(
+      (criterion) => criterion.id
+    );
+    const primaryTarget = plannedTargets[0]!;
+    const adversarialTarget = plannedTargets[1]!;
+    const primaryPrompt = buildReviewPrompt({ ...request.invocation, harness: primaryTarget });
+    const binding = sha256(JSON.stringify({ primaryPrompt, targets: [primaryTarget, adversarialTarget],
+      model: options.model ?? null, effort: options.effort ?? null }));
+    const journal = options.checkpoints;
+    let saved: ReviewCheckpoint | null = null;
+    if (journal !== undefined) {
+      const valid = (round: ReviewCheckpointRound | undefined, target: ReviewTargetId): boolean =>
+        round !== undefined && round.target === target && typeof round.sessionId === "string" && round.sessionId.length > 0 &&
+        validateReviewReport(round.report, expectedCriterionIds, request.invocation.scope?.changedFiles).ok;
+      try {
+        saved = await journal.load(binding);
+      } catch {
+        report("checkpoint: the saved review checkpoint is unreadable or altered; stopping review");
+        return { status: "NOT_RUN", reason: "checkpoint-invalid", attempts: [] };
+      }
+      if (saved !== null && (saved.binding !== binding || !valid(saved.primary, primaryTarget) ||
+          reviewReportStatus(saved.primary.report) !== "PASS" ||
+          (saved.adversarial !== undefined && !valid(saved.adversarial, adversarialTarget)))) {
+        report("checkpoint: the saved review checkpoint does not match this review; stopping review");
+        return { status: "NOT_RUN", reason: "checkpoint-invalid", attempts: [] };
+      }
+      if (saved?.adversarial !== undefined && reviewReportStatus(saved.adversarial.report) === "FAIL") saved = null;
+      if (saved?.adversarial !== undefined) {
+        report("checkpoint: both rounds already answered for this exact review; no reviewer is called");
+        const { primary, adversarial } = saved;
+        return {
+          status: "PASS",
+          results: reviewReportResults(primary.report),
+          report: primary.report,
+          harness: primaryTarget,
+          attempts: [
+            { target: primaryTarget, status: "PASS", sessionId: primary.sessionId, metrics: primary.metrics },
+            { target: adversarialTarget, status: "PASS", sessionId: adversarial.sessionId, metrics: adversarial.metrics }
+          ],
+          preflight: [],
+          independence: primaryTarget === adversarialTarget ? "same-target" : "different-target",
+          sessionIsolation: "fresh",
+          adversarial: { target: adversarialTarget, refuted: false, report: adversarial.report }
+        };
+      }
+    }
+    const signalTransient = async (outcome: TargetAttemptOutcome): Promise<void> => {
+      if (outcome.kind === "skip" && outcome.transient === true) await journal?.transient().catch(() => {});
+    };
 
     const preflight: ReviewPreflightAttempt[] = [];
     if (options.preflightTarget !== undefined) {
-      for (const target of new Set(plannedTargets)) {
+      // A resumed primary needs no probe: its round is not run again.
+      for (const target of new Set(saved === null ? plannedTargets : [adversarialTarget])) {
         if (outOfTime()) {
           const diagnostic = "the review deadline was reached during target " +
             "preflight";
@@ -1173,9 +1253,6 @@ export function createReviewExecutor(
       }
     }
 
-    const expectedCriterionIds = request.invocation.packet.criteria.map(
-      (criterion) => criterion.id
-    );
     const repositoryRoot = await realpath(options.cwd);
     const shared = {
       repositoryRoot,
@@ -1190,23 +1267,28 @@ export function createReviewExecutor(
         : {})
     } as const;
     const attempts: ReviewAttempt[] = [];
-    const primaryTarget = plannedTargets[0]!;
-    const adversarialTarget = plannedTargets[1]!;
     if (outOfTime()) {
       report("chain: review deadline reached before the first round");
       return { status: "NOT_RUN", reason: "timeout", attempts: [] };
     }
-    announceRound(options, 1, primaryTarget, plannedTargets);
-    const primaryOutcome = await attemptTargetWithRetry(
-      {
-        ...shared,
-        target: primaryTarget,
-        label: `${primaryTarget}-primary`,
-        prompt: buildReviewPrompt({ ...request.invocation, harness: primaryTarget })
-      },
-      staged()
-    );
+    let primaryOutcome: TargetAttemptOutcome;
+    if (saved !== null) {
+      report(`${primaryTarget}: necessary review already passed for this exact review; resuming at the adversarial round`);
+      primaryOutcome = { kind: "verdict", report: saved.primary.report, sessionId: saved.primary.sessionId, metrics: saved.primary.metrics };
+    } else {
+      announceRound(options, 1, primaryTarget, plannedTargets);
+      primaryOutcome = await attemptTargetWithRetry(
+        {
+          ...shared,
+          target: primaryTarget,
+          label: `${primaryTarget}-primary`,
+          prompt: primaryPrompt
+        },
+        staged()
+      );
+    }
     if (primaryOutcome.kind === "skip") {
+      await signalTransient(primaryOutcome);
       attempts.push({
         target: primaryTarget,
         status: "NOT_RUN",
@@ -1273,6 +1355,16 @@ export function createReviewExecutor(
         };
       }
     }
+    if (journal !== undefined && saved === null) {
+      try {
+        await journal.save({ binding, primary: { target: primaryTarget, sessionId: primaryOutcome.sessionId,
+          report: redactReviewReport(primaryReport), metrics: primaryOutcome.metrics } });
+      } catch {
+        report("checkpoint: the necessary review PASS could not be saved; stopping before the adversarial round");
+        return { status: "NOT_RUN", reason: "evidence-write-failed", report: primaryReport, preflight,
+          independence, sessionIsolation: "fresh", attempts };
+      }
+    }
 
     const adversarialPrompt = buildAdversarialPrompt(
       { ...request.invocation, harness: adversarialTarget },
@@ -1329,6 +1421,7 @@ export function createReviewExecutor(
       staged()
     );
     if (adversarialOutcome.kind === "skip") {
+      await signalTransient(adversarialOutcome);
       attempts.push({
         target: adversarialTarget,
         status: "NOT_RUN",
@@ -1369,6 +1462,17 @@ export function createReviewExecutor(
         sessionIsolation: "fresh",
         attempts
       };
+    }
+    if (journal !== undefined) {
+      try {
+        await journal.save({ binding, primary: { target: primaryTarget, sessionId: primaryOutcome.sessionId,
+          report: redactReviewReport(primaryReport), metrics: primaryOutcome.metrics }, adversarial: { target: adversarialTarget,
+          sessionId: adversarialOutcome.sessionId, report: redactReviewReport(adversarialReport), metrics: adversarialOutcome.metrics } });
+      } catch {
+        report("checkpoint: the answered pair could not be saved; its verdict is not accepted");
+        return { status: "NOT_RUN", reason: "evidence-write-failed", report: primaryReport, preflight,
+          independence, sessionIsolation: "fresh", attempts };
+      }
     }
     report(
       `${adversarialTarget}: adversarial re-check ${refuted ? "refuted the PASS" : "upheld the PASS"}`

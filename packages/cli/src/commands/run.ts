@@ -95,6 +95,8 @@ function textFor(action: RunAction, state: RunState, message: string): string {
     `Cause: ${recovery.cause === null ? "none recorded" : recovery.cause.code + ": " + recovery.cause.detail}`,
     `Sealed proof: ${recovery.sealedProof}; cleanup: ${recovery.cleanup}; resumable: ${recovery.resumable ? "yes, after reconciliation" : "no"}`,
     `Remediation: ${recovery.remediation}`,
+    state.finalProof == null ? "" : `Final proof recovery: ${state.finalProof.recoveries}/1 used; first failure ${state.finalProof.failures[0]?.code ?? "none"}; ` +
+      `last failure ${state.finalProof.failures.at(-1)?.code ?? "none"}; automatic recovery ${state.finalProof.stopped ? "stopped" : state.finalProof.pending ? "in progress" : "available"}`,
     `Host: ${state.host}`,
     `Workers: ${active}/${state.jobs}`,
     state.budget.limitMs === null ? `Budget: unlimited; ${state.budget.accumulatedMs}ms active time recorded` : `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining (legacy; manual resume upgrades)`,

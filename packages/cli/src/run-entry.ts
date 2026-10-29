@@ -8,6 +8,8 @@ import {resolveReviewScope} from "../../../runtime/src/review/scope.js";
 import {writeNoChangeDelivery, integrateSessionChildren} from "../../../runtime/src/parallel/integrate.js";
 import {recordNativeRunUsage, recordReviewRunUsage, recordSavedReviewRunUsage} from "../../../runtime/src/run/usage.js";
 import {recordNativeRunAuthorization} from "../../../runtime/src/run/authorization.js";
+import {discardReviewCheckpoints, finalProofAttemptKey, InterruptedStepError, processGroupAlive,
+  runFinalProof} from "../../../runtime/src/run/proof-recovery.js";
 import {observeRunFailure} from "../../../runtime/src/run/verification.js";
 import {criteriaProgress, recordRunPhase} from "../../../runtime/src/run/phase.js";
 import {compareFailureObservations, type FailureObservation} from "../../../runtime/src/run/convergence.js";
@@ -433,6 +435,26 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     async function advance(saved: RunState): Promise<{status: string; code: string; data?: unknown}> {
       return await step(root, ["task", "advance", "--task", saved.rootTaskId!, "--session", saved.ownerSessionId, "--yes"], saved);
     }
+    async function attemptKey(saved: RunState): Promise<string> {
+      const coordinator = saved.workers.find(w => w.workerId === saved.coordinatorId);
+      if (coordinator?.worktree == null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Final proof requires the coordinator checkout.");
+      return finalProofAttemptKey({candidate: (await deps.git(coordinator.worktree, ["rev-parse", "HEAD"])).stdout.trim(),
+        target: (await deps.git(root, ["rev-parse", saved.targetBranch + "^{commit}"])).stdout.trim(),
+        contractHash: saved.currentContractHash, configHash: saved.policyBinding?.configHash ?? null,
+        runtimeHash: saved.policyBinding?.runtimeHash ?? null});
+    }
+    async function finalProof(restartedKey?: string): Promise<{status: string; code: string; data?: unknown}> {
+      return await runFinalProof(repository, runId, {
+        advance: async () => await advance((await repository.read(runId))!),
+        attemptKey: async () => await attemptKey((await repository.read(runId))!),
+        untouched: async () => {
+          const latest = (await repository.read(runId))!;
+          const coordinator = latest.workers.find(w => w.workerId === latest.coordinatorId);
+          return coordinator?.worktree != null && latest.integration === null &&
+            (await collectChangeSurface(gitRunner(coordinator.worktree))).paths.length === 0;
+        }
+      }, restartedKey);
+    }
     async function recoverIntegration(saved: RunState): Promise<string> {
       const coordinator = saved.workers.find(worker => worker.workerId === saved.coordinatorId);
       if (coordinator?.worktree == null) throw new AgentOpsError("RUN_WORKTREE_MISSING", "Recovery requires the saved coordinator identity.");
@@ -637,7 +659,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         await recordReviewRunUsage(repository, runId, review.report.value as ReviewReportArtifact);
       const finalContract = treeContractHash(receipt.tasks.map(record => record.task));
       await repository.mutate(runId, current => ({...current, currentContractHash: finalContract,
-        contractRevision: current.contractRevision + (current.currentContractHash === finalContract ? 0 : 1)}));
+        contractRevision: current.contractRevision + (current.currentContractHash === finalContract ? 0 : 1),
+        ...(current.finalProof == null ? {} : {finalProof: {...current.finalProof, pending: false}})}));
+      await discardReviewCheckpoints(current).catch(() => {});
       await supervisor.finalize(runId, {targetCommit: receipt.candidateHead, candidateCommit: receipt.candidateHead,
         verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: sha256(source)});
       try {
@@ -692,12 +716,35 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       if (pendingPolicy !== null) await transitionPolicy(pendingPolicy);
       else if (state.policyBinding !== undefined) await synchronizePolicy();
       state = (await repository.read(runId))!;
+      // A final proof the previous supervisor left pending resumes before any writer starts.
+      let proofNote: string | undefined;
+      if (state.finalProof?.pending === true && state.rootTaskId !== null) {
+        try {
+          const result = await finalProof(state.finalProof.attemptKey);
+          if (result.status !== "ok") throw runStepError(result, "Final proof failed after a supervisor restart");
+          if (!plain(result.data) || typeof result.data.receipt !== "string")
+            throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Finalization requires the receipt returned by the existing finish gate.");
+          await acceptReceipt(state, result.data.receipt);
+          await writePrivateFile(join(directory, runId, "final-response.json"), JSON.stringify({code: "RUN_COMPLETE", receipt: result.data.receipt}), commonDir);
+          return;
+        } catch (cause) {
+          // A sealed transaction keeps its manual reconciliation path.
+          if ((await repository.read(runId))!.integration !== null) throw cause;
+          const coordinator = state.workers.find(w => w.workerId === state.coordinatorId)!;
+          await writePrivateFile(join(coordinator.worktree!, ".agent-ops", "tasks", "run-last-failure.json"), JSON.stringify({
+            code: cause instanceof AgentOpsError ? cause.code : "RUN_PROOF_FAILED",
+            error: cause instanceof AgentOpsError ? cause.message : "Final proof failed; inspect local diagnostics."}), coordinator.worktree!);
+          proofNote = "Final proof did not complete after a supervisor restart. Read run-last-failure.json and saved review/verification reports, fix substantive findings, then request a new evidence gate.";
+        }
+        state = (await repository.read(runId))!;
+      }
       for (const worker of state.workers.filter(w => active(w) || w.status === "stopped")) {
         if (recoverySkips(state, worker)) continue;
         if (worker.workerId !== state.coordinatorId && (worker.worktree === null ||
             !(await deps.tasks(worker.worktree).list()).some(r => r.task.id === worker.taskId))) continue;
         try {
-          await start(worker, worker.workerId === state.coordinatorId && yielded(worker) ? coordinatorWakeNote(state, worker) : undefined, manualResumeAt);
+          await start(worker, worker.workerId === state.coordinatorId
+            ? proofNote ?? (yielded(worker) ? coordinatorWakeNote(state, worker) : undefined) : undefined, manualResumeAt);
           if (state.jobs === 1) break;
         }
         catch (cause) {
@@ -911,7 +958,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               }
               await stopAll("stop", false);
               await recordRunPhase(repository, runId, worker.workerId, "verifying");
-              const result = await advance(current);
+              const result = await finalProof();
               if (result.status !== "ok") throw runStepError(result, "Final proof failed; inspect saved verifier and fresh review reports before repair");
               const data = result.data;
               if (!plain(data) || typeof data.receipt !== "string") throw new AgentOpsError("RUN_RECEIPT_REQUIRED", "Finalization requires the receipt returned by the existing finish gate.");
@@ -996,7 +1043,10 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
             if (!closed) try {process.kill(process.platform === "win32" ? child.pid! : -child.pid!, "SIGKILL");} catch {}
           }, 3000);
         };
-        const timeout = Number.isFinite(remaining) ? setTimeout(terminate, remaining) : undefined;
+        // Why the supervisor itself ended the step; any such end is never replayed automatically.
+        let ended: string | undefined;
+        const end = (why: string): void => {ended ??= why; terminate();};
+        const timeout = Number.isFinite(remaining) ? setTimeout(() => end("deadline"), remaining) : undefined;
         const registration = (async () => {
           const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
           if (identity === null || closed) {terminate(); throw new Error("Controlled process identity unavailable.");}
@@ -1018,19 +1068,19 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
           if (checking) return;
           checking = true;
           void repository.read(runId).then(current => {
-            if (current === null || current.disableRestart || current.status !== "active") terminate();
-          }).catch(terminate).finally(() => {checking = false;});
+            if (current === null || current.disableRestart || current.status !== "active") end("stop");
+          }).catch(() => end("state")).finally(() => {checking = false;});
         }, 250);
         child.stdout.on("data", (chunk: Buffer) => {
           const room = 4 * 1024 * 1024 - output.length;
           if (room > 0) output = Buffer.concat([output, chunk.subarray(0, room)]);
-          if (chunk.length > room) {outputOverflow = true; terminate();}
+          if (chunk.length > room) {outputOverflow = true; end("overflow");}
         });
         child.stderr.on("data", (chunk: Buffer) => {
           const room = 64 * 1024 - diagnostic.length;
           if (room > 0) diagnostic = Buffer.concat([diagnostic, chunk.subarray(0, room)]);
         });
-        child.once("error", cause => {spawnError = cause; terminate();});
+        child.once("error", cause => {spawnError = cause; end("spawn");});
         child.once("close", async (exitCode, signal) => {
           closed = true;
           clearTimeout(timeout);
@@ -1066,12 +1116,14 @@ export async function runControlledStep(repository: FileRunRepository, cli: stri
           } catch (cause) {
             const excerpt = (value: string): string => redactSecrets(value)
               .replace(/-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*$/u, "[REDACTED_PRIVATE_KEY]").slice(0, 3500);
-            const detail = JSON.stringify({exitCode, signal, stage, outputOverflow,
+            const replayable = ["process", "result"].includes(stage) && ended === undefined && spawnError === undefined &&
+              child.pid !== undefined && !processGroupAlive(child.pid);
+            const detail = JSON.stringify({exitCode, signal, stage, outputOverflow, ended: ended ?? null, replayable,
               cause: excerpt(cause instanceof Error ? cause.message : String(cause)),
               stderr: excerpt(diagnostic.toString("utf8")), stdout: excerpt(output.toString("utf8").slice(0, 4096))}).slice(0, 9500);
             await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_CONTROLLED_STEP_FAILED",
               workerId: env.AGENT_OPS_WORKER_ID ?? null, taskId: saved.workers.find(w => w.worktree === cwd)?.taskId ?? null, detail}).catch(() => undefined);
-            reject(new AgentOpsError("RUN_FINAL_PROOF_INTERRUPTED", "Final gate did not return a complete result; inspect target and receipt before retrying. " + detail));
+            reject(new InterruptedStepError("Final gate did not return a complete result; inspect target and receipt before retrying. " + detail, replayable));
           }
         });
       });

@@ -134,6 +134,8 @@ export type ReviewUnavailableReason =
   | "evidence-write-failed"
   | "adversarial-review-missing"
   | "stalled"
+  /** A native final proof checkpoint for this review is unreadable, altered or mismatched. */
+  | "checkpoint-invalid"
   | "verification-not-passed"
   | "missing-verification-evidence"
   | "unreadable-verification-evidence"
