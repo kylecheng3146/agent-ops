@@ -21,3 +21,14 @@ criteria:
 - release-checks: The full test suite passes on the release candidate, and npm run package:check and node scripts/scan-source.mjs pass.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/7414d36fc15b7062b33ea08e2ced112212955dda1135289b75a721908ce94a32-3c433d77abb9a233dfc811df940f6e4346b8ebbf.json
 receipt-sha256: 85ba57eeeb9be401558b9b072ff0cc8668cdd5e9c5fe2830b2cf7ee43639470c
+
+worktree: session-ee981ef2 (agent-ops/session-ee981ef2)
+session: ee981ef2-1180-453d-b924-86e01f87f264
+agent-ops task task-7a126835-d91c-4adf-b853-953af2030665: Bind review checkpoints to the run state
+intent: Security fix before 0.11.6: a final-proof review checkpoint is trusted only when its digest matches the record kept in the locked run state, so a writer that can reach the run directory cannot plant a PASS pair; files without a record are ignored.
+criteria:
+- checkpoint-bound-to-run-state: A saved review checkpoint is trusted only when its file digest equals the digest recorded for its binding in the locked run state's finalProof record: a checkpoint file without such a record is ignored and both review rounds run, while a file whose digest differs from the record, or a record whose file is missing, ends the review NOT_RUN checkpoint-invalid without calling any reviewer.
+- resume-still-works: Checkpoints saved by the native final proof itself still resume the adversarial round without a second primary call; saving the answered pair replaces the binding's recorded digest, and the saved PASS pair is then rebuilt without any model call.
+- run-state-records: Run states without checkpoint records stay readable; a new attempt key starts with no records while the same key keeps them; a malformed record (non-sha256 key or value, or more than 64 entries) is rejected by the run repository with 'Invalid final proof recovery record'.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/7414d36fc15b7062b33ea08e2ced112212955dda1135289b75a721908ce94a32-fa1b1acc2378e062eec8d2ff3626d0d9009dfc33.json
+receipt-sha256: 3d5abc4538ad94b566801bc3865a14842950a74bb911d8e79196be1922bed159
