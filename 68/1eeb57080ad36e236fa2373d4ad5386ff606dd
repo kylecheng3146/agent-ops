@@ -1,0 +1,9 @@
+worktree: session-46694290 (agent-ops/session-46694290)
+session: 46694290-6f32-40b0-aa8f-fbcf480c7a9d
+agent-ops task task-688d4dab-d65a-4b38-ad19-61a7bc92bf87: Prepare release 1.0.0
+criteria:
+- stable-version: `agent-ops --version` reports 1.0.0 (package.json and package-lock.json carry that version), and CHANGELOG.md has an empty `## [Unreleased]` followed directly by `## [1.0.0] - 2026-11-02`, which holds a stable-release note and the three criteria advisory entries (task text verifier notice, advisor config input, durable advisory reports).
+- stable-status-docs: README (intro and Project status), SECURITY.md (Supported versions) and CONTRIBUTING.md no longer describe the package as pre-1.0 or say no supported release exists; README still states that release candidates go to the npm `next` dist-tag while `@latest` stays on the newest final release, and SECURITY.md says the latest 1.x minor receives security fixes. npm test docs checks pass.
+- latest-dist-tag: The release workflow publishes a version without a hyphenated pre-release part, such as 1.0.0, with no dist-tag override, so the v1.0.0 release moves npm `latest`; the existing release workflow policy test keeps passing.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/adfa5c3fd5d8958c18564527cc421a53109dc0b22e52010ed7776eb2cabe0299-681eeb57080ad36e236fa2373d4ad5386ff606dd.json
+receipt-sha256: 24403b0ac7f56addd6d3d5bc8f849efa296fd34cb728e8294aef77d03a6733f3
