@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { lstat, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -12,7 +13,8 @@ import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, ty
 
 export type SurfaceCode = "SURFACE_MISSING" | "SURFACE_UNCLASSIFIED" | "SURFACE_QUERY_TOO_BROAD" |
   "SURFACE_EXCLUSION_TOO_BROAD" | "SURFACE_INCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED" |
-  "ESCAPE_RULE_INVALID" | "ESCAPE_RULE_UNSAFE" | "ESCAPE_RULE_NO_EXCLUDE" | "SURFACE_DISMISSAL_TOO_BROAD" | "SURFACE_DISMISSAL_INVALID";
+  "ESCAPE_RULE_INVALID" | "ESCAPE_RULE_UNSAFE" | "ESCAPE_RULE_NO_EXCLUDE" | "SURFACE_DISMISSAL_TOO_BROAD" | "SURFACE_DISMISSAL_INVALID" |
+  "SURFACE_DISCOVERY_FAILED";
 /** Cheapest first: a budget overrun stops before the long tail of diff tokens. */
 export const DISCOVERY_SOURCES = ["agent", "hunk-header", "template-fragment", "diff-token"] as const;
 export type DiscoverySource = typeof DISCOVERY_SOURCES[number];
@@ -32,6 +34,8 @@ export interface SurfaceDiscovery {
   readonly postBlockExclusions: readonly { readonly path: string; readonly glob: string; readonly reason: string }[];
   /** Dismissed derived queries with their hit count outside the diff; postBlock when one hid a blocked file. */
   readonly dismissed: readonly { readonly query: string; readonly files: number; readonly postBlock: boolean }[];
+  /** Derived queries over the per-kind cap that were never searched, by source; empty under the cap. */
+  readonly truncated: readonly { readonly source: DiscoverySource; readonly dropped: number }[];
 }
 
 export type SurfaceGateResult =
@@ -93,7 +97,8 @@ function functionName(context: string): string | undefined {
 }
 
 /** Fixed strings a change implies: literals and identifiers, template fragments, enclosing functions. */
-export function extractDiffQueries(diff: string): { tokens: string[]; fragments: string[]; functions: string[] } {
+export function extractDiffQueries(diff: string):
+  { tokens: string[]; fragments: string[]; functions: string[]; dropped: Record<Exclude<DiscoverySource, "agent">, number> } {
   const tokens = new Set<string>(), fragments = new Set<string>(), functions = new Set<string>();
   for (const line of diff.split("\n")) {
     const hunk = /^@@ [^@]* @@ ?(.*)$/u.exec(line);
@@ -116,9 +121,11 @@ export function extractDiffQueries(diff: string): { tokens: string[]; fragments:
       if (identifier[0].length >= SURFACE_LIMITS.tokenLength && !STOP.has(identifier[0]) && COMPOUND.test(identifier[0]))
         tokens.add(identifier[0]);
   }
-  // ponytail: fixed caps on derived queries; the 120 s budget bounds the rest.
+  // ponytail: fixed caps on derived queries, reported as dropped; the 120 s budget bounds the rest.
   const cap = (values: Set<string>) => [...values].slice(0, SURFACE_LIMITS.derivedQueries);
-  return {tokens: cap(tokens), fragments: cap(fragments), functions: cap(functions)};
+  const over = (values: Set<string>) => Math.max(0, values.size - SURFACE_LIMITS.derivedQueries);
+  return {tokens: cap(tokens), fragments: cap(fragments), functions: cap(functions),
+    dropped: {"hunk-header": over(functions), "template-fragment": over(fragments), "diff-token": over(tokens)}};
 }
 
 function notRun(code: SurfaceCode, message: string, details: readonly unknown[], discovery?: SurfaceDiscovery): SurfaceGateResult {
@@ -140,6 +147,17 @@ async function logRuleMetrics(home: string, rows: readonly {ruleId: string; incl
     for (const row of rows) await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "escape-rule", ...row},
       {anchorDirectory: state.anchorDirectory});
   } catch { /* advisory only */ }
+}
+
+/** Verify's advisory lines: the review-time stop to fix first, and derived queries discovery never searched. */
+export function surfaceAdvisory(gate: SurfaceGateResult): string[] {
+  const truncated = gate.discovery?.truncated ?? [];
+  const dropped = truncated.length === 0 ? [] : [`Surface: ${truncated.reduce((sum, row) => sum + row.dropped, 0)} derived queries ` +
+    `were not searched (${truncated.map(row => `${row.source} ${row.dropped}`).join(", ")})`];
+  if (gate.status === "PASS") return ["Surface: PASS", ...dropped];
+  const paths = gate.details.flatMap(d => typeof d === "object" && d !== null && "path" in d ? [String(d.path)] : []);
+  return [`Surface (advisory; review would stop with ${gate.code}): ${gate.message}`,
+    ...paths.slice(0, 20).map(path => `  - ${path}`), ...(paths.length > 20 ? [`  ... ${paths.length - 20} more`] : []), ...dropped];
 }
 
 export async function logSurfaceResidualRisks(count: number, home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<void> {
@@ -180,9 +198,14 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   const started = now();
   const budget = input.budgetMs ?? SURFACE_LIMITS.budgetMs;
   const remaining = () => budget - (now() - started);
+  // A git or read failure must stop review: treating it as "no hits" would pass an unproven surface.
+  const failed = (detail: Record<string, string>) => notRun("SURFACE_DISCOVERY_FAILED",
+    "Discovery could not finish (a git command failed or a changed file was unreadable), so it cannot show the surface is covered; fix the cause and rerun.",
+    [detail]);
   const changed = new Set(input.changedFiles);
   const tracked = await git(input.root, ["ls-files", "-z"], Math.min(SURFACE_LIMITS.queryTimeoutMs, Math.max(1, remaining())));
   if (tracked.timedOut || remaining() <= 0) return notRun("SURFACE_BUDGET_EXCEEDED", "Discovery budget exhausted listing files.", []);
+  if (tracked.code !== 0) return failed({command: "git ls-files"});
   const trackedFiles = zList(tracked.stdout);
   const exclusions = surface.excluded.map(row => ({...row, match: globMatcher(row.glob)}));
   for (const row of exclusions) {
@@ -200,9 +223,30 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
       return notRun("SURFACE_INCLUSION_TOO_BROAD", `One included or UNKNOWN glob may cover at most ${SURFACE_LIMITS.inclusionFiles} ` +
         "files outside the diff; list narrower paths, each with its own behavior.", [{glob, files}]);
   }
-  const head = (await git(input.root, ["rev-parse", "HEAD"], SURFACE_LIMITS.queryTimeoutMs)).stdout.toString("utf8").trim();
-  const diff = (await git(input.root, ["diff", "-U0", "--no-color", "--no-ext-diff", input.base ?? "HEAD", "--"],
-    SURFACE_LIMITS.queryTimeoutMs)).stdout.toString("utf8");
+  const headResult = await git(input.root, ["rev-parse", "HEAD"], SURFACE_LIMITS.queryTimeoutMs);
+  if (headResult.code !== 0) return failed({command: "git rev-parse"});
+  const head = headResult.stdout.toString("utf8").trim();
+  const diffResult = await git(input.root, ["diff", "-U0", "--no-color", "--no-ext-diff", input.base ?? "HEAD", "--"],
+    SURFACE_LIMITS.queryTimeoutMs);
+  if (diffResult.code !== 0) return failed({command: "git diff"});
+  let diff = diffResult.stdout.toString("utf8");
+  // Worktree mode: an untracked file in the change scope is all added lines, which git diff never shows.
+  if (input.base === undefined) {
+    const indexed = new Set(trackedFiles);
+    for (const path of input.changedFiles.filter(path => !indexed.has(path))) {
+      let content: Buffer;
+      try {
+        // Never follow a symlink out of the worktree; git records only its target text.
+        if (!(await lstat(join(input.root, path))).isFile()) continue;
+        content = await readFile(join(input.root, path));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        return failed({path, error: String((error as NodeJS.ErrnoException).code ?? "read")});
+      }
+      // NUL marks binary, as git grep -I treats it.
+      if (!content.includes(0)) diff += "\n" + content.toString("utf8").split("\n").map(line => "+" + line).join("\n");
+    }
+  }
   const derived = extractDiffQueries(diff);
   const agent = [...new Set(SURFACE_AXES.flatMap(name => {const axis = surface.axes[name]; return "queries" in axis ? axis.queries : [];}))];
   const planned: {source: DiscoverySource; query: string}[] = [];
@@ -227,6 +271,8 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
       const result = await git(input.root, ["grep", "-F", "-l", "-z", "-I", "--no-color", "-e", query, "--"],
         Math.min(SURFACE_LIMITS.queryTimeoutMs, remaining()));
       if (result.timedOut) return notRun("SURFACE_BUDGET_EXCEEDED", "A discovery query timed out.", [{source, query}]);
+      // Exit 1 is "no match"; anything else (including a signal) is a failure, never an empty hit list.
+      if (result.code !== 0 && result.code !== 1) return failed({command: "git grep", query});
       hits.push({source, query, files: result.code === 0 ? zList(result.stdout) : []});
     }
     await writePrivateFile(cachePath, JSON.stringify(hits), input.root).catch(() => undefined);
@@ -304,8 +350,11 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   if (noExclude.length > 0)
     return notRun("ESCAPE_RULE_NO_EXCLUDE", "A learned escape rule marks these places noExclude: include them or mark them UNKNOWN.", noExclude);
   for (const source of DISCOVERY_SOURCES) sources[source].files = metrics.get(source)!.hits.size;
+  const truncated = DISCOVERY_SOURCES.flatMap(source => source === "agent" || derived.dropped[source] === 0 ? []
+    : [{source, dropped: derived.dropped[source]}]);
   const discovery: SurfaceDiscovery = {cached, sources, skipped: skipped
-    .sort((a, b) => a.files - b.files || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0)).slice(0, 50), postBlockExclusions, dismissed};
+    .sort((a, b) => a.files - b.files || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0)).slice(0, 50), postBlockExclusions, dismissed,
+    truncated};
   if (input.metrics === true) await logMetrics(input.logHome ?? process.env.AGENT_OPS_HOME ?? homedir(), DISCOVERY_SOURCES.map(source => ({source,
     hits: metrics.get(source)!.hits.size, included: metrics.get(source)!.included.size, excluded: metrics.get(source)!.excluded.size,
     postBlockExclusions: postBlockExclusions.length, residualRisks: 0})));

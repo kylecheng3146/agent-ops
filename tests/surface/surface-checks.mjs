@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {mkdir, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
+import {chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -59,6 +59,18 @@ async function gate(fixture, surface, changedFiles, extra = {}) {
   return runSurfaceGate({root: fixture.root, taskId: 'task-surface', surface, required: true, base: fixture.base,
     changedFiles, configHash: 'fixture', ...extra});
 }
+/** POSIX only: a git on PATH that fails one subcommand (exit 128, or SIGKILL) and runs the real git otherwise. */
+async function withFailingGit(command, signal, run) {
+  const real = execFileSync('sh', ['-c', 'command -v git'], {encoding: 'utf8'}).trim();
+  const dir = await mkdtemp(join(tmpdir(), 'agent-ops-fake-git-'));
+  await writeFile(join(dir, 'git'), `#!/bin/sh\nif [ "$1" = "${command}" ]; then ${signal ? 'kill -9 $$' : 'exit 128'}; fi\nexec "${real}" "$@"\n`,
+    {mode: 0o755});
+  const saved = process.env.PATH;
+  process.env.PATH = `${dir}:${saved}`;
+  try {return await run();} finally {process.env.PATH = saved; await rm(dir, {recursive: true, force: true});}
+}
+// 401 distinct compound identifiers: one over the per-kind cap.
+const TOKENS = count => `export const many = [${Array.from({length: count}, (_, i) => `capToken_${i}`).join(', ')}];\n`;
 const unclassified = result => {
   assert.equal(result.status, 'NOT_RUN', JSON.stringify(result));
   assert.equal(result.code, 'SURFACE_UNCLASSIFIED', JSON.stringify(result));
@@ -97,7 +109,9 @@ const IMAGE_FILES = {
 const SIBLINGS = ['src/pages/ComboDetailPage.tsx', 'src/pages/ComboStepFlowPage.tsx', 'src/pages/PackDetailPage.tsx', 'src/pages/PackDetailStepFlow.tsx'];
 
 /** A real review command run over a committed 864dbbe2-shaped change. */
-async function reviewFixture(check, extra = {}) {
+const IMAGE_CHANGE = {'src/pages/ProductDetailPage.tsx': PAGE('ProductDetailPage', 'LARGE_IMAGE'),
+  'src/pages/StepFlow.tsx': PAGE('StepFlow', 'LARGE_IMAGE')};
+async function reviewFixture(check, extra = {}, change = IMAGE_CHANGE) {
   return withRepo({...IMAGE_FILES, ...extra}, async fixture => {
     const {TaskService} = await load('runtime/src/task/service.js');
     const {FileTaskStore} = await load('runtime/src/task/store.js');
@@ -108,8 +122,7 @@ async function reviewFixture(check, extra = {}) {
     const {calculateSourceFingerprint} = await load('runtime/src/verify/source-fingerprint.js');
     const {collectBaseChangePaths} = await load('runtime/src/verify/change-surface.js');
     const {taskContractHash} = await load('runtime/src/task/contract.js');
-    await fixture.commit({'src/pages/ProductDetailPage.tsx': PAGE('ProductDetailPage', 'LARGE_IMAGE'),
-      'src/pages/StepFlow.tsx': PAGE('StepFlow', 'LARGE_IMAGE')});
+    await fixture.commit(change);
     const git = runner(fixture.root);
     let next = 0;
     const tasks = new TaskService(new FileTaskStore(join(fixture.root, '.agent-ops/tasks/state.json'), fixture.root), {generateId: () => `task-${++next}`});
@@ -572,6 +585,105 @@ const raw = {
     const skippedPrimary = buildReviewPrompt(withSkipped);
     assert.ok(!skippedPrimary.includes('Skipped derived queries') && !skippedPrimary.includes('extra `git grep -F`'), 'round 1 is unchanged');
     assert.ok(primary.includes('PackDetailStepFlow.tsx') && challenge.includes('PackDetailStepFlow.tsx'), 'reviewers see the post-block exclusion');
+    // Under the cap nothing is truncated and no reviewer is told otherwise.
+    assert.equal(packet.surface.discovery.truncated, undefined);
+    assert.ok(!challenge.includes('Derived queries never searched'));
+  }),
+
+  'surface-git-failure': () => withRepo({'src/main.ts': 'export const main = 1;\n', 'src/sib.ts': 'export const s = failToken_name;\n'}, async fixture => {
+    if (process.platform === 'win32') return;
+    const {surfaceAdvisory} = await load('runtime/src/surface/discovery.js');
+    const changed = await fixture.commit({'src/main.ts': 'export const main = failToken_name;\n'});
+    const surface = audit({included: [['main', 'src/main.ts']]});
+    for (const [command, signal, label] of [['ls-files', false, 'git ls-files'], ['rev-parse', false, 'git rev-parse'],
+      ['diff', false, 'git diff'], ['grep', false, 'git grep'], ['grep', true, 'git grep']]) {
+      const result = await withFailingGit(command, signal, () => gate(fixture, surface, changed));
+      assert.equal(result.code, 'SURFACE_DISCOVERY_FAILED', `${command} ${signal}: ${JSON.stringify(result)}`);
+      assert.equal(result.details[0].command, label);
+      if (command === 'grep') assert.equal(typeof result.details[0].query, 'string');
+      assert.match(surfaceAdvisory(result)[0], /^Surface \(advisory; review would stop with SURFACE_DISCOVERY_FAILED\)/u);
+    }
+    // No failed result was cached: the rerun searches again and gates the sibling.
+    const rerun = await gate(fixture, surface, changed);
+    assert.deepEqual(unclassified(rerun), ['src/sib.ts']);
+    assert.equal(rerun.discovery.cached, false);
+  }),
+
+  'surface-git-failure-review': () => reviewFixture(async ({tasks, verified, review, policyConfigHash}) => {
+    if (process.platform === 'win32') return;
+    const surface = audit({included: [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx']]});
+    const task = await tasks.create({title: 'Image size', criteria: CRITERIA, policyConfigHash, requireSurface: true, surface});
+    await verified(task.task.id);
+    let spawned = 0;
+    const blocked = await withFailingGit('grep', false, () => review(task.task.id, async () => {spawned += 1; throw new Error('must not start');}));
+    assert.equal(spawned, 0);
+    assert.equal(blocked.status, 'error');
+    assert.equal(blocked.code, 'SURFACE_DISCOVERY_FAILED', JSON.stringify(blocked));
+    assert.equal(blocked.data.result.reason, 'surface-discovery-failed');
+  }),
+
+  'surface-truncated': () => withRepo({'src/main.ts': 'export const main = 1;\n'}, async fixture => {
+    const {extractDiffQueries, surfaceAdvisory} = await load('runtime/src/surface/discovery.js');
+    const diff = count => TOKENS(count).split('\n').map(line => `+${line}`).join('\n');
+    assert.deepEqual(extractDiffQueries(diff(400)).dropped, {'hunk-header': 0, 'template-fragment': 0, 'diff-token': 0});
+    assert.equal(extractDiffQueries(diff(403)).dropped['diff-token'], 3);
+    const changed = await fixture.commit({'src/main.ts': TOKENS(401)});
+    const result = await gate(fixture, audit({included: [['main', 'src/main.ts']]}), changed);
+    assert.equal(result.status, 'PASS', JSON.stringify(result));
+    assert.deepEqual(result.discovery.truncated, [{source: 'diff-token', dropped: 1}]);
+    assert.deepEqual(surfaceAdvisory(result), ['Surface: PASS', 'Surface: 1 derived queries were not searched (diff-token 1)']);
+  }),
+
+  'surface-truncated-review': () => reviewFixture(async ({tasks, verified, review, policyConfigHash}) => {
+    const {buildAdversarialPrompt, buildReviewPrompt} = await load('runtime/src/review/runner.js');
+    const surface = audit({included: [['product', 'src/pages/ProductDetailPage.tsx'], ['step', 'src/pages/StepFlow.tsx'],
+      ['combo', 'src/pages/Combo*.tsx'], ['pack', 'src/pages/PackDetail*.tsx'], ['many', 'src/zmany.ts']]});
+    const task = await tasks.create({title: 'Image size', criteria: CRITERIA, policyConfigHash, requireSurface: true, surface});
+    await verified(task.task.id);
+    let seen;
+    // The fake reports must inspect every scoped file, including the token file.
+    const inspected = criteria => ({...report(criteria), changedFilesInspected: [...Object.keys(IMAGE_CHANGE), 'src/zmany.ts']});
+    const passed = await review(task.task.id, async request => {seen = request; return passing(request, inspected(request.invocation.packet.criteria));});
+    assert.equal(passed.data.result.status, 'PASS', JSON.stringify(passed.data.result.reason));
+    const packet = seen.invocation.packet;
+    // git diff lists src/pages before src/zmany.ts, so the page tokens are searched and the tail is dropped.
+    const [row, ...rest] = packet.surface.discovery.truncated;
+    assert.deepEqual([row.source, rest.length], ['diff-token', 0]);
+    assert.ok(row.dropped >= 1, JSON.stringify(row));
+    const challenge = buildAdversarialPrompt(seen.invocation, inspected(packet.criteria));
+    assert.ok(challenge.includes(`Derived queries never searched (over the 400-per-kind cap): ${row.dropped} diff-token.`), JSON.stringify(row));
+    assert.ok(!buildReviewPrompt(seen.invocation).includes('Derived queries never searched'), 'round 1 reads the packet data only');
+  }, {}, {...IMAGE_CHANGE, 'src/zmany.ts': TOKENS(401)}),
+
+  'surface-untracked-derived': () => withRepo({'src/main.ts': 'export const main = 1;\n', 'src/sib/s0.ts': 'export const a = newFileToken_x;\n',
+    'src/sib/s1.ts': 'export const b = binaryToken_y;\n', 'src/sib/s2.ts': 'export const c = linkToken_z;\n'}, async fixture => {
+    const {collectChangeSurface} = await load('runtime/src/verify/change-surface.js');
+    const outside = await mkdtemp(join(tmpdir(), 'agent-ops-surface-outside-'));
+    try {
+      await fixture.write('src/new.ts', 'export const fresh = newFileToken_x;\n');
+      await fixture.write('src/blob.bin', Buffer.concat([Buffer.from('binaryToken_y\n'), Buffer.from([0, 1, 2])]));
+      if (process.platform !== 'win32') {
+        await writeFile(join(outside, 'target.ts'), 'export const t = linkToken_z;\n');
+        await symlink(join(outside, 'target.ts'), join(fixture.root, 'src/link.ts'));
+      }
+      const changed = (await collectChangeSurface(runner(fixture.root))).paths;
+      assert.ok(changed.includes('src/new.ts'), JSON.stringify(changed));
+      const surface = audit({included: [['main', 'src/main.ts']]});
+      // Only the regular text file's token gates its sibling; a vanished path is skipped.
+      const worktree = await gate(fixture, surface, [...changed, 'src/gone.ts'], {base: undefined});
+      assert.deepEqual(unclassified(worktree), ['src/sib/s0.ts']);
+      // --base discovery never reads untracked content.
+      const based = await gate(fixture, surface, changed);
+      assert.equal(based.status, 'PASS', JSON.stringify(based));
+      if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+        await chmod(join(fixture.root, 'src/new.ts'), 0o000);
+        try {
+          const unreadable = await gate(fixture, surface, changed, {base: undefined});
+          assert.equal(unreadable.code, 'SURFACE_DISCOVERY_FAILED', JSON.stringify(unreadable));
+          assert.equal(unreadable.details[0].path, 'src/new.ts');
+        } finally {await chmod(join(fixture.root, 'src/new.ts'), 0o644);}
+      }
+    } finally {await rm(outside, {recursive: true, force: true});}
   }),
 
   'surface-coverage-blocking': () => reviewFixture(async ({tasks, verified, review, policyConfigHash}) => {

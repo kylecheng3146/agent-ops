@@ -481,6 +481,7 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   SURFACE_UNASSIGNED: "surface-unassigned",
   SURFACE_DISMISSAL_TOO_BROAD: "surface-dismissal-too-broad",
   SURFACE_DISMISSAL_INVALID: "surface-dismissal-invalid",
+  SURFACE_DISCOVERY_FAILED: "surface-discovery-failed",
   ESCAPE_RULE_INVALID: "escape-rule-invalid",
   ESCAPE_RULE_UNSAFE: "escape-rule-unsafe",
   ESCAPE_RULE_NO_EXCLUDE: "escape-rule-no-exclude"
@@ -557,7 +558,7 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
     history: (holder.revisions ?? []).map((revision, i, all) => ({at: revision.at, reason: revision.reason,
       change: surfaceDelta(revision.previousTask.surface, (all[i + 1]?.previousTask ?? holder!.task).surface)})).slice(-10),
     discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped,
-      dismissed: gate.discovery.dismissed},
+      dismissed: gate.discovery.dismissed, ...(gate.discovery.truncated.length === 0 ? {} : {truncated: gate.discovery.truncated})},
     postBlockExclusions: gate.discovery.postBlockExclusions
   }};
 }

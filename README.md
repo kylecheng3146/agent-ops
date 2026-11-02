@@ -549,7 +549,8 @@ codex` for current-source revalidation and bounded repair. Observations need
 
 A pre-1.0 npm package is published. Use `@latest` for the current release, or
 pin a specific version in automation when reproducibility matters; review
-release notes before upgrading.
+release notes before upgrading. The [compatibility policy](docs/en/guides/compatibility.md)
+defines what a release may change from 1.0.0 on.
 
 Documentation:
 
