@@ -22,7 +22,7 @@
 
 task state 寫入 version 2、讀取 version 1；evidence version 4 讀取舊證據，attestation version 3 綁定契約與 coverage。legacy criteria 維持下列 verifier 規則；typed／revised 契約不能沿用舊 review。coverage 分列機械證明、review-only、legacy；runner 綁定本身不算證明。明確 no-change proof 列出固定 candidate 上已 commit 的 regular source files；整合時重新解析支持路徑。一般 empty-diff review 與 empty-branch direct finish 仍拒絕。
 
-English source version: 2026-10-20. Revalidate: when the English specification changes.
+English source version: 2026-11-02. Revalidate: when the English specification changes.
 
 ## EVIDENCE-CRITERION-001
 
@@ -76,7 +76,10 @@ English source version: 2026-10-20. Revalidate: when the English specification c
   不以 task 文字組 regex），由便宜的來源先跑：記錄的查詢；diff hunk header 的外層
   函式名；template literal 固定片段（至少 4 字元且以分隔符界定，例如 `order:`、
   `user_`、`menu.`）；新增與刪除行的複合識別字（snake_case、camelCase 或含數字，
-  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元）。衍生查詢在 diff 以外命中
+  因此一般文字單字不會成為查詢）與字串常值（至少 6 字元）。未帶 `--base` 時，
+  變更範圍內未追蹤的一般檔案視為全部新增行（含 NUL 位元組的檔案、symlink 與已消失的
+  檔案會略過）。每類衍生查詢上限 400 個；各來源被捨棄的數量一定會回報、絕不默默略過：
+  verify 會列印、review packet 會帶上，並告知第二輪 reviewer。衍生查詢在 diff 以外命中
   超過 10 個檔案時視為太通用而略過；略過的查詢依命中數由少到多交給第二輪 reviewer。diff 與 surface 清單之外的任何命中都會擋下 review。
 - 衍生查詢（diff 字詞、template 片段或 hunk header 函式名）的命中若只是巧合，可在
   surface 選用的 `dismissed` 清單中以一筆 `{query, reason}` 排除（理由至多 256
@@ -92,7 +95,8 @@ English source version: 2026-10-20. Revalidate: when the English specification c
   檔案，或包含 diff 內的檔案）、`SURFACE_INCLUSION_TOO_BROAD`（單一 included 或
   UNKNOWN glob 涵蓋 diff 以外超過 10 個檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
   `SURFACE_DISMISSAL_INVALID`（記錄的查詢或稀有查詢）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
-  （總計 120 秒，絕不默默略過）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
+  （總計 120 秒，絕不默默略過）、`SURFACE_DISCOVERY_FAILED`（git 指令失敗、`git grep`
+  結束碼不是 0 或 1，或未追蹤的變更檔無法讀取；絕不當成「沒有命中」）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
   included 不一致；每次 review 都檢查，包含 advance 與 batch）。
 - 修訂 surface 等同修訂 contract：需要新的證據與兩次新的 review。在
   `SURFACE_UNCLASSIFIED` 阻擋之後才加入的排除，會以 post-block exclusion 標示給

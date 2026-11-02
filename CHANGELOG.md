@@ -4,6 +4,28 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] - 2026-11-02
+
+- First 1.0 release candidate, published under the npm `next` dist-tag;
+  `@latest` stays on 0.11.6 until 1.0.0.
+- Added a [compatibility policy](docs/en/guides/compatibility.md) (English and
+  Traditional Chinese) that defines what 1.0 guarantees: CLI commands and
+  flags, the JSON envelope, documented error codes, exit codes, config and
+  surface-file formats, committed data, and reading older 1.x state. It also
+  sets the rules for gate changes, deprecation, migration, supported releases
+  and platform tiers.
+- Gate: surface discovery now fails closed. A failed `git ls-files`,
+  `git rev-parse` or `git diff`, a `git grep` exiting other than 0 or 1
+  (including a signal), or an unreadable untracked changed file stops review
+  with `SURFACE_DISCOVERY_FAILED` instead of being read as "no hits".
+- Gate: derived discovery queries over the 400-per-kind cap are no longer
+  dropped silently. Verify prints how many were not searched, the review packet
+  lists the count per source, and the second reviewer is told.
+- Gate: without `--base`, untracked text files in the change scope now yield
+  derived discovery queries like added lines, so code copied into a new,
+  not-yet-added file is checked for siblings. Files with a NUL byte, symlinks
+  and vanished files are skipped.
+
 ## [0.11.6] - 2026-10-30
 
 - Native run final proof recovers on its own from an interrupted step: a

@@ -148,6 +148,7 @@ export type ReviewUnavailableReason =
   | "surface-inclusion-too-broad"
   | "surface-dismissal-too-broad"
   | "surface-dismissal-invalid"
+  | "surface-discovery-failed"
   | "scenario-missing"
   | "surface-budget-exceeded"
   | "surface-unassigned"
@@ -337,8 +338,10 @@ function taskDataBlock(invocation: ReviewInvocation): readonly string[] {
  */
 function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversarial"): readonly string[] {
   if (invocation.packet.surface === undefined) return [];
-  const discovery = invocation.packet.surface.discovery as {skipped?: readonly {query: string; files: number}[]} | null;
+  const discovery = invocation.packet.surface.discovery as {skipped?: readonly {query: string; files: number}[];
+    truncated?: readonly {source: string; dropped: number}[]} | null;
   const skipped = round === "adversarial" ? discovery?.skipped ?? [] : [];
+  const truncated = round === "adversarial" ? discovery?.truncated ?? [] : [];
   return [
     "",
     "Surface coverage (narrow exception to \"Do not survey\"): task data carries the surface audit, its revision " +
@@ -355,7 +358,10 @@ function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversar
         "otherPaths, sharedState); cite each query you ran in evidence.",
     ...(skipped.length === 0 ? [] : ["Skipped derived queries (over 10 files outside the diff, so discovery never gated them; " +
       `fewest first): ${skipped.map(row => `\`${row.query}\` (${row.files})`).join(", ")}. Beyond the per-axis budget, run at most 3 ` +
-      "extra `git grep -F` queries in total over these to find copied siblings the change missed; cite each in evidence."])
+      "extra `git grep -F` queries in total over these to find copied siblings the change missed; cite each in evidence."]),
+    ...(truncated.length === 0 ? [] : [`Derived queries never searched (over the 400-per-kind cap): ` +
+      `${truncated.map(row => `${row.dropped} ${row.source}`).join(", ")}. Discovery did not gate siblings of these later diff ` +
+      "identifiers; spend your hunting queries on the files the change touched last and record what stays unchecked as a residual risk."])
   ];
 }
 

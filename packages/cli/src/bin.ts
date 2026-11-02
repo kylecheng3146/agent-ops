@@ -94,7 +94,7 @@ import {
 } from "../../../runtime/src/review/execute.js";
 import { probeReviewTargetDetailed } from "../../../runtime/src/review/probe.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
-import { runSurfaceGate } from "../../../runtime/src/surface/discovery.js";
+import { runSurfaceGate, surfaceAdvisory } from "../../../runtime/src/surface/discovery.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { runVerifyCommand } from "./commands/verify.js";
@@ -960,10 +960,7 @@ process.exitCode = await runCli(
                 const scope = await resolveReviewScope({root, runner: gitRunner(root), ...(args.base === undefined ? {} : {base: args.base})});
                 const gate = await runSurfaceGate({root, taskId, surface: record.task.surface, required: record.task.surfaceRequired === true,
                   ...(scope.mode === "base" ? {base: scope.resolvedBase} : {}), changedFiles: scope.changedFiles, configHash: calculateConfigHash(config)});
-                if (gate.status === "PASS") return ["Surface: PASS"];
-                const paths = gate.details.flatMap(d => typeof d === "object" && d !== null && "path" in d ? [String(d.path)] : []);
-                return [`Surface (advisory; review would stop with ${gate.code}): ${gate.message}`,
-                  ...paths.slice(0, 20).map(path => `  - ${path}`), ...(paths.length > 20 ? [`  ... ${paths.length - 20} more`] : [])];
+                return surfaceAdvisory(gate);
               },
               activity: {commonDir: await officeCommonDir(root), root, ...(verifySessionId === undefined ? {} : {sessionId: verifySessionId})},
               service: {verify: async taskId => {

@@ -52,6 +52,9 @@ test("release policy is dispatch-only, protected, and provenance-capable", async
   assert.match(workflow, /id-token:\s*write/u);
   assert.match(workflow, /node-version:\s*["']?24["']?/u);
   assert.match(workflow, /npm\s+publish\b/u);
+  // A prerelease tag publishes under next; only a final version may move latest.
+  assert.match(workflow, /\*-\*\)\s*npm\s+publish\b[^\n]*--tag\s+next/u);
+  assert.match(workflow, /\*\)\s*npm\s+publish --provenance --access public\s*;;/u);
   assert.match(workflow, /11\.5\.1/u);
   assert.match(workflow, /github\.event_name\s*==\s*["']workflow_dispatch["']/u);
   assert.match(workflow, /git\s+rev-parse[\s\S]*RELEASE_TAG[\s\S]*git\s+rev-parse[\s\S]*HEAD/isu);

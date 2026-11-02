@@ -117,7 +117,12 @@ Every new task MUST record a surface audit of where else its change lands before
   template-literal fixed fragments (at least 4 characters, separator-bounded,
   such as `order:`, `user_`, `menu.`); compound identifiers (snake_case,
   camelCase or containing digits, so prose words are not queries) and string
-  literals from added and removed lines (at least 6 characters). A derived
+  literals from added and removed lines (at least 6 characters). Without
+  `--base`, an untracked regular file in the change scope counts as added
+  lines (files with a NUL byte, symlinks and vanished files are skipped). Each
+  derived kind is capped at 400 queries; the dropped count per source is
+  reported, never silent: verify prints it, the review packet carries it and
+  the second reviewer is told. A derived
   query is skipped as too generic above 10 hit files outside the diff; skipped
   queries, fewest hits first, go to the second reviewer. Every hit outside the diff and the surface lists stops review.
 - A derived query (diff token, template fragment or hunk-header name) whose hits
@@ -139,7 +144,9 @@ Every new task MUST record a surface audit of where else its change lands before
   diff), `SURFACE_INCLUSION_TOO_BROAD` (one included or UNKNOWN glob over 10
   files outside the diff), `SURFACE_DISMISSAL_TOO_BROAD` (over 128 dismissals),
   `SURFACE_DISMISSAL_INVALID` (a recorded or rare query), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
-  silently skipped) or `SURFACE_UNASSIGNED` (children's covers differ from the
+  silently skipped), `SURFACE_DISCOVERY_FAILED` (a git command failed, a
+  `git grep` exited other than 0 or 1, or an untracked changed file was
+  unreadable; never read as "no hits") or `SURFACE_UNASSIGNED` (children's covers differ from the
   parent's included list; checked by every review, including advance and batch).
 - A surface revision is a contract revision: fresh evidence and two fresh
   reviews. Exclusions added after an `SURFACE_UNCLASSIFIED` block are flagged
