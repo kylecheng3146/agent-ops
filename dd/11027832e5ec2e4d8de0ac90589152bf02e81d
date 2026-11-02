@@ -1,0 +1,10 @@
+worktree: session-ee981ef2 (agent-ops/session-ee981ef2)
+session: ee981ef2-1180-453d-b924-86e01f87f264
+agent-ops task task-9478d001-a108-4ea4-84e8-4cc7dc43e31d: Prepare release 1.0.0-rc.1
+criteria:
+- rc-version: `agent-ops --version` reports 1.0.0-rc.1 (package.json and package-lock.json carry that version), and CHANGELOG.md has an empty `## [Unreleased]` followed directly by `## [1.0.0-rc.1] - 2026-11-02`, which holds the compatibility guide entry and the three Gate: entries.
+- prerelease-dist-tag: The release workflow publishes any semver prerelease version (one with a hyphenated pre-release part, such as 1.0.0-rc.1) under the npm `next` dist-tag and a final version without a dist-tag override, so a release candidate never moves npm `latest`.
+- docs-test-after-release: The compatibility docs check accepts the three Gate: changelog entries in whichever CHANGELOG.md section holds them, so docs checks and npm test still pass once the entries move from Unreleased to the 1.0.0-rc.1 section.
+- release-channel-docs: README's project status tells users that release candidates are published under the npm `next` dist-tag while `@latest` stays on the newest final release.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/7414d36fc15b7062b33ea08e2ced112212955dda1135289b75a721908ce94a32-dd11027832e5ec2e4d8de0ac90589152bf02e81d.json
+receipt-sha256: c77937474ec079103e0fe2b3924fd084e9c96a5761738c52eaeee2d4937cca2a
