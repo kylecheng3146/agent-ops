@@ -4,6 +4,10 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] - 2026-11-02
+
+- First 1.0 release candidate, published under the npm `next` dist-tag;
+  `@latest` stays on 0.11.6 until 1.0.0.
 - Added a [compatibility policy](docs/en/guides/compatibility.md) (English and
   Traditional Chinese) that defines what 1.0 guarantees: CLI commands and
   flags, the JSON envelope, documented error codes, exit codes, config and

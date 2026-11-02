@@ -20,7 +20,9 @@ test("compatibility guide states the 1.0 policy in both languages and is linked"
     assert.match(en, rule);
   assert.equal(sections(zh), sections(en));
   assert.deepEqual(identifiers(zh), identifiers(en));
-  assert.match(await read("README.md"), /## Project status[\s\S]*\]\(docs\/en\/guides\/compatibility\.md\)/);
+  const readme = await read("README.md");
+  assert.match(readme, /## Project status[\s\S]*\]\(docs\/en\/guides\/compatibility\.md\)/);
+  assert.match(readme, /## Project status[\s\S]*Release candidates[\s\S]*`next` dist-tag[\s\S]*`@latest` stays on the newest\s+final release/);
   assert.match(await read("SECURITY.md"), /## Supported versions[\s\S]*\]\(docs\/en\/guides\/compatibility\.md\)[\s\S]*## Reporting/);
 });
 
@@ -34,8 +36,8 @@ test("surface discovery gate changes are documented in both spec languages and t
     assert.match(source, cap, path);
     assert.match(source, untracked, path);
   }
+  // The entries sit under Unreleased until they ship, then under their version heading.
   const changelog = await read("CHANGELOG.md");
-  const unreleased = changelog.slice(changelog.indexOf("## [Unreleased]"), changelog.indexOf("\n## [", changelog.indexOf("## [Unreleased]") + 1));
   for (const entry of [/- Gate: surface discovery now fails closed[\s\S]*`SURFACE_DISCOVERY_FAILED`/, /- Gate: derived discovery queries over the 400-per-kind cap/,
-    /- Gate: without `--base`, untracked text files/]) assert.match(unreleased, entry);
+    /- Gate: without `--base`, untracked text files/]) assert.match(changelog, entry);
 });

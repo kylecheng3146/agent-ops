@@ -56,4 +56,9 @@ jobs:
         run: node -e 'const pkg = require("./package.json"); if (pkg.private === true) { throw new Error("package.json is private; approve release preparation before publishing") }'
       - name: Publish with npm trusted publishing
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-        run: npm publish --provenance --access public
+        # A prerelease (1.0.0-rc.1) goes to the next dist-tag so it never becomes latest.
+        run: |
+          case "${RELEASE_TAG}" in
+            *-*) npm publish --provenance --access public --tag next ;;
+            *) npm publish --provenance --access public ;;
+          esac
