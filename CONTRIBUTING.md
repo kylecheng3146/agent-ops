@@ -1,8 +1,9 @@
 # Contributing
 
-Contributions are welcome through GitHub issues and pull requests. The project
-is currently pre-1.0, so discuss large behavioral, schema, security, or release
-changes before implementing them.
+Contributions are welcome through GitHub issues and pull requests. The
+[compatibility policy](docs/en/guides/compatibility.md) applies from 1.0.0, so
+discuss large behavioral, schema, security, or release changes before
+implementing them.
 
 ## Expectations
 

@@ -53,9 +53,17 @@ function redactData(value: unknown): unknown {
   return value;
 }
 
-export function criteriaSnapshot(task: AgentTask, parent?: AgentTask): Record<string, unknown> {
+/** What the repository can verify with: lets advice respect configured runners instead of guessing. */
+export interface CriteriaVerification {
+  requiredVerifierIds: string[];
+  runners: {id: string; adapter: string}[];
+}
+export function criteriaSnapshot(task: AgentTask, parent?: AgentTask, verification?: CriteriaVerification | null): Record<string, unknown> {
+  // Exclusions and dismissals justify the surface audit, not the criteria; the advisor never needs them.
+  const surface = task.surface === undefined ? null : "covers" in task.surface ? task.surface
+    : (({excluded: _excluded, dismissed: _dismissed, ...kept}) => kept)(task.surface);
   return {taskId: task.id, originalGoal: task.goal ?? null, intent: task.intent ?? null,
-    criteria: task.criteria, surface: task.surface ?? null,
+    criteria: task.criteria, surface, verification: verification ?? null,
     assignedScope: parent === undefined ? (task.parentTaskId === undefined && !(task.surface && "covers" in task.surface) ? null : {parentUnavailable: true}) :
       {parentTaskId: parent.id, parentIntent: parent.intent ?? null, surface: parent.surface ?? null},
     child: task.parentTaskId !== undefined || (task.surface !== undefined && "covers" in task.surface)};
@@ -66,6 +74,9 @@ export function criteriaReviewPrompt(snapshot: Record<string, unknown>): string 
     "Check (1) omitted user scenarios within assigned scope, (2) observable and verifiable conditions, (3) implementation details mistaken for behavior, (4) obvious binding/verification-plan gaps.",
     "Missing originalGoal is insufficient information; never substitute the title. Child completeness is judged only against its intent and assigned covers, not the whole parent goal.",
     "Verification materials have not been inspected and may not exist yet. Mark product-import/binding validity deferred until implementation; do not claim it proved or failed. Legitimate reasoned review-only criteria are allowed.",
+    "A task has 2 to 5 criteria. Every required verifier already runs and must pass for each criterion with typed acceptance, so when typed criteria exist a criterion that only names required verifiers adds no evidence.",
+    snapshot.verification === null ? "Verification config is unavailable: do not judge which runners exist."
+      : "A check binding needs one of the listed verification runners; when none fits, recommend review-only acceptance or a limitation instead of a binding.",
     "Return only JSON matching this schema. criterionId must name a supplied criterion, or task for a scope-wide recommendation. No PASS verdict or completion evidence.",
     JSON.stringify(CRITERIA_REVIEW_SCHEMA), "BEGIN UNTRUSTED DATA", canonicalJson(redactData(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
@@ -105,6 +116,9 @@ export interface CriteriaReviewOptions {
   model?: string;
   effort?: string;
   unavailableCode?: string;
+  verification?: CriteriaVerification | null;
+  /** Git common dir: each attempt is archived there so it outlives the worktree. */
+  commonDir?: string;
   rerun?: boolean;
   trigger?: CriteriaReviewTrigger;
   signal?: AbortSignal;
@@ -145,11 +159,12 @@ async function ownerAlive(report: CriteriaReviewReport): Promise<boolean> {
 }
 /**
  * The surface audit is reviewed but is not what the advice is about: classifying
- * one more discovery hit must not make the criteria look unreviewed. The stored
- * snapshot is redacted, so the current one is redacted the same way.
+ * one more discovery hit must not make the criteria look unreviewed. Verification
+ * config is context too, and a config change already makes the task stale. The
+ * stored snapshot is redacted, so the current one is redacted the same way.
  */
 function criteriaCore(snapshot: Record<string, unknown>): string {
-  const {surface: _surface, ...core} = snapshot;
+  const {surface: _surface, verification: _verification, ...core} = snapshot;
   return canonicalJson(core);
 }
 function coreChanged(report: CriteriaReviewReport, snapshot: Record<string, unknown>): boolean {
@@ -183,7 +198,7 @@ function cancelled(signal?: AbortSignal): void {
 /** A durable initial-attempt claim is separate from task state and never supplies proof. */
 export async function runCriteriaReview(options: CriteriaReviewOptions): Promise<CriteriaReviewView> {
   const {root, task, signal} = options;
-  const path = reportPath(root, task.id), snapshot = criteriaSnapshot(task, options.parent);
+  const path = reportPath(root, task.id), snapshot = criteriaSnapshot(task, options.parent, options.verification);
   const snapshotHash = sha256(canonicalJson(snapshot)), started = Date.now();
   let report: CriteriaReviewReport = {kind: "criteria-advisory", taskId: task.id, attemptId: randomUUID(), snapshotHash,
     snapshot: redactData(snapshot) as Record<string, unknown>, status: "RUNNING", code: "CRITERIA_REVIEW_RUNNING",
@@ -255,7 +270,8 @@ export async function runCriteriaReview(options: CriteriaReviewOptions): Promise
         report = {...report, status: "NOT_RUN", code: isLoginFailure(result.stderr + result.stdout) ? "CRITERIA_REVIEW_AUTH_REQUIRED" :
           isNetworkFailure(result.stderr + result.stdout) ? "CRITERIA_REVIEW_NETWORK_ERROR" :
           result.failureClass === "missing-executable" ? "CRITERIA_REVIEW_MISSING_EXECUTABLE" :
-          result.failureClass === "spawn-failed" ? "CRITERIA_REVIEW_SPAWN_FAILED" : "CRITERIA_REVIEW_INVALID_RESULT"};
+          result.failureClass === "spawn-failed" ? "CRITERIA_REVIEW_SPAWN_FAILED" :
+          result.status !== "PASS" ? "CRITERIA_REVIEW_TARGET_FAILED" : "CRITERIA_REVIEW_INVALID_RESULT"};
       } else report = {...report, status: "COMPLETED", code: "CRITERIA_REVIEW_COMPLETED",
         advice: redactData(advice) as CriteriaAdvice};
     }
@@ -266,8 +282,11 @@ export async function runCriteriaReview(options: CriteriaReviewOptions): Promise
     report = {...report, durationMs: Date.now() - started};
     if (claimed) {
       try {
-        await writePrivateFile(join(root, ".agent-ops", "reviews", `criteria-${task.id}-${report.attemptId}.json`), JSON.stringify(report, null, 2), root);
-        await writePrivateFile(path, JSON.stringify(report, null, 2), root);
+        const body = JSON.stringify(report, null, 2);
+        await writePrivateFile(path, body, root);
+        await (options.commonDir === undefined
+          ? writePrivateFile(join(root, ".agent-ops", "reviews", `criteria-${task.id}-${report.attemptId}.json`), body, root)
+          : writePrivateFile(join(options.commonDir, "agent-ops", "criteria-advisory", `${task.id}-${report.attemptId}.json`), body, options.commonDir));
       } catch {warnings.push("Advisory report could not be saved; this is not proof of a completed review.");}
     }
     try {await options.log?.(report, path);} catch {warnings.push("Advisory local log could not be written.");}

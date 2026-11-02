@@ -8,7 +8,9 @@ import {appendLocalLog} from "../../../runtime/src/logging/local-log.js";
 import {localStatePaths} from "../../../runtime/src/security/permissions.js";
 import {TaskService} from "../../../runtime/src/task/service.js";
 import {FileTaskStore} from "../../../runtime/src/task/store.js";
+import {resolveCheckouts} from "../../../runtime/src/parallel/service.js";
 import {loadEffectiveConfig, runPolicyContext} from "./context.js";
+import {worktreeDependencies} from "./parallel-deps.js";
 
 async function parentScope(root: string, task: AgentTask): Promise<AgentTask | undefined> {
   const read = async (path: string, id: string): Promise<AgentTask> =>
@@ -37,8 +39,14 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
     const host = process.env.AGENT_OPS_HOST;
     const target = role?.targets.find(target => target !== host) ?? role?.targets[0];
     const parent = await parentScope(root, task).catch(() => undefined);
+    const verification = config === undefined ? null : {
+      requiredVerifierIds: config.config.verification.commands.filter(command => command.required).map(command => command.id),
+      runners: (config.config.verification.acceptanceRunners ?? []).map(({id, adapter}) => ({id, adapter}))};
+    // Outside a supported Git layout the attempt archive stays in the worktree.
+    const commonDir = await resolveCheckouts(worktreeDependencies(), root).then(checkouts => checkouts.commonDir, () => undefined);
     process.stderr.write(`Criteria advisory for ${task.id}: waiting for one independent reviewer (no time budget; Ctrl-C cancels).\n`);
-    let result = await runCriteriaReview({root, task, parent, target, model: role?.model, effort: role?.effort,
+    let result = await runCriteriaReview({root, task, parent, target, model: role?.model, effort: role?.effort, verification,
+      ...(commonDir === undefined ? {} : {commonDir}),
       rerun, ...(trigger === undefined ? {} : {trigger}), signal: controller.signal, runner: registeredRunProofRunner(),
       unavailableCode: config === undefined ? "CRITERIA_REVIEW_CONFIG_UNAVAILABLE" : target === undefined && role !== undefined ? "CRITERIA_REVIEW_NO_INDEPENDENT_TARGET" : "CRITERIA_REVIEW_UNCONFIGURED",
       log: async (report, path) => {

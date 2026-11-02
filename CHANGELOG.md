@@ -4,6 +4,21 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-02
+
+- First stable release, published under the npm `latest` dist-tag. The
+  [compatibility policy](docs/en/guides/compatibility.md) now applies.
+- Task text now shows that a criterion with typed acceptance is checked by every
+  required verifier, and flags a criterion without typed acceptance in such a
+  task: it adds no verifier evidence. The spec states the same rule.
+- The criteria advisory receives the required verifier ids and acceptance
+  runners, plus the 2–5 criteria limit, so it stops suggesting bindings no runner
+  can run. The surface it receives drops excluded and dismissed rows.
+- Every criteria advisory attempt is also saved in the Git common dir under
+  `agent-ops/criteria-advisory/`, so it survives worktree removal. A reviewer
+  that exits nonzero now reports `CRITERIA_REVIEW_TARGET_FAILED` instead of
+  `CRITERIA_REVIEW_INVALID_RESULT`.
+
 ## [1.0.0-rc.1] - 2026-11-02
 
 - First 1.0 release candidate, published under the npm `next` dist-tag;

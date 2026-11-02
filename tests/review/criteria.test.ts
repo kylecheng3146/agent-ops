@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdtemp, rm, stat, readdir, writeFile} from "node:fs/promises";
+import {mkdtemp, rm, stat, readdir, readFile, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
@@ -266,4 +266,49 @@ test("redacting an authorization header preserves JSON structure and following t
     const cached = await readCriteriaReview(root, {...task, goal: header});
     assert.equal(cached!.report.status, "COMPLETED"); assert.equal(cached!.stale, false);
   } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("advisor sees configured verifiers and runners, not surface exclusions, without staling older reports", async () => {
+  const surface = {axes: {}, included: [{id: "s", path: "src/a.ts", behavior: "Changes"}], excluded: [{glob: "docs/**", reason: "Unread"}],
+    unknown: [], contracts: [], valueChanges: [], scenarios: {}, dismissed: [{query: "mockName", reason: "Fixture token"}]};
+  const surfaced = {...task, surface} as unknown as AgentTask;
+  const verification = {requiredVerifierIds: ["unit"], runners: [{id: "vitest-app", adapter: "vitest"}]};
+  const snapshot = criteriaSnapshot(surfaced, undefined, verification);
+  assert.deepEqual(snapshot.verification, verification);
+  assert.deepEqual(Object.keys(snapshot.surface as object).sort(), ["axes", "contracts", "included", "scenarios", "unknown", "valueChanges"]);
+  const prompt = criteriaReviewPrompt(snapshot);
+  assert.match(prompt, /A task has 2 to 5 criteria/);
+  assert.match(prompt, /Every required verifier already runs and must pass for each criterion with typed acceptance/);
+  assert.match(prompt, /A check binding needs one of the listed verification runners/);
+  assert.doesNotMatch(prompt, /Unread|mockName/);
+  const unknown = criteriaReviewPrompt(criteriaSnapshot(surfaced));
+  assert.equal(criteriaSnapshot(surfaced).verification, null);
+  assert.match(unknown, /Verification config is unavailable: do not judge which runners exist/);
+  assert.doesNotMatch(unknown, /A check binding needs/);
+  const root = await fixture();
+  try {
+    const first = await runCriteriaReview({root, task: surfaced, target: "codex", verification, runner: runner([])});
+    assert.equal(first.stale, false);
+    assert.equal((await readCriteriaReview(root, surfaced))!.stale, false);
+    const older = JSON.parse(await readFile(first.reportPath, "utf8"));
+    delete older.snapshot.verification; older.snapshot.surface = surface;
+    await writeFile(first.reportPath, JSON.stringify(older));
+    assert.equal((await readCriteriaReview(root, surfaced))!.stale, false);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("attempts archive in the common dir; a nonzero reviewer exit is TARGET_FAILED, bad output is INVALID_RESULT", async () => {
+  const root = await fixture(), common = await fixture();
+  try {
+    const first = await runCriteriaReview({root, task, target: "codex", commonDir: common, runner: runner([])});
+    const archived = join(common, "agent-ops", "criteria-advisory", `${task.id}-${first.report.attemptId}.json`);
+    assert.equal(JSON.parse(await readFile(archived, "utf8")).attemptId, first.report.attemptId);
+    if (process.platform !== "win32") assert.equal((await stat(archived)).mode & 0o777, 0o600);
+    assert.deepEqual((await readdir(join(root, ".agent-ops/reviews"))).filter(name => name.endsWith(".json")), [`criteria-${task.id}.json`]);
+    const failed = await runCriteriaReview({root, task, target: "codex", commonDir: common, rerun: true, runner: runner([], advice, 1)});
+    assert.equal(failed.report.status, "NOT_RUN"); assert.equal(failed.report.code, "CRITERIA_REVIEW_TARGET_FAILED");
+    const invalid = await runCriteriaReview({root, task, target: "codex", commonDir: common, rerun: true, runner: runner([], {...advice, verdict: "PASS"})});
+    assert.equal(invalid.report.code, "CRITERIA_REVIEW_INVALID_RESULT");
+    assert.equal((await readdir(join(common, "agent-ops", "criteria-advisory"))).length, 3);
+  } finally {await Promise.all([root, common].map(path => rm(path, {recursive: true, force: true})));}
 });

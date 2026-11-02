@@ -39,16 +39,22 @@ export function renderTaskMarkdown(record: StoredTaskRecord): string {
     "## Acceptance criteria",
     ""
   ];
+  // Typed acceptance needs evidence from every required verifier (verify/service.ts, completion.ts).
+  const typed = record.task.criteria.some((criterion) => criterion.acceptance !== undefined);
   for (const criterion of record.task.criteria) {
     const references = record.evidence[criterion.id] ?? [];
+    const named = criterion.verifierIds.map((id) => `\`${id}\``).join(", ");
     lines.push(
       `- ${references.length > 0 ? "[x]" : "[ ]"} ${safeTaskText(
         criterion.description
       )} (\`${criterion.id}\`)`,
-      `  - Verifiers: ${criterion.verifierIds
-        .map((id) => `\`${id}\``)
-        .join(", ")}`
+      criterion.acceptance === undefined
+        ? `  - Verifiers: ${named}`
+        : `  - Verifiers: every required verifier (typed acceptance)${named === "" ? "" : `; named: ${named}`}`
     );
+    if (typed && criterion.acceptance === undefined) {
+      lines.push("  - Notice: adds no verifier evidence; every required verifier already applies to each typed acceptance criterion. Drop it, or give it an acceptance binding.");
+    }
     if (references.length === 0) {
       lines.push("  - Evidence: none");
     } else {
