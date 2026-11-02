@@ -2,10 +2,9 @@
 
 ## Supported versions
 
-The project has not published a supported release yet. Development branches
-and pre-1.0 artifacts are provided for evaluation and do not carry an SLA.
-From 1.0.0, only the latest 1.x minor release receives security fixes; see the
-[compatibility policy](docs/en/guides/compatibility.md).
+Only the latest 1.x minor release receives security fixes; see the
+[compatibility policy](docs/en/guides/compatibility.md). Pre-1.0 releases,
+release candidates and development branches are unsupported and carry no SLA.
 
 ## Reporting a vulnerability
 

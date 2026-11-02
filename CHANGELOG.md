@@ -4,6 +4,10 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-02
+
+- First stable release, published under the npm `latest` dist-tag. The
+  [compatibility policy](docs/en/guides/compatibility.md) now applies.
 - Task text now shows that a criterion with typed acceptance is checked by every
   required verifier, and flags a criterion without typed acceptance in such a
   task: it adds no verifier evidence. The spec states the same rule.

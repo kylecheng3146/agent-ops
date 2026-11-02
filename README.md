@@ -5,12 +5,9 @@ agy, Codex, Claude Code, and opencode. It is designed to turn acceptance criteri
 verification, safe lifecycle hooks, and independent review into a repeatable
 engineering workflow.
 
-This repository is in its foundation stage. The CLI, hook runtime, normative
-specification, and installation profiles are being developed as a reviewable
-pre-1.0 interface.
-
-The CLI is published as `@kylecheng3146/agent-ops` as a pre-1.0 interface;
-command behavior may change before 1.0.
+The CLI is published as `@kylecheng3146/agent-ops`. From 1.0.0, the
+[compatibility policy](docs/en/guides/compatibility.md) defines which commands,
+outputs and files stay stable across 1.x releases.
 
 ## Criteria advisory before implementation
 
@@ -547,7 +544,7 @@ codex` for current-source revalidation and bounded repair. Observations need
 
 ## Project status
 
-A pre-1.0 npm package is published. Use `@latest` for the current release, or
+Version 1.0.0 is published on npm. Use `@latest` for the current release, or
 pin a specific version in automation when reproducibility matters; review
 release notes before upgrading. Release candidates (such as `1.0.0-rc.1`) are
 published under the `next` dist-tag (`@next`); `@latest` stays on the newest
