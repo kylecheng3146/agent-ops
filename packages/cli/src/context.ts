@@ -283,8 +283,10 @@ export async function runPolicyContext(root: string, renew = false) {
   };
   const globalProof = matchesProof(saved.proofProcess);
   const proof = globalProof || matchesProof(worker?.proofProcess);
-  // Reading another registered checkout does not change a run-level proof's coordinator actor.
-  const actor = globalProof || worker === undefined ? saved.workers.find(w => w.workerId === saved.coordinatorId) : worker;
+  // Reading another registered checkout does not change a run-level proof's coordinator actor; child steps may also authenticate as their own checkout worker.
+  const coordinator = saved.workers.find(w => w.workerId === saved.coordinatorId);
+  const actor = globalProof ? (worker !== undefined && process.env.AGENT_OPS_WORKER_ID === worker.workerId ? worker : coordinator)
+    : (worker ?? coordinator);
   if ((!proof && (worker === undefined || record?.runId !== runId || record.workerId !== worker.workerId ||
       record.ownerSessionId !== worker.ownerSessionId || record.coordinatorId !== saved.coordinatorId || record.workerGeneration !== worker.generation)) ||
     (worker === undefined && !(proof && saved.root === here)) ||

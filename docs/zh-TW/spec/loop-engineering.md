@@ -42,12 +42,13 @@ wait。回答只消耗此 run 當前 generation 的等待，記錄 `RUN_COORDINA
 歷史與 policy binding 保持原樣；回答本身不授予額外 command capability。
 
 Run-level proof MUST 符合已保存的 proof PID、process group、程序啟動身分，以及
-目前 coordinator ID 與 generation。此 actor 可讀取 main root 與已註冊 worker
-checkout 的 run policy，包括整合時已交付的 child，且不需改寫其 worker 環境。
-Worker-local proof 仍限於自己的 checkout 與 worker 身分，其紀錄 MUST NOT 遮蔽
-獨立驗證通過的 run-level proof。一般 checkout record 與 integration ownership
-檢查仍有效。錯誤 actor、group、generation 或未註冊 checkout 回傳
-`RUN_WORKER_STALE`；身分核對後，inactive、disabled 或 awaiting-resume run 仍回傳
+目前 coordinator ID 與 generation，或目標 checkout 已註冊 worker 的目前 generation。
+Coordinator actor 可讀取 main root 與已註冊 worker checkout 的 run policy，包括整合
+時已交付的 child，且不需改寫其 worker 環境；run-level proof 下的 child worker actor
+則僅限於自己的已註冊 checkout。Worker-local proof 仍限於自己的 checkout 與 worker
+身分，其紀錄 MUST NOT 遮蔽獨立驗證通過的 run-level proof。一般 checkout record 與
+integration ownership 檢查仍有效。錯誤 actor、group、generation 或未註冊 checkout
+回傳 `RUN_WORKER_STALE`；身分核對後，inactive、disabled 或 awaiting-resume run 仍回傳
 `RUN_POLICY_DISABLED`。讀取 policy 不授予額外 capability，也不改動 config、trust、
 registration 或 delivery state。
 

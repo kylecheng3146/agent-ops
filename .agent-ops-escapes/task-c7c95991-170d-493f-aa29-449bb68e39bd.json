@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "taskId": "task-c7c95991-170d-493f-aa29-449bb68e39bd",
+  "escapeOf": "46c3df9f869b89c56e2bab549e935600e08bd084",
+  "link": {
+    "state": "gated",
+    "receipt": "679541f25f521fe2d95395a9879d9f3c934765aa0d98325d3117fda9154ea7ce-46c3df9f869b89c56e2bab549e935600e08bd084",
+    "matchedBy": "range"
+  },
+  "agentLabel": "criteria",
+  "label": "criteria",
+  "missedPaths": [
+    "docs/en/spec/loop-engineering.md",
+    "docs/zh-TW/spec/loop-engineering.md",
+    "packages/cli/src/context.ts"
+  ],
+  "facts": [
+    {
+      "path": "docs/en/spec/loop-engineering.md",
+      "surface": "included"
+    },
+    {
+      "path": "docs/zh-TW/spec/loop-engineering.md",
+      "surface": "included"
+    },
+    {
+      "path": "packages/cli/src/context.ts",
+      "surface": "included"
+    }
+  ],
+  "residualRisks": 1,
+  "proof": {
+    "status": "check",
+    "check": "run-startup-regression:coordinator-proof-actor"
+  },
+  "declaredAt": "2026-11-03T03:09:53.800Z"
+}
