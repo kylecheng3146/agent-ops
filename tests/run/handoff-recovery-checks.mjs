@@ -54,7 +54,7 @@ async function diagnostic(program, check) {
 
 async function productionBoundary() {
   if (process.platform !== 'darwin') return;
-  for (const mode of ['valid','dirty','source','owner','trust']) await fixture(async f=>{
+  await fixture(async f=>{
     const prior={home:process.env.AGENT_OPS_HOME,path:process.env.PATH};
     const git=(cwd,args)=>execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
     try {
@@ -90,15 +90,21 @@ async function productionBoundary() {
       await writeWorktreeRecord(record);
       await bindRunPolicy(context.repository,f.state.runId,{config:effective,runtimeHash:await runRuntimeHash(),baseTrustBinding:binding});
       await context.repository.mutate(f.state.runId,s=>({...s,status:'awaiting-input'}));
-      if (mode==='dirty') await writeFile(join(child,'uncommitted.txt'),'preserve this');
-      if (mode==='source') {await writeFile(join(child,'source.txt'),'changed\n'); git(child,['commit','-qam','unacknowledged source']);}
-      if (mode==='owner') await writeWorktreeRecord({...record,ownerSessionId:'foreign-owner'});
-      if (mode==='trust') await trustStore().revoke(binding);
       const retry=()=>context.service.resume(f.state.runId,[],true,'task-child');
-      if (mode==='valid') {assert.equal((await retry()).state.tasks.at(-1).status,'ready'); assert.equal(wakes,1);}
-      else {
-        await assert.rejects(retry(),{code:{dirty:'RUN_RECOVERY_DIRTY',source:'RUN_DELIVERY_RETRY_INVALID',owner:'RUN_DELIVERY_RETRY_INVALID',trust:'RUN_REPO_UNTRUSTED'}[mode]});
-        assert.equal((await context.repository.read(f.state.runId)).tasks.at(-1).status,'blocked'); assert.equal(wakes,0);
+      for (const mode of ['dirty','source','owner','trust','valid']) {
+        if (mode==='dirty') await writeFile(join(child,'uncommitted.txt'),'preserve this');
+        if (mode==='source') {await writeFile(join(child,'source.txt'),'changed\n'); git(child,['commit','-qam','unacknowledged source']);}
+        if (mode==='owner') await writeWorktreeRecord({...record,ownerSessionId:'foreign-owner'});
+        if (mode==='trust') await trustStore().revoke(binding);
+        if (mode==='valid') {assert.equal((await retry()).state.tasks.at(-1).status,'ready'); assert.equal(wakes,1);}
+        else {
+          await assert.rejects(retry(),{code:{dirty:'RUN_RECOVERY_DIRTY',source:'RUN_DELIVERY_RETRY_INVALID',owner:'RUN_DELIVERY_RETRY_INVALID',trust:'RUN_REPO_UNTRUSTED'}[mode]});
+          assert.equal((await context.repository.read(f.state.runId)).tasks.at(-1).status,'blocked'); assert.equal(wakes,0);
+        }
+        if (mode==='dirty') await rm(join(child,'uncommitted.txt'),{force:true});
+        if (mode==='source') git(child,['reset','-q','--hard',head]);
+        if (mode==='owner') await writeWorktreeRecord(record);
+        if (mode==='trust') await trustStore().grant(binding);
       }
     } finally {
       if (prior.home===undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME=prior.home;
@@ -394,7 +400,6 @@ export const handoffRecoveryChecks = {
       s => ({...s, status: 'active'}),
       s => ({...s, status: 'awaiting-input'}),
       s => ({...s, status: 'stopping'}),
-      s => ({...s, status: 'complete', disableRestart: true}),
       s => ({...s, status: 'failed', disableRestart: true}),
       s => ({...s, status: 'paused', proofProcess: {processId: 123, processIdentity: 'live'}}),
       s => ({...s, status: 'paused', integration: {transactionId: 'tx-1', status: 'prepared', expectedTarget: '2'.repeat(40),
@@ -403,17 +408,19 @@ export const handoffRecoveryChecks = {
       s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', proofProcess: {processId: 456, processIdentity: 'live'}} : w)}),
       s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: null} : w)}),
       s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: {...w.stopIntent, confirmedDeadAt: null}} : w)}),
-      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: {...w.stopIntent, confirmedDeadAt: '2099-01-01T00:00:00.000Z'}} : w)})
+      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: {...w.stopIntent, confirmedDeadAt: '2099-01-01T00:00:00.000Z'}} : w)}),
+      s => ({...s, status: 'complete', disableRestart: true})
     ];
-    for (const mutate of invalidMutations) await fixture(async f => {
-      await f.repository.mutate(f.state.runId, mutate);
-      const before = await f.repository.read(f.state.runId);
-      await assert.rejects(f.service.resume(f.state.runId, [], true, undefined, undefined, 'claude'), {code: 'RUN_HOST_SWITCH_INVALID'});
-      assert.deepEqual(await f.repository.read(f.state.runId), before);
-    });
     await fixture(async f => {
+      const base = await f.repository.read(f.state.runId);
       await f.repository.mutate(f.state.runId, s => ({...s, status: 'paused'}));
       await assert.rejects(f.service.resume(f.state.runId, [], true, undefined, undefined, 'agy'), {code: 'RUN_HOST_INVALID'});
+      for (const mutate of invalidMutations) {
+        await f.repository.mutate(f.state.runId, () => mutate(base));
+        const before = await f.repository.read(f.state.runId);
+        await assert.rejects(f.service.resume(f.state.runId, [], true, undefined, undefined, 'claude'), {code: 'RUN_HOST_SWITCH_INVALID'});
+        assert.deepEqual(await f.repository.read(f.state.runId), before);
+      }
     });
   },
   'cross-host-cli-and-autorun': async () => {
