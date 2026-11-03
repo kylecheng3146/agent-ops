@@ -1,0 +1,9 @@
+worktree: session-56670a49 (agent-ops/session-56670a49)
+session: 56670a49-f23d-4a83-a9d6-7fdb1790284d
+agent-ops task task-c7c95991-170d-493f-aa29-449bb68e39bd: Fix RUN_WORKER_STALE when runControlledStep runs in a child worker worktree
+intent: Allow a run-level proof process to authenticate either as the current coordinator (across main root and any registered worker checkout) or as the current generation of the registered worker for the target checkout, and synchronize loop-engineering specifications and regression tests.
+criteria:
+- child-controlled-step-auth: Under a run-level proof group, a child worker actor at its current generation authenticates in its own registered checkout (including when a previous worker-level proof state is recorded on that worker) and is rejected in the main root, coordinator or sibling checkouts or at a stale generation with RUN_WORKER_STALE, while a coordinator actor continues to authenticate across the main root and all registered worker checkouts.
+- spec-sync: English and Traditional Chinese loop-engineering specifications accurately document the run-level proof actor rule for coordinator and target checkout worker identities.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/01332a3e042172a9c457c4458d9e2c0551b89c4963e10e4a9782dd5afb5b093c-06a7fa7387fb5d801184074db99224c3912c5573.json
+receipt-sha256: 124996dac3a1cbab6ef2bdab1486f11bba2532a6ccad469e60a712fa2ef50e36
