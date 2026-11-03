@@ -40,11 +40,12 @@ async function probe(mode) {
     const child = worker('child-a', paths['child-a'], 2, 'delivered');
     const sibling = worker('child-b', paths['child-b'], 7, 'delivered');
     await repository.create({...initial, workers: [coordinator, child, sibling]});
-    const config = {schemaVersion: 3, profiles: ['core'], verification: {commands: []},
+    const config = {schemaVersion: 3, profiles: ['core'], verification: {commands: [
+      {id: 'unit', command: process.execPath, args: ['-e', ''], cwd: '.', required: true, evidence: {kind: 'exit-code'}}]},
       features: {completionGate: {enabled: true}, stopVerification: {enabled: false}}, pathMappings: [], securityExceptions: [], worktree: {mode: 'auto', setup: []}};
     await writePrivateFile(join(root, '.agent-ops/config.json'), JSON.stringify(config), root);
-    const bound = await bindRunPolicy(repository, initial.runId, {config, runtimeHash: await runRuntimeHash(),
-      baseTrustBinding: {canonicalPath: root, remoteIdentity: 'local:fixture', configHash: calculateConfigHash(config), runtimeHash: 'a'.repeat(64)}});
+    const baseTrustBinding = {canonicalPath: root, remoteIdentity: 'local:fixture', configHash: calculateConfigHash(config), runtimeHash: 'a'.repeat(64)};
+    const bound = await bindRunPolicy(repository, initial.runId, {config, runtimeHash: await runRuntimeHash(), baseTrustBinding});
     const records = new Map();
     for (const w of [coordinator, child, sibling]) {
       const record = {schemaVersion: 1, name: w === coordinator ? 'coordinator' : w.workerId, branch: w === coordinator ? 'coordinator' : w.workerId,
@@ -82,7 +83,35 @@ async function probe(mode) {
       assert.deepEqual({...process.env}, environment, 'Reading different targets must not rewrite the coordinator actor');
     } else if (mode === 'actor') {
       actor(child);
+      await unchanged(async () => assert.ok(await runPolicyContext(child.worktree), 'Run-level proof with child worker actor authenticates in its own checkout'));
+      for (const path of [root, coordinator.worktree, sibling.worktree, paths.foreign]) await denied(path);
+      actor({...child, generation: 1});
       await denied(child.worktree);
+      await update(s => ({...s, workers: s.workers.map(w => w.workerId === child.workerId
+        ? {...w, proofProcess: {...proof, processId: process.pid + 1}} : w)}));
+      actor(child);
+      await unchanged(async () => assert.ok(await runPolicyContext(child.worktree), 'Residual child proofProcess record must not shadow run-level proof for child actor'));
+      await update(s => ({...s, proofProcess: null, workers: s.workers.map(w => w.workerId === child.workerId ? {...w, proofProcess: null} : w)}));
+      for (const key of ['AGENT_OPS_RUN_ID', 'AGENT_OPS_WORKER_ID', 'AGENT_OPS_WORKER_GENERATION', 'AGENT_OPS_RUN_PROOF_PID']) delete process.env[key];
+      const {runControlledStep} = await load('packages/cli/src/run-entry.js');
+      const {TaskService} = await load('runtime/src/task/service.js');
+      const {FileTaskStore} = await load('runtime/src/task/store.js');
+      const {trustStore} = await load('packages/cli/src/parallel-deps.js');
+      await trustStore().grant(baseTrustBinding);
+      await writeFile(join(child.worktree, 'source.txt'), 'child-change\n');
+      execFileSync('git', ['commit', '-qam', 'child change'], {cwd: child.worktree, stdio: ['ignore', 'pipe', 'pipe']});
+      await writePrivateFile(join(child.worktree, '.agent-ops/config.json'), JSON.stringify(config), child.worktree);
+      const tasks = new TaskService(new FileTaskStore(join(child.worktree, '.agent-ops/tasks/state.json'), child.worktree), {generateId: () => child.taskId});
+      await tasks.create({title: 'Child task', goal: initial.goal, criteria: [
+        {id: 'c1', description: 'First', verifierIds: ['unit']},
+        {id: 'c2', description: 'Second', verifierIds: ['unit']}
+      ]});
+      const cli = join(resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist'), 'packages/cli/src/bin.js');
+      const result = await runControlledStep(repository, cli, child.worktree, ['verify', '--task', child.taskId, '--base', records.get(child.workerId).base], await read());
+      assert.equal(result.status, 'ok', JSON.stringify(result));
+      assert.equal((await read()).proofProcess, null);
+      assert.ok((await read()).events.some(e => e.code === 'RUN_VERIFICATION_OBSERVED' && e.workerId === child.workerId && e.taskId === child.taskId));
+      await update(s => ({...s, proofProcess: proof}));
       actor(coordinator); delete process.env.AGENT_OPS_WORKER_ID;
       await denied(child.worktree);
       delete process.env.AGENT_OPS_WORKER_GENERATION;

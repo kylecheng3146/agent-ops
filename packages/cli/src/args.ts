@@ -1246,7 +1246,7 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
   } else {
     if (positional === undefined || !/^[a-z][a-z0-9-]{7,63}$/u.test(positional)) throw new CliArgumentError("RUN_ID_REQUIRED", "Control actions require a valid run ID.");
     args.runId = positional;
-    if (args.host !== undefined || args.goalFile !== undefined || args.jobs !== undefined || args.timeBudgetMs !== undefined || args.wait)
+    if ((args.host !== undefined && action !== "resume") || args.goalFile !== undefined || args.jobs !== undefined || args.timeBudgetMs !== undefined || args.wait)
       throw new CliArgumentError("CLI_INVALID_OPTION", "Start options are not accepted by run control actions.");
     if (action === "respond") {
       if (args.questionId === undefined || (args.answer === undefined) === (args.answerFile === undefined))

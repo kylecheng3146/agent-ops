@@ -175,7 +175,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<CliEnve
       const events = await options.service.logs(runId);
       return okEnvelope("RUN_LOGS", { ...stateData(action, state, `Read ${events.length} event(s) for run ${runId}.`), events });
     }
-    if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId, options.args.retryApprovalIds, true, options.args.retryDeliveryTaskId)));
+    if (action === "resume") return okEnvelope("RUN_RESUMED", data(action, await options.service.resume(runId, options.args.retryApprovalIds, true, options.args.retryDeliveryTaskId, undefined, options.args.host)));
     if (action === "land") {
       if (options.service.land === undefined) throw new AgentOpsError("RUN_LAND_UNSUPPORTED", "This CLI cannot land run deliveries.");
       const landed = await options.service.land(runId, options.args.landTaskIds);

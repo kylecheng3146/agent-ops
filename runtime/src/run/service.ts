@@ -411,7 +411,8 @@ export function assertRunState(value: unknown): asserts value is RunState {
         (interval.endMs !== null && (!Number.isSafeInteger(interval.endMs) || interval.endMs < interval.startMs))) ||
       state.tasks.some((task) => !ID.test(task.taskId) || task.dependencies.some((dep) => !ID.test(dep))) ||
       state.workers.some((worker) => !ID.test(worker.workerId) || !ID.test(worker.taskId) || !ID.test(worker.ownerSessionId) ||
-        !Number.isSafeInteger(worker.generation) || worker.generation < 1 || worker.host !== state.host) ||
+        !Number.isSafeInteger(worker.generation) || worker.generation < 1 ||
+        (worker.status === "delivered" ? !["claude", "codex"].includes(String(worker.host)) : worker.host !== state.host)) ||
       state.events.some((event) => !ID.test(event.id) || !ID.test(event.code) || !Number.isFinite(Date.parse(event.at))) ||
       !Number.isFinite(Date.parse(state.createdAt)) || !Number.isFinite(Date.parse(state.updatedAt))) {
     return invalid("Persisted run state failed identity, budget, or ownership validation.");
@@ -607,9 +608,18 @@ export class FileRunRepository implements RunRepository {
       if (current === null) throw new AgentOpsError("RUN_NOT_FOUND", `Run not found: ${runId}`);
       const next = await action(current);
       assertRunState(next);
+      const hostSwitch = next.host !== current.host &&
+        ["paused", "blocked", "budget-limited"].includes(current.status) &&
+        current.integration === null &&
+        current.proofProcess == null &&
+        next.status === "active" &&
+        next.controls.length === current.controls.length + 1 &&
+        next.controls.at(-1)?.action === "resume" &&
+        next.controls.at(-1)?.actor === "user" &&
+        next.events.at(-1)?.code === "RUN_HOST_SWITCHED";
       if (next.runId !== current.runId || next.root !== current.root || next.commonDir !== current.commonDir ||
         next.targetBranch !== current.targetBranch || next.goal !== current.goal || next.goalHash !== current.goalHash ||
-        next.host !== current.host || next.ownerSessionId !== current.ownerSessionId || next.coordinatorId !== current.coordinatorId)
+        (next.host !== current.host && !hostSwitch) || next.ownerSessionId !== current.ownerSessionId || next.coordinatorId !== current.coordinatorId)
         throw new AgentOpsError("RUN_IDENTITY_IMMUTABLE", "Run goal, target and ownership cannot change during a mutation.");
       if (current.status === "complete" && (next.status !== "complete" || !next.disableRestart || next.awaitingResume))
         throw new AgentOpsError("RUN_ALREADY_COMPLETE", "Final completion is immutable; cleanup cannot revive or downgrade this run.");
@@ -669,24 +679,30 @@ function cannotResume(current: RunState, acknowledged: ReadonlySet<string> = new
         !(retryingDelivery && resumeBlocker(current, acknowledged) === undefined))));
 }
 
+function writerConfirmedDead(state: RunState, w: RunWorkerRecord, now: number): boolean {
+  return !["assigned", "starting", "running", "idle", "handing-off"].includes(w.status) &&
+    w.proofProcess == null &&
+    (w.nativeSessionId === null && w.processId === null || w.stopIntent?.runId === state.runId &&
+      w.stopIntent.workerId === w.workerId && w.stopIntent.generation === w.generation &&
+      (w.nativeSessionId === null || w.stopIntent.nativeSessionId === w.nativeSessionId) &&
+      w.stopIntent.confirmedDeadAt !== null &&
+      Number.isFinite(Date.parse(w.stopIntent.confirmedDeadAt)) && Date.parse(w.stopIntent.confirmedDeadAt) <= now);
+}
+
 /** A manual retry grants a fresh attempt, never proof or command authorization. */
 export function validateDeliveryRetry(state: RunState, taskId: string, now = Date.now()): RunWorkerRecord {
   const task = state.tasks.find(t => t.taskId === taskId);
   const worker = state.workers.find(w => w.workerId === task?.workerId && w.taskId === taskId);
   const intent = worker?.stopIntent;
-  const dead = (w: RunWorkerRecord): boolean => !["assigned", "starting", "running", "idle", "handing-off"].includes(w.status) &&
-    (w.nativeSessionId === null && w.processId === null || w.stopIntent?.runId === state.runId &&
-      w.stopIntent.workerId === w.workerId && w.stopIntent.generation === w.generation &&
-      w.stopIntent.nativeSessionId === w.nativeSessionId && w.stopIntent.confirmedDeadAt !== null &&
-      Number.isFinite(Date.parse(w.stopIntent.confirmedDeadAt)) && Date.parse(w.stopIntent.confirmedDeadAt) <= now);
   if (["complete", "failed", "stopping"].includes(state.status) || state.integration !== null || state.proofProcess != null ||
     task === undefined || task.taskId === state.rootTaskId || task.status !== "blocked" || task.blockedReason !== "RUN_FINAL_PROOF_INTERRUPTED" ||
     task.deliveryDigest !== null || task.sourceCommit !== null || worker === undefined || worker.workerId === state.coordinatorId ||
     worker.status !== "blocked" || worker.lastFailure?.failureClass !== "RUN_FINAL_PROOF_INTERRUPTED" ||
     worker.lastFailure.checkId !== "RUN_FINAL_PROOF_INTERRUPTED" || worker.lastFailure.pinId !== null ||
-    intent?.reason !== "handoff" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(intent.sourceCommit ?? "") ||
+    intent?.reason !== "handoff" || intent.nativeSessionId !== worker.nativeSessionId ||
+    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(intent.sourceCommit ?? "") ||
     !/^[a-f0-9]{64}$/u.test(intent.contractDigest ?? "") || !/^[a-f0-9]{64}$/u.test(intent.deliveryDigest ?? "") ||
-    state.workers.some(w => w.proofProcess != null || !dead(w)))
+    state.workers.some(w => !writerConfirmedDead(state, w, now)))
     throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Retry requires an interrupted child handoff, unchanged identity and confirmed stopped writers/proof; inspect run status first.");
   return worker;
 }
@@ -787,12 +803,20 @@ export class RunService {
   }
 
   async resume(runId: string, retryApprovalIds: readonly string[] = [], upgradeBudget = true,
-    retryDeliveryTaskId?: string, expectedFailureId?: string): Promise<RunLifecycleResult> {
+    retryDeliveryTaskId?: string, expectedFailureId?: string, host?: RunHost): Promise<RunLifecycleResult> {
     const state = await this.#repository.mutate(runId, async (current) => {
       refuseWhileLanding(current);
       if (retryDeliveryTaskId !== undefined && retryApprovalIds.length > 0)
         throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Delivery and approval retries require separate explicit controls.");
-      const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(current, retryDeliveryTaskId, Date.parse(this.#now()));
+      const nowMs = Date.parse(this.#now());
+      if (host !== undefined) {
+        if (host !== "claude" && host !== "codex")
+          throw new AgentOpsError("RUN_HOST_INVALID", "Run host must be claude or codex.");
+        if (!["paused", "blocked", "budget-limited"].includes(current.status) || current.integration !== null ||
+          current.proofProcess != null || current.workers.some(w => !writerConfirmedDead(current, w, nowMs)))
+          throw new AgentOpsError("RUN_HOST_SWITCH_INVALID", "Host takeover requires a paused, blocked or budget-limited run before integration with every writer and proof process confirmed stopped.");
+      }
+      const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(current, retryDeliveryTaskId, nowMs);
       if (retry !== null && expectedFailureId !== undefined && retry.lastFailure!.id !== expectedFailureId)
         throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "The interrupted attempt changed during recovery.");
       const acknowledged = new Set(await approvalRetryEvents(current, retryApprovalIds));
@@ -803,30 +827,59 @@ export class RunService {
       if (cannotResume(current, acknowledged, retry !== null)) {
         throw new AgentOpsError("RUN_NOT_RESUMABLE", `Run ${runId} is ${current.status}.`);
       }
-      if (current.integration?.proofDigest === undefined && !upgradeBudget && budgetExpired(current, Date.parse(this.#now())))
+      if (current.integration?.proofDigest === undefined && !upgradeBudget && budgetExpired(current, nowMs))
         throw new AgentOpsError("RUN_BUDGET_EXHAUSTED", "Explicit resume preserves the whole-run budget; no execution allowance remains.");
       const recover = ["blocked", "paused", "budget-limited"].includes(current.status) && recoverable.has(blocker?.code ?? "");
+      const switchingHost = host !== undefined && host !== current.host;
+      let workers = current.workers;
+      let tasks = current.tasks;
+      if (recover) {
+        workers = workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") &&
+          !current.tasks.some(t => t.taskId === w.taskId && t.status === "blocked" && !recoverable.has(t.blockedReason ?? "")) ? {...w, status: "stopped" as const} : w);
+        tasks = tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t);
+      }
+      if (retry !== null) {
+        workers = workers.map(w => w.workerId === retry.workerId ? {...w, status: "stopped" as const, lastFailure: null} : w);
+        tasks = tasks.map(t => t.taskId === retry.taskId ? {...t, status: "ready" as const, blockedReason: null} : t);
+      }
+      if (switchingHost) {
+        workers = workers.map(w => w.status === "delivered" ? w : {
+          ...w,
+          host,
+          nativeSessionId: null,
+          nativeJobId: null,
+          processId: null,
+          processIdentity: null,
+          nativeGoalState: "inactive" as const,
+          stopIntent: w.stopIntent === null ? null : {...w.stopIntent, nativeSessionId: null}
+        });
+      }
+      let events = current.events;
+      if (upgradeBudget && current.budget.limitMs !== null) {
+        events = [...events, event({type: "diagnostic", code: "RUN_BUDGET_UPGRADED", workerId: null, taskId: null,
+          detail: `Manual resume removed legacy total cap ${current.budget.limitMs}ms; accounting and independent blockers remain.`}, this.#now())].slice(-MAX_EVENTS);
+      }
+      if (switchingHost) {
+        events = [...events, event({type: "control", code: "RUN_HOST_SWITCHED", workerId: null, taskId: null,
+          detail: JSON.stringify({from: current.host, to: host})}, this.#now())].slice(-MAX_EVENTS);
+      }
       return {
         ...current,
+        ...(switchingHost ? {host, nativeInstance: null} : {}),
         ...(upgradeBudget && current.budget.limitMs !== null ? {
-          budget: {...current.budget, limitMs: null, legacyLimitMs: current.budget.limitMs, upgradedAt: this.#now()},
-          events: [...current.events, event({type: "diagnostic", code: "RUN_BUDGET_UPGRADED", workerId: null, taskId: null,
-            detail: `Manual resume removed legacy total cap ${current.budget.limitMs}ms; accounting and independent blockers remain.`}, this.#now())].slice(-MAX_EVENTS)
+          budget: {...current.budget, limitMs: null, legacyLimitMs: current.budget.limitMs, upgradedAt: this.#now()}
         } : {}),
-        ...(recover ? {workers: current.workers.map(w => w.status === "blocked" && (w.lastFailure === null || w.lastFailure.failureClass === "native-start") &&
-          !current.tasks.some(t => t.taskId === w.taskId && t.status === "blocked" && !recoverable.has(t.blockedReason ?? "")) ? {...w, status: "stopped" as const} : w),
-          tasks: current.tasks.map(t => t.status === "blocked" && recoverable.has(t.blockedReason ?? "") ? {...t, status: "ready" as const, blockedReason: null} : t)} : {}),
-        ...(retry === null ? {} : {
-          workers: current.workers.map(w => w.workerId === retry.workerId ? {...w, status: "stopped" as const, lastFailure: null} : w),
-          tasks: current.tasks.map(t => t.taskId === retry.taskId ? {...t, status: "ready" as const, blockedReason: null} : t)
-        }),
+        workers,
+        tasks,
+        events,
         status: "active",
         awaitingResume: false,
         disableRestart: false,
         controls: [...current.controls, {
           action: "resume", actor: "user", reason: retry !== null ? "retry-delivery:" + JSON.stringify({taskId: retry.taskId,
             workerId: retry.workerId, generation: retry.generation, failure: retry.lastFailure}) :
-            retryApprovalIds.length === 0 ? null : "retry-approval:" + JSON.stringify(retryApprovalIds), requestedAt: this.#now(), expiresAt: null, appliedAt: null
+            retryApprovalIds.length > 0 ? "retry-approval:" + JSON.stringify(retryApprovalIds) :
+            switchingHost ? "switch-host:" + JSON.stringify({from: current.host, to: host}) : null, requestedAt: this.#now(), expiresAt: null, appliedAt: null
         }]
       };
     });

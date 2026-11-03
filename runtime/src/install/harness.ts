@@ -635,7 +635,7 @@ function autoRunInstruction(
     "If the run ends without completing (blocked, stopped, failing review),",
     "report the `agent-ops run status",
     "<id>` state and code, the last `agent-ops run logs <id>` events, and the",
-    "exact `agent-ops run resume <id>` and `agent-ops run stop <id>` commands,",
+    "exact `agent-ops run resume <id> [--host <claude|codex>]` and `agent-ops run stop <id>` commands,",
     "plus `agent-ops run land <id> --yes` when it has delivered tasks,",
     "then stop: never resume or land automatically or take over the run's work.",
     ""

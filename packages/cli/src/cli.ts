@@ -151,8 +151,8 @@ The URL carries an access token; do not share it.
   run: `Usage: agent-ops run [start] "<goal>" --host <claude|codex> [--jobs <1|2>] [--wait] [--json]
        agent-ops run [start] --goal-file <path> --host <claude|codex>
        agent-ops run <status|logs|resume|stop> <run-id> [--json]
-       agent-ops run resume <run-id> [--retry-approval <auth-event-id>]... [--json]
-       agent-ops run resume <run-id> --retry-delivery <task-id> [--json]
+       agent-ops run resume <run-id> [--host <claude|codex>] [--retry-approval <auth-event-id>]... [--json]
+       agent-ops run resume <run-id> [--host <claude|codex>] --retry-delivery <task-id> [--json]
        agent-ops run respond <run-id> --question-id <id> <--answer <text>|--answer-file <path>> [--json]
        agent-ops run land <run-id> [--task <task-id>]... --yes [--json]
 
@@ -160,6 +160,9 @@ New runs have no total time cap. Manual resume upgrades legacy finite runs and k
 Command/review timeouts, provider limits and stop controls remain effective.
 Native goal state is observational. Completion requires current verification,
 two fresh reviews, task completion and a target-bound integration receipt.
+--host on resume switches a paused, blocked or budget-limited run to claude or
+codex after every writer and proof process is confirmed stopped; coordinator and
+non-delivered workers start fresh native sessions while delivered tasks stay intact.
 --retry-approval explicitly retries an intact Codex approval-review usage-limit
 failure. Original denials remain recorded; every command needs fresh approval.
 --retry-delivery requeues one stopped child blocked by interrupted handoff proof.

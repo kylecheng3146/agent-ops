@@ -173,7 +173,7 @@ removes only `run` and keeps `loop`.
   the subtask flow; `RUN_REPO_UNTRUSTED` stops and asks the user. A run that
   ends without completing (blocked, budget exhausted, stopped, failing review)
   is reported with its `run status` state and code, its last `run logs` events,
-  and the exact `agent-ops run resume <id>` and `agent-ops run stop <id>`
+  and the exact `agent-ops run resume <id> [--host <claude|codex>]` and `agent-ops run stop <id>`
   commands, plus `agent-ops run land <id> --yes` when it has delivered tasks,
   and is never resumed or landed automatically or taken over by the session.
   With worktree auto mode, the Claude `PreToolUse` worktree guard allows a

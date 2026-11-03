@@ -55,6 +55,17 @@
   trust/resume process; renewal never grants permanent trust or clears denial.
   Explicit resume reconciles immutable renewal lineage before policy synchronization.
   An answer uses the same recovery checks; neither action can revive an explicit denial.
+  `run resume <id> [--host <claude|codex>]` MAY switch a `paused`, `blocked` or
+  `budget-limited` run before integration to another supported native host once
+  every writer and proof process is confirmed dead with a non-future timestamp
+  (`RUN_HOST_SWITCH_INVALID` otherwise). Takeover rebinds `state.host` and all
+  non-`delivered` workers (including the coordinator) to the target host, clears
+  their prior `nativeSessionId`, `nativeJobId`, `processId` and `processIdentity`
+  so recovery starts fresh native sessions under a new generation, resets
+  `nativeInstance` to the target host CLI version, leaves `delivered` workers and
+  their frozen deliveries untouched, and records `RUN_HOST_SWITCHED`. All
+  verification, two-round review and receipt-bound finalization gates remain
+  mandatory; `--host` MAY be combined with `--retry-approval` or `--retry-delivery`.
   `run resume <id> --retry-approval <auth-event-id>` MAY explicitly retry a
   Codex automatic approval review that failed with its usage-limit wrapper.
   Each selected failure MUST retain its original private artifact, digest,
@@ -116,16 +127,19 @@ not consume a new wait. Child delivery, failure history and policy bindings rema
 unchanged; an answer itself grants no additional command capability.
 
 A run-level proof MUST match its persisted proof PID, process group and process
-start identity, plus the current coordinator ID and generation. That actor may
-read the run policy for the main root and registered worker checkouts, including
-delivered children during integration, without changing its worker environment.
-Worker-local proof remains bound to its own checkout and worker identity; its
-record MUST NOT shadow an independently authenticated run-level proof. Ordinary
-checkout record checks and integration ownership checks remain authoritative.
-Invalid actor, group, generation or unregistered checkout claims return
-`RUN_WORKER_STALE`; an inactive, disabled or awaiting-resume run still returns
-`RUN_POLICY_DISABLED` after identity validation. Policy reads grant no additional
-capability and do not alter config, trust, registration or delivery state.
+start identity, plus either the current coordinator ID and generation or the
+current generation of the registered worker for the target checkout. The
+coordinator actor may read the run policy for the main root and registered worker
+checkouts, including delivered children during integration, without changing its
+worker environment; a child worker actor under a run-level proof is restricted to
+its own registered checkout. Worker-local proof remains bound to its own checkout
+and worker identity; its record MUST NOT shadow an independently authenticated
+run-level proof. Ordinary checkout record checks and integration ownership checks
+remain authoritative. Invalid actor, group, generation or unregistered checkout
+claims return `RUN_WORKER_STALE`; an inactive, disabled or awaiting-resume run
+still returns `RUN_POLICY_DISABLED` after identity validation. Policy reads grant
+no additional capability and do not alter config, trust, registration or delivery
+state.
 
 Known limitation: an inner verification command timeout can terminate the shared
 proof process group before the evidence CLI emits JSON. Response recovery does
