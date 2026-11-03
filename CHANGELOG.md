@@ -4,6 +4,20 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-03
+
+- `run resume <id> --host <claude|codex>` can hand a `paused`, `blocked` or
+  `budget-limited` native run to the other host before integration, once every
+  writer and proof process is confirmed dead (`RUN_HOST_SWITCH_INVALID`
+  otherwise). Undelivered workers, including the coordinator, restart in fresh
+  native sessions on the new host; delivered workers keep their deliveries, and
+  `RUN_HOST_SWITCHED` is recorded. Verification and two-round review still
+  apply. `--host` combines with `--retry-approval` and `--retry-delivery`.
+- Fixed: under a run-level proof, a child worker step now authenticates as its
+  own registered checkout worker instead of the coordinator, so its policy read
+  no longer fails with `RUN_WORKER_STALE`. A child actor stays restricted to its
+  own checkout.
+
 ## [1.0.0] - 2026-11-02
 
 - First stable release, published under the npm `latest` dist-tag. The
