@@ -55,6 +55,17 @@
   trust/resume process; renewal never grants permanent trust or clears denial.
   Explicit resume reconciles immutable renewal lineage before policy synchronization.
   An answer uses the same recovery checks; neither action can revive an explicit denial.
+  `run resume <id> [--host <claude|codex>]` MAY switch a `paused`, `blocked` or
+  `budget-limited` run before integration to another supported native host once
+  every writer and proof process is confirmed dead with a non-future timestamp
+  (`RUN_HOST_SWITCH_INVALID` otherwise). Takeover rebinds `state.host` and all
+  non-`delivered` workers (including the coordinator) to the target host, clears
+  their prior `nativeSessionId`, `nativeJobId`, `processId` and `processIdentity`
+  so recovery starts fresh native sessions under a new generation, resets
+  `nativeInstance` to the target host CLI version, leaves `delivered` workers and
+  their frozen deliveries untouched, and records `RUN_HOST_SWITCHED`. All
+  verification, two-round review and receipt-bound finalization gates remain
+  mandatory; `--host` MAY be combined with `--retry-approval` or `--retry-delivery`.
   `run resume <id> --retry-approval <auth-event-id>` MAY explicitly retry a
   Codex automatic approval review that failed with its usage-limit wrapper.
   Each selected failure MUST retain its original private artifact, digest,

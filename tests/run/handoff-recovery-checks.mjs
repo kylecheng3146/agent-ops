@@ -285,5 +285,223 @@ export const handoffRecoveryChecks = {
     assert.match(lines, /do not poll full-suite verification/i, 'Worker instructions must forbid polling full-suite verification in a loop');
     assert.match(goal, /targeted fast checks/i, 'Worker goal prompt must direct targeted fast checks before handoff');
     assert.match(goal, /supervisor executes full verification/i, 'Worker goal prompt must state that supervisor executes full verification');
+  },
+  'cross-host-resume-takeover': async () => {
+    await fixture(async f => {
+      const deliveredWorker = {workerId: 'delivered-writer', taskId: 'task-delivered', host: 'codex', ownerSessionId: 'delivered-owner',
+        nativeSessionId: 'delivered-native', nativeJobId: 'delivered-job', worktree: f.root, processId: 222, processIdentity: 'delivered-proc',
+        generation: 2, status: 'delivered', leaseExpiresAt: null, heartbeatAt: now, nativeGoalState: 'inactive', lastFailure: null,
+        stopIntent: {runId: f.state.runId, workerId: 'delivered-writer', generation: 2, nativeSessionId: 'delivered-native', reason: 'handoff',
+          deliveryDigest: '1'.repeat(64), contractDigest: 'b'.repeat(64), sourceCommit: '2'.repeat(40), expiresAt: now, confirmedDeadAt: now}};
+      const yieldedCoordinator = {...f.state.workers[0], processId: 111, processIdentity: 'coord-proc',
+        stopIntent: {runId: f.state.runId, workerId: 'coordinator', generation: 3, nativeSessionId: 'coord-native', reason: 'handoff',
+          deliveryDigest: '0'.repeat(64), contractDigest: '0'.repeat(64), sourceCommit: '0'.repeat(40), expiresAt: now, confirmedDeadAt: now}};
+      const stoppedChild = {...f.worker, status: 'stopped', lastFailure: null};
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'budget-limited', disableRestart: true, nativeInstance: 'codex-1.0',
+        currentContractHash: 'b'.repeat(64), workers: [yieldedCoordinator, deliveredWorker, stoppedChild],
+        tasks: s.tasks.map(t => t.taskId === 'task-child' ? {...t, status: 'ready', blockedReason: null} : t)}));
+      const sameHost = (await f.service.resume(f.state.runId)).state;
+      assert.equal(sameHost.host, 'codex');
+      assert.equal(sameHost.workers[2].nativeSessionId, 'native-child');
+      assert.ok(sameHost.events.every(e => e.code !== 'RUN_HOST_SWITCHED'));
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'budget-limited', disableRestart: true}));
+      const switched = (await f.service.resume(f.state.runId, [], true, undefined, undefined, 'claude')).state;
+      assert.equal(switched.host, 'claude', 'Resume with --host must rebind the run host');
+      assert.equal(switched.status, 'active');
+      assert.equal(switched.nativeInstance, null);
+      assert.deepEqual(switched.workers[1], deliveredWorker, 'Delivered workers and their frozen deliveries must remain untouched');
+      for (const w of [switched.workers[0], switched.workers[2]]) {
+        assert.equal(w.host, 'claude');
+        assert.equal(w.nativeSessionId, null);
+        assert.equal(w.nativeJobId, null);
+        assert.equal(w.processId, null);
+        assert.equal(w.processIdentity, null);
+        assert.equal(w.nativeGoalState, 'inactive');
+        assert.equal(w.stopIntent?.nativeSessionId, null);
+      }
+      assert.equal(switched.events.at(-1)?.code, 'RUN_HOST_SWITCHED');
+      assert.deepEqual(JSON.parse(switched.events.at(-1).detail), {from: 'codex', to: 'claude'});
+      assert.equal(switched.controls.at(-1)?.reason, 'switch-host:{"from":"codex","to":"claude"}');
+      const {RunSupervisor} = await mod('runtime/src/run/supervisor.js');
+      const startedSessions = [];
+      const claudeSupervisor = new RunSupervisor({repository: f.repository, host: {
+        host: 'claude',
+        inspect: async () => ({processAlive: false, processIdentity: null, nativeGoalState: 'inactive', stateDigest: null}),
+        start: async req => {startedSessions.push(req); return {nativeSessionId: 'claude-fresh-session', nativeJobId: 'claude-job', processId: 999, processIdentity: 'claude-proc', instance: 'claude-2.0'};},
+        resume: async () => {throw new Error('Must not resume old codex session');},
+        send: async () => {},
+        stop: async () => {}
+      }});
+      const reassigned = await claudeSupervisor.reassignWorker(f.state.runId, 'child-writer', 3);
+      assert.equal(reassigned.generation, 4);
+      const running = await claudeSupervisor.startWorker(f.state.runId, 'child-writer', 4, 'Continue child task', switched.controls.at(-1).requestedAt);
+      assert.equal(running.nativeSessionId, 'claude-fresh-session');
+      assert.equal(startedSessions.length, 1);
+      await claudeSupervisor.stopWorker(f.state.runId, 'child-writer', 4, 'stop');
+      for (const incomplete of [
+        {verificationPass: false, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: 'a'.repeat(64)},
+        {verificationPass: true, reviewPass: false, taskStateComplete: true, receiptWritten: true, receiptDigest: 'a'.repeat(64)},
+        {verificationPass: true, reviewPass: true, taskStateComplete: false, receiptWritten: true, receiptDigest: 'a'.repeat(64)},
+        {verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: false, receiptDigest: null}
+      ]) {
+        await assert.rejects(claudeSupervisor.finalize(f.state.runId, {targetCommit: '2'.repeat(40), candidateCommit: 'c'.repeat(40), ...incomplete}),
+          {code: 'RUN_FINAL_PROOF_REQUIRED'}, 'Verification, two-round review, task state and receipt gates remain mandatory after host takeover');
+      }
+      await assert.rejects(f.repository.mutate(f.state.runId, s => ({...s, host: 'codex', workers: s.workers.map(w => ({...w, host: 'codex'}))})),
+        {code: 'RUN_IDENTITY_IMMUTABLE'});
+    });
+    // Combine --host with --retry-delivery and --retry-approval.
+    await fixture(async f => {
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'blocked', disableRestart: true}));
+      const retried = (await f.service.resume(f.state.runId, [], true, 'task-child', undefined, 'claude')).state;
+      assert.equal(retried.host, 'claude');
+      assert.equal(retried.tasks.at(-1).status, 'ready');
+      assert.equal(retried.workers[1].host, 'claude');
+      assert.equal(retried.workers[1].nativeSessionId, null);
+      assert.equal(retried.events.at(-1)?.code, 'RUN_HOST_SWITCHED');
+    });
+    await fixture(async f => {
+      const {RunControlService} = await mod('runtime/src/run/controls.js');
+      const {bindRunPolicy} = await mod('runtime/src/run/policy.js');
+      const {calculateConfigHash} = await mod('runtime/src/config/hash.js');
+      const {sha256} = await mod('runtime/src/fs/hash.js');
+      const cfg = {schemaVersion: 3, profiles: ['core'], verification: {commands: []},
+        features: {completionGate: {enabled: true}, stopVerification: {enabled: false}}, pathMappings: [], securityExceptions: []};
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'active', disableRestart: false,
+        tasks: s.tasks.map(t => t.taskId === 'task-child' ? {...t, status: 'ready', blockedReason: null} : t),
+        workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', lastFailure: null} : w)}));
+      await bindRunPolicy(f.repository, f.state.runId, {config: cfg, runtimeHash: 'b'.repeat(64),
+        baseTrustBinding: {canonicalPath: f.root, remoteIdentity: 'local:fixture', configHash: calculateConfigHash(cfg), runtimeHash: 'a'.repeat(64)}});
+      const bound = await f.repository.read(f.state.runId);
+      await assert.rejects(new RunControlService(f.repository).recordAuthorization(f.state.runId, {
+        authorizationId: 'quota-review', workerId: 'child-writer', generation: 3, nativeSessionId: 'native-child',
+        operation: 'command', command: 'npm test', resource: '{}', commandDigest: sha256('npm test'), resourceDigest: sha256('{}'),
+        reason: 'Automatic approval review failed: You’ve hit your usage limit. Try again later.', result: 'denied',
+        source: 'codex-auto-review', expiresAt: bound.policyBinding.expiresAt, policyConfigHash: bound.policyBinding.configHash,
+        runtimeHash: bound.policyBinding.runtimeHash, policyArtifactDigest: bound.policyBinding.artifactDigest
+      }), {code: 'RUN_COMMAND_DENIED'});
+      const deniedId = (await f.repository.read(f.state.runId)).events.at(-1).id;
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'budget-limited', disableRestart: true}));
+      const resumed = (await f.service.resume(f.state.runId, [deniedId], true, undefined, undefined, 'claude')).state;
+      assert.equal(resumed.host, 'claude');
+      assert.equal(resumed.controls.at(-1).reason, `retry-approval:${JSON.stringify([deniedId])}`);
+      assert.equal(resumed.events.at(-1)?.code, 'RUN_HOST_SWITCHED');
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'paused', disableRestart: true}));
+      assert.equal((await f.service.resume(f.state.runId)).state.status, 'active', 'Prior approval acknowledgement survives host takeover');
+    });
+    // Precondition boundaries.
+    const invalidMutations = [
+      s => ({...s, status: 'active'}),
+      s => ({...s, status: 'awaiting-input'}),
+      s => ({...s, status: 'stopping'}),
+      s => ({...s, status: 'complete', disableRestart: true}),
+      s => ({...s, status: 'failed', disableRestart: true}),
+      s => ({...s, status: 'paused', proofProcess: {processId: 123, processIdentity: 'live'}}),
+      s => ({...s, status: 'paused', integration: {transactionId: 'tx-1', status: 'prepared', expectedTarget: '2'.repeat(40),
+        candidate: 'c'.repeat(40), completedSteps: [], childDeliveries: [], receiptDigest: null, receiptPath: null, updatedAt: now}}),
+      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'running'} : w)}),
+      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', proofProcess: {processId: 456, processIdentity: 'live'}} : w)}),
+      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: null} : w)}),
+      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: {...w.stopIntent, confirmedDeadAt: null}} : w)}),
+      s => ({...s, status: 'paused', workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', stopIntent: {...w.stopIntent, confirmedDeadAt: '2099-01-01T00:00:00.000Z'}} : w)})
+    ];
+    for (const mutate of invalidMutations) await fixture(async f => {
+      await f.repository.mutate(f.state.runId, mutate);
+      const before = await f.repository.read(f.state.runId);
+      await assert.rejects(f.service.resume(f.state.runId, [], true, undefined, undefined, 'claude'), {code: 'RUN_HOST_SWITCH_INVALID'});
+      assert.deepEqual(await f.repository.read(f.state.runId), before);
+    });
+    await fixture(async f => {
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'paused'}));
+      await assert.rejects(f.service.resume(f.state.runId, [], true, undefined, undefined, 'agy'), {code: 'RUN_HOST_INVALID'});
+    });
+  },
+  'cross-host-cli-and-autorun': async () => {
+    const {parseArgs} = await mod('packages/cli/src/args.js');
+    const {COMMAND_HELP_TEXT} = await mod('packages/cli/src/cli.js');
+    const {runRunCommand} = await mod('packages/cli/src/commands/run.js');
+    const {harnessDescriptor, managedRules} = await mod('runtime/src/install/harness.js');
+    let parsed;
+    assert.doesNotThrow(() => {parsed = parseArgs(['run', 'resume', 'run-fixture01', '--host', 'claude', '--json']);},
+      'CLI parser must accept --host <claude|codex> on run resume');
+    assert.equal(parsed.host, 'claude');
+    assert.throws(() => parseArgs(['run', 'resume', 'run-fixture01', '--host', 'agy']), {code: 'CLI_INVALID_VALUE'});
+    for (const bad of [
+      ['run', 'status', 'run-fixture01', '--host', 'claude'],
+      ['run', 'logs', 'run-fixture01', '--host', 'claude'],
+      ['run', 'stop', 'run-fixture01', '--host', 'claude'],
+      ['run', 'respond', 'run-fixture01', '--question-id', 'q1', '--answer', 'yes', '--host', 'claude'],
+      ['run', 'land', 'run-fixture01', '--yes', '--host', 'claude']
+    ]) assert.throws(() => parseArgs(bad), {code: 'CLI_INVALID_OPTION'});
+    assert.match(COMMAND_HELP_TEXT.run, /agent-ops run resume <run-id> \[--host <claude\|codex>\]/);
+    for (const id of ['claude', 'codex']) {
+      const rules = managedRules(harnessDescriptor(id), {
+        scope: 'project',
+        profiles: ['core', 'loop', 'run'],
+        capabilities: ['rules', 'task', 'verify', 'review', 'project-loop', 'auto-run']
+      }).replace(/\s+/gu, ' ');
+      assert.match(rules, /`agent-ops run resume <id> \[--host <claude\|codex>\]` and `agent-ops run stop <id>` commands/u);
+    }
+    await fixture(async f => {
+      await f.repository.mutate(f.state.runId, s => ({...s, status: 'paused', disableRestart: true,
+        tasks: s.tasks.map(t => t.taskId === 'task-child' ? {...t, status: 'ready', blockedReason: null} : t),
+        workers: s.workers.map((w, i) => i === 1 ? {...w, status: 'stopped', lastFailure: null} : w)}));
+      const args = parseArgs(['run', 'resume', f.state.runId, '--host', 'claude', '--json']);
+      const envelope = await runRunCommand({args, service: f.service, root: f.root, commonDir: f.root, targetBranch: 'main', ownerSessionId: 'owner'});
+      assert.equal(envelope.code, 'RUN_RESUMED');
+      assert.equal(envelope.data.state.host, 'claude');
+    });
+    if (process.platform === 'darwin') await fixture(async f => {
+      const prior = {home: process.env.AGENT_OPS_HOME, path: process.env.PATH};
+      const git = (cwd, args) => execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+      try {
+        process.env.AGENT_OPS_HOME = join(f.root, 'home');
+        await mkdir(process.env.AGENT_OPS_HOME, {mode: 0o700});
+        git(f.root, ['init', '-qb', 'main']); git(f.root, ['config', 'user.name', 'Recovery fixture']); git(f.root, ['config', 'user.email', 'fixture@example.invalid']);
+        await writeFile(join(f.root, '.gitignore'), '.agent-ops/\n.worktrees/\nruns/\nbin/\nhome/\n');
+        await writeFile(join(f.root, 'source.txt'), 'original\n'); git(f.root, ['add', '.']); git(f.root, ['commit', '-qm', 'baseline']);
+        const head = git(f.root, ['rev-parse', 'HEAD']), child = join(f.root, '.worktrees', 'child');
+        git(f.root, ['worktree', 'add', '-qb', 'child', child]);
+        await mkdir(join(f.root, '.agent-ops'), {recursive: true}); await mkdir(join(f.root, 'bin'));
+        const cfg = {schemaVersion: 3, profiles: ['core'], verification: {commands: []},
+          features: {completionGate: {enabled: false}, stopVerification: {enabled: false}}, pathMappings: [], securityExceptions: [], worktree: {mode: 'auto', setup: []}};
+        await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify(cfg));
+        await writeFile(join(f.root, 'bin/codex'), "#!/bin/sh\nprintf 'fixture-codex-version\\n'\n", {mode: 0o700});
+        await writeFile(join(f.root, 'bin/claude'), "#!/bin/sh\nexit 1\n", {mode: 0o700});
+        process.env.PATH = join(f.root, 'bin') + ':' + prior.path;
+        const {loadEffectiveConfig, repositoryTrustBinding} = await mod('packages/cli/src/context.js');
+        const {CLI_VERSION} = await mod('packages/cli/src/version.js');
+        const {trustStore} = await mod('packages/cli/src/parallel-deps.js');
+        const {productionRunContext} = await mod('packages/cli/src/run-deps.js');
+        const {bindRunPolicy, runRuntimeHash} = await mod('runtime/src/run/policy.js');
+        const {writeWorktreeRecord} = await mod('runtime/src/parallel/service.js');
+        const effective = (await loadEffectiveConfig(f.root, 'project')).config;
+        const binding = await repositoryTrustBinding(f.root, effective, CLI_VERSION);
+        await trustStore().grant(binding);
+        let wakes = 0;
+        const launchd = {supported: true, writeDescriptor: async () => {}, bootstrap: async () => {}, enableRestart: async () => {}, wake: async () => {wakes++;}, disableRestart: async () => {}, bootout: async () => {}};
+        const context = await productionRunContext(f.root, {launchd});
+        await context.repository.create({...f.state, status: 'active', commonDir: context.commonDir, workers: f.state.workers.map((w, i) => ({...w,
+          nativeSessionId: null, nativeJobId: null, processId: null, processIdentity: null, worktree: i === 1 ? child : f.root,
+          stopIntent: i === 1 ? {...w.stopIntent, nativeSessionId: null, sourceCommit: head} : null}))});
+        const record = {schemaVersion: 1, name: 'child', path: child, mainRoot: f.root, branch: 'child', targetBranch: 'main', base: head, sessionId: 'child-owner', createdAt: now,
+          runId: f.state.runId, coordinatorId: 'coordinator', workerId: 'child-writer', ownerSessionId: 'child-owner', workerGeneration: 3};
+        await writeWorktreeRecord(record);
+        await bindRunPolicy(context.repository, f.state.runId, {config: effective, runtimeHash: await runRuntimeHash(), baseTrustBinding: binding});
+        await context.repository.mutate(f.state.runId, s => ({...s, status: 'budget-limited', disableRestart: true}));
+        await assert.rejects(context.service.resume(f.state.runId, [], true, 'task-child', undefined, 'claude'), {code: 'RUN_NATIVE_UNAVAILABLE'});
+        assert.equal((await context.repository.read(f.state.runId)).host, 'codex');
+        assert.equal(wakes, 0);
+        await writeFile(join(f.root, 'bin/claude'), "#!/bin/sh\nprintf 'fixture-claude-version\\n'\n", {mode: 0o700});
+        const resumed = (await context.service.resume(f.state.runId, [], true, 'task-child', undefined, 'claude')).state;
+        assert.equal(resumed.host, 'claude');
+        assert.equal(resumed.nativeInstance, 'fixture-claude-version');
+        assert.equal(resumed.tasks.at(-1).status, 'ready');
+        assert.equal(wakes, 1);
+      } finally {
+        if (prior.home === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = prior.home;
+        if (prior.path === undefined) delete process.env.PATH; else process.env.PATH = prior.path;
+      }
+    });
   }
 };

@@ -201,10 +201,12 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       throw cause;
     }
   };
-  const resume: RunCommandService["resume"] = async (runId, retryApprovalIds = [], upgradeBudget = true, retryDeliveryTaskId) => {
+  const resume: RunCommandService["resume"] = async (runId, retryApprovalIds = [], upgradeBudget = true, retryDeliveryTaskId, _expectedFailureId, host) => {
     const before = await service.status(runId);
     if (landingMarkerLive(before.landing))
       throw new AgentOpsError("RUN_LANDING_IN_PROGRESS", `Run ${runId} is landing delivered work; wait for run land to finish.`);
+    if (host !== undefined && (host !== "claude" && host !== "codex" || !["paused", "blocked", "budget-limited"].includes(before.status) || before.integration !== null))
+      return await service.resume(runId, retryApprovalIds, upgradeBudget, retryDeliveryTaskId, undefined, host);
     const retry = retryDeliveryTaskId === undefined ? null : validateDeliveryRetry(before, retryDeliveryTaskId);
     const runtimeHash = await runRuntimeHash();
     const policy = await readRunPolicy(before, before.policyBinding?.runtimeHash ?? runtimeHash, Date.now(), true);
@@ -213,7 +215,16 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     const pending = await discoverPendingPolicyTransition(repository, runId);
     if (pending !== null && runtimeHash !== before.policyBinding?.runtimeHash)
       throw new AgentOpsError("RUN_POLICY_RECOVERY_REQUIRED", "Recover the pending policy transition with its original executable runtime before upgrading it.");
-    const version = before.integration !== null ? before.nativeInstance : (await promisify(execFile)(before.host, ["--version"], {timeout: 5000, maxBuffer: 8192})).stdout.trim();
+    const targetHost = host ?? before.host;
+    let version: string | null = before.nativeInstance;
+    if (before.integration === null) {
+      try {
+        version = (await promisify(execFile)(targetHost, ["--version"], {timeout: 5000, maxBuffer: 8192})).stdout.trim();
+      } catch (cause) {
+        throw new AgentOpsError("RUN_NATIVE_UNAVAILABLE", `Native ${targetHost} CLI is unavailable.`, {cause});
+      }
+      if (version.length === 0) throw new AgentOpsError("RUN_NATIVE_UNAVAILABLE", `Native ${targetHost} CLI returned an empty version.`);
+    }
     const transport = new NativeRunTransport(before.host === "codex" ? new CodexGoalHost() : new ClaudeGoalHost(), repository);
     const supervisor = new RunSupervisor({repository, host: transport});
     for (const worker of before.workers) await supervisor.stopWorker(runId, worker.workerId, worker.generation, "stop");
@@ -235,7 +246,7 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
         head?.exitCode !== 0 || head.stdout.trim() !== retry.stopIntent!.sourceCommit)
         throw new AgentOpsError("RUN_DELIVERY_RETRY_INVALID", "Interrupted checkout ownership or source changed; preserve it and reconcile before retrying.");
     }
-    const result = await service.resume(runId, retryApprovalIds, upgradeBudget, retryDeliveryTaskId, retry?.lastFailure?.id);
+    const result = await service.resume(runId, retryApprovalIds, upgradeBudget, retryDeliveryTaskId, retry?.lastFailure?.id, host);
     try {
     if (pending !== null) await renewPendingRunPolicy(repository, runId, pending);
     if (policy !== null && pending === null) await bindRunPolicy(repository, runId, {config: policy.config, runtimeHash, resumeRuntime: true,
