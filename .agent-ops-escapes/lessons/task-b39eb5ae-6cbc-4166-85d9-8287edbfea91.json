@@ -1,0 +1,27 @@
+{
+  "id": "task-b39eb5ae-6cbc-4166-85d9-8287edbfea91",
+  "escape": "8aa611fc1d2acdad2b897b7feabad65d4cc561ca",
+  "taskId": "task-b39eb5ae-6cbc-4166-85d9-8287edbfea91",
+  "label": "scenario",
+  "status": "lesson",
+  "evidence": "In commit 8aa611fc1d2acdad2b897b7feabad65d4cc561ca, Codex goal runs did not verify that thread activation returned an active goal before starting turns, and pre-activation limit snapshots (budgetLimited/usageLimited) queued before manual resume were processed as authoritative current limits by JsonRpcSession, immediately re-blocking the recovered worker. Task task-b39eb5ae-6cbc-4166-85d9-8287edbfea91 fixed this by asserting an active goal state in assertActive and filtering pre-activation notifications whose update timestamps predate manualResumeAt.",
+  "reflector": {
+    "target": "agy",
+    "attempts": 1
+  },
+  "cue": "Resuming, recovering, or activating external agent runner sessions (such as Codex app-server) over asynchronous RPC or event streams following a pause, stop, or rate limit.",
+  "check": "Does the host integration verify that the session explicitly acknowledged an active goal before starting or steering turns, and ignore stale pre-resume limit notifications whose update timestamps strictly predate the resume request?",
+  "trigger": {
+    "paths": [
+      "runtime/src/run/hosts/codex.ts"
+    ],
+    "tokens": [
+      "CodexGoalHost"
+    ]
+  },
+  "backtest": {
+    "commits": 136,
+    "fires": 7,
+    "rate": 0.051
+  }
+}

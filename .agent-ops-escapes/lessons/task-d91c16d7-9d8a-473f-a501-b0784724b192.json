@@ -1,0 +1,28 @@
+{
+  "id": "task-d91c16d7-9d8a-473f-a501-b0784724b192",
+  "escape": "9d90e40264668cf41ec83c922bd8a10def27b546",
+  "taskId": "task-d91c16d7-9d8a-473f-a501-b0784724b192",
+  "label": "scenario",
+  "status": "lesson",
+  "evidence": "In commit 9d90e40264668cf41ec83c922bd8a10def27b546, any RUN_COMMAND_DENIED event was treated as a permanent terminal blocker in RunService.resume. When Codex automated approval reviews failed due to usage limits, runs were permanently wedged. The fix introduced --retry-approval to validate and acknowledge specific usage-limit denial artifacts, ignoring them during resume blocker checks while still requiring fresh native approval.",
+  "reflector": {
+    "target": "agy",
+    "attempts": 1
+  },
+  "cue": "When automated external provider evaluation or approval review rejections (such as quota exhaustion or usage limits) are treated as terminal command denials that permanently block run recovery.",
+  "check": "Can transient or rate-limited provider review failures be distinguished from intentional policy denials and explicitly retried on resume, while preserving artifact audit integrity and requiring fresh authorization?",
+  "trigger": {
+    "paths": [
+      "runtime/src/run/service.ts",
+      "runtime/src/run/controls.ts"
+    ],
+    "tokens": [
+      "RUN_COMMAND_DENIED"
+    ]
+  },
+  "backtest": {
+    "commits": 136,
+    "fires": 7,
+    "rate": 0.051
+  }
+}
