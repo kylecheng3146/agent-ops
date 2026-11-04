@@ -101,7 +101,8 @@ import { runVerifyCommand } from "./commands/verify.js";
 import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
-import { runEscapesCommand } from "./commands/escapes.js";
+import { runEscapesCommand, runEscapesReflectCommand } from "./commands/escapes.js";
+import { targetReflector } from "../../../runtime/src/escape/reflect.js";
 import { runAllowStopCommand } from "./commands/allow-stop.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
 import {
@@ -391,6 +392,19 @@ process.exitCode = await runCli(
             return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser)});
           }
           if (args.command === "followup") return await runFollowupCommand({args, cwd: root});
+          if (args.command === "escapes" && args.action === "reflect") {
+            // The independent-review role's first target; no new role config.
+            const config = await loadEffectiveConfig(root, "project").catch(() => undefined);
+            const role = config?.config.reviewRoles?.find(r => r.role === "independent-review");
+            const target = role?.targets[0];
+            const task = await new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root))
+              .status({taskId: args.taskId!}).catch(() => undefined);
+            const commonDir = await resolveCheckouts(worktreeDependencies(), root).then(c => c.commonDir, () => undefined);
+            return await runEscapesReflectCommand({root, taskId: args.taskId!, rerun: args.rerun, target: target ?? null,
+              call: target === undefined ? null : targetReflector(target, {model: role?.model, effort: role?.effort, runner: registeredRunProofRunner()}),
+              ...(args.escapeFix === undefined ? {} : {fix: args.escapeFix}), ...(commonDir === undefined ? {} : {commonDir}),
+              task: task?.task ?? null, base: task?.createdSourceCommit ?? null});
+          }
           if (args.command === "escapes") return await runEscapesCommand({root});
           if (args.command === "office") {
             return await runOfficeCommand({ensure: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser),

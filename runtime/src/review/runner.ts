@@ -155,6 +155,9 @@ export type ReviewUnavailableReason =
   | "escape-rule-invalid"
   | "escape-rule-unsafe"
   | "escape-rule-no-exclude"
+  | "lesson-missing"
+  | "escape-lesson-invalid"
+  | "escape-lesson-unsafe"
   | "timeout";
 
 export interface ReviewExecutionRequest {

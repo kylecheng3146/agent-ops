@@ -2,6 +2,8 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { LEDGER_DIRECTORY, type EscapeRecord } from "../../../../runtime/src/escape/link.js";
+import { loadLessons } from "../../../../runtime/src/escape/lessons.js";
+import { reflectEscape, type ReflectorCall, type ReflectResult } from "../../../../runtime/src/escape/reflect.js";
 import { loadRules } from "../../../../runtime/src/escape/rules.js";
 import { readLocalLog } from "../../../../runtime/src/logging/local-log.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
@@ -19,6 +21,9 @@ export interface EscapesReport {
   readonly rules: readonly { readonly id: string; readonly label: string; readonly noExclude: boolean; readonly fires: number;
     readonly included: number; readonly excluded: number; readonly status: "ok" | "insufficient-data" }[];
   readonly retirementCandidates: readonly { readonly id: string; readonly reason: string }[];
+  readonly lessons: readonly { readonly id: string; readonly label: string; readonly fires: number; readonly applies: number; readonly na: number;
+    readonly status: "ok" | "insufficient-data" }[];
+  readonly lessonRetirementCandidates: readonly { readonly id: string; readonly reason: string }[];
   readonly warnings: readonly string[];
 }
 export interface EscapesCommandData extends EscapesReport { readonly text: string }
@@ -69,6 +74,15 @@ export async function buildEscapesReport(root: string, home?: string): Promise<E
     return {id: rule.id, label: rule.label, noExclude: rule.noExclude, fires: fired.length,
       included: fired.reduce((n, e) => n + e.included, 0), excluded: fired.reduce((n, e) => n + e.excluded, 0), status: status(fired.length)};
   });
+  let lessons: Awaited<ReturnType<typeof loadLessons>> = [];
+  try { lessons = await loadLessons(root); }
+  catch (error) { warnings.push(`Lessons unreadable: ${error instanceof Error ? error.message : "unknown error"}`); }
+  const lessonEvents = events.flatMap(e => e.event.type === "escape-lesson" ? [e.event] : []);
+  const lessonRows = lessons.map(({lesson}) => {
+    const fired = lessonEvents.filter(e => e.lessonId === lesson.id);
+    return {id: lesson.id, label: lesson.label, fires: fired.length, applies: fired.filter(e => e.answer === "applies").length,
+      na: fired.filter(e => e.answer === "na").length, status: status(fired.length)};
+  });
   const links = section(records.map(r => ({at: r.declaredAt, key: r.link.state})));
   const reasons: Record<string, number> = {};
   for (const r of records) if (r.link.state === "unresolved") reasons[r.link.reason] = (reasons[r.link.reason] ?? 0) + 1;
@@ -81,6 +95,10 @@ export async function buildEscapesReport(root: string, home?: string): Promise<E
     // Retirement is never automatic: only rules with enough fires that never surfaced an included place are listed.
     retirementCandidates: ruleRows.filter(r => r.fires >= MIN_SAMPLE && r.included === 0)
       .map(r => ({id: r.id, reason: `fired ${r.fires} times; every hit was excluded (${r.excluded}) or none was included.`})),
+    lessons: lessonRows,
+    // Same rule for lessons: listed, never deleted.
+    lessonRetirementCandidates: lessonRows.filter(r => r.fires >= MIN_SAMPLE && r.applies === 0)
+      .map(r => ({id: r.id, reason: `fired ${r.fires} times; never answered applies (na ${r.na}).`})),
     warnings
   };
 }
@@ -100,6 +118,10 @@ function render(report: EscapesReport): string {
     ...report.rules.map(r => `- ${r.id} (${r.label}${r.noExclude ? ", noExclude" : ""}): fires ${r.fires}, included ${r.included}, excluded ${r.excluded}` +
       `${r.status === "ok" ? "" : " (insufficient-data)"}`),
     `Retirement candidates: ${report.retirementCandidates.length === 0 ? "none" : report.retirementCandidates.map(c => `${c.id} (${c.reason})`).join("; ")}`,
+    `Lessons: ${report.lessons.length}`,
+    ...report.lessons.map(l => `- ${l.id} (${l.label}): fires ${l.fires}, applies ${l.applies}, na ${l.na}${l.status === "ok" ? "" : " (insufficient-data)"}`),
+    `Lesson retirement candidates: ${report.lessonRetirementCandidates.length === 0 ? "none" :
+      report.lessonRetirementCandidates.map(c => `${c.id} (${c.reason})`).join("; ")}`,
     ...report.warnings.map(w => `Warning: ${w}`)
   ].join("\n") + "\n";
 }
@@ -107,4 +129,21 @@ function render(report: EscapesReport): string {
 export async function runEscapesCommand(options: { readonly root: string; readonly home?: string }): Promise<CliEnvelope<EscapesCommandData>> {
   const report = await buildEscapesReport(options.root, options.home);
   return okEnvelope("ESCAPES_REPORT", {...report, text: render(report)});
+}
+
+export interface EscapesReflectData extends ReflectResult { readonly text: string }
+
+/** escapes reflect: every outcome is a record and exit 0; only an ineligible task or bad input throws. */
+export async function runEscapesReflectCommand(options: { readonly root: string; readonly taskId: string; readonly fix?: string;
+  readonly rerun: boolean; readonly target: string | null; readonly call: ReflectorCall | null; readonly commonDir?: string;
+  readonly task?: Parameters<typeof reflectEscape>[0]["task"]; readonly base?: string | null }): Promise<CliEnvelope<EscapesReflectData>> {
+  const result = await reflectEscape({root: options.root, taskId: options.taskId, rerun: options.rerun, target: options.target, call: options.call,
+    ...(options.fix === undefined ? {} : {fix: options.fix}), ...(options.commonDir === undefined ? {} : {commonDir: options.commonDir}),
+    task: options.task ?? null, base: options.base ?? null});
+  const {lesson} = result;
+  return okEnvelope("ESCAPE_LESSON_WRITTEN", {...result, text: [`Lesson record ${result.path}: status ${lesson.status} ` +
+    `(reflector ${lesson.reflector.target ?? "none"}, ${lesson.reflector.attempts} attempt(s)).`,
+    lesson.status === "lesson" ? `Cue: ${lesson.cue}\nCheck: ${lesson.check}\nTrigger: paths ${lesson.trigger!.paths.join(", ")}` +
+      `${lesson.trigger!.tokens.length === 0 ? "" : `; tokens ${lesson.trigger!.tokens.join(", ")}`}; backtest ${lesson.backtest!.fires}/${lesson.backtest!.commits}` : `Evidence: ${lesson.evidence}`,
+    "Commit the record with the fix, then run review."].join("\n") + "\n"});
 }
