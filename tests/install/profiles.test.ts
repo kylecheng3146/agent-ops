@@ -332,7 +332,10 @@ const DEBUG_RULE = [
   "behavioral criterion whose `redCheckIds` fail at the baseline and pass on the",
   "candidate, then verify, review and finish as for any task. If you know where the",
   "bug came from, record it with `task revise --escape-of <commit> --escape-label",
-  "<label>`; the origin is advisory and never blocks finish.",
+  "<label>`; the origin is advisory and never blocks finish. For a scenario,",
+  "requirement or review label, run `agent-ops escapes reflect --task <id>` after",
+  "committing the fix and before review, and commit its lesson file: finish",
+  "refuses that escape without one.",
   "",
   ""
 ].join("\n");

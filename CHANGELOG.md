@@ -9,6 +9,28 @@ All notable changes to the project are documented here.
   goal, and to recommend only what the task data argues for. Every archived
   advisory report so far returned three to six recommendations, each of which
   the writer had to adopt or reject. The report format is unchanged.
+- Escape lessons (EVIDENCE-ESCAPE-003): a `scenario`, `requirement` or
+  `review` escape now leaves a lesson in `.agent-ops-escapes/lessons/`.
+  `agent-ops escapes reflect --task <id> [--fix <sha>] [--rerun]` asks the
+  independent-review role's first target, data-only, for a cue, a check and a
+  trigger; the trigger must fire on the escaped commit and on at most 30% of
+  the last 200 commits, a rejected answer is retried once, and the record is
+  `lesson`, `no-entry` or `not-run`. Task create prints lessons whose trigger
+  paths overlap the surface, the criteria advisory receives them, both
+  reviewers judge their answers, and `agent-ops escapes` lists per-lesson
+  fires and answers with retirement candidates. Escape records and the surface
+  file stay compatible; the surface audit gains an optional `lessons` key.
+- Gate: a tracked lesson that fires on a task's diff must be answered in the
+  surface audit's `lessons` key (`applies` with behavior, or `na` with a
+  reason); otherwise the surface gate stops review with `LESSON_MISSING`.
+- Gate: finish refuses a `scenario`, `requirement` or `review` escape that has
+  no lesson file (`ESCAPE_LESSON_MISSING`); `lesson`, `no-entry` and `not-run`
+  records all pass. The managed DEBUG rule now tells agents to run
+  `escapes reflect` after the fix commit and before review.
+- `escapes reflect` refuses an escape record whose `escapeOf` or `fix` is not a
+  full commit SHA (`ESCAPE_ORIGIN_INVALID`), and commit replays pass
+  `--end-of-options`, so a committed ledger value can never be read as a git
+  option.
 
 ## [1.0.1] - 2026-11-03
 

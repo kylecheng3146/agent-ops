@@ -14,12 +14,12 @@ test("escape acceptance runner reports every rule and lesson check as PASS", asy
   const report = JSON.parse(result.stdout.trim());
   assert.equal(report.protocolVersion, 1);
   assert.equal(report.completed, true);
-  assert.equal(report.results.length, 25);
-  assert.equal(new Set(report.results.map((r: {checkId: string}) => r.checkId)).size, 25, "every check id appears once");
+  assert.equal(report.results.length, 26);
+  assert.equal(new Set(report.results.map((r: {checkId: string}) => r.checkId)).size, 26, "every check id appears once");
   assert.ok(report.results.every((r: {executionId: string, phase: string}) => r.executionId === "escape-unit" && r.phase === "baseline"));
   for (const id of ["escape-lesson-store", "escape-lesson-gate", "escape-lesson-metrics",
     "escape-lesson-reflect", "escape-lesson-reflect-ineligible", "escape-lesson-finish", "escape-lesson-report",
-    "escape-lesson-review", "escape-lesson-notice", "escape-lesson-advisory", "escape-reflect-ref-safe"]) {
+    "escape-lesson-review", "escape-lesson-notice", "escape-lesson-advisory", "escape-reflect-ref-safe", "escape-lesson-docs"]) {
     assert.ok(report.results.some((r: {checkId: string}) => r.checkId === id), id);
   }
   assert.ok(report.results.every((r: {checkId: string}) => r.checkId.startsWith("escape-")), "escape runner runs only escape checks");

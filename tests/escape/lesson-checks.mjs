@@ -455,6 +455,34 @@ const raw = {
     assert.ok(failed && failed.status !== 0, 'the CLI exits non-zero');
     assert.match(failed.stdout + failed.stderr, /ESCAPE_LESSON_INELIGIBLE/u);
   }),
+  'escape-lesson-docs': async () => {
+    const section = (text, id) => {
+      const source = text.replace(/\r\n/gu, '\n');
+      const start = source.indexOf(`## ${id}\n`);
+      assert.ok(start >= 0, `missing ${id}`);
+      const end = source.indexOf('\n## ', start + 1);
+      return source.slice(start, end < 0 ? undefined : end);
+    };
+    for (const lang of ['en', 'zh-TW']) {
+      const spec = await readFile(join('docs', lang, 'spec', 'acceptance-and-evidence.md'), 'utf8');
+      const rule = section(spec, 'EVIDENCE-ESCAPE-003');
+      for (const token of ['scenario', 'requirement', 'review', 'agent-ops escapes reflect --task', '--fix', '--rerun', 'lessons',
+        '.agent-ops-escapes/lessons/', 'LESSON_MISSING', 'ESCAPE_LESSON_MISSING', 'ESCAPE_LESSON_INVALID', 'ESCAPE_LESSON_UNSAFE',
+        'ESCAPE_LESSON_INELIGIBLE', 'ESCAPE_ORIGIN_INVALID', 'no-entry', 'not-run', 'NO_ENTRY', '30%', '200', 'applies', 'na'])
+        assert.ok(rule.includes(token), `${lang} EVIDENCE-ESCAPE-003 lacks ${token}`);
+      for (const id of ['EVIDENCE-ESCAPE-001', 'EVIDENCE-ESCAPE-002'])
+        assert.ok(section(spec, id).includes('#evidence-escape-003'), `${lang} ${id} does not point lesson labels to EVIDENCE-ESCAPE-003`);
+      const guide = await readFile(join('docs', lang, 'guides', 'task-debug.md'), 'utf8');
+      for (const token of ['agent-ops escapes reflect --task', 'ESCAPE_LESSON_MISSING', 'EVIDENCE-ESCAPE-003'])
+        assert.ok(guide.includes(token), `${lang} task-debug guide lacks ${token}`);
+    }
+    const {harnessDescriptor, managedRules} = await load('runtime/src/install/harness.js');
+    for (const id of ['claude', 'codex', 'agy', 'opencode']) {
+      const text = managedRules(harnessDescriptor(id), {scope: 'project', profiles: ['core'], capabilities: ['rules', 'task']});
+      for (const token of ['never blocks finish', 'agent-ops escapes reflect --task <id>', 'before review', 'refuses that escape without one'])
+        assert.ok(text.includes(token), `${id} managed DEBUG text lacks ${token}`);
+    }
+  },
   'escape-reflect-ref-safe': async () => withRepo(async f => {
     const h = await escapeHistory(f, null);
     const r = fake(reply(CART));

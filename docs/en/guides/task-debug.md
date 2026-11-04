@@ -25,8 +25,11 @@ agent-ops task create --debug --title "Fix cart scroll" \
 If you know where the bug came from, record it like any task:
 `task revise --escape-of <commit> --escape-label <label>`. It writes `.agent-ops-escapes/<task-id>.json` and
 prints the link state, `git blame` hints and any rule proof
-(`ESCAPE_RULE_UNPROVEN` and friends). None of it blocks finish; see
-`EVIDENCE-ESCAPE-001` and `EVIDENCE-ESCAPE-002`.
+(`ESCAPE_RULE_UNPROVEN` and friends). None of it blocks finish, except that a
+`scenario`, `requirement` or `review` escape needs
+`agent-ops escapes reflect --task <id>` after the fix commit and before review:
+finish refuses it without the lesson file (`ESCAPE_LESSON_MISSING`). See
+`EVIDENCE-ESCAPE-001` to `EVIDENCE-ESCAPE-003`.
 
 ## Removed in 0.11.0
 
