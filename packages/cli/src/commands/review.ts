@@ -562,7 +562,8 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
       change: surfaceDelta(revision.previousTask.surface, (all[i + 1]?.previousTask ?? holder!.task).surface)})).slice(-10),
     discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped,
       dismissed: gate.discovery.dismissed, ...(gate.discovery.truncated.length === 0 ? {} : {truncated: gate.discovery.truncated})},
-    postBlockExclusions: gate.discovery.postBlockExclusions
+    postBlockExclusions: gate.discovery.postBlockExclusions,
+    ...(gate.discovery.lessons === undefined ? {} : {lessons: gate.discovery.lessons})
   }};
 }
 

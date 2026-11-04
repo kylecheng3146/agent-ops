@@ -90,6 +90,57 @@ async function reflect(f, extra) {
     criteria: [{id: 'retry-safe', description: 'A retried add keeps one line item.'}]}, ...extra});
 }
 const stored = async f => JSON.parse(await readFile(join(f.root, `.agent-ops-escapes/lessons/${TASK}.json`), 'utf8'));
+const CRITERIA = [{id: 'behavior', description: 'The behavior holds.', verifierIds: ['unit']},
+  {id: 'regression', description: 'Nothing else broke.', verifierIds: ['unit']}];
+const CONFIG = {schemaVersion: 3, profiles: ['core'], verification: {commands: [
+  {id: 'unit', command: 'node', args: ['--test'], cwd: '.', required: true, evidence: {kind: 'exit-code'}}]},
+features: {completionGate: {enabled: false}, stopVerification: {enabled: false}}, pathMappings: [], securityExceptions: []};
+const gitRunner = root => ({run: async args => {
+  try {return {exitCode: 0, stdout: execFileSync('git', args, {cwd: root, stdio: ['ignore', 'pipe', 'pipe']})};}
+  catch (e) {return {exitCode: e.status ?? 1, stdout: e.stdout ?? Buffer.alloc(0)};}
+}});
+/** A real review command over a committed fixture change; execute captures the invocation instead of a reviewer. */
+async function reviewKit(f) {
+  const {TaskService} = await load('runtime/src/task/service.js');
+  const {FileTaskStore} = await load('runtime/src/task/store.js');
+  const {parseArgs} = await load('packages/cli/src/args.js');
+  const {runReviewCommand} = await load('packages/cli/src/commands/review.js', 'runReviewCommand');
+  const {calculateConfigHash} = await load('runtime/src/config/hash.js');
+  const {buildVerificationEvidence, FileEvidenceStore} = await load('runtime/src/verify/evidence.js');
+  const {calculateSourceFingerprint} = await load('runtime/src/verify/source-fingerprint.js');
+  const {collectBaseChangePaths} = await load('runtime/src/verify/change-surface.js');
+  const {taskContractHash} = await load('runtime/src/task/contract.js');
+  const git = gitRunner(f.root);
+  let next = 0;
+  const tasks = new TaskService(new FileTaskStore(join(f.root, '.agent-ops/tasks/state.json'), f.root), {generateId: () => `task-${++next}`});
+  const evidenceStore = new FileEvidenceStore(f.root, f.root);
+  const policyConfigHash = calculateConfigHash(CONFIG);
+  const verified = async taskId => {
+    const fingerprint = await calculateSourceFingerprint(f.root, {mode: 'base', baseRef: f.base, resolvedBase: f.base,
+      changedFiles: await collectBaseChangePaths(git, f.base)}, git);
+    const record = await tasks.status({taskId});
+    const saved = {};
+    for (const criterion of record.task.criteria) saved[criterion.id] = [await evidenceStore.save(buildVerificationEvidence({
+      taskId, criterionId: criterion.id, command: CONFIG.verification.commands[0], scope: 'project',
+      startedAt: '2026-11-04T00:00:00.000Z', finishedAt: '2026-11-04T00:00:01.000Z', exitCode: 0, testCount: 1, status: 'PASS',
+      failureClass: 'none', sourceFingerprint: fingerprint, toolVersions: {}, config: CONFIG, taskContractHash: taskContractHash(record.task)}))];
+    await tasks.recordEvidence(taskId, saved);
+  };
+  const review = (taskId, execute) => runReviewCommand({args: parseArgs(['review', '--task', taskId, '--yes', '--rerun', '--base', f.base]),
+    authorized: true, targets: ['codex', 'agy'], tasks, taskId, root: f.root, gitRunner: git, config: CONFIG, policyConfigHash, evidenceStore, execute});
+  return {tasks, verified, review, policyConfigHash, taskContractHash};
+}
+const reviewReport = (criteria, inspected = []) => ({summary: 'Lesson review.', results: criteria.map(c => ({criterionId: c.id, status: 'PASS',
+  summary: `Reviewed ${c.id}.`, evidence: [`inspected ${c.id}`]})), findings: [], residualRisks: [], changedFilesInspected: [...inspected], supportingFilesInspected: []});
+const passing = request => {
+  const report = reviewReport(request.invocation.packet.criteria, request.invocation.packet.artifactRefs);
+  const targets = request.invocation.plannedTargets ?? [request.invocation.harness, request.invocation.harness];
+  return {status: 'PASS', harness: targets[0], results: report.results.map(({criterionId, status, evidence}) => ({criterionId, status, evidence})),
+    report, plannedTargets: targets, sessionIsolation: 'fresh', attempts: targets.map((target, i) => ({target, status: 'PASS', sessionId: `lesson-${i}`})),
+    adversarial: {target: targets[1], refuted: false, report}};
+};
+const commitAll = (f, message) => {f.git('add', '-A'); f.git('commit', '-qm', message);};
+const LESSON_SENTENCE = /Fired escape lessons: task data surface\.lessons .*an na reason that does not hold for this change, or an applies behavior the change does not implement, is a blocking finding on surface-coverage/u;
 
 const raw = {
   'escape-lesson-store': async () => {
@@ -177,6 +228,122 @@ const raw = {
     await f.write('.agent-ops-escapes/lessons/bad.json', '{');
     assert.equal((await gate(f, surface(['src/about/About.ts']), ['src/about/About.ts'])).code, 'ESCAPE_LESSON_INVALID',
       'a broken lesson store stops the gate');
+  }),
+  'escape-lesson-review': async () => withRepo(async f => {
+    const {buildReviewPrompt, buildAdversarialPrompt} = await load('runtime/src/review/runner.js', 'buildReviewPrompt', 'buildAdversarialPrompt');
+    const {reviewPacketData} = await load('runtime/src/review/packet.js', 'reviewPacketData');
+    await cartChange(f); commitAll(f, 'cart change');
+    const changed = ['src/cart/Cart.ts'];
+    const k = await reviewKit(f);
+    const prompts = request => [buildReviewPrompt(request.invocation), buildAdversarialPrompt(request.invocation, reviewReport(request.invocation.packet.criteria))];
+    // No lessons directory: the packet and prompts carry nothing lesson-shaped.
+    const plain = await k.tasks.create({title: 'Cart', criteria: CRITERIA, policyConfigHash: k.policyConfigHash, requireSurface: true, surface: surface(changed)});
+    await k.verified(plain.task.id);
+    let seen;
+    const quiet = await k.review(plain.task.id, async request => {seen = request; return passing(request);});
+    assert.equal(quiet.data.result.status, 'PASS', JSON.stringify(quiet.data.result));
+    assert.equal('lessons' in seen.invocation.packet.surface, false, 'no fired lesson leaves the packet unchanged');
+    for (const prompt of prompts(seen)) assert.doesNotMatch(prompt, /Fired escape lessons/u);
+    // A fired, unanswered lesson stops review before any reviewer starts.
+    await writeLesson(f, lesson()); await writeLesson(f, noEntry('cart-none'));
+    await writeLesson(f, lesson({id: 'about-copy', trigger: {paths: ['src/about/**'], tokens: []}}));
+    commitAll(f, 'lessons');
+    await k.verified(plain.task.id);
+    let spawned = 0;
+    const blocked = await k.review(plain.task.id, async () => {spawned += 1; throw new Error('a LESSON_MISSING review must not start');});
+    assert.equal(spawned, 0, 'no reviewer round runs');
+    assert.equal(blocked.code, 'LESSON_MISSING', JSON.stringify(blocked));
+    assert.equal(blocked.data.result.status, 'NOT_RUN'); assert.equal(blocked.data.result.reason, 'lesson-missing');
+    assert.match(blocked.data.text, /cart-retry/u);
+    // Answered: both rounds see the fired lesson and its answer, sealed into the contract manifest.
+    const answer = {na: 'This change only renames a return value; no cart write is retried.'};
+    const answered = await k.tasks.create({title: 'Cart answered', criteria: CRITERIA, policyConfigHash: k.policyConfigHash, requireSurface: true,
+      surface: surface([...changed, '.agent-ops-escapes/lessons/*.json'], {'cart-retry': answer})});
+    await k.verified(answered.task.id);
+    const passed = await k.review(answered.task.id, async request => {seen = request; return passing(request);});
+    assert.equal(passed.data.result.status, 'PASS', JSON.stringify(passed.data.result));
+    const {packet} = seen.invocation;
+    const fired = [{id: 'cart-retry', cue: lesson().cue, check: lesson().check, trigger: lesson().trigger, answer}];
+    assert.deepEqual(packet.surface.lessons, fired, 'only the fired status lesson, with its answer');
+    assert.deepEqual(JSON.parse(packet.contractManifest.content).surface.lessons, fired, 'the lessons are sealed into the contract manifest digest');
+    assert.deepEqual(reviewPacketData(packet).surface.lessons, fired, 'task data carries the lessons');
+    for (const prompt of prompts(seen)) {
+      assert.match(prompt, LESSON_SENTENCE);
+      assert.ok(prompt.includes('"cart-retry"') && prompt.includes(answer.na), 'the lesson and its answer reach the reviewer');
+    }
+    // An escape fix that commits lesson files is reviewed for the lesson itself.
+    const fix = {...seen.invocation, packet: {...packet, escape: [{escapeOf: 'a'.repeat(40)}]}};
+    assert.match(buildReviewPrompt(fix), /commits escape lesson files .*blocking finding on escape-label/u);
+    assert.doesNotMatch(buildReviewPrompt({...fix, packet: {...fix.packet, artifactRefs: ['src/cart/Cart.ts']}}), /commits escape lesson files/u);
+  }),
+  'escape-lesson-notice': async () => withRepo(async f => {
+    const {TaskService} = await load('runtime/src/task/service.js');
+    const {FileTaskStore} = await load('runtime/src/task/store.js');
+    const {parseArgs} = await load('packages/cli/src/args.js');
+    const {runTaskCommand} = await load('packages/cli/src/commands/task.js', 'runTaskCommand');
+    let next = 0;
+    const service = new TaskService(new FileTaskStore(join(f.root, '.agent-ops/tasks/state.json'), f.root), {generateId: () => `task-${++next}`});
+    const create = async (audit, ...extra) => {
+      const path = join(f.root, `.agent-ops/surface-${next}.json`);
+      await mkdir(dirname(path), {recursive: true}); await writeFile(path, JSON.stringify(audit));
+      return runTaskCommand({root: f.root, service, args: parseArgs(['task', 'create', '--title', 'Lesson notice',
+        ...CRITERIA.flatMap(c => ['--criterion', JSON.stringify(c)]), '--surface-file', path, ...extra])});
+    };
+    const cart = surface(['src/cart/Cart.ts']);
+    const none = await create(cart);
+    assert.equal(none.code, 'TASK_CREATED'); assert.doesNotMatch(none.data.text, /Escape lesson/u, 'no lessons directory prints nothing');
+    await writeLesson(f, lesson()); await writeLesson(f, noEntry('cart-none')); await writeLesson(f, noEntry('cart-skipped', 'not-run'));
+    await writeLesson(f, lesson({id: 'about-copy', trigger: {paths: ['src/about/**'], tokens: ['CART_RETRY']}}));
+    const matched = await create(cart);
+    assert.equal(matched.code, 'TASK_CREATED', JSON.stringify(matched));
+    assert.match(matched.data.text, /Escape lessons on these paths/u);
+    assert.match(matched.data.text, /- cart-retry: Cart writes can be retried by the client\. Check: Does a repeated add keep one line item\?/u);
+    for (const id of ['cart-none', 'cart-skipped', 'about-copy']) assert.ok(!matched.data.text.includes(id), `${id} is not named`);
+    // A broad included glob overlaps a narrower trigger glob.
+    assert.match((await create(surface(['src/**/*.ts']))).data.text, /cart-retry/u);
+    // A covers-only child matches through the parent's included rows it covers.
+    const parent = await create(surface(['src/cart/Cart.ts', 'src/about/About.ts']));
+    const [cartId, aboutId] = parent.data.record.task.surface.included.map(row => row.id);
+    const child = await create({covers: [aboutId]}, '--parent', parent.data.record.task.id);
+    assert.equal(child.code, 'TASK_CREATED', JSON.stringify(child));
+    assert.match(child.data.text, /about-copy/u); assert.ok(!child.data.text.includes('cart-retry'), `covers ${aboutId}, not ${cartId}`);
+    const unmatched = await create(surface(['docs/readme.md']));
+    assert.equal(unmatched.code, 'TASK_CREATED'); assert.doesNotMatch(unmatched.data.text, /Escape lesson/u, 'no match prints nothing');
+    await f.write('.agent-ops-escapes/lessons/broken.json', '{');
+    const failed = await create(cart);
+    assert.equal(failed.code, 'TASK_CREATED', 'a broken lesson store still creates the task');
+    assert.ok(failed.data.record.task.id, JSON.stringify(failed));
+  }),
+  'escape-lesson-advisory': async () => withRepo(async f => {
+    const {runCriteriaReview} = await load('runtime/src/review/criteria.js', 'runCriteriaReview');
+    const advice = {summary: 'No change needed.', recommendations: [], limitations: []};
+    const requests = [];
+    const chunks = async function* (text = '') {yield Buffer.from(text);};
+    const runner = {start: request => {requests.push(request); return {pid: 123, stdout: chunks(JSON.stringify(advice)), stderr: chunks(),
+      completion: Promise.resolve({exitCode: 0, signal: null}), terminateTree: async () => {}};}};
+    let n = 0;
+    const advise = async audit => {
+      const task = {schemaVersion: 2, id: `task-advice-${++n}`, title: 'Advice', goal: 'Cart behavior', intent: 'Cart', criteria: CRITERIA, surface: audit};
+      const view = await runCriteriaReview({root: f.root, task, target: 'codex', runner});
+      assert.equal(view.report.status, 'COMPLETED', JSON.stringify(view.report));
+      return {view, prompt: requests.at(-1).stdin};
+    };
+    const cart = surface(['src/cart/Cart.ts']);
+    const baseline = await advise(cart);
+    assert.equal('lessons' in baseline.view.report.snapshot, false, 'no lessons directory leaves the snapshot unchanged');
+    await writeLesson(f, lesson()); await writeLesson(f, noEntry('cart-none')); await writeLesson(f, noEntry('cart-skipped', 'not-run'));
+    await writeLesson(f, lesson({id: 'about-copy', trigger: {paths: ['src/about/**'], tokens: []}}));
+    const matched = await advise(cart);
+    assert.deepEqual(matched.view.report.snapshot.lessons, [{id: 'cart-retry', cue: lesson().cue, check: lesson().check, trigger: lesson().trigger}],
+      'only path-matched status lesson entries reach DATA');
+    const data = matched.prompt.split('BEGIN UNTRUSTED DATA\n')[1].split('\nEND UNTRUSTED DATA')[0];
+    assert.ok(data.includes('"cart-retry"') && !data.includes('cart-none') && !data.includes('about-copy'), 'the DATA fence carries the lesson');
+    assert.notEqual(matched.view.report.snapshotHash, baseline.view.report.snapshotHash);
+    const unmatched = await advise(surface(['docs/readme.md']));
+    assert.equal('lessons' in unmatched.view.report.snapshot, false, 'no match leaves the snapshot unchanged');
+    await f.write('.agent-ops-escapes/lessons/broken.json', '{');
+    const failed = await advise(cart);
+    assert.equal('lessons' in failed.view.report.snapshot, false, 'a lessons load failure leaves the advisory running without them');
   }),
   'escape-lesson-metrics': async () => withRepo(async f => withHome(async home => {
     await cartChange(f);

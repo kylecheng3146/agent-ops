@@ -6,6 +6,7 @@ import type { AgentTask } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { readEscapeRecord } from "./link.js";
+import { globMatcher, isCovers, type TaskSurface } from "../surface/schema.js";
 import { readJsonDirectory, ruleFires, RULE_LIMITS, type Backtest } from "./rules.js";
 
 /**
@@ -138,4 +139,28 @@ export async function lessonCompletionProblem(root: string, task: Pick<AgentTask
   }
   return lessons.some(loaded => loaded.lesson.taskId === task.id) ? null : {code: "ESCAPE_LESSON_MISSING",
     reason: `A ${label} escape needs a lesson record: run agent-ops escapes reflect --task ${task.id}, then commit ${LESSONS_DIRECTORY}/.`};
+}
+
+/** Included globs of an audit; a covers-only child uses its parent's included rows it covers. */
+export function includedGlobs(surface: TaskSurface | undefined, parent?: TaskSurface): string[] {
+  if (surface === undefined) return [];
+  if (!isCovers(surface)) return surface.included.map(row => row.path);
+  return parent === undefined || isCovers(parent) ? [] : parent.included.filter(row => surface.covers.includes(row.id)).map(row => row.path);
+}
+
+/** Early notice and advisory DATA: status lesson entries whose trigger paths overlap these globs. Throws like loadLessons. */
+export async function pathMatchedLessons(root: string, globs: readonly string[]): Promise<EscapeLesson[]> {
+  if (globs.length === 0) return [];
+  return (await loadLessons(root)).map(({lesson}) => lesson).filter(lesson => lesson.trigger!.paths.some(path =>
+    globs.some(glob => globsOverlap(path, glob))));
+}
+
+const wild = /[*?]/u;
+/** A plain path overlaps a glob that matches it; two wildcard globs overlap when one static prefix contains the other. */
+// ponytail: two wildcard globs are compared by static prefix only (src/**/*.md "overlaps" src/x/**); fine for a non-blocking notice.
+export function globsOverlap(a: string, b: string): boolean {
+  if (!wild.test(a)) return globMatcher(b)(a);
+  if (!wild.test(b)) return globMatcher(a)(b);
+  const [pa, pb] = [a, b].map(glob => glob.slice(0, glob.search(wild)));
+  return pa!.startsWith(pb!) || pb!.startsWith(pa!);
 }

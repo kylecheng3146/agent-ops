@@ -679,6 +679,7 @@ process.exitCode = await runCli(
             return await runTaskCommand({
               args,
               service: taskService,
+              root,
               onTaskCreated: async (record, createdRoot) => await reviewCreatedCriteria(createdRoot ?? root, record.task),
               criteriaStatus: async record => await criteriaReviewStatus(root, record.task),
               onTaskRevised: async record => await reviewRevisedCriteria(root, record.task),
