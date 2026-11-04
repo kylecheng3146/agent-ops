@@ -63,6 +63,22 @@ test("one data-only round, private provenance, safe log, no final evidence and c
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
+test("an empty recommendations list is invited by the prompt and completes as valid advice", async () => {
+  const empty = {...advice, recommendations: []};
+  assert.equal(validateCriteriaAdvice(empty), true);
+  for (const verification of [undefined, {requiredVerifierIds: ["unit"], runners: []}]) {
+    assert.match(criteriaReviewPrompt(criteriaSnapshot(task, undefined, verification)),
+      /An empty recommendations array is a valid, expected answer when the criteria already cover the goal\. Recommend only what the supplied data argues for/);
+  }
+  const root = await fixture();
+  try {
+    const view = await runCriteriaReview({root, task, target: "codex", runner: runner([], empty)});
+    assert.equal(view.report.status, "COMPLETED");
+    assert.deepEqual(view.report.advice?.recommendations, []);
+    assert.doesNotMatch(renderCriteriaReview(view), /Suggestion:/);
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
 test("strict structure, missing goal and child scope remain explicitly unassessed", async () => {
   assert.equal(validateCriteriaAdvice({...advice, verdict: "PASS"}), false);
   assert.equal(validateCriteriaAdvice({...advice, limitations: [null]}), false);

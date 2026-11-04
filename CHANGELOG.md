@@ -4,6 +4,12 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- The criteria advisory prompt now tells the advisor that an empty
+  recommendations list is a valid answer when the criteria already cover the
+  goal, and to recommend only what the task data argues for. Every archived
+  advisory report so far returned three to six recommendations, each of which
+  the writer had to adopt or reject. The report format is unchanged.
+
 ## [1.0.1] - 2026-11-03
 
 - `run resume <id> --host <claude|codex>` can hand a `paused`, `blocked` or

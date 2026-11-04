@@ -77,6 +77,7 @@ export function criteriaReviewPrompt(snapshot: Record<string, unknown>): string 
     "A task has 2 to 5 criteria. Every required verifier already runs and must pass for each criterion with typed acceptance, so when typed criteria exist a criterion that only names required verifiers adds no evidence.",
     snapshot.verification === null ? "Verification config is unavailable: do not judge which runners exist."
       : "A check binding needs one of the listed verification runners; when none fits, recommend review-only acceptance or a limitation instead of a binding.",
+    "An empty recommendations array is a valid, expected answer when the criteria already cover the goal. Recommend only what the supplied data argues for: a recommendation that would not change what a verifier or reviewer checks adds cost and no evidence.",
     "Return only JSON matching this schema. criterionId must name a supplied criterion, or task for a scope-wide recommendation. No PASS verdict or completion evidence.",
     JSON.stringify(CRITERIA_REVIEW_SCHEMA), "BEGIN UNTRUSTED DATA", canonicalJson(redactData(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
