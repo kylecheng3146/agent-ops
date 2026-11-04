@@ -18,3 +18,14 @@ criteria:
 - c3-spec-sync: Bilingual specifications (docs/en/spec/loop-engineering.md, docs/zh-TW/spec/loop-engineering.md, docs/en/spec/harness-adapters.md, docs/zh-TW/spec/harness-adapters.md) accurately and consistently document cross-host run resume takeover, preconditions, worker rebinding, delivered worker preservation, mandatory verification/two-round review gates, and RUN_HOST_SWITCHED auditing.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/01332a3e042172a9c457c4458d9e2c0551b89c4963e10e4a9782dd5afb5b093c-09377a0e01e211c0fc6381681d46f159da16eef0.json
 receipt-sha256: e42cde09be0e8795dc972651358522242d10ba650923472ffac7562cd79d244a
+
+worktree: session-e0dc1336 (agent-ops/session-e0dc1336)
+session: e0dc1336-e552-4399-8896-4fcb4ec70c08
+agent-ops task task-8c40f24a-b201-4cc8-9d06-4e774dfb85d8: Release 1.0.1
+intent: Prepare the 1.0.1 patch release: bump package version, add a dated changelog section, update README status line; publish via release.yml trusted publishing after merge.
+criteria:
+- version-bumped: package.json and package-lock.json root version are 1.0.1, and README Project status names 1.0.1 as the published version
+- changelog-section: CHANGELOG has a dated '## [1.0.1] - 2026-11-03' section directly below '## [Unreleased]' covering run resume --host and the child run-level proof actor fix
+- suite-green: npm test passes, including docs and release workflow policy tests
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/bd502a448ca9ac2a144ccd9fe4cf3fbcd8c6ada7468cf64efab73abad7fb02ef-244daf072279a1597ce9851b87a7ade3621bc6f8.json
+receipt-sha256: 43bfe4952cff78565136554bdc501c997005248616f37e5ba40cd10cfed96c80
