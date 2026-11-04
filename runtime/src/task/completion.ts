@@ -25,7 +25,7 @@ export async function checkTaskCompletionEvidence(
 ): Promise<CompletionProblem | null> {
   // A scenario/requirement/review escape needs its lesson record (lesson, no-entry or not-run) before anything else.
   const lesson = await lessonCompletionProblem(options.root, stored.task);
-  if (lesson !== null) return {status: "FAIL", code: lesson.code, remedy: lesson.reason};
+  if (lesson !== null) return {status: "FAIL", code: lesson.code, remedy: `${lesson.code}: ${lesson.reason}`};
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);

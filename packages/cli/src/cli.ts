@@ -150,7 +150,7 @@ twice); each lets finish pass. Commit it with the fix.
   --fix <sha>   the fix commit, replacing base..HEAD (backfill of past escapes)
   --rerun       add the latest review findings after review rejected a lesson
   --json        print the record as JSON
-
+`,
   office: `Usage: agent-ops office [--json]
 
 Office (Preview) is opt-in: select it during init/update or run

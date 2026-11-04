@@ -14,9 +14,10 @@ test("escape acceptance runner reports every rule and lesson check as PASS", asy
   const report = JSON.parse(result.stdout.trim());
   assert.equal(report.protocolVersion, 1);
   assert.equal(report.completed, true);
-  assert.equal(report.results.length, 17);
+  assert.equal(report.results.length, 21);
   assert.ok(report.results.every((r: {executionId: string, phase: string}) => r.executionId === "escape-unit" && r.phase === "baseline"));
-  for (const id of ["escape-lesson-store", "escape-lesson-gate", "escape-lesson-metrics"]) {
+  for (const id of ["escape-lesson-store", "escape-lesson-gate", "escape-lesson-metrics",
+    "escape-lesson-reflect", "escape-lesson-reflect-ineligible", "escape-lesson-finish", "escape-lesson-report"]) {
     assert.ok(report.results.some((r: {checkId: string}) => r.checkId === id), id);
   }
   assert.ok(report.results.every((r: {checkId: string}) => r.checkId.startsWith("escape-")), "escape runner runs only escape checks");
