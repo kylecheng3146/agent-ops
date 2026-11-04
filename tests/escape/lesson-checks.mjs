@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdir, mkdtemp, realpath, rm, symlink, writeFile, readFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile, readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -454,6 +454,20 @@ const raw = {
     catch (e) {failed = e;}
     assert.ok(failed && failed.status !== 0, 'the CLI exits non-zero');
     assert.match(failed.stdout + failed.stderr, /ESCAPE_LESSON_INELIGIBLE/u);
+  }),
+  'escape-reflect-ref-safe': async () => withRepo(async f => {
+    const h = await escapeHistory(f, null);
+    const r = fake(reply(CART));
+    const record = extra => f.write(`.agent-ops-escapes/${TASK}.json`, JSON.stringify({schemaVersion: 1, taskId: TASK, escapeOf: h.escaped,
+      link: {state: 'ungated'}, agentLabel: 'scenario', label: 'scenario', missedPaths: ['src/cart/Cart.ts'], facts: [], residualRisks: 0,
+      declaredAt: '2026-11-04T00:00:00.000Z', ...extra}));
+    for (const field of ['escapeOf', 'fix']) {
+      const written = join(f.root, `written-by-git-${field}.txt`);
+      await record({[field]: `--output=${written}`});
+      await assert.rejects(reflect(f, {call: r.call, base: h.fixBase}), {code: 'ESCAPE_ORIGIN_INVALID'}, `an option-shaped ${field} is refused`);
+      await assert.rejects(stat(written), {code: 'ENOENT'}, `git never wrote a file through ${field}`);
+    }
+    assert.equal(r.prompts.length, 0, 'a refused record never reaches the reflector');
   }),
   'escape-lesson-finish': async () => withRepo(async f => {
     const {checkTaskCompletionEvidence} = await load('runtime/src/task/completion.js', 'checkTaskCompletionEvidence');

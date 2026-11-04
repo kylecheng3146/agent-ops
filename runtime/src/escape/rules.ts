@@ -172,9 +172,9 @@ export async function ruleHits(root: string, rule: EscapeRule, ref?: string, tim
 
 /** One commit's own change against its first parent (the empty tree for a root commit). */
 export async function commitChange(root: string, commit: string): Promise<{ paths: string[]; diff: string }> {
-  const names = await runGit(root, ["show", "-m", "--first-parent", "--format=", "--name-only", "-z", "--no-renames", commit, "--"], RULE_LIMITS.queryTimeoutMs);
+  const names = await runGit(root, ["show", "-m", "--first-parent", "--format=", "--name-only", "-z", "--no-renames", "--end-of-options", commit, "--"], RULE_LIMITS.queryTimeoutMs);
   const diff = await runGit(root, ["show", "-m", "--first-parent", "--format=", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
-    "--no-renames", commit, "--"], RULE_LIMITS.queryTimeoutMs);
+    "--no-renames", "--end-of-options", commit, "--"], RULE_LIMITS.queryTimeoutMs);
   if (names.code !== 0 || diff.code !== 0) throw new AgentOpsError("ESCAPE_GIT_FAILED", `git show ${commit} failed.`);
   return {paths: zList(names.stdout), diff: diff.stdout.toString("utf8")};
 }

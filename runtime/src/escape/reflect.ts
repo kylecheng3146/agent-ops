@@ -128,13 +128,17 @@ export async function reflectEscape(input: ReflectInput): Promise<ReflectResult>
     throw new AgentOpsError("ESCAPE_LESSON_INELIGIBLE", record === null
       ? `No .agent-ops-escapes/${input.taskId}.json escape record: declare it with task revise --escape-of first.`
       : `A ${record.label} escape gets no lesson; only scenario, requirement and review escapes do.`);
+  // The ledger is committed repository data: its SHAs reach git argv, so anything else (an option-shaped value) is refused first.
+  for (const [field, value] of [["escapeOf", record.escapeOf], ["fix", record.fix]] as const)
+    if ((field === "escapeOf" || value !== undefined) && (typeof value !== "string" || !/^[a-f0-9]{40,64}$/u.test(value)))
+      throw new AgentOpsError("ESCAPE_ORIGIN_INVALID", `.agent-ops-escapes/${input.taskId}.json ${field} is not a full commit SHA.`);
   const findings = input.rerun ? await latestReviewFindings(input.root, input.taskId) : undefined;
   if (findings === null) throw new AgentOpsError("ESCAPE_REFLECT_NO_REVIEW", `--rerun needs a stored review report for ${input.taskId}.`);
   const fix = input.fix !== undefined ? await resolveCommit(input.root, input.fix) : record.fix;
   let fixDiff: string;
   if (fix !== undefined) fixDiff = (await commitChange(input.root, fix)).diff;
   else if (input.base) {
-    const diff = await runGit(input.root, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", input.base, "HEAD", "--"], RULE_LIMITS.queryTimeoutMs);
+    const diff = await runGit(input.root, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--end-of-options", input.base, "HEAD", "--"], RULE_LIMITS.queryTimeoutMs);
     if (diff.code !== 0) throw new AgentOpsError("ESCAPE_GIT_FAILED", `git diff ${input.base}..HEAD failed.`);
     fixDiff = diff.stdout.toString("utf8");
   } else throw new AgentOpsError("ESCAPE_REFLECT_FIX_REQUIRED", "The task base is unknown here: name the fix commit with --fix <sha>.");
