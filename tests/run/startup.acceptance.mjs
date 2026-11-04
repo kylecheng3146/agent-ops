@@ -11,6 +11,7 @@ import {authorizationChecks} from './authorization-checks.mjs';
 import {surfaceChecks} from '../surface/surface-checks.mjs';
 import {escapeChecks} from '../escape/escape-checks.mjs';
 import {ruleChecks} from '../escape/rule-checks.mjs';
+import {lessonChecks} from '../escape/lesson-checks.mjs';
 import {timeoutChecks} from '../verify/timeout-checks.mjs';
 import {syncChecks} from '../worktree/sync-checks.mjs';
 import {heartbeatCleanupChecks} from '../worktree/heartbeat-cleanup-checks.mjs';
@@ -87,6 +88,7 @@ const checks = {
   ...surfaceChecks,
   ...escapeChecks,
   ...ruleChecks,
+  ...lessonChecks,
   ...timeoutChecks,
   ...syncChecks,
   ...heartbeatCleanupChecks,

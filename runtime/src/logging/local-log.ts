@@ -57,7 +57,7 @@ export interface SurfaceMetricsLogEvent {
   residualRisks: number;
 }
 
-/** Escape Loop: a gate that caught something (SURFACE_*, SCENARIO_MISSING, REVIEW_FAIL, VERIFY_RED_GREEN). Code and task only. */
+/** Escape Loop: a gate that caught something (SURFACE_*, SCENARIO_MISSING, LESSON_MISSING, REVIEW_FAIL, VERIFY_RED_GREEN). Code and task only. */
 export interface GateCatchLogEvent {
   type: "gate-catch";
   code: string;
@@ -72,6 +72,13 @@ export interface EscapeRuleLogEvent {
   excluded: number;
 }
 
+/** Escape lessons: one lesson fired in a surface gate and how the task answered it; lesson id and answer only. */
+export interface EscapeLessonLogEvent {
+  type: "escape-lesson";
+  lessonId: string;
+  answer: "applies" | "na" | "unanswered";
+}
+
 export interface CriteriaReviewLogEvent {
   type: "criteria-review"; taskId: string; attemptId: string; status: string; code: string; durationMs: number;
   invocations: number; recommendations: number; report: string; usage: Readonly<Record<string, number>>;
@@ -81,6 +88,7 @@ export type LocalLogEvent =
   | CriteriaReviewLogEvent
   | CommandResultLogEvent
   | EscapeRuleLogEvent
+  | EscapeLessonLogEvent
   | GateCatchLogEvent
   | SurfaceMetricsLogEvent
   | DiagnosticLogEvent
@@ -276,6 +284,13 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
       return invalidEvent();
     }
     return { type: "escape-rule", ruleId: value.ruleId, included: value.included as number, excluded: value.excluded as number };
+  }
+  if (value.type === "escape-lesson") {
+    if (!hasExactKeys(value, ["answer", "lessonId", "type"]) || typeof value.lessonId !== "string" ||
+      !/^[a-z][a-z0-9-]{0,63}$/u.test(value.lessonId) || !["applies", "na", "unanswered"].includes(String(value.answer))) {
+      return invalidEvent();
+    }
+    return { type: "escape-lesson", lessonId: value.lessonId, answer: value.answer as EscapeLessonLogEvent["answer"] };
   }
   return invalidEvent();
 }

@@ -5,16 +5,17 @@ import { join } from "node:path";
 
 import { canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
+import { lessonFires, loadLessons } from "../escape/lessons.js";
 import { loadRules, ruleFires, ruleHits } from "../escape/rules.js";
 import { AgentOpsError } from "../fs/paths.js";
-import { appendLocalLog } from "../logging/local-log.js";
+import { appendLocalLog, type EscapeLessonLogEvent, type EscapeRuleLogEvent } from "../logging/local-log.js";
 import { localStatePaths, readPrivateFile, writePrivateFile } from "../security/permissions.js";
 import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, type SurfaceAudit, type TaskSurface } from "./schema.js";
 
 export type SurfaceCode = "SURFACE_MISSING" | "SURFACE_UNCLASSIFIED" | "SURFACE_QUERY_TOO_BROAD" |
   "SURFACE_EXCLUSION_TOO_BROAD" | "SURFACE_INCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED" |
   "ESCAPE_RULE_INVALID" | "ESCAPE_RULE_UNSAFE" | "ESCAPE_RULE_NO_EXCLUDE" | "SURFACE_DISMISSAL_TOO_BROAD" | "SURFACE_DISMISSAL_INVALID" |
-  "SURFACE_DISCOVERY_FAILED";
+  "SURFACE_DISCOVERY_FAILED" | "LESSON_MISSING" | "ESCAPE_LESSON_INVALID" | "ESCAPE_LESSON_UNSAFE";
 /** Cheapest first: a budget overrun stops before the long tail of diff tokens. */
 export const DISCOVERY_SOURCES = ["agent", "hunk-header", "template-fragment", "diff-token"] as const;
 export type DiscoverySource = typeof DISCOVERY_SOURCES[number];
@@ -141,11 +142,10 @@ async function logMetrics(home: string, rows: readonly Record<string, number | s
   } catch { /* advisory only */ }
 }
 
-async function logRuleMetrics(home: string, rows: readonly {ruleId: string; included: number; excluded: number}[]): Promise<void> {
+async function logRuleMetrics(home: string, rows: readonly (EscapeRuleLogEvent | EscapeLessonLogEvent)[]): Promise<void> {
   try {
     const state = localStatePaths(home);
-    for (const row of rows) await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "escape-rule", ...row},
-      {anchorDirectory: state.anchorDirectory});
+    for (const row of rows) await appendLocalLog(join(state.logDirectory, "events.ndjson"), row, {anchorDirectory: state.anchorDirectory});
   } catch { /* advisory only */ }
 }
 
@@ -155,7 +155,8 @@ export function surfaceAdvisory(gate: SurfaceGateResult): string[] {
   const dropped = truncated.length === 0 ? [] : [`Surface: ${truncated.reduce((sum, row) => sum + row.dropped, 0)} derived queries ` +
     `were not searched (${truncated.map(row => `${row.source} ${row.dropped}`).join(", ")})`];
   if (gate.status === "PASS") return ["Surface: PASS", ...dropped];
-  const paths = gate.details.flatMap(d => typeof d === "object" && d !== null && "path" in d ? [String(d.path)] : []);
+  const paths = gate.details.flatMap(d => typeof d === "object" && d !== null && "path" in d ? [String(d.path)]
+    : typeof d === "object" && d !== null && "lesson" in d ? [`lesson ${String(d.lesson)}`] : []);
   return [`Surface (advisory; review would stop with ${gate.code}): ${gate.message}`,
     ...paths.slice(0, 20).map(path => `  - ${path}`), ...(paths.length > 20 ? [`  ... ${paths.length - 20} more`] : []), ...dropped];
 }
@@ -191,6 +192,13 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   try { rules = await loadRules(input.root); }
   catch (error) {
     if (error instanceof AgentOpsError && (error.code === "ESCAPE_RULE_INVALID" || error.code === "ESCAPE_RULE_UNSAFE"))
+      return notRun(error.code, error.message, []);
+    throw error;
+  }
+  let lessons: Awaited<ReturnType<typeof loadLessons>>;
+  try { lessons = await loadLessons(input.root); }
+  catch (error) {
+    if (error instanceof AgentOpsError && (error.code === "ESCAPE_LESSON_INVALID" || error.code === "ESCAPE_LESSON_UNSAFE"))
       return notRun(error.code, error.message, []);
     throw error;
   }
@@ -247,6 +255,15 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
       if (!content.includes(0)) diff += "\n" + content.toString("utf8").split("\n").map(line => "+" + line).join("\n");
     }
   }
+  // Escape lessons: a fired lesson is classified in surface.lessons before any reviewer, like a scenario.
+  const fired = lessons.filter(({lesson}) => lessonFires(lesson, [...changed], diff));
+  const answers = surface.lessons ?? {};
+  const answerOf = (id: string) => answers[id] === undefined ? "unanswered" as const : "applies" in answers[id]! ? "applies" as const : "na" as const;
+  if (input.metrics === true && fired.length > 0) await logRuleMetrics(input.logHome ?? process.env.AGENT_OPS_HOME ?? homedir(),
+    fired.map(({lesson}) => ({type: "escape-lesson", lessonId: lesson.id, answer: answerOf(lesson.id)})));
+  const unanswered = fired.filter(({lesson}) => answerOf(lesson.id) === "unanswered");
+  if (unanswered.length > 0) return notRun("LESSON_MISSING", "Fired escape lessons need an answer in the surface lessons key: " +
+    "{applies: true, behavior} or {na: reason}.", unanswered.map(({lesson}) => ({lesson: lesson.id, cue: lesson.cue, check: lesson.check})));
   const derived = extractDiffQueries(diff);
   const agent = [...new Set(SURFACE_AXES.flatMap(name => {const axis = surface.axes[name]; return "queries" in axis ? axis.queries : [];}))];
   const planned: {source: DiscoverySource; query: string}[] = [];
@@ -254,7 +271,8 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   for (const [source, queries] of [["agent", agent], ["hunk-header", derived.functions], ["template-fragment", derived.fragments],
     ["diff-token", derived.tokens]] as const)
     for (const query of queries) if (!seen.has(query)) { seen.add(query); planned.push({source, query}); }
-  const key = sha256(canonicalJson({head, base: input.base ?? null, diff: sha256(diff), queries: [...agent].sort(), config: input.configHash}));
+  const key = sha256(canonicalJson({head, base: input.base ?? null, diff: sha256(diff), queries: [...agent].sort(), config: input.configHash,
+    lessons: lessons.map(row => row.hash).sort()}));
   const cachePath = join(input.root, ".agent-ops", "tasks", "surface", "cache", key + ".json");
   let hits: {source: DiscoverySource; query: string; files: string[]}[] | undefined;
   let cached = false;
@@ -326,7 +344,7 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
     }
   }
   // A fired rule's hits must be classified like any other; noExclude hits cannot be excluded.
-  const ruleRows: {ruleId: string; included: number; excluded: number}[] = [];
+  const ruleRows: EscapeRuleLogEvent[] = [];
   const noExclude: {ruleId: string; path: string; glob: string}[] = [];
   for (const {rule} of rules) {
     if (!ruleFires(rule, [...changed], diff)) continue;
@@ -337,7 +355,7 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
       if (error instanceof AgentOpsError) return notRun("SURFACE_BUDGET_EXCEEDED", error.message, [{rule: rule.id}]);
       throw error;
     }
-    const row = {ruleId: rule.id, included: 0, excluded: 0};
+    const row: EscapeRuleLogEvent = {type: "escape-rule", ruleId: rule.id, included: 0, excluded: 0};
     for (const path of paths) {
       if (changed.has(path) || included.some(match => match(path)) || unknownPaths.some(match => match(path))) { row.included += 1; continue; }
       const exclusion = exclusions.find(e => e.match(path));
