@@ -130,6 +130,10 @@ const raw = {
     assert.equal(applies.discovery.cached, false, 'a new lesson set misses the old discovery cache');
     const na = await gate(f, surface(changed, {'cart-retry': NA('This change only renames a return value; no write is retried.')}), changed);
     assert.equal(na.status, 'PASS', JSON.stringify(na));
+    assert.equal(na.discovery.cached, true, 'answers alone do not change the discovery cache');
+    await writeLesson(f, lesson({cue: 'Cart writes can be replayed by the client.'}));
+    const edited = await gate(f, surface(changed, {'cart-retry': NA('This change only renames a return value; no write is retried.')}), changed);
+    assert.equal(edited.discovery.cached, false, 'an edited lesson under the same HEAD misses the old discovery cache');
     const invalid = await gate(f, surface(changed, {'cart-retry': {applies: true}}), changed);
     assert.equal(invalid.code, 'SURFACE_MISSING', 'an invalid lessons answer is a surface defect');
     assert.equal((await gate(f, surface(changed, {'cart-retry': NA('n/a')}), changed)).code, 'SURFACE_MISSING', 'a bare n/a is no reason');
