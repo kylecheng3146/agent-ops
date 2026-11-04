@@ -17,6 +17,8 @@ export interface ReviewSurfaceData {
   readonly history: readonly { readonly at: string; readonly reason: string; readonly change: SurfaceDelta }[];
   readonly discovery: unknown;
   readonly postBlockExclusions: readonly unknown[];
+  /** Escape lessons the change fired (id, cue, check, trigger) with the audit's answer; absent when none fired. */
+  readonly lessons?: readonly unknown[];
 }
 
 export interface ReviewPacket {

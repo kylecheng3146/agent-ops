@@ -5,12 +5,12 @@ import { join } from "node:path";
 
 import { canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
-import { lessonFires, loadLessons } from "../escape/lessons.js";
+import { lessonFires, loadLessons, type EscapeLesson } from "../escape/lessons.js";
 import { loadRules, ruleFires, ruleHits } from "../escape/rules.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { appendLocalLog, type EscapeLessonLogEvent, type EscapeRuleLogEvent } from "../logging/local-log.js";
 import { localStatePaths, readPrivateFile, writePrivateFile } from "../security/permissions.js";
-import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, type SurfaceAudit, type TaskSurface } from "./schema.js";
+import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, type SurfaceAudit, type SurfaceScenario, type TaskSurface } from "./schema.js";
 
 export type SurfaceCode = "SURFACE_MISSING" | "SURFACE_UNCLASSIFIED" | "SURFACE_QUERY_TOO_BROAD" |
   "SURFACE_EXCLUSION_TOO_BROAD" | "SURFACE_INCLUSION_TOO_BROAD" | "SCENARIO_MISSING" | "SURFACE_BUDGET_EXCEEDED" | "SURFACE_UNASSIGNED" |
@@ -37,6 +37,15 @@ export interface SurfaceDiscovery {
   readonly dismissed: readonly { readonly query: string; readonly files: number; readonly postBlock: boolean }[];
   /** Derived queries over the per-kind cap that were never searched, by source; empty under the cap. */
   readonly truncated: readonly { readonly source: DiscoverySource; readonly dropped: number }[];
+  /** Fired escape lessons with the audit's answer; absent when none fired. */
+  readonly lessons?: readonly FiredLesson[];
+}
+export interface FiredLesson {
+  readonly id: string;
+  readonly cue: string | null;
+  readonly check: string | null;
+  readonly trigger: EscapeLesson["trigger"];
+  readonly answer: SurfaceScenario;
 }
 
 export type SurfaceGateResult =
@@ -372,7 +381,8 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
     : [{source, dropped: derived.dropped[source]}]);
   const discovery: SurfaceDiscovery = {cached, sources, skipped: skipped
     .sort((a, b) => a.files - b.files || (a.query < b.query ? -1 : a.query > b.query ? 1 : 0)).slice(0, 50), postBlockExclusions, dismissed,
-    truncated};
+    truncated, ...(fired.length === 0 ? {} : {lessons: fired.map(({lesson}) =>
+      ({id: lesson.id, cue: lesson.cue, check: lesson.check, trigger: lesson.trigger, answer: answers[lesson.id]!}))})};
   if (input.metrics === true) await logMetrics(input.logHome ?? process.env.AGENT_OPS_HOME ?? homedir(), DISCOVERY_SOURCES.map(source => ({source,
     hits: metrics.get(source)!.hits.size, included: metrics.get(source)!.included.size, excluded: metrics.get(source)!.excluded.size,
     postBlockExclusions: postBlockExclusions.length, residualRisks: 0})));
