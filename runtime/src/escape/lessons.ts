@@ -1,5 +1,11 @@
+import { constants } from "node:fs";
+import { lstat, mkdir, open } from "node:fs/promises";
+import { join } from "node:path";
+
+import type { AgentTask } from "../contracts.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
+import { readEscapeRecord } from "./link.js";
 import { readJsonDirectory, ruleFires, RULE_LIMITS, type Backtest } from "./rules.js";
 
 /**
@@ -93,3 +99,43 @@ export async function loadLessons(root: string): Promise<LoadedLesson[]> {
 export const lessonFires = (lesson: EscapeLesson, paths: readonly string[], diff: string): boolean =>
   lesson.trigger !== null && ruleFires({trigger: lesson.trigger}, paths, diff);
 
+
+export const isLessonLabel = (label: string): label is EscapeLesson["label"] => (LESSON_LABELS as readonly string[]).includes(label);
+
+/** Validated, then written without following links; one file per id, so a rerun replaces it. Commit it with the fix. */
+export async function writeLesson(root: string, lesson: EscapeLesson): Promise<string> {
+  parseLesson(lesson, `${lesson.id}.json`);
+  for (const part of [".agent-ops-escapes", LESSONS_DIRECTORY]) {
+    const path = join(root, part);
+    try { if (!(await lstat(path)).isDirectory()) unsafe(); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await mkdir(path);
+      if (!(await lstat(path)).isDirectory()) unsafe();
+    }
+  }
+  const path = join(root, LESSONS_DIRECTORY, `${lesson.id}.json`);
+  try { if (!(await lstat(path)).isFile()) unsafe(); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  // O_NOFOLLOW closes the lstat-to-open race on POSIX; Windows has no such flag.
+  const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0), 0o644);
+  try { await handle.writeFile(`${JSON.stringify(lesson, null, 2)}\n`, "utf8"); } finally { await handle.close(); }
+  return path;
+}
+
+/**
+ * Finish gate: an escape labelled scenario, requirement or review needs a lesson file
+ * (lesson, no-entry or not-run) naming the task. The ledger record's label wins over the declared one.
+ */
+export async function lessonCompletionProblem(root: string, task: Pick<AgentTask, "id" | "origin">): Promise<{ code: string; reason: string } | null> {
+  if (task.origin?.kind !== "escape-of") return null;
+  const label = (await readEscapeRecord(root, task.id))?.label ?? task.origin.label;
+  if (!isLessonLabel(label)) return null;
+  let lessons: LoadedLesson[];
+  try { lessons = await readLessons(root); }
+  catch (error) {
+    return {code: error instanceof AgentOpsError ? error.code : "ESCAPE_LESSON_INVALID", reason: error instanceof Error ? error.message : "Lessons unreadable."};
+  }
+  return lessons.some(loaded => loaded.lesson.taskId === task.id) ? null : {code: "ESCAPE_LESSON_MISSING",
+    reason: `A ${label} escape needs a lesson record: run agent-ops escapes reflect --task ${task.id}, then commit ${LESSONS_DIRECTORY}/.`};
+}

@@ -56,7 +56,8 @@ export type WorktreeAction = "add" | "commit" | "finish" | "list" | "remove" | "
 export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "finish", "list", "resume", "remove"];
 export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond" | "land";
 export type FollowupAction = "list" | "show" | "import" | "sync" | "clarify" | "accept" | "defer" | "reopen" | "process";
-export type CliAction = FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
+export type EscapesAction = "reflect";
+export type CliAction = EscapesAction | FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
   followupId?: string;
@@ -227,6 +228,7 @@ function parseHookTarget(
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (argv[0] === "followup") return parseFollowupArgs(argv.slice(1));
   if (argv[0] === "run") return parseRunArgs(argv.slice(1));
+  if (argv[0] === "escapes") return parseEscapesArgs(argv.slice(1));
   if (argv[0] === "task" && argv[1] === "debug")
     throw new CliArgumentError("TASK_DEBUG_REMOVED", "task debug was removed in 0.11.0. A DEBUG task is task create --debug with a behavioral " +
       "criterion whose redCheckIds fail at the baseline and pass on the candidate; then verify, review and finish as usual. " +
@@ -908,8 +910,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if ((escapeOf === undefined) !== (escapeLabel === undefined) ||
     ((escapeReceipt !== undefined || escapeFix !== undefined || escapePromote !== undefined) && escapeOf === undefined))
     throw new CliArgumentError("CLI_MISSING_VALUE", "--escape-of needs --escape-label; --escape-label, --escape-receipt, --escape-fix and --escape-promote need --escape-of.");
-  if (command === "escapes" && argv.some(token => token !== "escapes" && token !== "--json"))
-    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "escapes accepts only --json; it is a read-only report.");
   if (revisionAction && (taskId === undefined || evidence.length > 0 || title !== undefined || intent !== undefined || parentTaskId !== undefined || sessionId !== undefined || criteria.length > 0 || base !== undefined ||
     (action === "revise" && (expectedContract === undefined || (criteriaFile === undefined && surfaceFile === undefined && escapeOf === undefined && baseline === undefined) || reason === undefined)) ||
     (action === "replan" && (expectedTreeContract === undefined || planFile === undefined || reason === undefined)) ||
@@ -1254,6 +1254,35 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
     } else if (args.questionId !== undefined || args.answer !== undefined || args.answerFile !== undefined)
       throw new CliArgumentError("CLI_INVALID_OPTION", "Answer options require run respond.");
   }
+  return args;
+}
+
+/** escapes [--json] is the read-only report; escapes reflect --task <id> [--fix <sha>] [--rerun] [--json] writes one lesson record. */
+function parseEscapesArgs(argv: readonly string[]): ParsedArgs {
+  const args: ParsedArgs = {command: "escapes", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
+  if (argv.includes("--help") || argv.includes("-h")) return {...args, command: "help", helpTopic: "escapes", json: argv.includes("--json")};
+  const reflect = argv[0] === "reflect";
+  if (reflect) args.action = "reflect";
+  const seen = new Set<string>();
+  for (let i = reflect ? 1 : 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (seen.has(token)) duplicate(token);
+    seen.add(token);
+    if (token === "--json") {args.json = true; continue;}
+    if (!reflect) throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "escapes accepts only --json; it is a read-only report. Use escapes reflect --task <id> to write a lesson.");
+    if (token === "--rerun") {args.rerun = true; continue;}
+    if (token !== "--task" && token !== "--fix")
+      throw new CliArgumentError(token.startsWith("-") ? "CLI_UNKNOWN_OPTION" : "CLI_UNEXPECTED_ARGUMENT", `Unknown escapes reflect argument: ${token}`, token);
+    const value = readOptionValue(argv, i++, token);
+    if (token === "--task") {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(value)) invalidValue(token, value);
+      args.taskId = value;
+    } else {
+      if (!/^[A-Za-z0-9._/^~][A-Za-z0-9._/^~-]{0,255}$/u.test(value)) invalidValue(token, value);
+      args.escapeFix = value;
+    }
+  }
+  if (reflect && args.taskId === undefined) throw new CliArgumentError("CLI_MISSING_VALUE", "escapes reflect requires --task <id>.");
   return args;
 }
 

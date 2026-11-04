@@ -55,7 +55,7 @@ Commands:
   run        Start or control a supervised Claude/Codex native goal
   office     Open the local pixel office (Preview; opt-in)
   followup   Collect and process retained review findings and risk observations
-  escapes    Report escaped bugs, gate catches and learned rules (read-only)
+  escapes    Report escaped bugs, gate catches, rules and lessons; reflect writes a lesson
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -127,13 +127,30 @@ changed paths, completed run status, acceptance and deferral cannot resolve.
 Collection warnings are advisory and retryable with followup import.
 `,
   escapes: `Usage: agent-ops escapes [--json]
+       agent-ops escapes reflect --task <id> [--fix <sha>] [--rerun] [--json]
 
 Read-only Escape Loop report: misses per gate from the tracked
 .agent-ops-escapes ledger, gate catches from this machine's local log, origin
-and link-state mix, and per-rule fire/included/excluded counts with retirement
-candidates. Counts are raw with n; fewer than 10 observations are marked
-insufficient-data. It never writes files and fails open.
-`,
+and link-state mix, per-rule fire/included/excluded counts, per-lesson
+fires/applies/na counts, and retirement candidates (rules or lessons fired at
+least 10 times that never helped). Counts are raw with n; fewer than 10
+observations are marked insufficient-data. It never writes files and fails open.
+
+escapes reflect writes .agent-ops-escapes/lessons/<task-id>.json for a task
+whose escape is labelled scenario, requirement or review (otherwise
+ESCAPE_LESSON_INELIGIBLE). Run it after committing the fix and before review.
+One data-only reflector call on the independent-review role's first target
+reads the fix diff (task base..HEAD), the escaped commit's diff, the missed
+paths and the task goal and criteria. Its trigger must fire on the escaped
+commit and on at most 30% of the last 200 first-parent commits; a rejected
+answer is retried once with the reason. The record is status lesson,
+no-entry (nothing transferable) or not-run (target unavailable or rejected
+twice); each lets finish pass. Commit it with the fix.
+  --task <id>   the fixing task (required)
+  --fix <sha>   the fix commit, replacing base..HEAD (backfill of past escapes)
+  --rerun       add the latest review findings after review rejected a lesson
+  --json        print the record as JSON
+
   office: `Usage: agent-ops office [--json]
 
 Office (Preview) is opt-in: select it during init/update or run

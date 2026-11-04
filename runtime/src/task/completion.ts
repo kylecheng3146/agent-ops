@@ -6,6 +6,7 @@ import { isPassingVerificationEvidence, type FileEvidenceStore } from "../verify
 import {evidenceMatchesContract, taskContractHash} from "./contract.js";
 import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
+import { lessonCompletionProblem } from "../escape/lessons.js";
 
 interface CompletionProblem {
   readonly code: string;
@@ -22,6 +23,9 @@ export async function checkTaskCompletionEvidence(
     readonly evidenceStore: FileEvidenceStore;
   }
 ): Promise<CompletionProblem | null> {
+  // A scenario/requirement/review escape needs its lesson record (lesson, no-entry or not-run) before anything else.
+  const lesson = await lessonCompletionProblem(options.root, stored.task);
+  if (lesson !== null) return {status: "FAIL", code: lesson.code, remedy: lesson.reason};
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
