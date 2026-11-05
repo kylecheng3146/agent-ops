@@ -115,6 +115,10 @@ successful refutation MUST make the run FAIL.
   source. Round 1
   replays the recorded queries and reads every listed `valueChanges` consumer;
   this is the only exception to "do not survey the repository".
+- Note: Both rounds also judge fired escape lessons under `surface-coverage`:
+  an `na` reason the change contradicts, or an `applies` behavior the change
+  does not implement, is a blocking finding
+  ([EVIDENCE-ESCAPE-003](acceptance-and-evidence.md#evidence-escape-003)).
 
 ## REVIEW-ORIGIN-001
 

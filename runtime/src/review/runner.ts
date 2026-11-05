@@ -155,6 +155,9 @@ export type ReviewUnavailableReason =
   | "escape-rule-invalid"
   | "escape-rule-unsafe"
   | "escape-rule-no-exclude"
+  | "lesson-missing"
+  | "escape-lesson-invalid"
+  | "escape-lesson-unsafe"
   | "timeout";
 
 export interface ReviewExecutionRequest {
@@ -342,6 +345,7 @@ function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversar
     truncated?: readonly {source: string; dropped: number}[]} | null;
   const skipped = round === "adversarial" ? discovery?.skipped ?? [] : [];
   const truncated = round === "adversarial" ? discovery?.truncated ?? [] : [];
+  const lessons = invocation.packet.surface.lessons ?? [];
   return [
     "",
     "Surface coverage (narrow exception to \"Do not survey\"): task data carries the surface audit, its revision " +
@@ -356,6 +360,10 @@ function surfaceBlock(invocation: ReviewInvocation, round: "primary" | "adversar
       : "Round 2: check the five fixed scenarios (initialState, redo, timeBoundary, identitySwitch, concurrency) against " +
         "the code, and hunt unlisted surfaces with at most 3 new `git grep -F` queries per axis (dependents, duplicates, " +
         "otherPaths, sharedState); cite each query you ran in evidence.",
+    ...(lessons.length === 0 ? [] : ["Fired escape lessons: task data surface.lessons carries each escape lesson this change " +
+      "fired (id, cue, check, trigger) with the task's answer (applies with the behavior, or na with a reason). Judge each " +
+      "against the code: an na reason that does not hold for this change, or an applies behavior the change does not " +
+      "implement, is a blocking finding on surface-coverage."]),
     ...(skipped.length === 0 ? [] : ["Skipped derived queries (over 10 files outside the diff, so discovery never gated them; " +
       `fewest first): ${skipped.map(row => `\`${row.query}\` (${row.files})`).join(", ")}. Beyond the per-axis budget, run at most 3 ` +
       "extra `git grep -F` queries in total over these to find copied siblings the change missed; cite each in evidence."]),
@@ -377,6 +385,10 @@ function escapeBlock(invocation: ReviewInvocation, round: "primary" | "adversari
       "still matches). Judge the escape-label criterion: the primary label must name the earliest gate that could have caught " +
       "the escape (requirement, surface, scenario, criteria, verify, review; flagged when a residual risk or finding already " +
       "said it; out-of-model when no gate could). A wrong label or recordCurrent false is a blocking finding on escape-label.",
+    ...(invocation.packet.artifactRefs.some(path => path.startsWith(".agent-ops-escapes/lessons/")) ?
+      ["This change commits escape lesson files under .agent-ops-escapes/lessons: judge the lesson itself. A status lesson's " +
+        "cue and check must state a transferable lesson from this escape that its trigger would catch again; a no-entry or " +
+        "not-run record's evidence must show why there is none. Otherwise it is a blocking finding on escape-label."] : []),
     round === "primary"
       ? "Round 1: check the label against the facts and the fix's diff; read the residual risks for a flagged escape."
       : "Round 2: re-derive the label independently from the facts and residual risks; do not accept the first reviewer's label without checking."

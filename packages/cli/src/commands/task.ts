@@ -1,6 +1,7 @@
 import {renderCriteriaReview, type CriteriaReviewView} from "../../../../runtime/src/review/criteria.js";
 import { lstat, readFile } from "node:fs/promises";
 import { taskContractHash } from "../../../../runtime/src/task/contract.js";
+import { includedGlobs, pathMatchedLessons } from "../../../../runtime/src/escape/lessons.js";
 import type {
   AcceptanceCriterion
 } from "../../../../runtime/src/contracts.js";
@@ -32,6 +33,8 @@ export interface TaskCommandOptions {
   /** After a saved revision: reruns the criteria advisory once when it is due, else reports its status. */
   readonly onTaskRevised?: (record: StoredTaskRecord) => Promise<CriteriaReviewView | null>;
   readonly policyConfigHash?: string;
+  /** Repository root for the escape-lesson notice; absent prints none. */
+  readonly root?: string;
   /**
    * Worktree auto mode from the main checkout: the session's worktree,
    * created or reused, whose task store a new task belongs in.
@@ -125,6 +128,19 @@ async function withEscape(envelope: CliEnvelope<TaskCommandData | null>, escape:
   return {...envelope, data: {...envelope.data, escape: {...escape.record, blame: escape.blame, path: escape.path,
     ...(proposal === undefined ? {} : {configProposal: proposal})},
     text: `${envelope.data.text ?? ""}${envelope.data.text?.endsWith("\n") === false ? "\n" : ""}${lines.join("\n")}\n`}};
+}
+
+/** Non-blocking: status lessons whose trigger paths overlap the surface's included globs; a load failure never stops creation. */
+async function lessonNotice(root: string | undefined, record: StoredTaskRecord, service: TaskService): Promise<string[]> {
+  if (root === undefined || record.task.surface === undefined) return [];
+  try {
+    const parent = record.task.parentTaskId === undefined ? undefined : (await service.status({taskId: record.task.parentTaskId})).task;
+    const lessons = await pathMatchedLessons(root, includedGlobs(record.task.surface, parent?.surface));
+    return lessons.length === 0 ? [] : ["Escape lessons on these paths (answer each in the surface lessons key when verify reports it fired):",
+      ...lessons.map(lesson => `- ${lesson.id}: ${safeTaskText(lesson.cue ?? "")} Check: ${safeTaskText(lesson.check ?? "")}`)];
+  } catch (error) {
+    return [`Escape lessons not checked (${error instanceof AgentOpsError ? error.code : "unreadable"}); task created anyway.`];
+  }
 }
 
 /** An unreadable surface file is a missing surface, not a generic payload error. */
@@ -265,6 +281,9 @@ export async function runTaskCommand(
             : `Created subtask ${record.task.id}; the session stays on the top of its task tree.`,
         record
       ), escape, worktree?.service ?? options.service);
+      const notice = await lessonNotice(worktree?.path ?? options.root, record, worktree?.service ?? options.service);
+      if (notice.length > 0 && created.data !== null) created = {...created, data: {...created.data,
+        text: `${created.data.text}${created.data.text.endsWith("\n") ? "" : "\n"}${notice.join("\n")}\n`}};
       if (initialAdvice !== undefined && created.data !== null) created = {...created, data: {...created.data, criteriaReview: initialAdvice,
         text: created.data.text + "\n\n" + renderCriteriaReview(initialAdvice)}};
       if (worktree === undefined || created.data === null) return created;

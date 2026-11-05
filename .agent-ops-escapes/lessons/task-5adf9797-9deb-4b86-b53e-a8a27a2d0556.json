@@ -1,0 +1,28 @@
+{
+  "id": "task-5adf9797-9deb-4b86-b53e-a8a27a2d0556",
+  "escape": "7efc1569111058530a119c31a1c49cb1fb6e923f",
+  "taskId": "task-5adf9797-9deb-4b86-b53e-a8a27a2d0556",
+  "label": "scenario",
+  "status": "lesson",
+  "evidence": "In commit 7efc1569111058530a119c31a1c49cb1fb6e923f, buildOfficeSnapshot only retired runs older than DAY_MS if status was complete or failed (!['complete', 'failed'].includes(run.status)). Runs in other inactive states such as paused, stopping, blocked, or budget-limited bypassed the retention window and lingered indefinitely until fixed to retire all non-active runs after the retention period.",
+  "reflector": {
+    "target": "agy",
+    "attempts": 1
+  },
+  "cue": "When filtering or retiring runs in snapshot views based on their lifecycle status and a retention window.",
+  "check": "Does the retention filter retire all inactive, halted, or non-progressing states (such as paused, stopping, blocked, and budget-limited) after the retention window rather than only complete or failed runs?",
+  "trigger": {
+    "paths": [
+      "runtime/src/office/snapshot.ts"
+    ],
+    "tokens": [
+      "buildOfficeSnapshot",
+      "DAY_MS"
+    ]
+  },
+  "backtest": {
+    "commits": 136,
+    "fires": 11,
+    "rate": 0.081
+  }
+}

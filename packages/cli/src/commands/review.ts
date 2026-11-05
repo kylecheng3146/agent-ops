@@ -484,7 +484,10 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   SURFACE_DISCOVERY_FAILED: "surface-discovery-failed",
   ESCAPE_RULE_INVALID: "escape-rule-invalid",
   ESCAPE_RULE_UNSAFE: "escape-rule-unsafe",
-  ESCAPE_RULE_NO_EXCLUDE: "escape-rule-no-exclude"
+  ESCAPE_RULE_NO_EXCLUDE: "escape-rule-no-exclude",
+  LESSON_MISSING: "lesson-missing",
+  ESCAPE_LESSON_INVALID: "escape-lesson-invalid",
+  ESCAPE_LESSON_UNSAFE: "escape-lesson-unsafe"
 };
 
 /** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
@@ -559,7 +562,8 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
       change: surfaceDelta(revision.previousTask.surface, (all[i + 1]?.previousTask ?? holder!.task).surface)})).slice(-10),
     discovery: {cached: gate.discovery.cached, sources: gate.discovery.sources, skipped: gate.discovery.skipped,
       dismissed: gate.discovery.dismissed, ...(gate.discovery.truncated.length === 0 ? {} : {truncated: gate.discovery.truncated})},
-    postBlockExclusions: gate.discovery.postBlockExclusions
+    postBlockExclusions: gate.discovery.postBlockExclusions,
+    ...(gate.discovery.lessons === undefined ? {} : {lessons: gate.discovery.lessons})
   }};
 }
 

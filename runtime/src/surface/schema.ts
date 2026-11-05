@@ -25,6 +25,8 @@ export interface SurfaceAudit {
   readonly scenarios: Readonly<Partial<Record<ScenarioId, SurfaceScenario>>>;
   /** Derived discovery queries judged incidental: their hits need no per-file row (guards in the surface gate). */
   readonly dismissed?: readonly { readonly query: string; readonly reason: string }[];
+  /** Answers to fired escape lessons (.agent-ops-escapes/lessons), keyed by lesson ID; completeness is LESSON_MISSING before review. */
+  readonly lessons?: Readonly<Record<string, SurfaceScenario>>;
 }
 /** A child of a surfaced parent names the parent's included surfaces it delivers. */
 export interface SurfaceCovers { readonly covers: readonly string[] }
@@ -67,7 +69,7 @@ export function parseSurface(value: unknown): TaskSurface {
       invalid("covers must list unique parent surface IDs.");
     return {covers: [...value.covers as string[]]};
   }
-  if (!record(value) || !exact(value, ["axes", "included", "excluded", "unknown", "contracts", "valueChanges", "scenarios"], ["dismissed"]))
+  if (!record(value) || !exact(value, ["axes", "included", "excluded", "unknown", "contracts", "valueChanges", "scenarios"], ["dismissed", "lessons"]))
     invalid("Surface file needs axes, included, excluded, unknown, contracts, valueChanges and scenarios (or covers for a child).");
   const axes = value.axes;
   if (!record(axes) || !exact(axes, [...SURFACE_AXES])) invalid("axes must name dependents, duplicates, otherPaths and sharedState.");
@@ -113,12 +115,18 @@ export function parseSurface(value: unknown): TaskSurface {
   const scenarios = value.scenarios;
   if (!record(scenarios) || Object.keys(scenarios).some(k => !SCENARIO_DIMENSIONS.includes(k as ScenarioId)))
     invalid(`scenarios may name only ${SCENARIO_DIMENSIONS.join(", ")}.`);
+  const answer = (row: unknown, what: string): SurfaceScenario => {
+    if (record(row) && exact(row, ["applies", "behavior"]) && row.applies === true && text(row.behavior)) return {applies: true, behavior: row.behavior};
+    if (record(row) && exact(row, ["na"]) && reason(row.na)) return {na: row.na};
+    return invalid(`${what} needs {applies: true, behavior} or {na: reason}.`);
+  };
   const parsedScenarios: Partial<Record<ScenarioId, SurfaceScenario>> = {};
-  for (const [key, row] of Object.entries(scenarios)) {
-    if (record(row) && exact(row, ["applies", "behavior"]) && row.applies === true && text(row.behavior))
-      parsedScenarios[key as ScenarioId] = {applies: true, behavior: row.behavior};
-    else if (record(row) && exact(row, ["na"]) && reason(row.na)) parsedScenarios[key as ScenarioId] = {na: row.na};
-    else invalid(`Scenario ${key} needs {applies: true, behavior} or {na: reason}.`);
+  for (const [key, row] of Object.entries(scenarios)) parsedScenarios[key as ScenarioId] = answer(row, `Scenario ${key}`);
+  let lessons: Record<string, SurfaceScenario> | undefined;
+  if (value.lessons !== undefined) {
+    if (!record(value.lessons) || Object.keys(value.lessons).length > 256 || !Object.keys(value.lessons).every(id))
+      invalid("lessons maps up to 256 lesson IDs to {applies: true, behavior} or {na: reason}.");
+    lessons = Object.fromEntries(Object.entries(value.lessons).map(([key, row]) => [key, answer(row, `Lesson ${key}`)]));
   }
   let dismissed: { query: string; reason: string }[] | undefined;
   if (value.dismissed !== undefined) {
@@ -135,7 +143,8 @@ export function parseSurface(value: unknown): TaskSurface {
   }
   return {
     axes: Object.fromEntries(SURFACE_AXES.map(name => [name, axis(axes[name], name)])) as Record<SurfaceAxisId, SurfaceAxis>,
-    included, excluded, unknown, contracts, valueChanges, scenarios: parsedScenarios, ...(dismissed === undefined ? {} : {dismissed})
+    included, excluded, unknown, contracts, valueChanges, scenarios: parsedScenarios, ...(dismissed === undefined ? {} : {dismissed}),
+    ...(lessons === undefined ? {} : {lessons})
   };
 }
 

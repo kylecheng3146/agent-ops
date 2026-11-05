@@ -97,31 +97,42 @@ async function kind(path: string): Promise<"missing" | "directory" | "file" | "o
     throw error;
   }
 }
-const unsafe = (): never => {
-  throw new AgentOpsError("ESCAPE_RULE_UNSAFE", `${RULES_DIRECTORY} must be a real directory of regular <id>.json files.`);
-};
 
-/** Fails closed: a broken or symlinked rule never silently stops tightening. */
-export async function loadRules(root: string): Promise<LoadedRule[]> {
-  for (const directory of [".agent-ops-escapes", RULES_DIRECTORY]) {
-    const found = await kind(join(root, directory));
+/**
+ * Tracked escape data (rules, lessons): a real directory of regular <id>.json files, read
+ * without following links. Missing is empty; anything else calls unsafe or invalid.
+ */
+export async function readJsonDirectory(root: string, directory: string, unsafe: () => never,
+  invalid: (file: string, message: string) => never): Promise<{ name: string; source: string; value: unknown }[]> {
+  for (const part of [".agent-ops-escapes", directory]) {
+    const found = await kind(join(root, part));
     if (found === "missing") return [];
     if (found !== "directory") unsafe();
   }
-  const rules: LoadedRule[] = [];
-  for (const name of (await readdir(join(root, RULES_DIRECTORY))).sort()) {
-    const path = join(root, RULES_DIRECTORY, name);
+  const files: { name: string; source: string; value: unknown }[] = [];
+  for (const name of (await readdir(join(root, directory))).sort()) {
+    const path = join(root, directory, name);
     if (await kind(path) !== "file") unsafe();
-    if (!name.endsWith(".json")) invalid(name, "only <id>.json rule files belong here.");
+    if (!name.endsWith(".json")) invalid(name, "only <id>.json files belong here.");
     // O_NOFOLLOW closes the lstat-to-open race on POSIX; Windows has no such flag.
     const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     let source: string;
     try { source = await handle.readFile("utf8"); } finally { await handle.close(); }
     let value: unknown;
     try { value = JSON.parse(source); } catch { invalid(name, "not JSON."); }
-    rules.push({rule: parseRule(value, name), hash: sha256(source)});
+    files.push({name, source, value});
   }
-  return rules;
+  return files;
+}
+
+const unsafe = (): never => {
+  throw new AgentOpsError("ESCAPE_RULE_UNSAFE", `${RULES_DIRECTORY} must be a real directory of regular <id>.json files.`);
+};
+
+/** Fails closed: a broken or symlinked rule never silently stops tightening. */
+export async function loadRules(root: string): Promise<LoadedRule[]> {
+  return (await readJsonDirectory(root, RULES_DIRECTORY, unsafe, invalid))
+    .map(({name, source, value}) => ({rule: parseRule(value, name), hash: sha256(source)}));
 }
 
 /** Added and removed lines only: headers and context never trigger. */
@@ -129,8 +140,8 @@ function changedLines(diff: string): string[] {
   return diff.split("\n").filter(l => /^[+-]/u.test(l) && !l.startsWith("+++") && !l.startsWith("---")).map(l => l.slice(1));
 }
 
-/** A rule fires when a changed path matches a trigger glob or a changed line contains a trigger token. */
-export function ruleFires(rule: EscapeRule, paths: readonly string[], diff: string): boolean {
+/** A rule (or lesson) fires when a changed path matches a trigger glob or a changed line contains a trigger token. */
+export function ruleFires(rule: Pick<EscapeRule, "trigger">, paths: readonly string[], diff: string): boolean {
   const globs = rule.trigger.paths.map(globMatcher);
   if (paths.some(path => globs.some(match => match(path)))) return true;
   if (rule.trigger.tokens.length === 0) return false;
@@ -161,9 +172,9 @@ export async function ruleHits(root: string, rule: EscapeRule, ref?: string, tim
 
 /** One commit's own change against its first parent (the empty tree for a root commit). */
 export async function commitChange(root: string, commit: string): Promise<{ paths: string[]; diff: string }> {
-  const names = await runGit(root, ["show", "-m", "--first-parent", "--format=", "--name-only", "-z", "--no-renames", commit, "--"], RULE_LIMITS.queryTimeoutMs);
+  const names = await runGit(root, ["show", "-m", "--first-parent", "--format=", "--name-only", "-z", "--no-renames", "--end-of-options", commit, "--"], RULE_LIMITS.queryTimeoutMs);
   const diff = await runGit(root, ["show", "-m", "--first-parent", "--format=", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
-    "--no-renames", commit, "--"], RULE_LIMITS.queryTimeoutMs);
+    "--no-renames", "--end-of-options", commit, "--"], RULE_LIMITS.queryTimeoutMs);
   if (names.code !== 0 || diff.code !== 0) throw new AgentOpsError("ESCAPE_GIT_FAILED", `git show ${commit} failed.`);
   return {paths: zList(names.stdout), diff: diff.stdout.toString("utf8")};
 }

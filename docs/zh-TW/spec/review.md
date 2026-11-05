@@ -99,6 +99,7 @@ PASS MUST 交給第二個規劃的 target 嘗試反駁，且反駁成立時 MUST
 - Negative: `為了讓複查看起來有效而編造反駁。`
 - Note: 只有一個設定 target 時，會在全新 session 再呼叫同一 target。FAIL 已是終局，不再複查。
 - Note: 有 surface 的 task，第二輪也會在 `surface-coverage` 下搜尋未列出的 surface 與情境：檢查五個固定情境維度，每個軸向最多可新增 3 個 `git grep -F` 查詢，另外可針對 discovery 因太通用而略過的衍生查詢（prompt 會列出它們與命中數）總計最多再跑 3 個。prompt 也會依來源列出超過每類 400 個上限、從未搜尋的衍生查詢數量。第一輪重放記錄的查詢並閱讀每個列出的 `valueChanges` consumer；這是「不要普查 repository」唯一的例外。
+- Note: 兩輪也都會在 `surface-coverage` 下判定被觸發的逃逸 lesson：與改動矛盾的 `na` 理由，或改動沒有實作的 `applies` 行為，都是 blocking finding（[EVIDENCE-ESCAPE-003](acceptance-and-evidence.md#evidence-escape-003)）。
 
 ## REVIEW-ORIGIN-001
 

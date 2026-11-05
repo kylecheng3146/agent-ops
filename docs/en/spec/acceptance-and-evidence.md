@@ -143,7 +143,8 @@ Every new task MUST record a surface audit of where else its change lands before
   `SURFACE_EXCLUSION_TOO_BROAD` (one glob over 10 files, or any file in the
   diff), `SURFACE_INCLUSION_TOO_BROAD` (one included or UNKNOWN glob over 10
   files outside the diff), `SURFACE_DISMISSAL_TOO_BROAD` (over 128 dismissals),
-  `SURFACE_DISMISSAL_INVALID` (a recorded or rare query), `SCENARIO_MISSING`, `SURFACE_BUDGET_EXCEEDED` (120 s total, never
+  `SURFACE_DISMISSAL_INVALID` (a recorded or rare query), `SCENARIO_MISSING`, `LESSON_MISSING`,
+  `ESCAPE_LESSON_INVALID` or `ESCAPE_LESSON_UNSAFE` ([EVIDENCE-ESCAPE-003](#evidence-escape-003)), `SURFACE_BUDGET_EXCEEDED` (120 s total, never
   silently skipped), `SURFACE_DISCOVERY_FAILED` (a git command failed, a
   `git grep` exited other than 0 or 1, or an untracked changed file was
   unreadable; never read as "no hits") or `SURFACE_UNASSIGNED` (children's covers differ from the
@@ -159,7 +160,7 @@ Every new task MUST record a surface audit of where else its change lands before
 
 ## EVIDENCE-ESCAPE-001
 
-A bug fix SHOULD declare where its bug came from when known, and a declared escape MUST be linked, labelled and recorded mechanically. The declaration is advisory: it never blocks finish.
+A bug fix SHOULD declare where its bug came from when known, and a declared escape MUST be linked, labelled and recorded mechanically. The declaration is advisory: it never blocks finish; a `scenario`, `requirement` or `review` escape still needs its lesson record ([EVIDENCE-ESCAPE-003](#evidence-escape-003)).
 
 - Trigger: A DEBUG task (`task create --debug`) or any task fixes a bug that passed earlier gates and its origin is known.
 - Action: Declare `origin` with `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]`, the same for DEBUG and normal tasks. `pre-existing` and `external` origins (with a `reason`) recorded by 0.10 `task debug` still load; an undeclared origin is counted as such. Commit the `.agent-ops-escapes/<task-id>.json` record with the fix.
@@ -227,8 +228,9 @@ A surface escape SHOULD become a proven, tracked rule, and learned rules MUST on
   `redCheckIds` entry of a proven behavioral criterion of the fixing task
   (red baseline, green candidate); the output prints a config proposal for a
   new required verifier, and agent-ops never writes `.agent-ops/config.json`.
-  `scenario`, `review`, `requirement`, `flagged` and `out-of-model` record an
-  unproven lesson with a reason and do not block. No review or test ever runs
+  `flagged` and `out-of-model` record an unproven lesson with a reason and do
+  not block; `scenario`, `requirement` and `review` get an escape lesson
+  ([EVIDENCE-ESCAPE-003](#evidence-escape-003)). No review or test ever runs
   at the escaped commit.
 - Backtest: the trigger is matched against the diffs of the last 200
   first-parent commits in one argv `git log`; a fire rate above 30% is
@@ -243,6 +245,42 @@ A surface escape SHOULD become a proven, tracked rule, and learned rules MUST on
   retirement candidates; removal is always a reviewed commit, never automatic.
 - R2 supersedes the phase-2 `surface.aliases` config (now tracked rules) and
   `surface stats` (now `agent-ops escapes`).
+
+## EVIDENCE-ESCAPE-003
+
+A `scenario`, `requirement` or `review` escape MUST leave a lesson record, and a fired lesson MUST be answered in the surface audit. Lessons only add questions a task must answer; they never relax a gate.
+
+- Trigger: A task whose declared escape (EVIDENCE-ESCAPE-001) is labelled `scenario`, `requirement` or `review`, or any task whose diff fires a tracked lesson.
+- Action: After committing the fix and before review, run `agent-ops escapes reflect --task <id>` (`--fix <sha>` for a past escape, `--rerun` after a review rejects the lesson) and commit `.agent-ops-escapes/lessons/<task-id>.json`. Answer each fired lesson in the surface audit's optional `lessons` key: `{"<lesson-id>": {"applies": true, "behavior": "..."}}` or `{"<lesson-id>": {"na": "reason"}}`.
+- Evidence: Each record is `{id, escape, taskId, label, status, cue, check, evidence, trigger, backtest, reflector}` with status `lesson`, `no-entry` or `not-run`; fired lessons and their answers reach both reviewers under `surface-coverage`.
+- Positive: `A scenario escape in resume handling leaves a lesson whose trigger names runtime/src/run/service.ts; the next task touching it answers "applies: a manual resume from a legacy snapshot keeps its counters".`
+- Negative: `Finish a scenario escape fix without a lesson file, or answer a fired lesson with an na reason the change contradicts.`
+
+- Reflector: one data-only call on the independent-review role's first target
+  in an empty workspace. It reads the fix diff (task base..HEAD, or the
+  `--fix` commit), the escaped commit's diff, the missed paths, the task goal
+  and criteria and, with `--rerun`, the latest review findings. Its answer is a
+  `cue` (the recurring situation), a `check` (the question a later change must
+  answer), `evidence` and a `trigger` in the escape-rule shape `{paths,
+  tokens}` with at least one path. The trigger must fire on the escaped
+  commit's own diff and back-test at or below 30% of the last 200 first-parent
+  commits; a rejected answer is retried once with the reason. `NO_ENTRY`
+  records `no-entry`; an unavailable target, a launch error or a second
+  rejection records `not-run`. Only `lesson` records fire. The escape record's
+  `escapeOf` and `fix` must be full commit SHAs (`ESCAPE_ORIGIN_INVALID`
+  otherwise), and another label is `ESCAPE_LESSON_INELIGIBLE`.
+- Gates: a lesson fires when the diff matches a trigger path glob or a changed
+  line contains a trigger token. A fired lesson without an answer stops the
+  surface gate with `LESSON_MISSING` (review NOT_RUN); an invalid or symlinked
+  lesson file is `ESCAPE_LESSON_INVALID` or `ESCAPE_LESSON_UNSAFE`. Finish
+  refuses a `scenario`, `requirement` or `review` escape that has no lesson
+  file (`ESCAPE_LESSON_MISSING`); `lesson`, `no-entry` and `not-run` all pass.
+  Task create prints lessons whose trigger paths overlap the surface's included
+  globs, and the criteria advisory receives them; neither blocks.
+- Report and retirement: `agent-ops escapes` lists per-lesson fires and
+  `applies` / `na` answers; a lesson fired at least 10 times and never answered
+  `applies` is a retirement candidate. There is no cap on fired lessons per
+  task, and removal is always a reviewed commit, never automatic.
 
 ## EVIDENCE-AGGREGATE-001
 

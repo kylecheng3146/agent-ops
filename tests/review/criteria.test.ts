@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdtemp, rm, stat, readdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, rm, stat, readdir, readFile, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
@@ -60,6 +60,22 @@ test("one data-only round, private provenance, safe log, no final evidence and c
     assert.doesNotMatch(JSON.stringify(logs), /Missing empty input|Assigned behavior/);
     assert.equal(await findReviewAttestation(root, "a".repeat(64), task.id), null);
     await assert.rejects(stat(join(root, ".agent-ops/tasks")), {code: "ENOENT"});
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("an empty recommendations list is invited by the prompt and completes as valid advice", async () => {
+  const empty = {...advice, recommendations: []};
+  assert.equal(validateCriteriaAdvice(empty), true);
+  for (const verification of [undefined, {requiredVerifierIds: ["unit"], runners: []}]) {
+    assert.match(criteriaReviewPrompt(criteriaSnapshot(task, undefined, verification)),
+      /An empty recommendations array is a valid, expected answer when the criteria already cover the goal\. Recommend only what the supplied data argues for/);
+  }
+  const root = await fixture();
+  try {
+    const view = await runCriteriaReview({root, task, target: "codex", runner: runner([], empty)});
+    assert.equal(view.report.status, "COMPLETED");
+    assert.deepEqual(view.report.advice?.recommendations, []);
+    assert.doesNotMatch(renderCriteriaReview(view), /Suggestion:/);
   } finally {await rm(root, {recursive: true, force: true});}
 });
 
@@ -311,4 +327,26 @@ test("attempts archive in the common dir; a nonzero reviewer exit is TARGET_FAIL
     assert.equal(invalid.report.code, "CRITERIA_REVIEW_INVALID_RESULT");
     assert.equal((await readdir(join(common, "agent-ops", "criteria-advisory"))).length, 3);
   } finally {await Promise.all([root, common].map(path => rm(path, {recursive: true, force: true})));}
+});
+
+test("path-matched escape lessons reach the advisor DATA without staling the criteria", async () => {
+  const surface = {axes: {}, included: [{id: "cart", path: "src/cart/Cart.ts", behavior: "Changes"}], excluded: [], unknown: [],
+    contracts: [], valueChanges: [], scenarios: {}};
+  const surfaced = {...task, surface} as unknown as AgentTask;
+  assert.equal("lessons" in criteriaSnapshot(surfaced), false);
+  assert.doesNotMatch(criteriaReviewPrompt(criteriaSnapshot(surfaced)), /DATA lessons/);
+  const lesson = {id: "cart-retry", escape: "a".repeat(40), taskId: "task-fix", label: "scenario", status: "lesson", cue: "Cart writes retry.",
+    check: "Does a repeated add keep one line?", evidence: "Double add on retry.", trigger: {paths: ["src/cart/**"], tokens: []},
+    backtest: {commits: 20, fires: 2, rate: 0.1}, reflector: {target: "claude", attempts: 1}};
+  const root = await fixture();
+  try {
+    await mkdir(join(root, ".agent-ops-escapes/lessons"), {recursive: true});
+    await writeFile(join(root, ".agent-ops-escapes/lessons/cart-retry.json"), JSON.stringify(lesson));
+    const requests: ProcessRequest[] = [];
+    const view = await runCriteriaReview({root, task: surfaced, target: "codex", runner: runner(requests)});
+    assert.deepEqual(view.report.snapshot.lessons, [{id: "cart-retry", cue: lesson.cue, check: lesson.check, trigger: lesson.trigger}]);
+    assert.match(requests[0]!.stdin!, /DATA lessons are cues learned from earlier escapes/);
+    assert.equal(view.stale, false);
+    assert.equal((await readCriteriaReview(root, surfaced))!.stale, false, "lessons are context, like the surface");
+  } finally {await rm(root, {recursive: true, force: true});}
 });

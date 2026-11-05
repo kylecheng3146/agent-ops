@@ -22,7 +22,7 @@
 
 task state 寫入 version 2、讀取 version 1；evidence version 4 讀取舊證據，attestation version 3 綁定契約與 coverage。legacy criteria 維持下列 verifier 規則；typed／revised 契約不能沿用舊 review。coverage 分列機械證明、review-only、legacy；runner 綁定本身不算證明。明確 no-change proof 列出固定 candidate 上已 commit 的 regular source files；整合時重新解析支持路徑。一般 empty-diff review 與 empty-branch direct finish 仍拒絕。
 
-English source version: 2026-11-02. Revalidate: when the English specification changes.
+English source version: 2026-11-04. Revalidate: when the English specification changes.
 
 ## EVIDENCE-CRITERION-001
 
@@ -94,7 +94,8 @@ English source version: 2026-11-02. Revalidate: when the English specification c
   記錄查詢超過 200 個檔案）、`SURFACE_EXCLUSION_TOO_BROAD`（單一 glob 超過 10 個
   檔案，或包含 diff 內的檔案）、`SURFACE_INCLUSION_TOO_BROAD`（單一 included 或
   UNKNOWN glob 涵蓋 diff 以外超過 10 個檔案）、`SURFACE_DISMISSAL_TOO_BROAD`（超過 128 筆排除）、
-  `SURFACE_DISMISSAL_INVALID`（記錄的查詢或稀有查詢）、`SCENARIO_MISSING`、`SURFACE_BUDGET_EXCEEDED`
+  `SURFACE_DISMISSAL_INVALID`（記錄的查詢或稀有查詢）、`SCENARIO_MISSING`、`LESSON_MISSING`、
+  `ESCAPE_LESSON_INVALID` 或 `ESCAPE_LESSON_UNSAFE`（[EVIDENCE-ESCAPE-003](#evidence-escape-003)）、`SURFACE_BUDGET_EXCEEDED`
   （總計 120 秒，絕不默默略過）、`SURFACE_DISCOVERY_FAILED`（git 指令失敗、`git grep`
   結束碼不是 0 或 1，或未追蹤的變更檔無法讀取；絕不當成「沒有命中」）或 `SURFACE_UNASSIGNED`（子 task covers 與父 task
   included 不一致；每次 review 都檢查，包含 advance 與 batch）。
@@ -108,7 +109,7 @@ English source version: 2026-11-02. Revalidate: when the English specification c
 
 ## EVIDENCE-ESCAPE-001
 
-bug 修復在已知來源時 SHOULD 宣告 bug 的來源；宣告的逃逸 MUST 以機械方式連結、標記並記錄。此宣告屬建議性質（advisory），絕不阻擋 finish。
+bug 修復在已知來源時 SHOULD 宣告 bug 的來源；宣告的逃逸 MUST 以機械方式連結、標記並記錄。此宣告屬建議性質（advisory），絕不阻擋 finish；但 `scenario`、`requirement` 或 `review` 逃逸仍需要 lesson 記錄（[EVIDENCE-ESCAPE-003](#evidence-escape-003)）。
 
 - Trigger: DEBUG task（`task create --debug`）或任何 task 修復一個通過了先前關卡的 bug，且已知其來源。
 - Action: 以 `task create|revise --escape-of <commit> --escape-label <label> [--escape-receipt <id>]` 宣告 `origin`，DEBUG 與一般 task 相同。0.10 `task debug` 記錄的 `pre-existing` 與 `external` origin（附 `reason`）仍可讀取；未宣告的 origin 另行計數。把 `.agent-ops-escapes/<task-id>.json` 記錄與修復一起 commit。
@@ -162,8 +163,8 @@ surface 逃逸 SHOULD 變成已證明、受追蹤的規則；學到的規則 MUS
   task diff。`criteria`/`verify` 逃逸需要其 promoted check 是修復 task 某個已證明
   behavioral 條件的 `redCheckIds` 項目（baseline 紅、candidate 綠）；輸出會印出新增
   required verifier 的 config 提案，agent-ops 絕不寫入 `.agent-ops/config.json`。
-  `scenario`、`review`、`requirement`、`flagged` 與 `out-of-model` 記錄帶理由的未證明
-  lesson，不阻擋。絕不在被逃逸 commit 上執行 review 或測試。
+  `flagged` 與 `out-of-model` 記錄帶理由的未證明 lesson，不阻擋；`scenario`、
+  `requirement` 與 `review` 則產生逃逸 lesson（[EVIDENCE-ESCAPE-003](#evidence-escape-003)）。絕不在被逃逸 commit 上執行 review 或測試。
 - 回測：以一次 argv `git log` 把 trigger 比對最近 200 個 first-parent commit 的 diff；
   觸發比率超過 30% 為 `ESCAPE_RULE_TOO_BROAD`。回測有時間預算（超出為
   `SURFACE_BUDGET_EXCEEDED`，絕不默默通過），並以 HEAD 與規則 hash 快取。編輯證明用規則
@@ -175,6 +176,35 @@ surface 逃逸 SHOULD 變成已證明、受追蹤的規則；學到的規則 MUS
   經過審查的 commit，絕不自動。
 - R2 取代 phase-2 的 `surface.aliases` 設定（改為受追蹤規則）與 `surface stats`
   （改為 `agent-ops escapes`）。
+
+## EVIDENCE-ESCAPE-003
+
+`scenario`、`requirement` 或 `review` 逃逸 MUST 留下 lesson 記錄，且被觸發的 lesson MUST 在 surface audit 中回應。lesson 只會增加 task 必須回答的問題，絕不放寬任何關卡。
+
+- 觸發：宣告的逃逸（EVIDENCE-ESCAPE-001）標記為 `scenario`、`requirement` 或 `review` 的 task，或 diff 觸發了受追蹤 lesson 的任何 task。
+- 動作：commit 修復之後、review 之前，執行 `agent-ops escapes reflect --task <id>`（過去的逃逸用 `--fix <sha>`，review 否決 lesson 後用 `--rerun`），並 commit `.agent-ops-escapes/lessons/<task-id>.json`。在 surface audit 的選用 `lessons` 鍵回應每個被觸發的 lesson：`{"<lesson-id>": {"applies": true, "behavior": "..."}}` 或 `{"<lesson-id>": {"na": "理由"}}`。
+- 證據：每筆記錄為 `{id, escape, taskId, label, status, cue, check, evidence, trigger, backtest, reflector}`，status 為 `lesson`、`no-entry` 或 `not-run`；被觸發的 lesson 與其回應會在 `surface-coverage` 條件下送給兩位審查者。
+- 正例：`resume 處理的 scenario 逃逸留下一個 lesson，其 trigger 指名 runtime/src/run/service.ts；下一個改到它的 task 回應「applies：從舊版 snapshot 手動 resume 會保留計數」。`
+- 反例：`修完 scenario 逃逸卻沒有 lesson 檔就 finish，或用與改動矛盾的 na 理由回應被觸發的 lesson。`
+
+- Reflector：在空的工作目錄，以 independent-review 角色的第一個 target 做一次只讀資料的
+  呼叫。它讀取修復 diff（task base..HEAD，或 `--fix` commit）、被逃逸 commit 的 diff、
+  漏掉的路徑、task 的 goal 與 criteria，加上 `--rerun` 時最新的 review findings。回答包含
+  `cue`（會重複出現的情境）、`check`（之後的改動必須回答的問題）、`evidence`，以及沿用
+  逃逸規則格式 `{paths, tokens}` 且至少一個 path 的 `trigger`。trigger 必須在被逃逸 commit
+  自身的 diff 上觸發，且在最近 200 個 first-parent commit 的回測中觸發比率不超過 30%；被拒絕
+  的回答會帶著理由重試一次。`NO_ENTRY` 記為 `no-entry`；target 不可用、啟動錯誤或第二次被拒
+  記為 `not-run`。只有 `lesson` 記錄會觸發。逃逸記錄的 `escapeOf` 與 `fix` 必須是完整的
+  commit SHA（否則為 `ESCAPE_ORIGIN_INVALID`），其他標記則為 `ESCAPE_LESSON_INELIGIBLE`。
+- 關卡：diff 符合 trigger 路徑 glob，或變更行含 trigger token 時，lesson 觸發。被觸發卻沒有
+  回應的 lesson 會以 `LESSON_MISSING` 停下 surface 關卡（review NOT_RUN）；無效或為 symlink
+  的 lesson 檔為 `ESCAPE_LESSON_INVALID` 或 `ESCAPE_LESSON_UNSAFE`。沒有 lesson 檔的
+  `scenario`、`requirement` 或 `review` 逃逸，finish 會拒絕（`ESCAPE_LESSON_MISSING`）；
+  `lesson`、`no-entry` 與 `not-run` 皆可通過。task create 會印出 trigger 路徑與 surface
+  included glob 重疊的 lesson，criteria advisory 也會收到；兩者都不阻擋。
+- 報表與退役：`agent-ops escapes` 列出每個 lesson 的觸發次數與 `applies` / `na` 回應數；
+  觸發至少 10 次且從未回應 `applies` 的 lesson 為退役候選。每個 task 被觸發的 lesson 沒有
+  數量上限，移除一律經過審查的 commit，絕不自動。
 
 ## EVIDENCE-AGGREGATE-001
 

@@ -22,7 +22,9 @@ agent-ops task create --debug --title "修購物車無法捲動" \
 若知道 bug 從哪裡來，與一般 task 一樣記錄：
 `task revise --escape-of <commit> --escape-label <label>`。它會寫入 `.agent-ops-escapes/<task-id>.json`，並印出
 連結狀態、`git blame` 提示與規則證明（如 `ESCAPE_RULE_UNPROVEN`）。這些都不會阻擋
-finish；見 `EVIDENCE-ESCAPE-001` 與 `EVIDENCE-ESCAPE-002`。
+finish，唯一例外是 `scenario`、`requirement` 或 `review` 逃逸：commit 修復之後、review 之前
+要執行 `agent-ops escapes reflect --task <id>`，沒有 lesson 檔時 finish 會拒絕
+（`ESCAPE_LESSON_MISSING`）。見 `EVIDENCE-ESCAPE-001` 到 `EVIDENCE-ESCAPE-003`。
 
 ## 0.11.0 移除項目
 
