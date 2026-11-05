@@ -1,0 +1,9 @@
+worktree: session-673d629e (agent-ops/session-673d629e)
+session: 673d629e-c801-4d6e-8d61-0bfb78958de7
+agent-ops task task-b0fb3bc7-c916-4790-a8f9-c131d96ca5dc: Release 1.1.0
+intent: Bump package.json, package-lock.json root entries and README status to 1.1.0; move CHANGELOG Unreleased entries under ## [1.1.0] - 2026-11-05; run build, package:check and scan-source before the release PR.
+criteria:
+- version-1-1-0: package.json, the root entries of package-lock.json and the README project status all name version 1.1.0, and CHANGELOG.md keeps an empty ## [Unreleased] heading followed by ## [1.1.0] - 2026-11-05 holding the advisory, escape lesson, both Gate and reflect hardening entries.
+- release-scans: The release candidate builds and passes the release scans that npm test does not run: npm run package:check (packed file names) and node scripts/scan-source.mjs (no host paths in tracked sources) exit 0.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/2838221ec289433b20507659519a20a310c7e06144ff71f11da84d36ffced4c1-8b296e01c3db858b785f169ab7dbeedad3162234.json
+receipt-sha256: 03f570ec03345ec71356e24a87a45e8ab708285c5fadc16f37104c4103fc8315
