@@ -1,0 +1,9 @@
+worktree: session-673d629e (agent-ops/session-673d629e)
+session: 673d629e-c801-4d6e-8d61-0bfb78958de7
+agent-ops task task-27f7a18c-8d7d-4f24-b7b8-3c7db54bb6a4: Advisory: empty recommendations are a valid answer
+intent: Add one prompt line after the check-binding line in runtime/src/review/criteria.ts; add tests for the line and for empty-recommendation advice validating; add a CHANGELOG Unreleased entry. No schema or CLI change.
+criteria:
+- advisory-empty-ok: The criteria advisory prompt tells the advisor that an empty recommendations list is a valid, expected answer when the criteria already cover the goal, and to recommend only what the supplied data argues for; advice with an empty recommendations list is accepted as valid advice.
+- changelog-entry: CHANGELOG.md lists the advisory prompt change under ## [Unreleased], and no schema, CLI flag or report format changes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/2838221ec289433b20507659519a20a310c7e06144ff71f11da84d36ffced4c1-6379ad157d2f4d9dea74a561066caac90aed9135.json
+receipt-sha256: 1baaa1bd37a7003119a410620b71eb09fe2b90fbb3b9c3eabf1d46f157cec77a
