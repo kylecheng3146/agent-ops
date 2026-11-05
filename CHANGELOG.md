@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-05
+
 - The criteria advisory prompt now tells the advisor that an empty
   recommendations list is a valid answer when the criteria already cover the
   goal, and to recommend only what the task data argues for. Every archived
