@@ -260,6 +260,7 @@ async function run(
   targets: readonly ReviewTargetId[],
   script: readonly Scripted[],
   options: {
+    readonly unlimitedWork?: boolean;
     readonly timeoutMs?: number;
     readonly stallIdleMs?: number;
     readonly chainTimeoutMs?: number;
@@ -281,6 +282,7 @@ async function run(
     // These cases assert chain behavior, not the machine's loopback policy.
     probeBind: async () => true,
     timeoutMs: options.timeoutMs ?? 120_000,
+    unlimitedWork: options.unlimitedWork,
     ...(options.chainTimeoutMs === undefined
       ? {}
       : { chainTimeoutMs: options.chainTimeoutMs }),
@@ -1697,4 +1699,18 @@ test("a review activity record follows the rounds as the CLI wires it", async ()
   } finally {
     await rm(commonDir, { recursive: true, force: true });
   }
+});
+
+
+test("unlimited run review completes both rounds beyond work, chain and idle limits", async () => {
+  const slowPass = (target: ReviewTargetId): Scripted => ({stdout: passing(target),
+    beforeComplete: async () => {await new Promise<void>(resolve => setTimeout(resolve, 25));}});
+  const bounded = await run(["claude", "codex"], [slowPass("claude"), slowPass("codex")],
+    {timeoutMs: 5, chainTimeoutMs: 5, stallIdleMs: 50});
+  assert.equal(bounded.result.status, "NOT_RUN");
+  assert.equal(bounded.result.reason, "timeout");
+  const unlimited = await run(["claude", "codex"], [slowPass("claude"), slowPass("codex")],
+    {timeoutMs: 5, chainTimeoutMs: 5, stallIdleMs: 5, unlimitedWork: true});
+  assert.equal(unlimited.result.status, "PASS");
+  assert.deepEqual(unlimited.attempts.map(a => a.command), ["claude", "codex"]);
 });

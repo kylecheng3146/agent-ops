@@ -98,6 +98,7 @@ function textFor(action: RunAction, state: RunState, message: string): string {
     state.finalProof == null ? "" : `Final proof recovery: ${state.finalProof.recoveries}/1 used; first failure ${state.finalProof.failures[0]?.code ?? "none"}; ` +
       `last failure ${state.finalProof.failures.at(-1)?.code ?? "none"}; automatic recovery ${state.finalProof.stopped ? "stopped" : state.finalProof.pending ? "in progress" : "available"}`,
     `Host: ${state.host}`,
+    state.providerWait == null ? "" : `Provider quota: ${state.providerWait.reason}; reset: ${state.providerWait.resetAt ?? "unknown; manual resume required"}`,
     `Workers: ${active}/${state.jobs}`,
     state.budget.limitMs === null ? `Budget: unlimited; ${state.budget.accumulatedMs}ms active time recorded` : `Budget: ${Math.max(0, state.budget.limitMs - state.budget.accumulatedMs)}ms remaining (legacy; manual resume upgrades)`,
     `Usage: ${state.budget.usage.tokens ?? "unknown"} tokens; ${state.budget.usage.usd === null ? "unknown" : "$" + state.budget.usage.usd} cost (${state.budget.usage.completeness})`,

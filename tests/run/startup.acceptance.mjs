@@ -4,6 +4,7 @@ import {mkdtemp, mkdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {runResilienceChecks} from './run-resilience-checks.mjs';
 import {officePhaseChecks} from '../office/phase-checks.mjs';
 import {officeReviveChecks} from '../office/revive-checks.mjs';
 import {officeRetentionChecks} from '../office/retention-checks.mjs';
@@ -69,6 +70,7 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...runResilienceChecks,
   ...installRunnerChecks,
   ...privateWriteChecks,
   ...cliChecks,

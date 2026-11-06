@@ -1226,7 +1226,7 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
         if (value !== "1" && value !== "2") invalidValue(token, value);
         args.jobs = Number(value); break;
       case "--time-budget": {
-        throw new CliArgumentError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Command and review timeouts remain effective.", token);
+        throw new CliArgumentError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Standalone command/review deadlines and provider limits remain effective.", token);
       }
     }
   }

@@ -11,7 +11,7 @@
 - Negative: 只因 native goal completion 就把 run 標為 complete。
 
 - macOS supervisor 在啟動 goal 前保存 Claude／Codex native 身份。同 host writers 使用獨立 worktrees 與目前 generation lease；coordinator 計入最多兩個 writer。依賴以固定交付提供，child baseline 在依賴 commits 進入 checkout 後建立。
-- 新 run 不設總時間上限（`budget.limitMs: null`），仍以 active intervals 聯集記錄 setup、verify、review、整合的消耗。舊有限 run 僅在下次人工 resume 升級，保留舊上限、intervals、消耗、usage epochs 與 blocker 歷史；讀取或安裝不會升級或喚醒舊 run。單次命令／review timeout、provider quota、無進度與 pause/stop 控制保持獨立有效。明確指定 --time-budget 會被拒絕。缺少計數維持 UNKNOWN，partial usage 不算完整成本。
+- 新 run 不設總時間上限（`budget.limitMs: null`），仍以 active intervals 聯集記錄 setup、verify、review、整合的消耗。舊有限 run 僅在下次人工 resume 升級，保留舊上限、intervals、消耗、usage epochs 與 blocker 歷史；讀取或安裝不會升級或喚醒舊 run。已認證 run 的 setup/build、verify、acceptance replay 與正式 review 不設工作或靜默期限；一般獨立 CLI 的 timeout、native RPC 握手、取消後清理、provider quota 與真正無進度／pause/stop 控制仍有效。明確指定 --time-budget 會被拒絕。缺少計數維持 UNKNOWN，partial usage 不算完整成本。
 - 實質疑問暫停並要求明確回答。修復保留目標與失敗紀錄；連續兩次相同失敗且無進展停止該 worker 及其依賴，獨立 task 仍可執行。review findings 在下次 final gate 前必須有回歸 pin 或記錄 review-only fallback。
 - native completion 僅是觀察。完成必須有必要驗證、兩輪 fresh review、完成的 task state、綁定 target 的 receipt。整合在移動 target 前封存 candidate，記錄 task、receipt、note、cleanup 進度；恢復驗證封存證據，不重做成功的 target mutation。不一致的 target 維持 blocked。
 - Stop 先保存禁止續跑，再確認受管 process group 死亡。crash recovery 不得取代仍存活或身份不明的 writer。dirty checkout、版本漂移、restart storm 保留現場。重開機／login 改變必須明確 resume；不修改全域 host policy。
@@ -53,9 +53,14 @@ integration ownership 檢查仍有效。錯誤 actor、group、generation 或未
 `RUN_POLICY_DISABLED`。讀取 policy 不授予額外 capability，也不改動 config、trust、
 registration 或 delivery state。
 
-已知限制：內層 verification command 逾時可能終止共用的 proof 程序群組，使 evidence
-CLI 來不及輸出 JSON。本次 response 恢復沒有修復此程序隔離缺陷；可由既有
-coordinator policy 流程評估有界、僅限該 run 的 command timeout，並保留失敗紀錄。
+已登記 proof 的命令終止只處理該命令的子程序樹，保留 evidence CLI 與 proof group leader。
+
+結構化 provider 額度錯誤會保存同一 writer 與 dirty checkout 的等待狀態。已知重設時間
+則在到期後核對現行授權與歸屬，續跑同一個仍存活的 native session；未知時間、程序
+遺失或 supervisor 重啟則需人工恢復。Stop 取消自動恢復，舊的已停止 run 不會被喚醒。
+Native 事件讀取持續跨越修復回合；fresh Claude session 使用新 native ID 並保留 owner
+歸屬。無進展只計完整修復機會後的新驗證；native exit 與重讀舊 artifact 不算再跑一次
+失敗測試，獨立任務仍可排程。
 
 English source version: 2026-07-23. Revalidate: when the English specification changes.
 

@@ -124,6 +124,12 @@ Acceptance runner steps without their own `timeoutMs` get 10 minutes for
 1 minute for the git checkout. A step that times out is reported as
 `UNKNOWN` with the step, its limit and the `timeoutMs` field that raises it.
 
+These work deadlines apply to standalone commands. Authenticated `agent-ops run`
+setup/build, verification, acceptance replay and formal reviews have no hard work
+or idle deadline; RPC/capability checks and cancellation cleanup remain bounded.
+Known native quota resets wait and resume the same live session, with Stop priority.
+Unknown resets or lost live transports preserve work for manual recovery.
+
 The task ID is explicit and its criteria are always used; no session fallback
 or criterion filter can replace the original task requirements. Review rechecks
 the source fingerprint before the adversarial session and again before writing

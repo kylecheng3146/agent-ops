@@ -169,7 +169,7 @@ export class RunControlService {
       return {
         ...replace(current, [...current.controls, control]),
         status,
-        // A user-authorized resume re-enables reconciliation. The native
+        providerWait: null,        // A user-authorized resume re-enables reconciliation. The native
         // process is still restarted only after the supervisor revalidates
         // its generation and worktree lease.
         disableRestart: request.action === "stop" ? true : request.action === "resume" ? false : current.disableRestart,

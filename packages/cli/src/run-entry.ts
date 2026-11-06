@@ -1,3 +1,4 @@
+import {recordProviderWait, resumeProviderWait} from "../../../runtime/src/run/provider-wait.js";
 import {criteriaReviewStatus} from "./criteria-review.js";
 import {collectFollowupReceipt} from "../../../runtime/src/followup/intake.js";
 import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
@@ -307,14 +308,15 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
             workerId: event.workerId, taskId: null, detail: "Native authorization could not be accepted; no alternate permission path is allowed."});
           await repository.mutate(runId, current => ({...current, status: "blocked", disableRestart: true}));
         }
-        if (event.nativeStatus === "usageLimited" || event.nativeStatus === "budgetLimited") {
+        if (event.nativeStatus === "usageLimited") await recordProviderWait(repository, event);
+        if (event.nativeStatus === "budgetLimited") {
           await repository.mutate(runId, current => ({...current,
             status: event.nativeStatus === "usageLimited" || event.nativeStatus === "budgetLimited" ? "budget-limited" : "blocked",
             disableRestart: true}));
         }
         if (["completed", "error", "closed"].includes(event.type)) await repository.appendEvent(runId, {type: "diagnostic",
           code: event.type === "completed" ? "RUN_NATIVE_COMPLETION_UNPROVEN" : "RUN_NATIVE_" + event.type.toUpperCase(),
-          workerId: event.workerId, taskId: null, detail: "Native lifecycle observation; current agent-ops proof is still required."});
+          workerId: event.workerId, taskId: null, detail: event.type === "closed" ? redactSecrets(JSON.stringify(event.payload)).slice(0, 8192) : "Native lifecycle observation; current agent-ops proof is still required."});
       });
     const supervisor = new RunSupervisor({repository, host: transport});
     const scheduler = new RunScheduler({repository});
@@ -601,6 +603,11 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     async function repair(worker: RunWorkerRecord, code: string, message: string): Promise<void> {
       const current = (await repository.read(runId))!;
       const saved = current.workers.find(w => w.workerId === worker.workerId)!;
+      const attemptId = code === "VERIFICATION_FAILED"
+        ? [...current.events].reverse().find(e => e.code === "RUN_VERIFICATION_OBSERVED" && e.workerId === worker.workerId &&
+          e.taskId === worker.taskId && JSON.parse(e.detail ?? "{}").generation === worker.generation)?.id
+        : `${worker.workerId}:${worker.generation}:${code}`;
+      if (attemptId !== undefined && saved.lastFailure?.attemptId === attemptId) return;
       const localTasks = await new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops", "tasks", "state.json"), worker.worktree!)).list();
       const pins = await pendingFindingPins(worker.worktree!, localTasks, worker.taskId);
       const observation = await observeRunFailure(current, worker.worktree!, localTasks, worker.taskId, code, pins);
@@ -618,7 +625,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const result = await supervisor.recordFailure(runId, worker.workerId, worker.generation, {
         checkId: failed?.checkId ?? code, pinId: failed?.pinId ?? null, phase: failed?.phase ?? "native", failureClass: failed?.failureClass ?? code,
         fingerprint: observation.failureKey ?? sha256(canonicalJson({taskId: worker.taskId, code})), progressDigest: observation.progressDigest,
-        diagnosticDigest: sha256(message), round: (saved.lastFailure?.round ?? 0) + 1, usefulProgress});
+        ...(attemptId === undefined ? {} : {attemptId}), diagnosticDigest: sha256(message), round: (saved.lastFailure?.round ?? 0) + 1, usefulProgress});
       if (result.noProgress) {
         await scheduler.blockTaskAndDependents(runId, worker.taskId, code);
         if (worker.workerId === current.coordinatorId)
@@ -689,6 +696,14 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
         await transport.stop({nativeSessionId: "run-proof", nativeJobId: null, ...state.proofProcess,
           instance: state.nativeInstance, generation: 1, reason: "reconcile interrupted evidence process"});
         await repository.mutate(runId, current => ({...current, proofProcess: null}));
+      }
+      if (state.providerWait != null) {
+        await repository.mutate(runId, s => s.providerWait?.fingerprint !== state.providerWait?.fingerprint || s.disableRestart ||
+          !["active", "budget-limited"].includes(s.status) ? s : ({...s, status: "paused", awaitingResume: true, disableRestart: true, providerWait: null}));
+        await repository.appendEvent(runId, {type: "diagnostic", code: "RUN_PROVIDER_SUPERVISOR_RESTART", workerId: null, taskId: null,
+          detail: "Quota wait lost its live transport; preserve checkout and reconcile manually."});
+        await stopAll("stop");
+        return;
       }
       await stopAll("crash", false);
       state = (await repository.read(runId))!;
@@ -774,6 +789,18 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
               await start(worker, "Contract changed. Preserve the original goal and rerun proof for the current criteria. Old generations and native completion are unproven.");
             }
           }
+        }
+        if (state.providerWait != null && state.status === "budget-limited" && !state.disableRestart && !state.awaitingResume) {
+          for (const w of state.workers.filter(active)) await supervisor.heartbeat(runId, w.workerId, w.generation);
+          await resumeProviderWait(repository, transport, runId, async s => {
+            const renewed = s.status === "active" ? await ensureRunPolicy(repository, s) : s;
+            const policy = await readRunPolicy(renewed, await runRuntimeHash(), Date.now(), s.status !== "active");
+            const baseConfig = await deps.loadConfig(root);
+            if (policy === null || calculateConfigHash(baseConfig) !== calculateConfigHash(policy.baseConfig) ||
+              await deps.trust.status(root, baseConfig) !== "TRUSTED" || renewed.events.some(e => e.code === "RUN_COMMAND_DENIED"))
+              throw new AgentOpsError("RUN_REPO_UNTRUSTED", "Quota recovery cannot override missing authority or denial.");
+          });
+          await delay(1000); continue;
         }
         if (state.disableRestart || ["stopping", "paused", "budget-limited", "blocked"].includes(state.status)) {
           await stopAll(state.status === "budget-limited" ? "budget" : "stop");

@@ -4,6 +4,16 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Authenticated runs no longer impose work or idle deadlines on setup/build,
+  verification, acceptance replay or formal review. Standalone command limits,
+  RPC/capability checks and cancellation cleanup remain effective.
+- Native quota errors retain the live writer and wait for a known reset before
+  resuming the same host after authority checks. Stop cancels recovery; unknown
+  resets or lost transports preserve work for manual recovery.
+- Repair turns keep their event consumer, fresh Claude sessions get new native
+  IDs, startup exits retain redacted diagnostics, and old verifier reports can
+  no longer turn native exits or duplicate observations into stagnant rounds.
+
 ## [1.1.0] - 2026-11-05
 
 - The criteria advisory prompt now tells the advisor that an empty

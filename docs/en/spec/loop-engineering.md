@@ -18,8 +18,10 @@
   still measure setup, proof, review and integration. Legacy finite runs upgrade
   only on manual resume, retaining the old limit, intervals, elapsed time, usage
   epochs and blocker history. Reads and installation never upgrade or awaken runs.
-  Command/review timeouts, provider quotas and no-progress/stop
-  controls remain independent and effective. Explicit --time-budget is rejected.
+  Authenticated run setup/build, verification, acceptance replay and formal review
+  have no work or idle deadline. Standalone CLI deadlines, native RPC handshakes,
+  cancellation cleanup, provider quotas and genuine no-progress controls remain
+  effective. Explicit --time-budget is rejected.
   Missing counters remain UNKNOWN; partial usage is not a complete cost estimate.
 - Questions pause work and require an explicit answer. Repair preserves the goal
   and records failures; two identical rounds without progress stop that worker
@@ -141,10 +143,17 @@ still returns `RUN_POLICY_DISABLED` after identity validation. Policy reads gran
 no additional capability and do not alter config, trust, registration or delivery
 state.
 
-Known limitation: an inner verification command timeout can terminate the shared
-proof process group before the evidence CLI emits JSON. Response recovery does
-not fix this process isolation defect; a bounded run-only command timeout may be
-assessed through the existing coordinator policy flow, with the failure retained.
+Registered proof command termination targets only the command subtree, preserving
+the evidence CLI and its proof group leader.
+
+Structured native provider quota errors preserve the same writer and dirty checkout
+in a persisted wait. A known reset time resumes that same live native session after
+current authority and ownership checks; unknown resets, lost processes or supervisor
+restarts require manual recovery. Stop cancels automatic recovery. Historical stopped
+runs are never awakened. Native event observation spans repair turns, and fresh Claude
+sessions have distinct native IDs while retaining owner identity. Failure convergence
+counts new verification attempts after repair; native exits and repeated artifact reads
+are not another execution of old failing tests. Independent tasks remain schedulable.
 
 This module defines the bounded loop used to plan, implement, verify, and hand off work.
 

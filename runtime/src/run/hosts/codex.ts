@@ -1,3 +1,4 @@
+import {nativeProviderLimit} from "../provider-wait.js";
 import { randomUUID } from "node:crypto";
 
 import { AgentOpsError } from "../../fs/paths.js";
@@ -332,6 +333,7 @@ export class CodexGoalHost implements NativeGoalHost {
   private mapEvent(handle: NativeGoalHandle, message: JsonRecord): NativeGoalEvent {
     const method = typeof message.method === "string" ? message.method : "message";
     const payload = isRecord(message.params) ? message.params : message;
+    if (nativeProviderLimit(payload) !== null) return event(handle, "error", "usageLimited", payload, this.now);
     if (method === "thread/goal/updated") {
       const goal = isRecord(payload.goal) ? payload.goal : payload;
       const status = statusField(goal);

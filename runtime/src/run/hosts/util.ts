@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import {redactSecrets} from "../../security/redact.js";
+const nativeDiagnostics = new WeakMap<object, string>();
+export const nativeProcessDiagnostic = (child: object): string => redactSecrets(nativeDiagnostics.get(child) ?? "");
 import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
 
@@ -31,6 +34,7 @@ export function spawnNative(
   // Native clients can emit diagnostics independently of their structured
   // stdout protocol. Drain stderr so a long-lived writer cannot deadlock on a
   // full pipe; structured lifecycle events remain the source of truth.
+  child.stderr.on("data", chunk => nativeDiagnostics.set(child, ((nativeDiagnostics.get(child) ?? "") + chunk.toString()).slice(-8192)));
   child.stderr.resume();
   return child;
 }

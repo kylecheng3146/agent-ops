@@ -99,6 +99,7 @@ export interface WorkerFailureInput {
   readonly phase?: string | null;
   /** Optional digest of the semantic PASS/FAIL vector. */
   readonly progressDigest?: string | null;
+  readonly attemptId?: string;
   readonly round: number;
   readonly usefulProgress: boolean;
 }
@@ -435,6 +436,7 @@ export class RunSupervisor {
       diagnosticDigest: input.diagnosticDigest,
       ...(input.phase === undefined ? {} : { phase: input.phase }),
       ...(input.progressDigest === undefined ? {} : { progressDigest: input.progressDigest }),
+      ...(input.attemptId === undefined ? {} : {attemptId: assertId(input.attemptId, "attemptId")}),
       round: input.round,
       observedAt: this.#now(),
       usefulProgress: input.usefulProgress
@@ -447,6 +449,7 @@ export class RunSupervisor {
         throw error("RUN_WORKER_STALE", `Failure report rejected for stale worker ${workerId}.`);
       }
       const previous = worker.lastFailure;
+      if (input.attemptId !== undefined && previous?.attemptId === input.attemptId) return current;
       const sameSemanticFailure = previous !== null &&
         previous.failureClass === failure.failureClass &&
         previous.checkId === failure.checkId &&
@@ -494,7 +497,7 @@ export class RunSupervisor {
     const state = await this.#repository.read(runId);
     const worker = state?.workers.find((candidate) => candidate.workerId === workerId);
     if (state === null || state === undefined) throw error("RUN_NOT_FOUND", `Run not found: ${runId}`);
-    if (worker === undefined || worker.generation !== generation || !activeWorker(worker) || worker.nativeSessionId === null) {
+    if (state.status !== "active" || state.disableRestart || state.awaitingResume || worker === undefined || worker.generation !== generation || !activeWorker(worker) || worker.nativeSessionId === null) {
       throw error("RUN_WORKER_STALE", `Repair rejected for stale worker ${workerId}.`);
     }
     await this.#host.send({

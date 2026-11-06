@@ -103,6 +103,11 @@ attestation。整條 chain 逾時時回報 `timeout`，不會誤報 `missing-cli
 reviewer 預設最多 30 分鐘（可用 `reviewRoles[].timeoutMs` 覆寫）；在 stall 視窗內
 完全沒有輸出的 reviewer 仍會提早停止。
 
+上述工作期限適用於一般獨立命令。已認證 `agent-ops run` 的 setup/build、verify、
+acceptance replay 與正式 review 不設工作或靜默硬期限；RPC／能力檢查及取消後
+清理仍有界。已知 native 額度重設時間會等待並恢復同一存活 session，Stop 優先；
+未知時間或存活 transport 遺失則保留現場供人工恢復。
+
 Acceptance runner 的步驟若未設定自己的 `timeoutMs`，`setup` 為 10 分鐘，
 `build`、`testBuild` 與 runner 本身各 5 分鐘，git checkout 為 1 分鐘。逾時的步驟
 回報為 `UNKNOWN`，並指出是哪個步驟、上限多少，以及要調整哪個 `timeoutMs` 欄位。

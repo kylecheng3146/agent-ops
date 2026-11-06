@@ -801,6 +801,7 @@ process.exitCode = await runCli(
               evidenceStore: new FileEvidenceStore(root, root),
               execute: inActivity(inSlot(createReviewExecutor({
                 runner: registeredRunProofRunner(),
+                unlimitedWork: run !== null,
                 targets: configuredReviewTargets,
                 cwd: root,
                 ...(reviewRole?.model === undefined
@@ -909,6 +910,7 @@ process.exitCode = await runCli(
                     taskService,
                     evidenceStore: new FileEvidenceStore(root, root),
                     trusted,
+                    unlimitedWork: await runPolicyContext(root) !== null,
                     base
                   }).verify(taskId);
                   return report.status === "PASS" ? "PASS" : "FAIL";
@@ -989,6 +991,7 @@ process.exitCode = await runCli(
                 taskService,
                 evidenceStore: new FileEvidenceStore(root, root),
                 trusted: trustStatus === "TRUSTED",
+                unlimitedWork: run !== null,
                 ...(args.base === undefined ? {} : { base: args.base })
                 }).verify(taskId);
                 if (run !== null) await recordRunVerification(run.repository, run.state, run.worker?.workerId ?? run.state.coordinatorId,

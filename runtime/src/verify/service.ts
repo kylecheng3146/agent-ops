@@ -47,6 +47,7 @@ import type {
 
 export interface VerificationServiceOptions {
   readonly root: string;
+  readonly unlimitedWork?: boolean;
   readonly scope: InstallScope;
   readonly config: AgentOpsConfig;
   readonly gitRunner: GitRunner;
@@ -259,6 +260,7 @@ export class VerificationService {
     const result = await executeConfiguredCommand(command, {
       cwd: await this.#commandCwd(command),
       runner: this.#options.processRunner,
+      unlimitedWork: this.#options.unlimitedWork,
       trusted: this.#options.trusted
     });
     const fingerprint = result.status === "PASS"

@@ -141,6 +141,7 @@ export interface RunFailure {
   readonly phase?: string | null;
   /** Digest of the semantic PASS/FAIL vector, when available. */
   readonly progressDigest?: string | null;
+  readonly attemptId?: string;
   readonly round: number;
   readonly observedAt: string;
   readonly usefulProgress: boolean;
@@ -202,6 +203,9 @@ export interface RunState {
   readonly loginDomain: string;
   readonly awaitingResume: boolean;
   readonly disableRestart: boolean;
+  readonly providerWait?: {readonly workerId: string; readonly generation: number; readonly host: RunHost;
+    readonly nativeSessionId: string | null; readonly nativeJobId: string | null; readonly resetAt: string | null;
+    readonly reason: string; readonly observedAt: string; readonly fingerprint: string} | null;
   readonly budget: RunBudgetState;
   readonly usage?: readonly UsageHighWater[];
   readonly proofProcess?: {readonly processId: number; readonly processIdentity: string} | null;
@@ -417,6 +421,15 @@ export function assertRunState(value: unknown): asserts value is RunState {
       !Number.isFinite(Date.parse(state.createdAt)) || !Number.isFinite(Date.parse(state.updatedAt))) {
     return invalid("Persisted run state failed identity, budget, or ownership validation.");
   }
+  if (state.providerWait != null) {
+    const w = state.providerWait;
+    if (!plain(w) || !ID.test(String(w.workerId)) || !Number.isSafeInteger(w.generation) || w.generation < 1 ||
+      !["claude", "codex"].includes(w.host) || !SHA256.test(String(w.fingerprint)) ||
+      typeof w.reason !== "string" || w.reason.length > 256 || !Number.isFinite(Date.parse(w.observedAt)) ||
+      !(w.resetAt === null || typeof w.resetAt === "string" && Number.isFinite(Date.parse(w.resetAt))) ||
+      ![w.nativeSessionId, w.nativeJobId].every(id => id === null || typeof id === "string" && ID.test(id)))
+      return invalid("Invalid provider quota wait.");
+  }
   validUsage(state.budget.usage);
   const phase = (value: unknown) => value === undefined || RUN_PHASES.includes(value as RunPhase);
   const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 64;
@@ -494,7 +507,7 @@ export function createRunState(input: {
     throw new AgentOpsError("RUN_JOBS_INVALID", "A run supports one or two implementation workers.");
   }
   if (input.timeBudgetMs !== undefined)
-    throw new AgentOpsError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Command and review timeouts remain effective.");
+    throw new AgentOpsError("RUN_TIME_BUDGET_UNSUPPORTED", "New runs have no total time cap; omit --time-budget. Standalone command/review deadlines and provider limits remain effective.");
   const runId = input.runId ?? `run-${randomUUID().replaceAll("-", "").slice(0, 16)}`;
   if (!RUN_ID.test(runId)) throw new AgentOpsError("RUN_ID_INVALID", "Run id must contain 8-64 lowercase letters, digits, and hyphens.");
   const usage: RunUsage = { tokens: null, usd: null, completeness: "unknown", source: null, epoch: 0, highWaterMark: 0 };
@@ -781,6 +794,7 @@ export class RunService {
       return {
       ...current,
       status: "stopping",
+      providerWait: null,
       disableRestart: true,
       controls: [...current.controls, {
         action: "stop", actor: "user", reason, requestedAt: this.#now(), expiresAt: null, appliedAt: null
@@ -795,6 +809,7 @@ export class RunService {
     const state = await this.#repository.mutate(runId, (current) => ({
       ...current,
       status: "paused",
+      providerWait: null,
       controls: [...current.controls, {
         action: "pause", actor: "user", reason, requestedAt: this.#now(), expiresAt: null, appliedAt: null
       }]
@@ -873,6 +888,7 @@ export class RunService {
         tasks,
         events,
         status: "active",
+        providerWait: null,
         awaitingResume: false,
         disableRestart: false,
         controls: [...current.controls, {

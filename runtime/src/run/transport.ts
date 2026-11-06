@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import {nativeProcessGroupAlive, signalNativeProcessGroup} from "./hosts/util.js";
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
@@ -20,7 +21,7 @@ export async function nativeProcessIdentity(pid: number): Promise<string | null>
 /** Adapt the native transport without activating a writer before its lease is saved. */
 export class NativeRunTransport implements NativeGoalHost {
   readonly host: "claude" | "codex";
-  readonly #sessions = new Map<string, {handle: NativeGoalHandle; observation: NativeSessionObservation}>();
+  readonly #sessions = new Map<string, {handle: NativeGoalHandle; ownerSessionId: string; observation: NativeSessionObservation}>();
   constructor(readonly transport: Transport, readonly repository: RunRepository,
     readonly onEvent: (event: NativeGoalEvent) => Promise<void> = async () => {},
     readonly processIdentity: (pid: number) => Promise<string | null> = nativeProcessIdentity) {this.host = transport.kind;}
@@ -29,6 +30,7 @@ export class NativeRunTransport implements NativeGoalHost {
     if (input.worktree === null || input.contractHash === null)
       throw new AgentOpsError("RUN_NATIVE_CONTEXT_REQUIRED", "Native workers require a worktree and current contract hash.");
     const saved = (await this.repository.read(input.runId))?.workers.find(w => w.workerId === input.workerId);
+    const nativeSessionId = saved?.nativeSessionId ?? (this.host === "claude" ? randomUUID() : input.ownerSessionId);
     const request = {runId: input.runId, workerId: input.workerId, generation: input.generation,
       contractHash: input.contractHash, cwd: input.worktree,
       ...(input.manualResumeAt === undefined ? {} : {manualResumeAt: input.manualResumeAt}),
@@ -36,7 +38,7 @@ export class NativeRunTransport implements NativeGoalHost {
         CODEX_THREAD_ID: undefined, AGENT_OPS_AGENT_ID: undefined,
         AGENT_OPS_RUN_ID: input.runId, AGENT_OPS_WORKER_ID: input.workerId,
         AGENT_OPS_WORKER_GENERATION: String(input.generation)},
-      sessionId: saved?.nativeSessionId ?? input.ownerSessionId,
+      sessionId: nativeSessionId,
       registerProcess: async (pid: number) => {
         const identity = await this.processIdentity(pid);
         if (identity === null) throw new AgentOpsError("RUN_PROCESS_IDENTITY_REQUIRED", "Cannot register provisional native process identity.");
@@ -45,7 +47,7 @@ export class NativeRunTransport implements NativeGoalHost {
           if (current.status !== "active" || current.disableRestart || worker?.status !== "starting" || worker.generation !== input.generation)
             throw new AgentOpsError("RUN_START_DISABLED", "Stop fenced provisional native registration.");
           return {...current, workers: current.workers.map(w => w.workerId === input.workerId ? {...w,
-            nativeSessionId: saved?.nativeSessionId ?? input.ownerSessionId, processId: pid, processIdentity: identity} : w)};
+            nativeSessionId, processId: pid, processIdentity: identity} : w)};
         });
       }};
     const incompleteCodex = saved?.nativeSessionId != null && this.host === "codex" && saved.nativeJobId === null;
@@ -58,7 +60,7 @@ export class NativeRunTransport implements NativeGoalHost {
       await this.transport.stop(handle, handle);
       throw new AgentOpsError("RUN_PROCESS_IDENTITY_REQUIRED", "Cannot register an unidentified native process.");
     }
-    const entry = {handle, observation: {nativeGoalState: "inactive" as NativeSessionObservation["nativeGoalState"],
+    const entry = {handle, ownerSessionId: input.ownerSessionId, observation: {nativeGoalState: "inactive" as NativeSessionObservation["nativeGoalState"],
       processAlive: true, processIdentity: identity, stateDigest: null}};
     this.#sessions.set(handle.sessionId, entry);
     // Drain output immediately, but the host has no goal and cannot start a turn yet.
@@ -96,8 +98,14 @@ export class NativeRunTransport implements NativeGoalHost {
     throw new AgentOpsError("RUN_RECONCILE_REQUIRED", "Resume requires a new fenced lease and persisted native identity before activation.");
   }
   async send(input: Parameters<NativeGoalHost["send"]>[0]): Promise<void> {
+    const session = this.#sessions.get(input.nativeSessionId);
+    if (session === undefined) throw new AgentOpsError("RUN_WORKER_STALE", "Unknown native session.");
+    const current = await this.repository.read(session.handle.runId);
+    const worker = current?.workers.find(w => w.nativeSessionId === input.nativeSessionId && w.generation === input.generation);
     const entry = this.#sessions.get(input.nativeSessionId);
-    if (entry === undefined || entry.handle.generation !== input.generation)
+    if (current?.status !== "active" || current.disableRestart || current.awaitingResume || worker === undefined ||
+      !["running", "idle"].includes(worker.status) || worker.stopIntent !== null || entry === undefined || entry.handle.generation !== input.generation ||
+      worker.workerId !== entry.handle.workerId || worker.ownerSessionId !== entry.ownerSessionId)
       throw new AgentOpsError("RUN_WORKER_STALE", "Cannot update an unowned native session.");
     await this.transport.update(entry.handle, {...entry.handle, objective: input.message});
     entry.observation = {...entry.observation, nativeGoalState: "active"};

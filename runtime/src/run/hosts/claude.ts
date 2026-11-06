@@ -1,3 +1,4 @@
+import {nativeProviderLimit} from "../provider-wait.js";
 import { randomUUID } from "node:crypto";
 
 import { AgentOpsError } from "../../fs/paths.js";
@@ -8,6 +9,7 @@ import {
   assertProcessRunning,
   event,
   spawnNative,
+  nativeProcessDiagnostic,
   stopNativeProcess
 } from "./util.js";
 import type {
@@ -116,13 +118,13 @@ export class ClaudeGoalHost implements NativeGoalHost {
     while (true) {
       const message = await stream.next(options.signal);
       if (message === null) {
+        if (options.signal?.aborted) return;
+        yield event(handle, "closed", "unknown", {exitCode: handle.process.exitCode, signal: handle.process.signalCode, diagnostic: nativeProcessDiagnostic(handle.process)}, this.now);
         return;
       }
       const mapped = this.mapEvent(handle, message);
       yield mapped;
-      if (mapped.type === "completed" || mapped.type === "error" || mapped.type === "closed") {
-        return;
-      }
+      if (mapped.type === "closed") return;
     }
   }
 
@@ -215,6 +217,7 @@ export class ClaudeGoalHost implements NativeGoalHost {
 
   private mapEvent(handle: NativeGoalHandle, payload: JsonRecord): NativeGoalEvent {
     const type = stringField(payload, "type");
+    if (nativeProviderLimit(payload) !== null) return event(handle, "error", "usageLimited", payload, this.now);
     if (type === "result") {
       const subtype = stringField(payload, "subtype");
       return event(

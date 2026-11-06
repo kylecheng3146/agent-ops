@@ -23,6 +23,7 @@ const remaining = remainingRunTimeMs(state);
 if (remaining <= 0) throw new Error("Run budget is exhausted.");
 const result = await runVerificationCommand({id: "run-setup", ...step, cwd: ".", required: true,
   timeoutMs: Math.min(step.timeoutMs ?? 600000, remaining), evidence: {kind: "exit-code"}}, {
+  timeoutMs: state.budget.limitMs === null ? null : Math.min(step.timeoutMs ?? 600000, remaining),
   cwd: root!, runner: new NodeVerificationProcessRunner({processGroupId: Number(group)})});
 process.stdout.write(JSON.stringify({exitCode: result.status === "PASS" ? 0 : result.exitCode ?? 1,
   output: redactSecrets(result.stdout + result.stderr)}) + "\n");

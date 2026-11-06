@@ -18,6 +18,7 @@ import {runVerificationCommand, type VerificationProcessRunner, type SpawnResult
 
 export interface AcceptanceReplayOptions {
   readonly root: string;
+  readonly unlimitedWork?: boolean;
   readonly task: AgentTask;
   readonly config: AgentOpsConfig;
   readonly gitRunner: GitRunner;
@@ -136,6 +137,7 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
         const limit = own ?? ACCEPTANCE_TIMEOUTS[stage];
         const result = await runVerificationCommand({id: group.runner.id, command: executable, args: [...args], cwd: ".", required: true,
           evidence: {kind: "exit-code"}, timeoutMs:limit}, {cwd, runner: options.processRunner, env, replaceEnv: true,
+          ...(options.unlimitedWork === true ? {timeoutMs: null} : {}),
           outputLimitBytes: 1024 * 1024, ...(options.signal === undefined ? {} : {signal: options.signal})});
         if (result.failureClass === "timeout" && timedOut === undefined) timedOut = stage === "git"
           ? `Runner ${group.runner.id} ${phase}: git checkout exceeded ${limit} ms.`

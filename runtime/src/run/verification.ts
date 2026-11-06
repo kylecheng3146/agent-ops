@@ -1,4 +1,5 @@
 import {join} from "node:path";
+import {randomUUID} from "node:crypto";
 import {canonicalJson} from "../config/hash.js";
 import {sha256} from "../fs/hash.js";
 import {AgentOpsError} from "../fs/paths.js";
@@ -18,8 +19,8 @@ export async function recordRunVerification(repository: RunRepository, state: Ru
   if (state.policyBinding === undefined) return;
   const worker = state.workers.find(w => w.workerId === workerId);
   if (worker === undefined || task.task.id !== report.taskId) throw new AgentOpsError("RUN_WORKER_STALE", "Verifier report has no current worker identity.");
-  const content = redactSecrets(canonicalJson({schemaVersion: 1, report, taskContractHash: taskContractHash(task.task),
-    policyArtifactDigest: state.policyBinding.artifactDigest}));
+  const content = redactSecrets(canonicalJson({schemaVersion: 1, attemptId: randomUUID(), report, taskContractHash: taskContractHash(task.task),
+    policyArtifactDigest: state.policyBinding.artifactDigest, workerId, generation: worker.generation}));
   const digest = sha256(content);
   const path = join(state.commonDir, "agent-ops/runs", state.runId, "verification", digest + ".json");
   await repository.mutate(state.runId, async current => {
@@ -29,7 +30,7 @@ export async function recordRunVerification(repository: RunRepository, state: Ru
       throw new AgentOpsError("RUN_VERIFICATION_STALE", "Verifier observation belongs to a stale run generation or policy.");
     await writePrivateFile(path, content, current.commonDir);
     return {...current, events: [...current.events, {id: "verify-" + digest, at: new Date().toISOString(), type: "diagnostic" as const,
-      code: "RUN_VERIFICATION_OBSERVED", workerId, taskId: report.taskId, detail: canonicalJson({digest})}].slice(-2000)};
+      code: "RUN_VERIFICATION_OBSERVED", workerId, taskId: report.taskId, detail: canonicalJson({digest, generation: worker.generation})}].slice(-2000)};
   });
 }
 
@@ -39,14 +40,16 @@ export async function observeRunFailure(state: RunState, root: string, records: 
   const results = new Map<string, VerificationReport["results"][number]>();
   const acceptance: AcceptanceResultForConvergence[] = [];
   const evidence = new FileEvidenceStore(root, root);
-  for (const record of records.filter(r => r.status !== "archived" && r.supersededBy === undefined)) {
+  for (const record of (code === "VERIFICATION_FAILED" ? records : []).filter(r => r.status !== "archived" && r.supersededBy === undefined)) {
     const events = state.events.filter(e => e.code === "RUN_VERIFICATION_OBSERVED" && e.taskId === record.task.id).reverse();
     for (const event of events) {
       const {digest} = JSON.parse(event.detail!);
       if (typeof digest !== "string" || !/^[a-f0-9]{64}$/u.test(digest)) throw new AgentOpsError("RUN_VERIFICATION_CHANGED", "Verifier observation digest is invalid.");
       const source = await readPrivateFile(join(state.commonDir, "agent-ops/runs", state.runId, "verification", digest + ".json"), state.commonDir);
       if (source === null || sha256(source) !== digest) throw new AgentOpsError("RUN_VERIFICATION_CHANGED", "Verifier observation is missing or changed.");
-      const saved = JSON.parse(source) as {report: VerificationReport; taskContractHash: string; policyArtifactDigest: string};
+      const saved = JSON.parse(source) as {report: VerificationReport; taskContractHash: string; policyArtifactDigest: string; workerId?: string; generation?: number};
+      const worker = state.workers.find(w => w.taskId === taskId);
+      if (worker !== undefined && (saved.workerId !== worker.workerId || saved.generation !== worker.generation)) continue;
       if (saved.taskContractHash !== taskContractHash(record.task) || saved.policyArtifactDigest !== state.policyBinding?.artifactDigest) continue;
       for (const result of saved.report.results) results.set(record.task.id + ":" + result.commandId, {...result, commandId: record.task.id + ":" + result.commandId});
       for (const phase of saved.report.acceptance ?? []) {

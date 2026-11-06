@@ -67,7 +67,7 @@ export async function runWorktreeDependencies(deps: FinishDependencies, state: R
       const kill = () => {if (child.pid !== undefined) try {process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGKILL");} catch {}};
       child.stdout.on("data", chunk => {output += chunk.toString(); if (Buffer.byteLength(output) > 2 * 1024 * 1024) kill();});
       child.stderr.resume();
-      const deadline = setTimeout(kill, Math.min(remaining, step.timeoutMs ?? 600000) + 3000);
+      const deadline = current.budget.limitMs === null ? undefined : setTimeout(kill, Math.min(remaining, step.timeoutMs ?? 600000) + 3000);
       try {
         const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
         if (identity === null) throw new AgentOpsError("RUN_PROCESS_IDENTITY_REQUIRED", "Cannot register setup process identity.");
@@ -330,7 +330,8 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
     waitForCompletion: async (runId: string): Promise<RunState> => {
       for (;;) {
         const state = await service.status(runId);
-        if (!["active", "stopping"].includes(state.status)) return state;
+        if (!["active", "stopping"].includes(state.status) &&
+          !(state.status === "budget-limited" && state.providerWait?.resetAt != null && !state.disableRestart && !state.awaitingResume)) return state;
         await delay(1000);
       }
     }};

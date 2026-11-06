@@ -112,6 +112,7 @@ export interface ReviewExecutorOptions {
   readonly model?: string;
   readonly effort?: string;
   readonly timeoutMs?: number;
+  readonly unlimitedWork?: boolean;
   readonly outputLimitBytes?: number;
   /** Silence that marks a reviewer as wedged. Tests shrink it. */
   readonly stallIdleMs?: number;
@@ -567,6 +568,7 @@ async function snapshotRepository(
     },
     {
       cwd: dirname(destination),
+      ...(options.unlimitedWork === true ? {timeoutMs: null} : {}),
       ...(options.runner === undefined ? {} : { runner: options.runner }),
       ...(options.signal === undefined ? {} : { signal: options.signal })
     }
@@ -589,6 +591,7 @@ async function snapshotRepository(
       },
       {
         cwd: destination,
+        ...(options.unlimitedWork === true ? {timeoutMs: null} : {}),
         ...(options.runner === undefined ? {} : { runner: options.runner }),
         ...(options.signal === undefined ? {} : { signal: options.signal })
       }
@@ -858,7 +861,7 @@ async function attemptTarget(
     options.onProgress?.(
       `${target}: review started (timeout: ${Math.ceil((options.timeoutMs ?? DEFAULT_REVIEW_TIMEOUT_MS) / 1_000)}s)`
     );
-    const stallIdleMs = options.stallIdleMs ??
+    const stallIdleMs = options.unlimitedWork === true ? Infinity : options.stallIdleMs ??
       (target === "agy" ? AGY_STALL_IDLE_MS : DEFAULT_STALL_IDLE_MS);
     const stallWatch = watchForStall(
       heartbeatLog,
@@ -881,6 +884,7 @@ async function attemptTarget(
         },
         {
           cwd: executionDirectory,
+          ...(options.unlimitedWork === true ? {timeoutMs: null} : {}),
           ...(options.runner === undefined ? {} : { runner: options.runner }),
           ...(options.outputLimitBytes === undefined
             ? {}
@@ -1006,6 +1010,7 @@ async function attemptTarget(
               },
               {
                 cwd: executionDirectory,
+                ...(options.unlimitedWork === true ? {timeoutMs: null} : {}),
                 ...(options.runner === undefined ? {} : { runner: options.runner }),
                 ...(options.outputLimitBytes === undefined
                   ? {}
@@ -1116,7 +1121,7 @@ export function createReviewExecutor(
 
   return async (request) => {
     const deadlineAt = clock() +
-      (options.chainTimeoutMs ?? DEFAULT_REVIEW_CHAIN_TIMEOUT_MS);
+      (options.unlimitedWork === true ? Infinity : options.chainTimeoutMs ?? DEFAULT_REVIEW_CHAIN_TIMEOUT_MS);
     const remainingMs = (): number => deadlineAt - clock();
     /**
      * The options one stage runs under: its own timeout, or what is left of
@@ -1231,7 +1236,7 @@ export function createReviewExecutor(
           };
         }
         const answer = await options.preflightTarget(target, {
-          timeoutMs: Math.max(1, remainingMs())
+          timeoutMs: Math.max(1, options.unlimitedWork === true ? Math.min(60_000, remainingMs()) : remainingMs())
         });
         const result = typeof answer === "string" ? answer : answer.result;
         if (result === "ok") {

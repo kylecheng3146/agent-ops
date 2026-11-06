@@ -30,6 +30,7 @@ export interface ConfiguredCommandExecution {
 
 export interface ExecuteConfiguredCommandOptions {
   readonly cwd: string;
+  readonly unlimitedWork?: boolean;
   readonly trusted: boolean;
   readonly runner?: VerificationProcessRunner;
   readonly env?: Readonly<Record<string, string>>;
@@ -138,6 +139,7 @@ export async function executeConfiguredCommand(
   } else {
     const runOptions: RunVerificationCommandOptions = {
       cwd: options.cwd,
+      ...(options.unlimitedWork === true ? {timeoutMs: null} : {}),
       ...(options.runner === undefined
         ? {}
         : { runner: options.runner }),
