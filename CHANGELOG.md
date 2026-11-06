@@ -15,6 +15,9 @@ All notable changes to the project are documented here.
 - Repair turns keep their event consumer, fresh Claude sessions get new native
   IDs, startup exits retain redacted diagnostics, and old verifier reports can
   no longer turn native exits or duplicate observations into stagnant rounds.
+- The backtest budget regression now injects its timeout deterministically,
+  preserving cache and failure assertions on runners where Git completes in
+  under 1ms. Production backtest budgets are unchanged.
 
 ## [1.1.0] - 2026-11-05
 

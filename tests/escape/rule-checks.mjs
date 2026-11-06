@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
+import childProcess, {execFileSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
+import {syncBuiltinESMExports} from 'node:module';
 import {dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -285,16 +286,34 @@ const raw = {
     const escaped = await f.commit({'src/pages/ProductPage.tsx': PAGE('ProductPage', 'LARGE')}, 'large product image');
     await writeRule(f, rule(escaped));
     const loaded = {rule: rule(escaped), hash: 'h'.repeat(64)};
-    await assert.rejects(backtestRule(f.root, loaded, 1), {code: 'SURFACE_BUDGET_EXCEEDED'}, 'over budget never passes silently');
-    const over = await proveEscape({root: f.root, escapeOf: escaped, label: 'surface', missedPaths: SIBLINGS, budgetMs: 1});
-    assert.equal(over.status, 'unproven'); assert.equal(over.code, 'SURFACE_BUDGET_EXCEEDED');
-    const fresh = await backtestRule(f.root, loaded);
-    assert.deepEqual(fresh, {commits: 12, fires: 2, rate: 0.167});
-    const cache = join(f.root, '.agent-ops/tasks/escape/backtest');
-    assert.equal((await readdir(cache)).length, 1, 'the backtest is cached');
-    assert.deepEqual(await backtestRule(f.root, loaded, 1), fresh, 'a cached backtest needs no budget');
-    await f.commit({'docs/later.md': 'later\n'}, 'later');
-    await assert.rejects(backtestRule(f.root, loaded, 1), {code: 'SURFACE_BUDGET_EXCEEDED'}, 'a new HEAD misses the cache');
+    const original = childProcess.execFile;
+    let timeouts = 0;
+    // Real Git can finish within 1ms; inject that timeout boundary deterministically.
+    childProcess.execFile = (command, args, options, callback) => {
+      if (command === 'git' && args[0] === 'log' && options.timeout === 1) {
+        timeouts++;
+        queueMicrotask(() => callback(Object.assign(new Error('Injected backtest timeout'), {killed: true}), Buffer.alloc(0)));
+        return;
+      }
+      return original(command, args, options, callback);
+    };
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(backtestRule(f.root, loaded, 1), {code: 'SURFACE_BUDGET_EXCEEDED'}, 'over budget never passes silently');
+      const over = await proveEscape({root: f.root, escapeOf: escaped, label: 'surface', missedPaths: SIBLINGS, budgetMs: 1});
+      assert.equal(over.status, 'unproven'); assert.equal(over.code, 'SURFACE_BUDGET_EXCEEDED');
+      const fresh = await backtestRule(f.root, loaded);
+      assert.deepEqual(fresh, {commits: 12, fires: 2, rate: 0.167});
+      const cache = join(f.root, '.agent-ops/tasks/escape/backtest');
+      assert.equal((await readdir(cache)).length, 1, 'the backtest is cached');
+      assert.deepEqual(await backtestRule(f.root, loaded, 1), fresh, 'a cached backtest needs no budget');
+      await f.commit({'docs/later.md': 'later\n'}, 'later');
+      await assert.rejects(backtestRule(f.root, loaded, 1), {code: 'SURFACE_BUDGET_EXCEEDED'}, 'a new HEAD misses the cache');
+      assert.equal(timeouts, 3, 'Only the uncached, proof and changed-HEAD logs time out');
+    } finally {
+      childProcess.execFile = original;
+      syncBuiltinESMExports();
+    }
   }),
   'escape-fix-sibling-page': async () => {
     const f = await behavioralTask();

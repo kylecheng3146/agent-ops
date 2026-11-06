@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "taskId": "task-bb753c84-84f6-4b08-b07a-c3fe2fef4c7b",
+  "escapeOf": "a5124fde0dd36f3e27ac084372149905544f7c98",
+  "link": {
+    "state": "unresolved",
+    "reason": "receipt-not-local"
+  },
+  "agentLabel": "verify",
+  "label": "verify",
+  "missedPaths": [],
+  "facts": [],
+  "residualRisks": 0,
+  "proof": {
+    "status": "check",
+    "check": "escape-regression:escape-budget-deterministic"
+  },
+  "declaredAt": "2026-11-06T05:17:36.546Z"
+}

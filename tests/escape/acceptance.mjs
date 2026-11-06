@@ -1,8 +1,9 @@
 import {ruleChecks} from './rule-checks.mjs';
 import {lessonChecks} from './lesson-checks.mjs';
+import {budgetDeterminismChecks} from './budget-determinism-check.mjs';
 
 // Escape-only acceptance runner: same generic protocol as tests/run/startup.acceptance.mjs, fewer checks.
-const checks = {...ruleChecks, ...lessonChecks};
+const checks = {...ruleChecks, ...lessonChecks, ...budgetDeterminismChecks};
 const executionId = process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-escape';
 const phase = process.env.AGENT_OPS_ACCEPTANCE_PHASE ?? 'candidate';
 const results = [];
