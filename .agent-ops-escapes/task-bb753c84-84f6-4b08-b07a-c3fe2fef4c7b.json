@@ -8,12 +8,14 @@
   },
   "agentLabel": "verify",
   "label": "verify",
-  "missedPaths": [],
+  "missedPaths": [
+    "CHANGELOG.md"
+  ],
   "facts": [],
   "residualRisks": 0,
   "proof": {
     "status": "check",
     "check": "escape-regression:escape-budget-deterministic"
   },
-  "declaredAt": "2026-11-06T05:17:36.546Z"
+  "declaredAt": "2026-11-06T06:26:35.380Z"
 }
