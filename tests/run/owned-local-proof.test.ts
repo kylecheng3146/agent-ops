@@ -131,11 +131,21 @@ async function exerciseLocalProof(t: TestContext, mode: "delayed" | "failure" | 
       process.chdir(cwd);
       for (const [key, value] of ownedEnvironment) {if (value === undefined) delete process.env[key]; else process.env[key] = value;}
       if (home === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = home;
-      if (marker !== null) {
-        assert.equal(await nativeProcessIdentity(marker.pid), null);
-        assert.equal(await nativeProcessIdentity(marker.descendant), null);
+      try {
+        if (marker !== null) {
+          const survivors: number[] = [];
+          for (const pid of [marker.pid, marker.descendant]) {
+            if (await nativeProcessIdentity(pid) !== null) survivors.push(pid);
+          }
+          for (const pid of survivors) {
+            try {process.kill(pid, "SIGKILL");}
+            catch (error) {if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;}
+          }
+          assert.deepEqual(survivors, [], "proof processes survived cleanup");
+        }
+      } finally {
+        await rm(root, {recursive: true, force: true});
       }
-      await rm(root, {recursive: true, force: true});
     }
   }
 }

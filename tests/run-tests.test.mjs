@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   symlink,
@@ -182,13 +183,20 @@ test("runTestEntry launches the current Node executable with explicit sorted arg
 
   await runTestEntry([zeta, alpha], { fileSystem, spawn });
 
+  const runDirectory = calls[0][2].env.TMPDIR;
+  assert.equal(path.dirname(runDirectory), tmpdir());
+  assert.match(path.basename(runDirectory), /^agent-ops-test-run-/);
   assert.deepEqual(calls, [
     [
       process.execPath,
       ["--test", "--test-reporter=tap", "--test-reporter-destination=stdout",
         `--test-reporter=${new URL("../scripts/test-failures-reporter.mjs", import.meta.url).href}`,
         "--test-reporter-destination=stderr", alpha, zeta],
-      { shell: false, stdio: "inherit" },
+      {
+        shell: false,
+        stdio: "inherit",
+        env: { ...process.env, TMPDIR: runDirectory, TMP: runDirectory, TEMP: runDirectory },
+      },
     ],
   ]);
 });
@@ -243,6 +251,34 @@ test("runTestEntry propagates every non-zero child exit code", async (t) => {
   }
 });
 
+test("runTestEntry cleans leaked temp directories after passing and failing tests", async (t) => {
+  for (const exitCode of [0, 1]) {
+    await t.test(`exit code ${exitCode}`, async (t) => {
+      const root = await createTemporaryDirectory(t, "agent-ops-runner-");
+      const tempParent = path.join(root, "temp");
+      const testFile = path.join(root, "leak.test.js");
+      await mkdir(tempParent);
+      await writeFile(testFile, `
+        const { mkdtempSync } = require("node:fs");
+        const { tmpdir } = require("node:os");
+        const { join } = require("node:path");
+        mkdtempSync(join(tmpdir(), "agent-ops-leak-probe-"));
+        require("node:assert/strict").equal(${exitCode}, 0);
+      `);
+      const processLike = { execPath: process.execPath, exitCode: undefined };
+
+      await runTestEntry([testFile], {
+        process: processLike,
+        tempParent,
+        environment: { ...process.env, NODE_TEST_CONTEXT: undefined, TMPDIR: tempParent, TMP: tempParent, TEMP: tempParent },
+      });
+
+      assert.equal(processLike.exitCode, exitCode);
+      assert.deepEqual(await readdir(tempParent), []);
+    });
+  }
+});
+
 test("runTestEntry propagates child termination signals", async () => {
   const testFile = path.resolve("fixtures", "signal.test.js");
   const fileSystem = createFileSystem(new Map([[testFile, "file"]]));
@@ -262,6 +298,43 @@ test("runTestEntry propagates child termination signals", async () => {
 
   assert.deepEqual(signals, [[456, "SIGTERM"]]);
   assert.equal(processLike.exitCode, undefined);
+});
+
+test("runTestEntry cleanup failures preserve exit codes and signal propagation", async (t) => {
+  for (const [code, signal] of [[7, null], [null, "SIGTERM"]]) {
+    await t.test(signal ?? `exit code ${code}`, async () => {
+      const testFile = path.resolve("fixtures", "cleanup.test.js");
+      const runDirectory = path.resolve("fixtures", "agent-ops-test-run-cleanup");
+      let cleanupAttempted = false;
+      const signals = [];
+      const processLike = {
+        execPath: process.execPath,
+        exitCode: undefined,
+        pid: 456,
+        kill: (...args) => {
+          assert.ok(cleanupAttempted, "cleanup must precede signal propagation");
+          signals.push(args);
+        },
+      };
+
+      await runTestEntry([testFile], {
+        fileSystem: {
+          ...createFileSystem(new Map([[testFile, "file"]])),
+          mkdtemp: async () => runDirectory,
+          rm: async () => {
+            cleanupAttempted = true;
+            throw Object.assign(new Error("busy"), { code: "EBUSY" });
+          },
+        },
+        process: processLike,
+        spawn: () => createChildResult(code, signal),
+      });
+
+      assert.ok(cleanupAttempted);
+      assert.equal(processLike.exitCode, signal === null ? code : undefined);
+      assert.deepEqual(signals, signal === null ? [] : [[456, signal]]);
+    });
+  }
 });
 
 test("cleanTargets rejects absolute paths and targets outside dist or .tmp", async () => {

@@ -1,8 +1,9 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn as spawnProcess } from "node:child_process";
 
-const defaultFileSystem = { readdir, realpath, stat };
+const defaultFileSystem = { mkdtemp, readdir, realpath, rm, stat };
 const defaultProcess = process;
 
 export function isolateTestEnvironment(environment = process.env) {
@@ -79,22 +80,34 @@ export async function runTestEntry(
     fileSystem = defaultFileSystem,
     process: processLike = defaultProcess,
     spawn = spawnProcess,
-    environment,
+    environment = process.env,
+    tempParent = tmpdir(),
   } = {},
 ) {
-  const files = await collectTestFiles(inputs, fileSystem);
-  const spawnOptions = { shell: false, stdio: "inherit" };
-  if (environment !== undefined) {
-    spawnOptions.env = environment;
+  const fs = { ...defaultFileSystem, ...fileSystem };
+  const files = await collectTestFiles(inputs, fs);
+  const runDirectory = await fs.mkdtemp(path.join(tempParent, "agent-ops-test-run-"));
+  let result;
+  // ponytail: a SIGKILLed runner leaves one root; sweep stale agent-ops-test-run-* roots at startup if needed.
+  try {
+    const child = spawn(
+      processLike.execPath,
+      ["--test", "--test-reporter=tap", "--test-reporter-destination=stdout",
+        `--test-reporter=${new URL("./test-failures-reporter.mjs", import.meta.url).href}`,
+        "--test-reporter-destination=stderr", ...files],
+      {
+        shell: false,
+        stdio: "inherit",
+        env: { ...environment, TMPDIR: runDirectory, TMP: runDirectory, TEMP: runDirectory },
+      },
+    );
+    result = await waitForChild(child);
+  } finally {
+    try {
+      await fs.rm(runDirectory, { recursive: true, force: true, maxRetries: 3 });
+    } catch {}
   }
-  const child = spawn(
-    processLike.execPath,
-    ["--test", "--test-reporter=tap", "--test-reporter-destination=stdout",
-      `--test-reporter=${new URL("./test-failures-reporter.mjs", import.meta.url).href}`,
-      "--test-reporter-destination=stderr", ...files],
-    spawnOptions,
-  );
-  const { code, signal } = await waitForChild(child);
+  const { code, signal } = result;
 
   if (signal !== null) {
     processLike.kill(processLike.pid, signal);

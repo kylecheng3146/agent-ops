@@ -122,6 +122,8 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
     "init", "--scope", "project", "--harness", "codex",
     "--profile", "core", "--review-target", "codex", "--yes", "--json"
   ]);
+  let child: ReturnType<typeof spawn> | undefined;
+  let reviewerPid = Number.NaN;
   try {
     assert.equal(initialized.status, 0);
     const configPath = join(root, ".agent-ops", "config.json");
@@ -191,7 +193,8 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       expectedExitCode: number
     ): Promise<void> => {
       rmSync(reviewerPidPath, { force: true });
-      const child = spawn(process.execPath, [
+      reviewerPid = Number.NaN;
+      child = spawn(process.execPath, [
         join(process.cwd(), ".tmp/test-dist/packages/cli/src/bin.js"),
         "review", "--task", taskId, "--yes", "--json"
       ], {
@@ -206,17 +209,17 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       });
       let stdout = "";
       let stderr = "";
-      child.stdout.on("data", (value) => { stdout += String(value); });
+      child.stdout!.on("data", (value) => { stdout += String(value); });
       const started = new Promise<void>((resolve, reject) => {
         let reviewStarted = false;
         const timer = setTimeout(
           () => reject(new Error(
-            `review did not start (exit ${child.exitCode}, signal ${child.signalCode}): stdout=${stdout}; stderr=${stderr}`
+            `review did not start (exit ${child!.exitCode}, signal ${child!.signalCode}): stdout=${stdout}; stderr=${stderr}`
           )),
           5_000
         );
-        child.once("error", reject);
-        child.once("close", (code, signal) => {
+        child!.once("error", reject);
+        child!.once("close", (code, signal) => {
           if (!reviewStarted) {
             clearTimeout(timer);
             reject(new Error(
@@ -224,7 +227,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
             ));
           }
         });
-        child.stderr.on("data", (value) => {
+        child!.stderr!.on("data", (value) => {
           stderr += String(value);
           if (stderr.includes("codex: review started")) {
             reviewStarted = true;
@@ -236,7 +239,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       await started;
       // The pid file appears before its contents land, so an existence-only poll can
       // read an empty file; Number("") is 0 and process.kill(0) targets our own group.
-      const reviewerPid = await new Promise<number>((resolve, reject) => {
+      reviewerPid = await new Promise<number>((resolve, reject) => {
         const deadline = Date.now() + 5_000;
         const check = (): void => {
           const pid = existsSync(reviewerPidPath)
@@ -254,7 +257,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       });
       child.kill(signal);
       const exitCode = await new Promise<number | null>((resolve) => {
-        child.once("close", resolve);
+        child!.once("close", resolve);
       });
 
       assert.equal(exitCode, expectedExitCode);
@@ -286,6 +289,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
         };
         check();
       });
+      reviewerPid = Number.NaN;
     };
 
     const reports = (): string[] => existsSync(join(root, ".agent-ops", "reviews"))
@@ -295,6 +299,14 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
     await interrupt("SIGTERM", 143);
     assert.deepEqual(reports(), advisoryReports, "cancelled final review must add no report or attestation alongside existing advisory artifacts");
   } finally {
-    cleanupE2eRoot(root);
+    try {
+      for (const pid of [child?.exitCode === null && child.signalCode === null ? child.pid : undefined, reviewerPid]) {
+        if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) continue;
+        try { process.kill(pid, "SIGKILL"); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+      }
+    } finally {
+      cleanupE2eRoot(root);
+    }
   }
 });
