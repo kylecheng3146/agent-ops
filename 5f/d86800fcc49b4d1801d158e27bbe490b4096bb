@@ -1,0 +1,9 @@
+worktree: session-01a1ab6e (agent-ops/session-01a1ab6e)
+session: 01a1ab6e-6434-7700-a382-f44a32d09b75
+agent-ops task task-bb753c84-84f6-4b08-b07a-c3fe2fef4c7b: Stabilize 1.2.0 backtest budget regression
+intent: Repair the existing CPU-speed-dependent test blocking release: force only the 1ms git log timeout boundary in the budget/cache regression and restore subprocess bindings. Prove the committed check survives simulated fast Git, keep real cache/proof assertions and production budgets unchanged, synchronize escape runner output count, and record the fix under 1.2.0. No dependency, public API, workflow, or provider setting changes.
+criteria:
+- budget-check-speed: The committed budget/cache regression passes under simulated fast Git while retaining uncached timeout rejection, unproven proof, cache hit and HEAD invalidation assertions.
+- budget-check-isolation: Timeout fault injection affects only the intended 1ms git-log boundary, restores the prior subprocess implementation, and all acceptance/startup checks remain valid with unchanged production budget behavior.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/d8994499d28cc20a273204200c053ee5d434bd47b6f2e44a2db2efe01e06ba44-5fd86800fcc49b4d1801d158e27bbe490b4096bb.json
+receipt-sha256: 702ed175cd4e0c3401b6882058598f009ace1b9d08bb9fc7096077e0e39e84db
