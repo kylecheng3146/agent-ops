@@ -108,3 +108,32 @@ test("persistent group permission failure is never confirmed death", {skip: proc
   t.mock.method(process, "kill", () => {throw Object.assign(new Error("permission"), {code: "EPERM"});});
   await assert.rejects(stopNativeProcess({pid: 123, exitCode: 0, signalCode: null} as ChildProcessWithoutNullStreams, "SIGKILL"), {code: "EPERM"});
 });
+
+
+test("Codex observes later repair events after quota and completion", async () => {
+  const script = [
+    "const rl=require('node:readline').createInterface({input:process.stdin}); let goals=0;",
+    "rl.on('line',line=>{const m=JSON.parse(line);if(m.id===undefined)return;let result={};",
+    "if(m.method==='thread/start')result={thread:{id:'thread-1'}};",
+    "if(m.method==='thread/goal/set'){result={goal:{status:'active'}};process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'thread/goal/updated',params:{threadId:'thread-1',goal:{status:++goals===1?'usageLimited':'complete'}}})+'\\n');}",
+    "if(m.method==='turn/start'||m.method==='turn/steer')result={turn:{id:'turn-1'}};",
+    "process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});"
+  ].join("\n");
+  const host = new CodexGoalHost({command: process.execPath, args: childArgs(script), requestTimeoutMs: 3000});
+  const handle = await host.start(startInput());
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    await host.activate(handle, "first goal", context);
+    const statuses = [];
+    for await (const item of host.observe(handle, {signal: controller.signal})) {
+      if (item.nativeStatus === "usageLimited") {statuses.push(item.nativeStatus); await host.update(handle, {...context, objective: "repair goal"});}
+      else if (item.type === "completed") {statuses.push(item.nativeStatus); break;}
+    }
+    assert.deepEqual(statuses, ["usageLimited", "complete"]);
+  } finally {clearTimeout(timer); await host.stop(handle, context);}
+});
+
+test("Codex startup failures retain bounded native diagnostics", async () => {
+  const host = new CodexGoalHost({command: process.execPath, args: childArgs("process.stderr.write('fixture startup failure',()=>setTimeout(()=>process.exit(7),20));"), requestTimeoutMs: 3000});
+  await assert.rejects(host.start(startInput()), /fixture startup failure/);
+});

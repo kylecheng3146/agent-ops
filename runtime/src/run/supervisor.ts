@@ -1,3 +1,4 @@
+import {redactSecrets} from "../security/redact.js";
 import { randomUUID } from "node:crypto";
 
 import { sha256 } from "../fs/hash.js";
@@ -294,7 +295,7 @@ export class RunSupervisor {
           }
         });
       });
-      throw new AgentOpsError("RUN_NATIVE_START_FAILED", `Native ${this.#host.host} worker could not start.`, { cause });
+      throw new AgentOpsError("RUN_NATIVE_START_FAILED", `Native ${this.#host.host} worker could not start.${cause instanceof Error ? " " + redactSecrets(cause.message).slice(0, 2048) : ""}`, { cause });
     }
     try {
       return (await this.#repository.mutate(runId, (current) => {

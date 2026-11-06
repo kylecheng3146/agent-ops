@@ -10,6 +10,7 @@ import {
   event,
   assertProcessRunning,
   spawnNative,
+  nativeProcessDiagnostic,
   stopNativeProcess
 } from "./util.js";
 import type {
@@ -185,13 +186,13 @@ export class CodexGoalHost implements NativeGoalHost {
     while (true) {
       const message = await session.nextEvent(options.signal);
       if (message === null) {
+        if (options.signal?.aborted) return;
+        yield event(handle, "closed", "unknown", {exitCode: handle.process.exitCode, signal: handle.process.signalCode, diagnostic: nativeProcessDiagnostic(handle.process)}, this.now);
         return;
       }
       const mapped = this.mapEvent(handle, message);
       yield {...mapped, ...(typeof message.method === "string" ? {transportMethod: message.method} : {})};
-      if (mapped.type === "completed" || mapped.type === "error" || mapped.type === "closed") {
-        return;
-      }
+      if (mapped.type === "closed") return;
     }
   }
 
@@ -299,6 +300,9 @@ export class CodexGoalHost implements NativeGoalHost {
     } catch (cause) {
       channel.close(cause);
       if (process.pid !== undefined) await stopNativeProcess(process, "SIGKILL");
+      const diagnostic = nativeProcessDiagnostic(process);
+      if (diagnostic.length > 0) throw new AgentOpsError(cause instanceof AgentOpsError ? cause.code : "NATIVE_START_FAILED",
+        `${cause instanceof Error ? cause.message : "Native startup failed"}; stderr: ${diagnostic}`, {cause});
       throw cause;
     }
   }

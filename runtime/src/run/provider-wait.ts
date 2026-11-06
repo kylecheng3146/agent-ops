@@ -41,6 +41,7 @@ export async function recordProviderWait(repository: RunRepository, event: Nativ
       if (Date.parse(event.at) <= Date.parse(resumed.at)) return state;
       if (resetAt !== null && Date.parse(resetAt) <= Date.parse(event.at)) resetAt = null;
     }
+    // Initial planning can change the contract within one native lease; observations are not worker requests.
     if (!["active", "budget-limited"].includes(state.status) || state.disableRestart || state.awaitingResume || worker === undefined ||
       worker.generation !== event.generation || worker.host !== event.host || state.host !== event.host ||
       !["running", "idle"].includes(worker.status) || worker.stopIntent !== null) return state;
