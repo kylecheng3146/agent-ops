@@ -1,0 +1,12 @@
+worktree: session-01a1ab6e (agent-ops/session-01a1ab6e)
+session: 01a1ab6e-6434-7700-a382-f44a32d09b75
+agent-ops task task-2a7e7e8f-e147-4077-ad25-f44cae6e0e3f: Repair run deadlines and native recovery
+intent: Apply the three approved A decisions and five acceptance criteria from /private/tmp/agent-ops-1.1.0-run-investigation.md with additive compatible state, no new dependencies and no historical run mutation.
+criteria:
+- run-unlimited-work: Authenticated run work has no hard execution or idle deadline; standalone limits and cancellation remain effective.
+- run-provider-wait: Provider quota waits preserve checkout, resume same host at reset and lose to manual Stop; unknown reset pauses.
+- run-native-repair-stream: Later native repair events remain observed and fresh sessions get distinct IDs with bounded redacted startup diagnostics.
+- run-fresh-failure-attempt: Only new verification after a real repair counts toward stagnant rounds; native exits never reuse old verification failures.
+- run-recovery-controls: Stop, policy/owner checks, independent scheduling and existing evidence gates survive wait and repair recovery.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/d8994499d28cc20a273204200c053ee5d434bd47b6f2e44a2db2efe01e06ba44-a82331b70a34f33e7cd463f6a6fa5625791d6fd3.json
+receipt-sha256: c1d9885fb003aa194157524cd7568f914684d1eed62199ac170c7dd498aa1b07
