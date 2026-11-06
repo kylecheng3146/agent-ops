@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-06
+
 - Authenticated runs no longer impose work or idle deadlines on setup/build,
   verification, acceptance replay or formal review. Standalone command limits,
   RPC/capability checks and cancellation cleanup remain effective.
