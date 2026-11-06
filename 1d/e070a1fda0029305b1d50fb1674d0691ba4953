@@ -1,0 +1,11 @@
+worktree: session-536fc790 (agent-ops/session-536fc790)
+session: 536fc790-79fb-4ce5-92dc-db7c1584e13f
+agent-ops task task-d7789eb9-7e6c-4c36-9c19-a3b3ff37e247: Stop npm test from leaking temp dirs and orphan processes
+intent: npm test leaks about 45 agent-ops-* directories per run into the OS temp dir (33,577 over 33 days on macOS, where /var/folders/T is only cleared at reboot), which bloated fseventsd to 20 GB. Fix centrally: run-tests-lib gives the node --test child a per-run mkdtemp root as TMPDIR/TMP/TEMP and removes it after exit; a SIGKILLed run may leave that one root (ponytail comment names the ceiling). Also stop review-task e2e and owned-local-proof tests from leaving orphan processes by killing recorded pids in finally. Not changed: per-call-site test cleanup, stale-root sweep, runtime mkdtemp sites, version/changelog.
+criteria:
+- run-temp-root: scripts/run-tests-lib.mjs gives the spawned node --test child a fresh per-run directory created with mkdtemp under the original OS temp dir and passed as TMPDIR, TMP and TEMP, and removes it recursively after the child exits on both passing and failing runs; a cleanup failure never changes the exit code or signal propagation.
+- runner-leak-test: tests/run-tests.test.mjs runs runTestEntry on a fixture test that creates an mkdtemp directory and never removes it, then asserts the original OS temp dir gained no new entry; this test fails against the pre-change runner and passes after.
+- review-interrupt-teardown: tests/e2e/review-task.test.ts kills the spawned review CLI child and any fake reviewer pid it recorded in its finally path (ignoring ESRCH), so a failure anywhere after spawn, including the start timeout and the survived-signal assertion, leaves no fake reviewer process running.
+- local-proof-teardown: tests/run/owned-local-proof.test.ts force-kills marker.pid and marker.descendant (ignoring ESRCH) in its finally path before asserting they are gone, so a failing case still reports its assertion but leaves no surviving process.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/ab9322b376e19acb8102bf45fe5274b045724d7fb29639de0ac5b91a842ce4bf-1de070a1fda0029305b1d50fb1674d0691ba4953.json
+receipt-sha256: b70a1eec40865b51fcb8d457cc13baa83485926901a83f8a947a242d9020fde3
