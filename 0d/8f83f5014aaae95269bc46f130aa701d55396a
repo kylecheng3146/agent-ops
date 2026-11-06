@@ -1,0 +1,9 @@
+worktree: session-01a1ab6e (agent-ops/session-01a1ab6e)
+session: 01a1ab6e-6434-7700-a382-f44a32d09b75
+agent-ops task task-5d33b7e9-5e3a-4485-959d-f67a50e1d699: Release agent-ops 1.2.0
+intent: Prepare the previously verified run resilience changes for final 1.2.0: synchronize only package and lock versions, README release identity and changelog. Preserve dependencies, APIs and the existing trusted publishing workflow. After the task verification/review/finish gates, publish through the existing main/tag GitHub Actions workflow and verify npm latest.
+criteria:
+- release-identity: Package root and lock metadata identify final version 1.2.0, CLI version derives from that metadata, and dependencies and public interfaces remain unchanged.
+- release-readiness: README and dated 1.2.0 changelog describe the completed run resilience changes; existing tests, build and packed install checks remain valid with unchanged trusted publishing policy.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/d8994499d28cc20a273204200c053ee5d434bd47b6f2e44a2db2efe01e06ba44-0d8f83f5014aaae95269bc46f130aa701d55396a.json
+receipt-sha256: 2bf68261cd7fdf829ec457349fd9a00a434367f17c542e6d07a0df135b4f99f4
