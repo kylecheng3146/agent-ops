@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {runLearnCommand} from "./commands/learn.js";
 import {reviewCreatedCriteria, reviewRevisedCriteria, criteriaReviewStatus} from "./criteria-review.js";
 import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
 import {advancePhaseObserver, productionRunContext} from "./run-deps.js";
@@ -391,6 +392,7 @@ process.exitCode = await runCli(
             const context = await productionRunContext(root);
             return await runRunCommand({args, ...context, root: context.mainRoot, office: async () => await ensureBackgroundOffice(root, undefined, openOfficeBrowser)});
           }
+          if (args.command === "learn") return await runLearnCommand({args, cwd: root});
           if (args.command === "followup") return await runFollowupCommand({args, cwd: root});
           if (args.command === "escapes" && args.action === "reflect") {
             // The independent-review role's first target; no new role config.

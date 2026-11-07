@@ -54,6 +54,7 @@ Commands:
   review     Run an independent review or show recorded reports
   run        Start or control a supervised Claude/Codex native goal
   office     Open the local pixel office (Preview; opt-in)
+  learn      Probe, adopt and recover local criteria-advisory experience
   followup   Collect and process retained review findings and risk observations
   escapes    Report escaped bugs, gate catches, rules and lessons; reflect writes a lesson
   batch      Verify and review a parent task's subtasks together
@@ -102,6 +103,22 @@ Options:
  * rejected.
  */
 export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
+  learn: `Usage: agent-ops learn [list] [--json]
+       agent-ops learn run --receipt <receipt-file> --suite <committed-path> --model <versioned-id> [--target <configured-target>] [--task <id>] [--no-execute] [--json]
+       agent-ops learn <show|replay> <trial-digest> [--json]
+       agent-ops learn rollback <adopted-version-digest> --reason <text> [--json]
+       agent-ops learn retire --reason <text> [--json]
+
+Opt-in, repository-local learning from sealed completed receipts. Uses existing CLI
+quota: at most 2 candidates, 1 composition and 12 extra CLI invocations per round.
+Model ID must be explicit; tools remain read-only. The frozen committed suite needs
+at least 2 probe and 2 distinct held-out tasks. Expected labels never reach authoring
+or solver prompts. No improvement, inconsistent repetitions or incomplete execution
+retains baseline. --no-execute records NOT_RUN without model calls. replay validates
+and re-scores saved execution evidence without provider calls; fresh model runs may
+vary. Revisions, trials, use records and recovery history are private in Git common
+dir. This is advisory context and never formal verification or completion proof.
+`,
   followup: `Usage: agent-ops followup [list] [--json]
        agent-ops followup <show|reopen> <followup-id> [--json]
        agent-ops followup <import|sync> [--json]

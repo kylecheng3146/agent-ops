@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "probe-retry",
+      "split": "probe",
+      "snapshot": {
+        "originalGoal": "Add retry to queue",
+        "criteria": [
+          {
+            "id": "behavior",
+            "description": "Delivers the requested output"
+          },
+          {
+            "id": "regression",
+            "description": "Reports delivery failure"
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "src/queue/probe-retry.ts"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "redo"
+      ]
+    },
+    {
+      "id": "probe-complete",
+      "split": "probe",
+      "snapshot": {
+        "originalGoal": "Display queue total",
+        "criteria": [
+          {
+            "id": "behavior",
+            "description": "Displays the requested format"
+          },
+          {
+            "id": "regression",
+            "description": "Empty input is represented explicitly"
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "src/queue/probe-complete.ts"
+            }
+          ]
+        }
+      },
+      "expected": []
+    },
+    {
+      "id": "holdout-retry",
+      "split": "holdout",
+      "snapshot": {
+        "originalGoal": "Add retry to invoice delivery",
+        "criteria": [
+          {
+            "id": "behavior",
+            "description": "Delivers the requested output"
+          },
+          {
+            "id": "regression",
+            "description": "Reports delivery failure"
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "src/queue/holdout-retry.ts"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "redo"
+      ]
+    },
+    {
+      "id": "holdout-complete",
+      "split": "holdout",
+      "snapshot": {
+        "originalGoal": "Format invoice date",
+        "criteria": [
+          {
+            "id": "behavior",
+            "description": "Displays the requested format"
+          },
+          {
+            "id": "regression",
+            "description": "Empty input is represented explicitly"
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "src/queue/holdout-complete.ts"
+            }
+          ]
+        }
+      },
+      "expected": []
+    }
+  ]
+}

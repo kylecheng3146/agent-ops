@@ -50,7 +50,8 @@ test("recognizes every top-level command", () => {
     "run",
     "office",
     "escapes",
-    "followup"
+    "followup",
+    "learn"
   ]);
 
   for (const command of COMMAND_NAMES) {

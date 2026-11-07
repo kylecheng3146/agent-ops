@@ -27,7 +27,8 @@ export const COMMAND_NAMES = [
   "run",
   "office",
   "escapes",
-  "followup"
+  "followup",
+  "learn"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -60,6 +61,13 @@ export type EscapesAction = "reflect";
 export type CliAction = EscapesAction | FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
+  learningAction?: "list" | "run" | "show" | "replay" | "rollback" | "retire";
+  learningId?: string;
+  learningReceipt?: string;
+  learningSuite?: string;
+  learningModel?: string;
+  learningTarget?: ReviewTargetId;
+  learningNoExecute?: boolean;
   followupId?: string;
   findingFile?: string;
   reviewOnlyReason?: string;
@@ -226,6 +234,7 @@ function parseHookTarget(
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
+  if (argv[0] === "learn") return parseLearningArgs(argv.slice(1));
   if (argv[0] === "followup") return parseFollowupArgs(argv.slice(1));
   if (argv[0] === "run") return parseRunArgs(argv.slice(1));
   if (argv[0] === "escapes") return parseEscapesArgs(argv.slice(1));
@@ -1327,5 +1336,47 @@ function parseFollowupArgs(argv: readonly string[]): ParsedArgs {
   if ((["accept", "defer", "clarify"].includes(action) && args.reason === undefined) ||
       (action === "clarify" && args.findingFile === undefined) || (action === "process" && args.host === undefined))
     throw new CliArgumentError("CLI_MISSING_VALUE", "Accept/defer/clarify need --reason; clarify needs --finding-file; process needs --host.");
+  return args;
+}
+
+/** Opt-in learning never accepts policy, runner, schema or grader overrides. */
+function parseLearningArgs(argv: readonly string[]): ParsedArgs {
+  const args: ParsedArgs = {command: "learn", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
+  if (argv.includes("--help") || argv.includes("-h")) return {...args, command: "help", helpTopic: "learn", json: argv.includes("--json")};
+  const action = argv[0] === undefined || argv[0].startsWith("-") ? "list" : argv[0];
+  if (!["list", "run", "show", "replay", "rollback", "retire"].includes(action)) invalidValue("learn action", action);
+  args.learningAction = action as ParsedArgs["learningAction"];
+  const seen = new Set<string>();
+  for (let i = argv[0] === action ? 1 : 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (!token.startsWith("-")) {
+      if (args.learningId !== undefined || !/^[a-f0-9]{64}$/u.test(token)) invalidValue("learning artifact", token);
+      args.learningId = token; continue;
+    }
+    if (seen.has(token)) duplicate(token);
+    seen.add(token);
+    if (token === "--json") {args.json = true; continue;}
+    if (token === "--no-execute" && action === "run") {args.learningNoExecute = true; continue;}
+    if (!(action === "run" ? ["--receipt", "--suite", "--model", "--target", "--task"] :
+      action === "retire" || action === "rollback" ? ["--reason"] : []).includes(token))
+      throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown learn option: ${token}`, token);
+    const value = readOptionValue(argv, i++, token);
+    if (value.trim() === "" || value.includes("\0")) invalidValue(token, value);
+    if (token === "--receipt") args.learningReceipt = value;
+    if (token === "--suite") args.learningSuite = value;
+    if (token === "--model") args.learningModel = value;
+    if (token === "--reason") args.reason = value;
+    if (token === "--task") args.taskId = value;
+    if (token === "--target") {
+      if (!REVIEW_TARGETS.has(value)) invalidValue(token, value);
+      args.learningTarget = value as ReviewTargetId;
+    }
+  }
+  if (["show", "replay", "rollback"].includes(action) !== (args.learningId !== undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "show/replay/rollback need exactly one artifact or adopted version digest.");
+  if (action === "run" && (!args.learningReceipt || !args.learningSuite || !args.learningModel))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "learn run needs --receipt, --suite and --model.");
+  if ((action === "rollback" || action === "retire") && args.reason === undefined)
+    throw new CliArgumentError("CLI_MISSING_VALUE", "Learning recovery requires --reason.");
   return args;
 }
