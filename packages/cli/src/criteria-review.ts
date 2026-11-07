@@ -41,7 +41,7 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
     const parent = await parentScope(root, task).catch(() => undefined);
     const verification = config === undefined ? null : {
       requiredVerifierIds: config.config.verification.commands.filter(command => command.required).map(command => command.id),
-      runners: (config.config.verification.acceptanceRunners ?? []).map(({id, adapter}) => ({id, adapter}))};
+      runners: (config.config.verification.acceptanceRunners ?? []).map(({id, adapter, args}) => ({id, adapter, args}))};
     // Outside a supported Git layout the attempt archive stays in the worktree.
     const commonDir = await resolveCheckouts(worktreeDependencies(), root).then(checkouts => checkouts.commonDir, () => undefined);
     process.stderr.write(`Criteria advisory for ${task.id}: waiting for one independent reviewer (no time budget; Ctrl-C cancels).\n`);

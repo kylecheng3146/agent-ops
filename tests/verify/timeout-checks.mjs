@@ -59,7 +59,7 @@ const raw = {
   'acceptance-step-timeouts': async () => {
     const {ACCEPTANCE_TIMEOUTS} = await load('runtime/src/verify/acceptance-replay.js');
     // Each step kind has its own default; the old shared 60 s cut off npm ci and long runners alike.
-    assert.deepEqual(ACCEPTANCE_TIMEOUTS, {setup: 600_000, build: 300_000, testBuild: 300_000, run: 300_000, git: 60_000});
+    assert.deepEqual(ACCEPTANCE_TIMEOUTS, {setup: 600_000, build: 300_000, testBuild: 300_000, run: 600_000, git: 60_000});
   },
 
   'acceptance-timeout-detail': () => slowBuild(async report => {

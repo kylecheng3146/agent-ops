@@ -57,14 +57,25 @@ async function ledger(root: string, warnings: string[]): Promise<EscapeRecord[]>
 export async function buildEscapesReport(root: string, home?: string): Promise<EscapesReport> {
   const warnings: string[] = [];
   const records = await ledger(root, warnings).catch(() => { warnings.push("Ledger unreadable."); return []; });
+  const taskIds = new Set(records.flatMap(r => typeof r.taskId === "string" && r.taskId.length > 0 ? [r.taskId] : []));
   const events = await readLocalLog(home);
   let origins: { at?: string; key: string }[] = [];
   try {
     const state = JSON.parse(await readFile(join(root, ".agent-ops", "tasks", "state.json"), "utf8")) as
-      { tasks?: { createdAt?: string; task?: { origin?: { kind?: string }; debug?: unknown } }[] };
+      { tasks?: { createdAt?: string; task?: { id?: string; origin?: { kind?: string }; debug?: unknown } }[] };
+    for (const r of state.tasks ?? []) if (typeof r.task?.id === "string" && r.task.id.length > 0) taskIds.add(r.task.id);
     origins = (state.tasks ?? []).filter(r => r.task?.origin !== undefined || r.task?.debug !== undefined)
       .map(r => ({...(r.createdAt === undefined ? {} : {at: r.createdAt}), key: r.task?.origin?.kind ?? "undeclared"}));
   } catch { warnings.push("Task state unreadable; origin mix is empty."); }
+  try {
+    const receiptDir = join(root, ".git", "agent-ops", "receipts");
+    for (const name of (await readdir(receiptDir)).filter(n => n.endsWith(".json"))) {
+      try {
+        const receipt = JSON.parse(await readFile(join(receiptDir, name), "utf8")) as { tasks?: { task?: { id?: string } }[] };
+        for (const t of receipt.tasks ?? []) if (typeof t.task?.id === "string" && t.task.id.length > 0) taskIds.add(t.task.id);
+      } catch { /* ignore unreadable receipt */ }
+    }
+  } catch { /* receipts directory is optional */ }
   let rules: Awaited<ReturnType<typeof loadRules>> = [];
   try { rules = await loadRules(root); }
   catch (error) { warnings.push(`Rules unreadable: ${error instanceof Error ? error.message : "unknown error"}`); }
@@ -88,7 +99,7 @@ export async function buildEscapesReport(root: string, home?: string): Promise<E
   for (const r of records) if (r.link.state === "unresolved") reasons[r.link.reason] = (reasons[r.link.reason] ?? 0) + 1;
   return {
     misses: section(records.map(r => ({at: r.declaredAt, key: r.label}))),
-    catches: section(events.flatMap(e => e.event.type === "gate-catch" ? [{at: e.timestamp, key: e.event.code}] : [])),
+    catches: section(events.flatMap(e => e.event.type === "gate-catch" && (taskIds.size === 0 || taskIds.has(e.event.taskId)) ? [{at: e.timestamp, key: e.event.code}] : [])),
     origins: section(origins),
     links: {...links, reasons},
     rules: ruleRows,

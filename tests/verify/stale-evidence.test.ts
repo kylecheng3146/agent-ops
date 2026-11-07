@@ -82,10 +82,68 @@ test("the default base follows the worktree's target branch or the task's creati
     r.git("checkout", "-q", "--", "a.txt");
     // A session worktree: compare against the merge-base with its target branch, which a finish rebase moves.
     r.git("checkout", "-q", "-b", "agent-ops/session-x");
-    await r.commit({"b.txt": "1\n"}, "session work");
+    const subtaskBase = await r.commit({"b.txt": "1\n"}, "session work");
+    await r.commit({"c.txt": "1\n"}, "subtask work");
     await writeWorktreeRecord({schemaVersion: 1, name: "session-x", branch: "agent-ops/session-x", path: r.root, mainRoot: r.root,
       targetBranch: "main", base: created, sessionId: "s", createdAt: new Date().toISOString()});
     assert.equal(await defaultBase(r.root, r.runner, none), r.git("rev-parse", "main"));
+    assert.equal(await defaultBase(r.root, r.runner, async () => subtaskBase), subtaskBase, "subtask in worktree uses its creation commit");
+  } finally {
+    await r.close();
+  }
+});
+
+test("ACCEPTANCE_TIMEOUTS.run is 600s, replayAcceptance sets AGENT_OPS_ACCEPTANCE_CHECKS, and extractDiffQueries filters built-in stopwords", async () => {
+  const {ACCEPTANCE_TIMEOUTS, replayAcceptance} = await import("../../runtime/src/verify/acceptance-replay.js");
+  const {FileEvidenceStore} = await import("../../runtime/src/verify/evidence.js");
+  const {extractDiffQueries} = await import("../../runtime/src/surface/discovery.js");
+  assert.equal(ACCEPTANCE_TIMEOUTS.run, 600_000);
+  const queries = extractDiffQueries([
+    "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts",
+    '@@ -1 +1 @@ export function checkSchema(input: unknown) {',
+    '+  const s = {"additionalProperties": false, "schemaVersion": 2, minLength: 1, ok: Array.isArray(input) && String(input).startsWith("x"), real_token: 1};'
+  ].join("\n"));
+  assert.ok(queries.tokens.includes("real_token"));
+  for (const stop of ["additionalProperties", "schemaVersion", "minLength", "isArray", "startsWith"]) {
+    assert.ok(!queries.tokens.includes(stop), stop);
+  }
+  const r = await repo();
+  try {
+    const base = await r.commit({"tests/check.mjs": "process.exitCode = 0;\n"}, "base");
+    const seenEnv: Array< string | undefined > = [];
+    await replayAcceptance({
+      root: r.root,
+      scope: "project",
+      sourceFingerprint: "a".repeat(64),
+      evidenceStore: new FileEvidenceStore(r.root, r.root),
+      trusted: true,
+      gitRunner: r.runner,
+      config: {
+        schemaVersion: 3, profiles: ["core"], pathMappings: [], securityExceptions: [],
+        features: {completionGate: {enabled: false}, stopVerification: {enabled: false}},
+        verification: {commands: [], acceptanceRunners: [{id: "runner-1", command: process.execPath, args: ["tests/check.mjs"], cwd: ".", adapter: "generic"}]}
+      },
+      task: {
+        schemaVersion: 2, id: "task-1", title: "Replay checks",
+        criteria: [{
+          id: "c1", description: "Check 1", verifierIds: [],
+          acceptance: {mode: "invariant", baselineCommit: base, bindings: [{runnerId: "runner-1", materials: [{path: "tests/check.mjs", role: "test"}], checkIds: ["check-a", "check-b"]}]}
+        }]
+      },
+      processRunner: {
+        start: request => {
+          seenEnv.push(request.env?.AGENT_OPS_ACCEPTANCE_CHECKS);
+          return {
+            pid: 1,
+            stdout: (async function* () {})(),
+            stderr: (async function* () {})(),
+            completion: Promise.resolve({exitCode: 1, signal: null}),
+            terminateTree: async () => undefined
+          };
+        }
+      }
+    });
+    assert.deepEqual(seenEnv, ["check-a,check-b", "check-a,check-b"]);
   } finally {
     await r.close();
   }

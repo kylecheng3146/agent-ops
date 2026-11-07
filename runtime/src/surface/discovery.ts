@@ -93,7 +93,11 @@ const STOP = new Set(["return", "import", "export", "default", "function", "exte
   "delete", "select", "insert", "update", "values", "create", "require", "module", "exports", "global", "continue",
   "switch", "package", "abstract", "unsigned", "virtual", "override", "readonly", "declare", "namespace", "undefined",
   "nullptr", "lambda", "elseif", "except", "finally", "assert", "yield", "async", "await", "should", "expect",
-  "describe", "result", "props", "children", "className", "length", "constructor", "prototype", "console", "Promise"]);
+  "describe", "result", "props", "children", "className", "length", "constructor", "prototype", "console", "Promise",
+  "additionalProperties", "minLength", "maxLength", "schemaVersion", "hasOwn", "isArray", "isInteger", "isSafeInteger",
+  "fromEntries", "exitCode", "signalCode", "stdout", "stderr", "toString", "valueOf", "includes", "startsWith", "endsWith",
+  "replace", "replaceAll", "flatMap", "forEach", "filter", "reduce", "slice", "splice", "concat", "structuredClone",
+  "parseInt", "parseFloat", "isFinite", "setTimeout", "clearTimeout"]);
 const SEPARATOR = /^[:._/#-]|[:._/#-]$/u;
 const LITERAL = /"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\\n]|\\.)*)`/gu;
 const COMPOUND = /[a-z0-9][A-Z]|[A-Za-z0-9][_$][A-Za-z0-9]|[A-Za-z][0-9]/u;
@@ -123,7 +127,7 @@ export function extractDiffQueries(diff: string):
       const content = literal[1] ?? literal[2] ?? literal[3] ?? "";
       for (const piece of content.split(new RegExp(INTERPOLATION.source, "gu")))
         if (piece.length >= SURFACE_LIMITS.fragmentLength && SEPARATOR.test(piece) && piece.trim() === piece) fragments.add(piece);
-      if (!INTERPOLATION.test(content) && content.trim().length >= SURFACE_LIMITS.tokenLength) tokens.add(content);
+      if (!INTERPOLATION.test(content) && content.trim().length >= SURFACE_LIMITS.tokenLength && !STOP.has(content)) tokens.add(content);
     }
     // ponytail: compound identifiers only (snake_case, camelCase, digits), so prose
     // words in docs and comments are not queries; aliases are phase 2.

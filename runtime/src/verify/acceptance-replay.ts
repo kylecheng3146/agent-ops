@@ -41,7 +41,7 @@ export interface AcceptanceReplayResult {
 }
 
 /** Limits for runner steps without their own timeoutMs: installs are slow, git plumbing is not. */
-export const ACCEPTANCE_TIMEOUTS = {setup: 600_000, build: 300_000, testBuild: 300_000, run: 300_000, git: 60_000} as const;
+export const ACCEPTANCE_TIMEOUTS = {setup: 600_000, build: 300_000, testBuild: 300_000, run: 600_000, git: 60_000} as const;
 
 async function executableIdentity(command: string, cwd: string, env: Record<string, string>): Promise<string> {
   const paths = isAbsolute(command) ? [command] : command.includes("/") ? [join(cwd, command)] :
@@ -57,13 +57,14 @@ async function executableIdentity(command: string, cwd: string, env: Record<stri
   return "unavailable";
 }
 
-function replayEnvironment(checkout: string, phase: AcceptancePhase, executionId: string): Record<string, string> {
+function replayEnvironment(checkout: string, phase: AcceptancePhase, executionId: string, requested: readonly string[] = []): Record<string, string> {
   const env = Object.fromEntries(Object.entries(process.env).filter((pair): pair is [string, string] =>
     pair[1] !== undefined && !/^(?:NODE_OPTIONS|NODE_PATH|PYTHONPATH|PYTHONHOME|CARGO_TARGET_DIR|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|AGENT_OPS_|CLAUDE_|CODEX_)/u.test(pair[0])));
   env.PATH = [join(checkout, "node_modules/.bin"), join(checkout, ".venv/bin"),
     ...(process.env.PATH ?? "").split(delimiter).filter(path => !path.includes("node_modules/.bin"))].join(delimiter);
   env.AGENT_OPS_ACCEPTANCE_PHASE = phase;
   env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID = executionId;
+  if (requested.length > 0) env.AGENT_OPS_ACCEPTANCE_CHECKS = requested.join(",");
   return env;
 }
 
@@ -124,13 +125,15 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       materials.push({...material, bytes: blob.stdout, mode: entry[1] === "100755" ? 0o755 : 0o644});
     }
     const materialDigest = sha256(canonicalJson(materials.map(m => ({path: m.path, role: m.role, mode: m.mode, hash: sha256(m.bytes)}))));
+    const requested = [...new Set(group.criteria.flatMap(c => c.acceptance!.bindings
+      .filter(b => b.runnerId === group.runner.id && canonicalJson(b.materials) === canonicalJson(group.binding.materials)).flatMap(b => b.checkIds)))];
     for (const phase of ["baseline", "candidate"] as const) {
       const commit = phase === "baseline" ? group.baseline : candidate;
       const executionId = randomUUID();
       const startedAt = new Date().toISOString();
       const temp = await mkdtemp(join(tmpdir(), "agent-ops-acceptance-"));
       const checkout = join(temp, "repository");
-      const env = replayEnvironment(checkout, phase, executionId);
+      const env = replayEnvironment(checkout, phase, executionId, requested);
       let timedOut: string | undefined;
       const command = async (executable: string, args: readonly string[], cwd: string, stage: keyof typeof ACCEPTANCE_TIMEOUTS,
         own?: number) => {
@@ -152,8 +155,6 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
       const steps: Array<{command: string; args: readonly string[]; status: string; failureClass: string; stderr: string}> = [];
       let executionDigest = sha256(executionId);
       let argv: string[] = [];
-      const requested = [...new Set(group.criteria.flatMap(c => c.acceptance!.bindings
-        .filter(b => b.runnerId === group.runner.id && canonicalJson(b.materials) === canonicalJson(group.binding.materials)).flatMap(b => b.checkIds)))];
       try {
         for (const [cwd, args] of [[temp, ["clone", "--no-hardlinks", "--quiet", "--", options.root, checkout]],
           [checkout, ["fetch", "--quiet", "--", options.root, commit]], [checkout, ["checkout", "--detach", "--quiet", commit]]] as const) {
