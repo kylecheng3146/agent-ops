@@ -258,13 +258,6 @@ export class TaskService {
         ? {}
         : { parentTaskId: input.parentTaskId })
     };
-    // DEBUG = an ordinary task whose original regression is proven red at the baseline and green on the candidate.
-    if (input.debug !== undefined && input.parentTaskId === undefined) {
-      if (!criteria.some(c => c.acceptance?.mode === "behavioral" && c.acceptance.bindings.some(b => (b.redCheckIds ?? []).length > 0)))
-        throw taskError("TASK_DEBUG_RED_CHECK_REQUIRED",
-          "A DEBUG task needs a behavioral criterion whose redCheckIds fail at the baseline and pass on the candidate.");
-      task.debug = {rootTaskId:task.id,facts:[...(input.debug.facts ?? [])],unknowns:[...(input.debug.unknowns ?? [])]};
-    }
     const validation = validateTask(task);
     if (!validation.ok) {
       throw taskError(
@@ -302,9 +295,10 @@ export class TaskService {
             );
           })()
         : undefined;
-      if (input.parentTaskId !== undefined) {
+      const parentId = input.parentTaskId ?? attachedParent?.task.id;
+      if (parentId !== undefined) {
         const parent = state.tasks.find(
-          (record) => record.task.id === input.parentTaskId
+          (record) => record.task.id === parentId
         );
         if (parent === undefined) {
           throw taskError(
@@ -312,6 +306,7 @@ export class TaskService {
             `Parent task not found: ${input.parentTaskId}`
           );
         }
+        validation.value.parentTaskId = parentId;
         if (parent.status !== "active") {
           throw taskError(
             "TASK_PARENT_NOT_ACTIVE",
@@ -324,16 +319,18 @@ export class TaskService {
           validation.value.goal = parent.task.goal;
         }
         if (parent.task.debug !== undefined) validation.value.debug = structuredClone(parent.task.debug);
-      } else if (attachedParent !== undefined) {
-        validation.value.parentTaskId = attachedParent.task.id;
-        if (validation.value.goal === undefined && attachedParent.task.goal !== undefined) {
-          validation.value.goal = attachedParent.task.goal;
-        }
+      } else if (input.debug !== undefined) {
+        if (!criteria.some(c => c.acceptance?.mode === "behavioral" && c.acceptance.bindings.some(b => (b.redCheckIds ?? []).length > 0)))
+          throw taskError("TASK_DEBUG_RED_CHECK_REQUIRED",
+            "A DEBUG task needs a behavioral criterion whose redCheckIds fail at the baseline and pass on the candidate.");
+        validation.value.debug = {rootTaskId: task.id, facts: [...(input.debug.facts ?? [])], unknowns: [...(input.debug.unknowns ?? [])]};
       }
+      const inherited = validateTask(validation.value);
+      if (!inherited.ok) throw taskError("TASK_INVALID", inherited.errors[0]?.message ?? "Invalid inherited task contract.");
       if (input.requireSurface === true) {
         const parentSurface = state.tasks.find(record => record.task.id === validation.value.parentTaskId)?.task.surface;
         const surfacedParent = parentSurface !== undefined && !isCovers(parentSurface);
-        if (surface === undefined || (input.parentTaskId !== undefined ? isCovers(surface) !== surfacedParent : isCovers(surface) && !surfacedParent))
+        if (surface === undefined || isCovers(surface) !== surfacedParent)
           throw taskError("SURFACE_MISSING", surfacedParent
             ? "A subtask of a surfaced parent declares --surface-file {\"covers\": [surface-id]}."
             : "A new task needs --surface-file with the four-axis surface audit (EVIDENCE-SURFACE-001).");

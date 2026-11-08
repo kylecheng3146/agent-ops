@@ -371,10 +371,10 @@ test("finish completes the worktree's whole task tree, subtasks first, and recor
     await write(record.path, "child.txt", "child work\n");
     await git(record.path, "add", "child.txt");
     await git(record.path, "commit", "-qm", "child work");
-    // The parent has no recorded base, so finish falls back to the worktree's;
-    // the subtask was reviewed over its own, narrower range.
+    // Ordinary completion accepts a narrower child base; a complete sealed receipt needs common-source proof.
     const parent = await reviewedTask(record, { title: "Parent", base: record.base });
     const child = await reviewedTask(record, { title: "Child", base: middle, parentTaskId: parent, reviewBase: true });
+    await reviewedTask(record, {title: "Child", base: record.base, taskId: child, reviewBase: true});
     const head = await git(record.path, "rev-parse", "HEAD");
 
     const result = await finishWorktree(d, { cwd: root, name: "alpha" });
@@ -382,6 +382,9 @@ test("finish completes the worktree's whole task tree, subtasks first, and recor
     assert.deepEqual(result.taskIds, [parent, child]);
     assert.deepEqual(result.warnings, []);
     assert.ok(result.receipt);
+    const receipt = JSON.parse(await readFile(result.receipt!, "utf8"));
+    assert.deepEqual(receipt.tasks.map((r: {task: {id: string}}) => r.task.id), [parent, child]);
+    assert.deepEqual(Object.keys(receipt.reviews).sort(), [parent, child].sort());
     assert.equal(await git(root, "rev-parse", "main"), head);
     const note = await git(root, "notes", "--ref=agent-ops", "show", head);
     assert.match(note, new RegExp(`^agent-ops task ${parent}: Parent$`, "mu"));

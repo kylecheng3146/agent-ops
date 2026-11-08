@@ -1,11 +1,12 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { LEDGER_DIRECTORY, type EscapeRecord } from "../../../../runtime/src/escape/link.js";
+import { gitCommonDir, LEDGER_DIRECTORY, type EscapeRecord } from "../../../../runtime/src/escape/link.js";
 import { loadLessons } from "../../../../runtime/src/escape/lessons.js";
 import { reflectEscape, type ReflectorCall, type ReflectResult } from "../../../../runtime/src/escape/reflect.js";
 import { loadRules } from "../../../../runtime/src/escape/rules.js";
 import { readLocalLog } from "../../../../runtime/src/logging/local-log.js";
+import {gitRunner} from "../parallel-deps.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 
 /** Below this many observations a count is shown but not trusted. */
@@ -68,7 +69,8 @@ export async function buildEscapesReport(root: string, home?: string): Promise<E
       .map(r => ({...(r.createdAt === undefined ? {} : {at: r.createdAt}), key: r.task?.origin?.kind ?? "undeclared"}));
   } catch { warnings.push("Task state unreadable; origin mix is empty."); }
   try {
-    const receiptDir = join(root, ".git", "agent-ops", "receipts");
+    const common = await gitCommonDir(gitRunner(root), root).catch(() => join(root, ".git"));
+    const receiptDir = join(common, "agent-ops", "receipts");
     for (const name of (await readdir(receiptDir)).filter(n => n.endsWith(".json"))) {
       try {
         const receipt = JSON.parse(await readFile(join(receiptDir, name), "utf8")) as { tasks?: { task?: { id?: string } }[] };

@@ -29,6 +29,7 @@ import {coordinatorResponseChecks} from './coordinator-response-checks.mjs';
 import {coordinatorProofPolicyChecks} from './coordinator-proof-policy-checks.mjs';
 import {privateWriteChecks} from '../security/private-write-checks.mjs';
 import {installRunnerChecks} from '../install/runner-checks.mjs';
+import {operationalChecks} from './operational-regressions.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -70,6 +71,7 @@ async function fixture(check) {
 }
 
 const checks = {
+  ...operationalChecks,
   ...runResilienceChecks,
   ...installRunnerChecks,
   ...privateWriteChecks,

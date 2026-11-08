@@ -235,13 +235,15 @@ export class RunControlService {
       return worker;
     };
     validBinding(state);
-    const seenUnknown = (current: RunState) => authorization.result === "unknown" &&
-      ((previous === content && current.events.some(event => event.id === id)) ||
+    const skipUnknown = (current: RunState) => authorization.result === "unknown" &&
+      // Observations cannot evict critical events or rewrite a ledger with no room to retain them.
+      ((current.events.length >= 2_000 && !current.events.some(event => event.code === "RUN_COMMAND_AUTHORIZATION_OBSERVED")) ||
+        (previous === content && current.events.some(event => event.id === id)) ||
         current.events.some(event => event.code === "RUN_COMMAND_AUTHORIZATION_OBSERVED" && event.detail?.includes(scopeDigest) === true));
-    if (seenUnknown(state)) return state;
+    if (skipUnknown(state)) return state;
     const saved = await this.#repository.mutate(runId, async current => {
       const worker = validBinding(current);
-      if (seenUnknown(current)) return current;
+      if (skipUnknown(current)) return current;
       if (previous !== content) await writePrivateFile(path, content, current.commonDir);
       if (current.events.some(event => event.id === id)) return current;
       const nextEvent = {

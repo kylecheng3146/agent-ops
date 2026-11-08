@@ -110,19 +110,9 @@ export async function prepareFinishReceipt(options: {
   const residualRisks = new Set<string>();
   const nonBlockingFindings: NonNullable<FinishReceipt["nonBlockingFindings"]>[number][] = [];
   const modes = new Set<"tree" | "per-task-fallback">();
-  const receiptTasks: StoredTaskRecord[] = [];
   for (const task of tasks) {
-    let taskFingerprint = sourceFingerprint;
-    const taskBase = task.completionBase ?? task.reviewBase ?? undefined;
-    if (task.task.parentTaskId !== undefined && taskBase !== undefined && taskBase !== targetCommit && options.noChange === undefined &&
-      await findReviewAttestation(record.path, sourceFingerprint, task.task.id) === null &&
-      (await options.gitRunner.run(["merge-base", "--is-ancestor", targetCommit, taskBase])).exitCode === 0 &&
-      (await options.gitRunner.run(["merge-base", "--is-ancestor", taskBase, candidateHead])).exitCode === 0) {
-      const taskScope = await resolveReviewScope({ root: record.path, runner: options.gitRunner, base: taskBase });
-      taskFingerprint = await calculateSourceFingerprint(record.path, taskScope, options.gitRunner);
-    }
     const problem = await checkTaskCompletionEvidence(task, {
-      root: record.path, config, sourceFingerprint: taskFingerprint, evidenceStore
+      root: record.path, config, sourceFingerprint, evidenceStore
     });
     if (problem !== null) {
       throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Task ${task.task.id}: ${problem.remedy}`);
@@ -133,7 +123,7 @@ export async function prepareFinishReceipt(options: {
         if (reference.startsWith("review:")) continue;
         const value = await evidenceStore.load(reference);
         if (value === null) throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Missing ${reference}.`);
-        if (taskFingerprint === sourceFingerprint) verification[reference] = seal(value);
+        verification[reference] = seal(value);
         const checked = validateEvidence(value);
         if (!checked.ok) throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", "Historical verification evidence is invalid.");
         const artifact = checked.value.acceptance?.executionArtifact;
@@ -142,12 +132,12 @@ export async function prepareFinishReceipt(options: {
           if (content === null || Buffer.byteLength(content) > 4 * 1024 * 1024 ||
             artifact !== ".agent-ops/tasks/acceptance/" + sha256(content) + ".json")
             throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", "Paired execution artifact is missing or changed.");
-          if (taskFingerprint === sourceFingerprint) executionArtifacts[artifact] = seal(content);
+          executionArtifacts[artifact] = seal(content);
         }
       }
     }
-    const attestation = await findReviewAttestation(record.path, taskFingerprint, task.task.id);
-    const report = await readReviewReportArtifact(record.path, taskFingerprint, task.task.id);
+    const attestation = await findReviewAttestation(record.path, sourceFingerprint, task.task.id);
+    const report = await readReviewReportArtifact(record.path, sourceFingerprint, task.task.id);
     if (attestation === null || report === null || report.status !== "PASS" || report.taskId !== task.task.id) {
       throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Missing review for ${task.task.id}.`);
     }
@@ -158,10 +148,7 @@ export async function prepareFinishReceipt(options: {
     for (const [round, findings] of [["primary", report.report?.findings ?? []], ["adversarial", report.adversarial?.report.findings ?? []]] as const)
       for (const finding of findings) if (!finding.blocking)
         nonBlockingFindings.push({taskId: task.task.id, round, severity: finding.severity, title: finding.title, details: finding.details});
-    if (taskFingerprint === sourceFingerprint) {
-      receiptTasks.push(task);
-      reviews[task.task.id] = { attestation: seal(attestation), report: seal(report) };
-    }
+    reviews[task.task.id] = { attestation: seal(attestation), report: seal(report) };
   }
   if (modes.size !== 1 || (modes.has("tree") && new Set(Object.values(reviews)
     .map(({ attestation }) => JSON.stringify((attestation.value as { tree?: unknown }).tree))).size !== 1)) {
@@ -190,7 +177,7 @@ export async function prepareFinishReceipt(options: {
     ...await receiptRange(options.gitRunner, targetCommit, candidateHead),
     sourceFingerprint,
     reviewMode: modes.has("tree") ? "tree" : "per-task-fallback",
-    tasks: receiptTasks,
+    tasks,
     children: options.children,
     verification,
     executionArtifacts,
