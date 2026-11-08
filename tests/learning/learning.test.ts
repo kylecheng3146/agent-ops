@@ -257,6 +257,12 @@ test("learning data rejects policy overrides, duplicate cases, answer leakage an
   assert.throws(() => parseProposal({...proposal, strategies: [{...proposal.strategies[0], paths: ["../secrets"]}]}));
   assert.throws(() => parseSuite({...suite, cases: [...suite.cases, {...suite.cases[0], id: "duplicate"}]}));
   assert.throws(() => scoreReply({results: []}, suite));
+  await fixture(async (store, root) => {
+    const id = await store.archive("trials", {nested: {"token=private-key-value": "Fixture metadata"}});
+    assert.doesNotMatch(await readFile(join(store.directory, "trials", id + ".json"), "utf8"), /private-key-value/);
+    const privateSuite = {...suite, cases: suite.cases.map(c => ({...c, snapshot: {...c.snapshot, "token=private-key-value": "Fixture metadata"}}))};
+    assert.doesNotMatch(evaluationPrompt(privateSuite, proposal), /private-key-value/);
+  });
   await fixture(async store => {
     const result = await trial(store, async prompt => prompt.startsWith("Propose") ? {durationMs: 1, value: {candidates: [proposal, proposal, proposal]}} : fixtureCall()(prompt, {}));
     assert.equal(result.trial.status, "NOT_RUN"); assert.equal(result.adopted, null);

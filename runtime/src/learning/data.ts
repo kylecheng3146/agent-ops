@@ -17,7 +17,7 @@ export function invalid(message: string): never {throw new AgentOpsError("LEARNI
 export function redactData(value: unknown): unknown {
   if (typeof value === "string") return redactSecrets(value);
   if (Array.isArray(value)) return value.map(redactData);
-  return object(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactData(v)])) : value;
+  return object(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [redactSecrets(k), redactData(v)])) : value;
 }
 
 export interface Strategy {id: string; paths: string[]; cue: string; check: string}

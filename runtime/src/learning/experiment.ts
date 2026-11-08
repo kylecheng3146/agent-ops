@@ -17,7 +17,7 @@ import {casePaths, digest, exact, improves, invalid, LEARNING_LIMITS, noCaseRegr
 export interface LearningSettings {target: ReviewTargetId; model: string; effort: string}
 export interface LearningCallResult {value: unknown; durationMs: number; conditions?: string; usage?: ReviewUsage; failure?: string}
 export type LearningCall = (prompt: string, schema: Record<string, unknown>) => Promise<LearningCallResult>;
-export const EVALUATOR = digest([scoreReply.toString(), improves.toString(), noCaseRegressions.toString(), strategyDigest.toString(), applicableStrategies.toString(), caseBehavior.toString(), unchangedComposition.toString(), parseSuite.toString(), casePaths.toString(), parseProposal.toString(), evaluationPrompt.toString(), LEARNING_LIMITS]);
+export const EVALUATOR = digest([scoreReply.toString(), improves.toString(), noCaseRegressions.toString(), strategyDigest.toString(), applicableStrategies.toString(), caseBehavior.toString(), unchangedComposition.toString(), parseSuite.toString(), casePaths.toString(), parseProposal.toString(), redactData.toString(), evaluationPrompt.toString(), LEARNING_LIMITS]);
 export interface Evaluation {label: string; repetition: number; results: CaseResult[]; score: Score}
 export interface LearningTrial {
   schemaVersion: 1; evaluator: string; settings: LearningSettings; conditions: {command: string; args: readonly string[]; environment: string};
