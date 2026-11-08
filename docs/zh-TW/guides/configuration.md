@@ -249,6 +249,10 @@ fingerprint，因此兩個對話修改同一個 checkout 會互相作廢對方�
   任一 task 無法完成時不會合併，錯誤訊息會指出是哪個 task。建立 subtask 時 session
   維持附著在 task 樹最上層，且每個 task 各自保留 review 紀錄，所以在同一份原始碼上
   review 的 parent 與 subtask 不會互相覆蓋。
+  session root 仍 active 時，未指定 `--parent` 的下一個 task 會自動加入，並沿用相同
+  goal、debug 與 surface covers 規則。一般 finish 保留各 task 的 review base；這些
+  證據若無法形成完整 sealed receipt，會明示 receipt warning。需要所有 task 都綁定
+  同一 final base 與來源的收據時，使用 `task advance` 的最終全樹證明。
 - 多個寫入型 subagent 各自在獨立 worktree 工作時，每個子 task 在編輯前以
   `--intent` 記錄完整修改意圖，提交後進行局部 verify。協調者從主 checkout
   經由與 review 相同的可信外層 host runner 執行

@@ -291,6 +291,12 @@ evidence. Give each editing conversation its own worktree instead:
   Creating a subtask keeps the session attached to the top of its tree, and
   each task keeps its own review record, so a parent and a subtask reviewed
   on the same source do not overwrite each other.
+  While the session root is active, another task created without `--parent`
+  automatically joins it and follows the same goal, debug and surface-covers
+  rules. Ordinary finish retains per-task review bases; if those proofs cannot
+  form one complete sealed receipt, it reports a receipt warning. Use final
+  tree proof through `task advance` for a receipt covering every task on the
+  same final base and source.
 - When writing subagents use separate worktrees, create each child task with
   `--intent` before editing, then commit and verify locally. From the main
   checkout run `agent-ops task advance --task <parent-id> --session <id> --yes`
