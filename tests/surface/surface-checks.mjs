@@ -385,13 +385,15 @@ const raw = {
       '@@ -10,2 +10,2 @@ export async function loadOrder(id: string) {',
       '-  const key = `order:${id}`;', '+  const key = `order:${id}:v2`;',
       "+  const user = 'user_' + id;", '+  const label = "menu." + section;',
+      '+  const schema = {"additionalProperties": false, "schemaVersion": 1, minLength: 1, ok: Array.isArray(id) && id.startsWith("x")};',
       '@@ -40 +40 @@ def refresh_menu(store):', '+    table_number = store.table  # surface update'
     ].join('\n'));
     for (const fragment of ['order:', 'user_', 'menu.']) assert.ok(queries.fragments.includes(fragment), `${fragment}: ${JSON.stringify(queries)}`);
     assert.deepEqual(queries.functions.sort(), ['loadOrder', 'refresh_menu']);
     assert.ok(queries.tokens.includes('table_number'), JSON.stringify(queries.tokens));
-    // Prose words are not queries; compound identifiers are.
-    for (const word of ['surface', 'update', 'section']) assert.ok(!queries.tokens.includes(word), word);
+    // Prose words and language/schema built-in stopwords (identifiers or string literals) are not queries; compound identifiers are.
+    for (const word of ['surface', 'update', 'section', 'additionalProperties', 'schemaVersion', 'minLength', 'isArray', 'startsWith'])
+      assert.ok(!queries.tokens.includes(word), word);
     const changed = await fixture.commit({
       'src/orders.ts': 'export function loadOrder(id) {\n  const cached = readCache(`order:${id}`);\n  return cached;\n}\n'});
     const result = await gate(fixture, audit({included: [['orders', 'src/orders.ts']]}), changed);

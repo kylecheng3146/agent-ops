@@ -380,6 +380,8 @@ test("finish completes the worktree's whole task tree, subtasks first, and recor
     const result = await finishWorktree(d, { cwd: root, name: "alpha" });
 
     assert.deepEqual(result.taskIds, [parent, child]);
+    assert.deepEqual(result.warnings, []);
+    assert.ok(result.receipt);
     assert.equal(await git(root, "rev-parse", "main"), head);
     const note = await git(root, "notes", "--ref=agent-ops", "show", head);
     assert.match(note, new RegExp(`^agent-ops task ${parent}: Parent$`, "mu"));

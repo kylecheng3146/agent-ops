@@ -544,7 +544,8 @@ async function reviewSurface(options: ReviewCommandOptions, context: TaskContext
     if (record.task.parentTaskId === undefined) break;
   }
   const children = holder === undefined ? [] : all
-    .filter(r => r.task.parentTaskId === holder!.task.id && r.status !== "archived" && r.supersededBy === undefined)
+    .filter(r => r.task.parentTaskId === holder!.task.id && r.status !== "archived" && r.supersededBy === undefined &&
+      (r.task.surface === undefined || isCovers(r.task.surface)))
     .map(r => ({taskId: r.task.id, covers: r.task.surface !== undefined && isCovers(r.task.surface) ? r.task.surface.covers : []}));
   const gate = await runSurfaceGate({
     root: options.root!, taskId: context.taskId, surface: holder?.task.surface,

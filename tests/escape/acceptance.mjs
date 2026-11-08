@@ -6,8 +6,12 @@ import {budgetDeterminismChecks} from './budget-determinism-check.mjs';
 const checks = {...ruleChecks, ...lessonChecks, ...budgetDeterminismChecks};
 const executionId = process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-escape';
 const phase = process.env.AGENT_OPS_ACCEPTANCE_PHASE ?? 'candidate';
+const requestedChecks = (process.env.AGENT_OPS_ACCEPTANCE_CHECKS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+const selectedChecks = requestedChecks.length > 0
+  ? Object.entries(checks).filter(([id]) => requestedChecks.includes(id))
+  : Object.entries(checks);
 const results = [];
-for (const [checkId, check] of Object.entries(checks)) {
+for (const [checkId, check] of selectedChecks) {
   process.stderr.write(`escape: ${checkId}\n`);
   let status = 'PASS', failureClass = 'none', detail = 'Real Git/process assertions completed';
   try {await check();} catch (e) {status = 'FAIL'; failureClass = e.code === 'ERR_ASSERTION' ? 'assertion-failed' : 'infrastructure-error'; detail = String(e.stack ?? e).replace(/[\r\n]/gu, ' ').slice(0, 4000);}

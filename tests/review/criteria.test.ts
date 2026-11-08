@@ -288,7 +288,7 @@ test("advisor sees configured verifiers and runners, not surface exclusions, wit
   const surface = {axes: {}, included: [{id: "s", path: "src/a.ts", behavior: "Changes"}], excluded: [{glob: "docs/**", reason: "Unread"}],
     unknown: [], contracts: [], valueChanges: [], scenarios: {}, dismissed: [{query: "mockName", reason: "Fixture token"}]};
   const surfaced = {...task, surface} as unknown as AgentTask;
-  const verification = {requiredVerifierIds: ["unit"], runners: [{id: "vitest-app", adapter: "vitest"}]};
+  const verification = {requiredVerifierIds: ["unit"], runners: [{id: "vitest-app", adapter: "vitest", args: ["--dir", "packages/web"]}]};
   const snapshot = criteriaSnapshot(surfaced, undefined, verification);
   assert.deepEqual(snapshot.verification, verification);
   assert.deepEqual(Object.keys(snapshot.surface as object).sort(), ["axes", "contracts", "included", "scenarios", "unknown", "valueChanges"]);
@@ -296,6 +296,8 @@ test("advisor sees configured verifiers and runners, not surface exclusions, wit
   assert.match(prompt, /A task has 2 to 5 criteria/);
   assert.match(prompt, /Every required verifier already runs and must pass for each criterion with typed acceptance/);
   assert.match(prompt, /A check binding needs one of the listed verification runners/);
+  assert.match(prompt, /when a runner's args scope it to another subsystem/);
+  assert.match(prompt, /packages\/web/);
   assert.doesNotMatch(prompt, /Unread|mockName/);
   const unknown = criteriaReviewPrompt(criteriaSnapshot(surfaced));
   assert.equal(criteriaSnapshot(surfaced).verification, null);
@@ -349,4 +351,30 @@ test("path-matched escape lessons reach the advisor DATA without staling the cri
     assert.equal(view.stale, false);
     assert.equal((await readCriteriaReview(root, surfaced))!.stale, false, "lessons are context, like the surface");
   } finally {await rm(root, {recursive: true, force: true});}
+});
+
+test("buildEscapesReport filters gate-catch events to known repository task IDs", async () => {
+  const {buildEscapesReport} = await import("../../packages/cli/src/commands/escapes.js");
+  const root = await fixture(), home = await fixture();
+  try {
+    const state = localStatePaths(home);
+    const log = join(state.logDirectory, "events.ndjson");
+    await appendLocalLog(log, {type: "gate-catch", code: "SURFACE_UNCLASSIFIED", taskId: "task-ledger"}, {anchorDirectory: state.anchorDirectory});
+    await appendLocalLog(log, {type: "gate-catch", code: "SCENARIO_MISSING", taskId: "task-state"}, {anchorDirectory: state.anchorDirectory});
+    await appendLocalLog(log, {type: "gate-catch", code: "REVIEW_FAIL", taskId: "task-receipt"}, {anchorDirectory: state.anchorDirectory});
+    await appendLocalLog(log, {type: "gate-catch", code: "REVIEW_FAIL", taskId: "task-foreign"}, {anchorDirectory: state.anchorDirectory});
+    await mkdir(join(root, ".agent-ops-escapes"), {recursive: true});
+    await writeFile(join(root, ".agent-ops-escapes/task-ledger.json"), JSON.stringify({
+      schemaVersion: 1, taskId: "task-ledger", escapeOf: "a".repeat(40), link: {state: "ungated"},
+      agentLabel: "surface", label: "surface-unseen", missedPaths: [], facts: [], residualRisks: 0, declaredAt: "2026-10-01T00:00:00.000Z"
+    }));
+    await mkdir(join(root, ".agent-ops/tasks"), {recursive: true});
+    await writeFile(join(root, ".agent-ops/tasks/state.json"), JSON.stringify({tasks: [{task: {id: "task-state"}}]}));
+    await mkdir(join(root, ".git/agent-ops/receipts"), {recursive: true});
+    await writeFile(join(root, ".git/agent-ops/receipts/r1.json"), JSON.stringify({tasks: [{task: {id: "task-receipt"}}]}));
+    const report = await buildEscapesReport(root, home);
+    assert.deepEqual(report.catches.counts, {SURFACE_UNCLASSIFIED: 1, SCENARIO_MISSING: 1, REVIEW_FAIL: 1});
+  } finally {
+    await Promise.all([root, home].map(path => rm(path, {recursive: true, force: true})));
+  }
 });

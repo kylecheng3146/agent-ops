@@ -375,8 +375,11 @@ process.exitCode = await runCli(
           // Committed work is judged as a range by default; see defaultBase.
           if ((args.command === "verify" || (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {
             const taskId = args.taskId;
-            const base = await defaultBase(root, gitRunner(root), async () => taskId === undefined ? undefined :
-              (await new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)).status({taskId})).createdSourceCommit)
+            const base = await defaultBase(root, gitRunner(root), async () => {
+              if (taskId === undefined) return undefined;
+              const status = await new TaskService(new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root)).status({taskId});
+              return status.task.parentTaskId === undefined && await readWorktreeRecord(root) !== null ? undefined : status.createdSourceCommit;
+            })
               // Only a default: any failure leaves the command's own scope handling and errors in charge.
               .catch(() => undefined);
             if (base !== undefined) args = {...args, base};

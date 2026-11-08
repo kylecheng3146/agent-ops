@@ -54,5 +54,43 @@ export const authorizationChecks = {
       assert.equal(current.status, 'active');
       assert.equal(current.events.at(-1).code, 'RUN_COMMAND_AUTO_APPROVED');
     } finally {await rm(root, {recursive: true, force: true});}
+  },
+  'bounded-and-idempotent-authorization-observations': async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'agent-ops-bounded-auth-')));
+    const common = join(root, '.git');
+    try {
+      const repository = new FileRunRepository(join(common, 'agent-ops/runs'), common);
+      const state = createRunState({root, commonDir: common, targetBranch: 'main', goal: 'Bounded observation fixture', host: 'claude', ownerSessionId: 'owner'});
+      await repository.create(state);
+      await bindRunPolicy(repository, state.runId, {config, runtimeHash: 'b'.repeat(64),
+        baseTrustBinding: {canonicalPath: root, remoteIdentity: 'local:fixture', configHash: calculateConfigHash(config), runtimeHash: 'a'.repeat(64)}});
+      await repository.mutate(state.runId, s => ({...s, workers: [{workerId: 'writer', taskId: 'task', host: 'claude', ownerSessionId: 'owner',
+        nativeSessionId: 'native', nativeJobId: 'thread', worktree: root, processId: null, processIdentity: null, generation: 1,
+        status: 'running', leaseExpiresAt: null, heartbeatAt: null, stopIntent: null, nativeGoalState: 'active', lastFailure: null}]}));
+      await repository.appendEvent(state.runId, {type: 'status', code: 'RUN_STATUS_CHECKPOINT', workerId: 'writer', taskId: 'task', detail: 'status-anchor'});
+      await repository.appendEvent(state.runId, {type: 'diagnostic', code: 'RUN_DIAGNOSTIC_CHECKPOINT', workerId: 'writer', taskId: 'task', detail: 'diagnostic-anchor'});
+
+      const toolEvent = (id, cmd = `echo ${id}`) => ({host: 'claude', payload: {type: 'assistant', message: {content: [{type: 'tool_use', id, name: 'Bash', input: {command: cmd}}]}},
+        runId: state.runId, workerId: 'writer', generation: 1, contractHash: state.goalHash, type: 'message', nativeStatus: 'active',
+        at: new Date().toISOString(), proof: false});
+
+      // Duplicate unknown observation (same id or same command+resource scope) skips state rewrite.
+      await recordNativeRunAuthorization(repository, toolEvent('dup-1', 'echo repeated'));
+      const afterFirst = await repository.read(state.runId);
+      await recordNativeRunAuthorization(repository, toolEvent('dup-1', 'echo repeated'));
+      await recordNativeRunAuthorization(repository, toolEvent('dup-2', 'echo repeated'));
+      const afterDuplicate = await repository.read(state.runId);
+      assert.equal(afterDuplicate.revision, afterFirst.revision, 'duplicate unknown observation must not rewrite run state');
+      assert.equal(afterDuplicate.events.length, afterFirst.events.length);
+
+      for (let i = 0; i < 210; i++) {
+        await recordNativeRunAuthorization(repository, toolEvent(`obs-${i}`));
+      }
+      const afterBurst = await repository.read(state.runId);
+      const observed = afterBurst.events.filter(e => e.code === 'RUN_COMMAND_AUTHORIZATION_OBSERVED');
+      assert.equal(observed.length, 200, 'RUN_COMMAND_AUTHORIZATION_OBSERVED must be bounded at 200');
+      assert.ok(afterBurst.events.some(e => e.type === 'status' && e.code === 'RUN_STATUS_CHECKPOINT'), 'status event must survive observation burst');
+      assert.ok(afterBurst.events.some(e => e.type === 'diagnostic' && e.code === 'RUN_DIAGNOSTIC_CHECKPOINT'), 'diagnostic event must survive observation burst');
+    } finally {await rm(root, {recursive: true, force: true});}
   }
 };

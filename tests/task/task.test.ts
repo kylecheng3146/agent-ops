@@ -587,6 +587,18 @@ test("a subtask keeps the session attached to the top of its tree", async () => 
       sessionId: "session-one"
     });
     assert.match(message.data?.message ?? "", /^Created subtask task-5; the session stays on the top of its task tree\.$/u);
+
+    // Creating another task in the same session without --parent automatically attaches it under the session's active root task.
+    const autoSubtask = await runTaskCommand({
+      args: parseArgs(["task", "create", "--title", "Auto subtask",
+        "--criterion", JSON.stringify({ id: "one", description: "One.", verifierIds: ["unit"] }),
+        "--criterion", JSON.stringify({ id: "two", description: "Two.", verifierIds: ["unit"] }), ...SURFACE]),
+      service: tasks,
+      sessionId: "session-one"
+    });
+    assert.equal(autoSubtask.code, "TASK_CREATED");
+    assert.equal(autoSubtask.data?.record?.task.parentTaskId, "task-1");
+    assert.equal((await tasks.status({ sessionId: "session-one" })).task.id, "task-1");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

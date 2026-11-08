@@ -215,6 +215,9 @@ export class RunControlService {
       throw error("RUN_AUTHORIZATION_INVALID", "Authorization identity, expiry or scope is invalid.");
     const id = "auth-" + sha256(canonicalJson({runId, workerId: authorization.workerId, generation: authorization.generation,
       nativeSessionId: authorization.nativeSessionId, source: authorization.source, id: authorization.authorizationId}));
+    const scopeDigest = sha256(canonicalJson({workerId: authorization.workerId, generation: authorization.generation,
+      nativeSessionId: authorization.nativeSessionId, source: authorization.source, operation: authorization.operation,
+      commandDigest: authorization.commandDigest, resourceDigest: authorization.resourceDigest}));
     const state = await this.#repository.read(runId);
     if (state === null) throw error("RUN_NOT_FOUND", "Run does not exist.");
     const path = join(state.commonDir, "agent-ops/runs", runId, "authorizations", id + ".json");
@@ -222,25 +225,45 @@ export class RunControlService {
       resource: redactSecrets(authorization.resource), reason: redactSecrets(authorization.reason)});
     const previous = await readPrivateFile(path, state.commonDir);
     if (previous !== null && previous !== content) throw error("RUN_AUTHORIZATION_CONFLICT", "An authorization identity cannot be reused for a different decision.");
-    const saved = await this.#repository.mutate(runId, async current => {
+    const validBinding = (current: RunState) => {
       const worker = current.workers.find(w => w.workerId === authorization.workerId);
       if (worker?.generation !== authorization.generation || worker.nativeSessionId !== authorization.nativeSessionId ||
         current.status !== "active" || current.disableRestart || current.policyBinding?.configHash !== authorization.policyConfigHash ||
         current.policyBinding.runtimeHash !== authorization.runtimeHash || current.policyBinding.expiresAt !== authorization.expiresAt ||
         current.policyBinding.artifactDigest !== authorization.policyArtifactDigest)
         throw error("RUN_AUTHORIZATION_STALE", "Authorization must bind the current worker, run policy and runtime.");
-      await writePrivateFile(path, content, current.commonDir);
+      return worker;
+    };
+    validBinding(state);
+    const seenUnknown = (current: RunState) => authorization.result === "unknown" &&
+      ((previous === content && current.events.some(event => event.id === id)) ||
+        current.events.some(event => event.code === "RUN_COMMAND_AUTHORIZATION_OBSERVED" && event.detail?.includes(scopeDigest) === true));
+    if (seenUnknown(state)) return state;
+    const saved = await this.#repository.mutate(runId, async current => {
+      const worker = validBinding(current);
+      if (seenUnknown(current)) return current;
+      if (previous !== content) await writePrivateFile(path, content, current.commonDir);
       if (current.events.some(event => event.id === id)) return current;
-      return {...current, events: [...current.events, {
+      const nextEvent = {
         id,
         at,
-        type: "control",
+        type: "control" as const,
         code: authorization.result === "auto-approved" ? "RUN_COMMAND_AUTO_APPROVED" : authorization.result === "denied" ? "RUN_COMMAND_DENIED" : "RUN_COMMAND_AUTHORIZATION_OBSERVED",
         workerId: authorization.workerId,
         taskId: worker.taskId,
-        detail: canonicalJson({artifact: path, digest: sha256(content), result: authorization.result, source: authorization.source})
-      } as const].slice(-2_000)
+        detail: canonicalJson({artifact: path, digest: sha256(content), result: authorization.result,
+          ...(authorization.result === "unknown" ? {scopeDigest} : {}), source: authorization.source})
       };
+      const combined = [...current.events, nextEvent];
+      let observed = 0;
+      for (const item of combined) if (item.code === "RUN_COMMAND_AUTHORIZATION_OBSERVED") observed++;
+      let dropObserved = Math.max(0, observed - 200, combined.length - 2_000);
+      const retained = dropObserved === 0 ? combined : combined.filter(item => {
+        if (item.code !== "RUN_COMMAND_AUTHORIZATION_OBSERVED" || dropObserved <= 0) return true;
+        dropObserved--;
+        return false;
+      });
+      return {...current, events: retained.slice(-2_000)};
     });
     if (authorization.result === "denied") throw error("RUN_COMMAND_DENIED", "The native host or organization denied this command; its audit is saved and the denial cannot be bypassed.");
     return saved;

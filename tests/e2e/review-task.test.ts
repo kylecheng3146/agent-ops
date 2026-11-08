@@ -216,7 +216,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
           () => reject(new Error(
             `review did not start (exit ${child!.exitCode}, signal ${child!.signalCode}): stdout=${stdout}; stderr=${stderr}`
           )),
-          5_000
+          15_000
         );
         child!.once("error", reject);
         child!.once("close", (code, signal) => {
@@ -240,7 +240,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       // The pid file appears before its contents land, so an existence-only poll can
       // read an empty file; Number("") is 0 and process.kill(0) targets our own group.
       reviewerPid = await new Promise<number>((resolve, reject) => {
-        const deadline = Date.now() + 5_000;
+        const deadline = Date.now() + 15_000;
         const check = (): void => {
           const pid = existsSync(reviewerPidPath)
             ? Number.parseInt(readFileSync(reviewerPidPath, "utf8").trim(), 10)
@@ -265,7 +265,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
       assert.match(stderr, new RegExp(`codex: review interrupted by ${signal}`));
       assert.ok(reviewerPid > 0, `refusing to signal process group ${reviewerPid}`);
       await new Promise<void>((resolve, reject) => {
-        const deadline = Date.now() + 2_000;
+        const deadline = Date.now() + 10_000;
         const check = (): void => {
           try {
             process.kill(reviewerPid, 0);

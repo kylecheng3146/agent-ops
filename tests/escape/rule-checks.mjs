@@ -383,6 +383,7 @@ const raw = {
       await appendLocalLog(log, {type: 'escape-rule', ruleId: 'image-size-siblings', included: 0, excluded: 2}, {...state, now: new Date(Date.now() - i * 1000).toISOString()});
     await appendLocalLog(log, {type: 'gate-catch', code: 'SURFACE_UNCLASSIFIED', taskId: 'task-a'}, state);
     await appendLocalLog(log, {type: 'gate-catch', code: 'REVIEW_FAIL', taskId: 'task-b'}, state);
+    await appendLocalLog(log, {type: 'gate-catch', code: 'REVIEW_FAIL', taskId: 'task-foreign'}, state);
     const snapshot = async () => {
       const rows = [];
       const walk = async dir => {for (const name of (await readdir(dir)).sort()) {
@@ -409,6 +410,12 @@ const raw = {
     assert.deepEqual(d.retirementCandidates.map(c => c.id), ['image-size-siblings'], 'retirement is only listed, never applied');
     assert.ok(d.warnings.some(w => w.includes('task-c.json')), 'an unreadable record is a warning, not a failure');
     assert.match(d.text, /insufficient-data/u);
+    await appendLocalLog(log, {type: 'gate-catch', code: 'SCENARIO_MISSING', taskId: 'task-state'}, state);
+    await appendLocalLog(log, {type: 'gate-catch', code: 'LESSON_MISSING', taskId: 'task-receipt'}, state);
+    await f.write('.agent-ops/tasks/state.json', JSON.stringify({tasks: [{createdAt: '2026-10-01T00:00:00.000Z', task: {id: 'task-state', origin: {kind: 'escape-of'}}}]}));
+    await f.write('.git/agent-ops/receipts/r1.json', JSON.stringify({tasks: [{task: {id: 'task-receipt'}}]}));
+    const filtered = await runEscapesCommand({root: f.root, home});
+    assert.deepEqual(filtered.data.catches.counts, {SURFACE_UNCLASSIFIED: 1, REVIEW_FAIL: 1, SCENARIO_MISSING: 1, LESSON_MISSING: 1});
     await f.write('.agent-ops-escapes/rules/bad.json', '{');
     const failOpen = await runEscapesCommand({root: f.root, home});
     assert.equal(failOpen.status, 'ok', 'the report fails open'); assert.ok(failOpen.data.warnings.some(w => w.startsWith('Rules unreadable')));

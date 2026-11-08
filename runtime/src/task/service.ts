@@ -294,6 +294,14 @@ export class TaskService {
       }
       // A dangling parent would make the subtask unfindable by its own parent
       // filter, so the reference is resolved once, at creation.
+      const attachedParent = input.parentTaskId === undefined && input.sessionId !== undefined
+        ? (() => {
+            const attachedId = state.sessions.find(({ sessionId }) => sessionId === input.sessionId)?.taskId;
+            return attachedId === undefined ? undefined : state.tasks.find(
+              record => record.task.id === attachedId && record.status === "active" && record.supersededBy === undefined
+            );
+          })()
+        : undefined;
       if (input.parentTaskId !== undefined) {
         const parent = state.tasks.find(
           (record) => record.task.id === input.parentTaskId
@@ -316,11 +324,16 @@ export class TaskService {
           validation.value.goal = parent.task.goal;
         }
         if (parent.task.debug !== undefined) validation.value.debug = structuredClone(parent.task.debug);
+      } else if (attachedParent !== undefined) {
+        validation.value.parentTaskId = attachedParent.task.id;
+        if (validation.value.goal === undefined && attachedParent.task.goal !== undefined) {
+          validation.value.goal = attachedParent.task.goal;
+        }
       }
       if (input.requireSurface === true) {
-        const parentSurface = state.tasks.find(record => record.task.id === input.parentTaskId)?.task.surface;
+        const parentSurface = state.tasks.find(record => record.task.id === validation.value.parentTaskId)?.task.surface;
         const surfacedParent = parentSurface !== undefined && !isCovers(parentSurface);
-        if (surface === undefined || isCovers(surface) !== surfacedParent)
+        if (surface === undefined || (input.parentTaskId !== undefined ? isCovers(surface) !== surfacedParent : isCovers(surface) && !surfacedParent))
           throw taskError("SURFACE_MISSING", surfacedParent
             ? "A subtask of a surfaced parent declares --surface-file {\"covers\": [surface-id]}."
             : "A new task needs --surface-file with the four-axis surface audit (EVIDENCE-SURFACE-001).");

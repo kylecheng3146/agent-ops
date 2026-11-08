@@ -17,6 +17,12 @@ export async function defaultBase(root: string, runner: GitRunner,
   if (record !== null) {
     const merge = await runner.run(["merge-base", "HEAD", record.targetBranch]);
     base = merge.exitCode === 0 ? Buffer.from(merge.stdout).toString("utf8").trim() : record.base;
+    const created = await createdSourceCommit().catch(() => undefined);
+    if (created !== undefined && base !== undefined && created !== base &&
+      (await runner.run(["merge-base", "--is-ancestor", base, created])).exitCode === 0 &&
+      (await runner.run(["merge-base", "--is-ancestor", created, "HEAD"])).exitCode === 0) {
+      base = created;
+    }
   } else {
     const created = await createdSourceCommit().catch(() => undefined);
     if (created !== undefined && (await runner.run(["merge-base", "--is-ancestor", created, "HEAD"])).exitCode === 0) base = created;
