@@ -12,7 +12,7 @@ English source version: 2026-11-08. Revalidate: when the English specification c
 
 每個正式 task 建立入口（含 DEBUG、replan 新子任務及 native run root/child）MUST 在首次實作前等待一輪獨立 criteria advisory。使用設定的 independent-review target 與全新 session，優先選擇不同於 host 的 target；只提供原始 goal、指派 intent/covers、criteria、去除 excluded 與 dismissed 的 surface audit，以及 verification 設定（required verifier id 與 acceptance runner 的 id/adapter；無法載入設定時為 null），並在空白暫存工作區執行。提示同時說明每個 task 2–5 條 criteria、每個 required verifier 都已套用到具 typed acceptance 的 criterion，以及 check binding 需要已列出的 runner。MUST NOT 掃描 repository 或跑測試。缺 goal 須明示資訊不足；子任務只對指派範圍判完整性。材料是否存在、是否載入產品程式留待實作驗證；有理由的 review-only 條件合法。
 
-符合路徑的 escape lessons 與已採用的本機學習經驗也可作為 data-only context。本機經驗有 repository 範圍與版本，私存確切載入版本及模型自報用途。這些提示可協助提出建議，但不提供 verify 或完成證據。僅更新 library 不會使既有 attempt 失效或自動重跑；新 attempt 或明確 rerun 才讀取目前內容。詳見[本機 advisory 學習](../guides/learning.md)。
+符合路徑的 escape lessons 與已採用的本機學習經驗也可作為 data-only context。本機經驗有 repository 範圍與版本，私存確切載入版本及模型自報用途。這些提示可協助提出建議，但不提供 verify 或完成證據。僅更新 library 不會使既有 attempt 失效或自動重跑；新 attempt 或明確 rerun 才讀取目前內容。詳見`docs/zh-TW/guides/learning.md`。
 
 advisory 不設 agent-ops 執行 deadline、stall cutoff 或 token budget。provider 限制、真正啟動／認證／輸出錯誤與人工取消仍有效。錯誤回報 NOT_RUN 後可繼續；人工取消保留 task 並 MUST 停止實作。native 審查程序仍受註冊與停止機制管理。一般獨立 verify 與正式雙輪 review 的既有時間限制及 gate 保持有效；已認證 run 的工作不設工作或靜默硬期限，仍保留所有證據 gate 與取消機制。
 
