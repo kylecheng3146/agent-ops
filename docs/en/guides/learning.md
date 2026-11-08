@@ -51,6 +51,10 @@ retain baseline. This checks dimension classification, not the semantic quality
 of every sentence. Small-sample adoption is provisional, not a claim of general
 coding success or statistical significance.
 
+A strategy must actually reach the evaluated cases: out-of-scope additions do
+not create an intervention. A graded outcome change on a case receiving identical
+baseline/composition inputs is unsupported contrast and retains baseline.
+
 Duplicate candidates and overlapping strategy scopes are refused. Scopes are
 exact paths or `directory/**`. Adopted entries accumulate unchanged (up to 16);
 automatic revision/removal of an old entry is deferred until its original

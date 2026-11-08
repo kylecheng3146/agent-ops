@@ -5,7 +5,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {digest, improves, parseProposal, parseSuite, scoreReply, type LearningSuite, type Proposal} from "../../runtime/src/learning/data.js";
 import {FileLearningStore, matchingExperiences} from "../../runtime/src/learning/store.js";
-import {runLearningTrial, replayLearningTrial, targetLearningCall, learningConditions, type LearningCall, type LearningTrial} from "../../runtime/src/learning/experiment.js";
+import {runLearningTrial, replayLearningTrial, targetLearningCall, learningConditions, evaluationPrompt, type LearningCall, type LearningTrial} from "../../runtime/src/learning/experiment.js";
 import {runCriteriaReview} from "../../runtime/src/review/criteria.js";
 import {parseArgs} from "../../packages/cli/src/args.js";
 import type {AgentTask} from "../../runtime/src/contracts.js";
@@ -153,6 +153,26 @@ test("unchanged compositions, including strategy/path reorderings, cannot be pro
     assert.equal((await store.read()).active, before.active);
     assert.equal(result.trial.calls.some(c => c.stage.startsWith("composition-")), false, "No extra quota for an unchanged intervention");
     assert.deepEqual(replayLearningTrial(result.trial), {status: "RETAIN_BASELINE", reason: "UNCHANGED_COMPOSITION"});
+  });
+});
+
+test("better replies on cases receiving no changed strategy cannot establish learning improvement", async () => {
+  for (const paths of [["src/unrelated/**"], ["src/queue/probe-retry.ts"]]) await fixture(async store => {
+    const scoped = {...proposal, strategies: proposal.strategies.map(s => ({...s, paths}))};
+    const improved = await fixtureCall()(evaluationPrompt(suite, proposal), {});
+    const ordinary = fixtureCall();
+    let evaluations = 0;
+    const call: LearningCall = async (prompt, schema) => {
+      const result = await ordinary(prompt, schema);
+      if (prompt.startsWith("Propose")) return {...result, value: {candidates: [scoped]}};
+      if (prompt.startsWith("Compose")) return {...result, value: scoped};
+      return ++evaluations > 2 ? {...result, value: improved.value} : result;
+    };
+    const result = await trial(store, call);
+    assert.equal(result.trial.status, "RETAIN_BASELINE");
+    assert.equal(result.trial.reason, paths[0] === "src/unrelated/**" ? "UNCHANGED_COMPOSITION" : "UNSUPPORTED_EXECUTION_CONTRAST");
+    assert.equal(result.adopted, null);
+    assert.equal((await store.read()).active, null);
   });
 });
 
