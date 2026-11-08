@@ -83,6 +83,10 @@ async function parentFixture(f, check) {
 export const operationalChecks = {
   'operational-receipt-tree': () => withRepository(f => narrowChild(f, async ({record, parent, child, tasks, prove, options}) => {
     await assert.rejects(prepareFinishReceipt(await options()), e => e.code === 'WORKTREE_FINAL_EVIDENCE_MISSING');
+    const proof = await options();
+    await assert.rejects(finishWorktree(f.deps, {cwd: f.root, name: record.name,
+      finalProof: {target: proof.targetCommit, head: proof.candidateHead, sourceFingerprint: proof.expectedFingerprint, children: []}}),
+      e => e.code === 'WORKTREE_FINAL_EVIDENCE_MISSING');
     assert.equal(await checkedGit(f.root, ['rev-parse', 'HEAD']), record.base, 'No target movement without final proof');
     await prove(child.task, record.base);
     const full = await prepareFinishReceipt(await options());
