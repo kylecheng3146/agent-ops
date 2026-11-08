@@ -22,6 +22,8 @@ export function redactData(value: unknown): unknown {
 
 export interface Strategy {id: string; paths: string[]; cue: string; check: string}
 export interface Proposal {strategies: Strategy[]; expectedImprovement: string; failureCondition: string}
+export const strategyDigest = (strategies: readonly Strategy[]): string => digest(strategies.map(s => ({...s, paths: [...s.paths].sort()}))
+  .sort((a, b) => a.id.localeCompare(b.id)));
 export function parseProposal(value: unknown): Proposal {
   if (!object(value) || !exact(value, ["strategies", "expectedImprovement", "failureCondition"]) ||
       !text(value.expectedImprovement) || !text(value.failureCondition) || !Array.isArray(value.strategies) || value.strategies.length > 16)
@@ -113,4 +115,16 @@ export function scoreReply(value: unknown, suite: LearningSuite): {results: Case
 export function improves(base: Score, candidate: Score): boolean {
   return candidate.probe.fp <= base.probe.fp && candidate.probe.fn <= base.probe.fn &&
     candidate.holdout.fp <= base.holdout.fp && candidate.holdout.fn < base.holdout.fn;
+}
+
+/** A gain elsewhere cannot pay for a new missed dimension, false positive or extra recommendation. */
+export function noCaseRegressions(base: readonly CaseResult[], candidate: readonly CaseResult[], suite: LearningSuite): boolean {
+  return suite.cases.every(item => {
+    const before = base.find(r => r.caseId === item.id), after = candidate.find(r => r.caseId === item.id);
+    if (before === undefined || after === undefined) return false;
+    const known = new Set(before.omissions.map(o => o.dimension)), next = new Set(after.omissions.map(o => o.dimension));
+    return item.expected.every(d => !known.has(d) || next.has(d)) &&
+      [...next].every(d => item.expected.includes(d) || known.has(d)) &&
+      after.advice.recommendations.length - after.omissions.length <= before.advice.recommendations.length - before.omissions.length;
+  });
 }

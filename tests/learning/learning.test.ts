@@ -83,6 +83,79 @@ test("no improvement, uncertain outputs, missing execution and failure retain ba
   assert.equal(improves({probe: {fp: 0, fn: 1}, holdout: {fp: 0, fn: 2}}, {probe: {fp: 0, fn: 0}, holdout: {fp: 1, fn: 0}}), false);
 });
 
+test("improvements cannot offset new misses or false positives in any regression case", async () => {
+  for (const mode of ["miss", "false-positive", "dimension-swap"]) await fixture(async store => {
+    const regressionSuite: LearningSuite = {...suite, cases: suite.cases.map(c =>
+      c.id === "probe-complete" && mode === "miss" ? {...c, expected: ["redo"]} :
+      c.id === "probe-retry" && mode === "dimension-swap" ? {...c, expected: ["redo", "concurrency"]} : c)};
+    const ordinary = fixtureCall();
+    const call: LearningCall = async (prompt, schema) => {
+      const result = await ordinary(prompt, schema);
+      if (!prompt.startsWith("Evaluate")) return result;
+      const input = data(prompt);
+      const results = input.cases.map((c: any) => {
+        const changed = c.snapshot.experiences.length > 0;
+        let dimensions: string[] = [];
+        if (c.caseId === "probe-retry") {
+          dimensions = ["redo"];
+          if (!changed && mode === "false-positive") dimensions.push("concurrency");
+          if (changed && mode === "miss") dimensions = [];
+          if (changed && mode === "dimension-swap") dimensions = ["concurrency"];
+        } else if (c.caseId === "probe-complete" && changed) {
+          if (mode === "miss") dimensions = ["redo"];
+          if (mode === "false-positive") dimensions = ["concurrency"];
+        } else if (c.caseId === "holdout-retry" && changed) dimensions = ["redo"];
+        return {caseId: c.caseId, advice: {summary: "Regression fixture", recommendations: dimensions.map(() => ({criterionId: "behavior",
+          issue: "Missing scenario", recommendation: "Specify the omitted behavior", reason: "Fixture evidence"})), limitations: []},
+          omissions: dimensions.map((dimension: string, recommendationIndex: number) => ({dimension, recommendationIndex}))};
+      });
+      return {...result, value: {results}};
+    };
+    const result = await runLearningTrial({store, settings, source, suiteCommit: "c".repeat(40), suite: regressionSuite, call});
+    const baseline = result.trial.evaluations.find(e => e.label === "baseline")!;
+    const composition = result.trial.evaluations.find(e => e.label === "composition")!;
+    assert.deepEqual(composition.score.probe, baseline.score.probe, "Aggregate scores hide a per-case or per-dimension regression");
+    assert.ok(composition.score.holdout.fn < baseline.score.holdout.fn);
+    assert.equal(result.trial.status, "RETAIN_BASELINE");
+    assert.equal(result.trial.reason, "REGRESSION_CASE_WORSENED");
+    assert.equal(result.adopted, null);
+  });
+});
+
+test("unchanged compositions, including strategy/path reorderings, cannot be promoted by better stochastic replies", async () => {
+  for (const reorder of [false, true]) await fixture(async store => {
+    const strategies = reorder ? [
+      {id: "history-a", paths: ["src/old-a/**", "src/old-b/**"], cue: "Prior context A", check: "Prior check A"},
+      {id: "history-b", paths: ["src/old-c/**"], cue: "Prior context B", check: "Prior check B"}
+    ] : [];
+    if (reorder) {
+      const archived = await store.archive("trials", {fixture: "Previously adopted library"});
+      await store.adopt(await store.read(), {proposal: {...proposal, strategies}, trial: archived,
+        source: {receipt: source.receipt, taskId: source.taskId, commit: source.commit}, previous: null});
+    }
+    const before = await store.read(), ordinary = fixtureCall();
+    let composed = false, candidateReply: unknown;
+    const call: LearningCall = async (prompt, schema) => {
+      const result = await ordinary(prompt, schema);
+      if (prompt.startsWith("Propose")) return {...result, value: {candidates: [{...proposal, strategies: [...strategies, ...proposal.strategies]}]}};
+      if (prompt.startsWith("Compose")) {
+        composed = true;
+        return {...result, value: {...proposal, strategies: [...strategies].reverse().map(s => ({...s, paths: [...s.paths].reverse()}))}};
+      }
+      if (composed) return {...result, value: candidateReply};
+      candidateReply = result.value;
+      return result;
+    };
+    const result = await trial(store, call);
+    assert.equal(result.trial.status, "RETAIN_BASELINE");
+    assert.equal(result.trial.reason, "UNCHANGED_COMPOSITION");
+    assert.equal(result.adopted, null);
+    assert.equal((await store.read()).active, before.active);
+    assert.equal(result.trial.calls.some(c => c.stage.startsWith("composition-")), false, "No extra quota for an unchanged intervention");
+    assert.deepEqual(replayLearningTrial(result.trial), {status: "RETAIN_BASELINE", reason: "UNCHANGED_COMPOSITION"});
+  });
+});
+
 test("adoption cannot overwrite a concurrent revision; recovery preserves history and rejected versions cannot be restored", async () => {
   await fixture(async (store, root) => {
     const first = await trial(store), before = await store.read();

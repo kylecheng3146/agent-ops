@@ -41,7 +41,11 @@ The fixed evaluator counts missed expected dimensions and extra dimensions.
 Every omission must reference a concrete ordinary advisory recommendation;
 unclassified extra recommendations count as false positives. Promotion requires
 strictly fewer held-out misses, no extra false positives and no probe regression
-in both repetitions. Inconsistent omission/score results, invalid/missing
+in both repetitions. Every individual probe/holdout case must also preserve its
+previously detected expected dimensions, introduce no new false-positive dimension,
+and not increase its unclassified recommendation count. Gains cannot offset another case's loss.
+An unchanged composition, including strategy/path reorderings, retains baseline
+without further model evaluation. Inconsistent omission/score results, invalid/missing
 output, execution failure, unchanged candidates or changed execution conditions
 retain baseline. This checks dimension classification, not the semantic quality
 of every sentence. Small-sample adoption is provisional, not a claim of general

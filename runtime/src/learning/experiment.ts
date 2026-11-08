@@ -11,13 +11,13 @@ import {runVerificationCommand, type VerificationProcessRunner} from "../verify/
 import {SCENARIO_DIMENSIONS} from "../surface/schema.js";
 import {globsOverlap} from "../escape/lessons.js";
 import {FileLearningStore, type LearningState} from "./store.js";
-import {casePaths, digest, exact, improves, invalid, LEARNING_LIMITS, object, parseProposal, parseSuite, redactData, scoreReply, text,
+import {casePaths, digest, exact, improves, invalid, LEARNING_LIMITS, noCaseRegressions, object, parseProposal, parseSuite, redactData, scoreReply, strategyDigest, text,
   type CaseResult, type LearningSuite, type Proposal, type Score} from "./data.js";
 
 export interface LearningSettings {target: ReviewTargetId; model: string; effort: string}
 export interface LearningCallResult {value: unknown; durationMs: number; conditions?: string; usage?: ReviewUsage; failure?: string}
 export type LearningCall = (prompt: string, schema: Record<string, unknown>) => Promise<LearningCallResult>;
-export const EVALUATOR = digest([scoreReply.toString(), improves.toString(), parseSuite.toString(), casePaths.toString(), parseProposal.toString(), evaluationPrompt.toString(), LEARNING_LIMITS]);
+export const EVALUATOR = digest([scoreReply.toString(), improves.toString(), noCaseRegressions.toString(), strategyDigest.toString(), parseSuite.toString(), casePaths.toString(), parseProposal.toString(), evaluationPrompt.toString(), LEARNING_LIMITS]);
 export interface Evaluation {label: string; repetition: number; results: CaseResult[]; score: Score}
 export interface LearningTrial {
   schemaVersion: 1; evaluator: string; settings: LearningSettings; conditions: {command: string; args: readonly string[]; environment: string};
@@ -70,6 +70,8 @@ export function replayLearningTrial(trial: LearningTrial): {status: LearningTria
   if (trial.calls.some(c => c.result.failure !== undefined) || trial.composition === null)
     return {status: "NOT_RUN", reason: "INCOMPLETE_EXECUTION"};
   parseProposal(trial.composition); trial.candidates.forEach(parseProposal);
+  if (strategyDigest(trial.composition.strategies) === strategyDigest(trial.baseline.strategies))
+    return {status: "RETAIN_BASELINE", reason: "UNCHANGED_COMPOSITION"};
   const labels = ["baseline", ...trial.candidates.map((_, i) => "candidate-" + i), "composition"];
   const stages = ["baseline-0", "baseline-1", "propose", ...trial.candidates.flatMap((_, i) => [`candidate-${i}-0`, `candidate-${i}-1`]), "compose", "composition-0", "composition-1"];
   if (digest(trial.calls.map(c => c.stage)) !== digest(stages)) return {status: "NOT_RUN", reason: "EXECUTION_SEQUENCE_MISMATCH"};
@@ -94,6 +96,8 @@ export function replayLearningTrial(trial: LearningTrial): {status: LearningTria
     if (new Set(rows.map(signature)).size !== 1) return {status: "RETAIN_BASELINE", reason: "UNCERTAIN_REPETITIONS"};
   }
   const base = trial.evaluations.filter(e => e.label === "baseline"), composed = trial.evaluations.filter(e => e.label === "composition");
+  if (base.some(row => !noCaseRegressions(row.results, composed.find(c => c.repetition === row.repetition)!.results, trial.suite)))
+    return {status: "RETAIN_BASELINE", reason: "REGRESSION_CASE_WORSENED"};
   return base.every((row, i) => improves(row.score, composed[i]!.score))
     ? {status: "PASS", reason: "HELDOUT_IMPROVEMENT"} : {status: "RETAIN_BASELINE", reason: "NO_IMPROVEMENT_OR_REGRESSION"};
 }
@@ -128,7 +132,7 @@ export async function runLearningTrial(options: {
   };
   const evaluate = async (label: string, proposal: Proposal): Promise<void> => {
     // shortcut: adopted entries only accumulate here; revising old guidance requires a future evaluation that retains its original regression cases.
-    if (trial.baseline.strategies.some(old => !proposal.strategies.some(next => next.id === old.id && digest(next) === digest(old))))
+    if (trial.baseline.strategies.some(old => !proposal.strategies.some(next => next.id === old.id && strategyDigest([next]) === strategyDigest([old]))))
       throw new Error("ADOPTED_STRATEGY_REMOVED_OR_CHANGED");
     for (let repetition = 0; repetition < LEARNING_LIMITS.repetitions; repetition++) {
       const checked = scoreReply(await invoke(`${label}-${repetition}`, evaluationPrompt(suite, proposal), evaluationSchema), suite);
@@ -152,9 +156,9 @@ export async function runLearningTrial(options: {
     trial.candidates = response.candidates.map(parseProposal);
     if (trial.candidates.length === 0) {trial.status = "RETAIN_BASELINE"; trial.reason = "NO_ENTRY";}
     else {
-      const unique = new Set([digest(trial.baseline.strategies)]);
+      const unique = new Set([strategyDigest(trial.baseline.strategies)]);
       for (const [i, candidate] of trial.candidates.entries()) {
-        const key = digest(candidate.strategies);
+        const key = strategyDigest(candidate.strategies);
         if (unique.has(key)) throw new Error("DUPLICATE_CANDIDATE");
         unique.add(key); await evaluate("candidate-" + i, candidate);
       }
@@ -162,8 +166,12 @@ export async function runLearningTrial(options: {
         "Resolve duplicate or conflicting advice; explain expectedImprovement and failureCondition. " +
         "Retain baseline content when contrasts do not support change. Return one proposal object; no grading or executable policy fields.",
       {source: options.source, baseline: trial.baseline, candidates: trial.candidates, probes: contrasts()}), proposalSchema));
-      await evaluate("composition", trial.composition);
-      Object.assign(trial, replayLearningTrial(trial));
+      if (strategyDigest(trial.composition.strategies) === strategyDigest(trial.baseline.strategies)) {
+        trial.status = "RETAIN_BASELINE"; trial.reason = "UNCHANGED_COMPOSITION";
+      } else {
+        await evaluate("composition", trial.composition);
+        Object.assign(trial, replayLearningTrial(trial));
+      }
     }
     if (options.isCurrent !== undefined && !await options.isCurrent()) {trial.status = "NOT_RUN"; trial.reason = "CONDITIONS_CHANGED";}
   } catch (error) {

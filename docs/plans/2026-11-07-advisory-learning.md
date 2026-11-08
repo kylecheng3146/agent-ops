@@ -26,6 +26,22 @@ Existing agent-ops call paths were audited before editing:
 | Delivered evidence | Present; receipt + note digest + contracts + two reviews | `runtime/src/followup/receipt.ts:31` |
 | Promotion, composition, holdouts, library recovery | Missing in inspected learning paths | New opt-in `learn` controller and private store |
 
+Production reuse is not limited to the runtime function: task create/replan and
+revise callbacks in `packages/cli/src/bin.ts` reach
+`packages/cli/src/criteria-review.ts` (`reviewCreatedCriteria` /
+`reviewRevisedCriteria`). That adapter resolves the repository common directory
+before calling `runCriteriaReview`, which loads the current scoped library.
+Native planning reaches the same path through `runCriteriaStep` and the ordinary
+`review --criteria` CLI. Cached attempts retain their original context; a new
+attempt or explicit rerun reads the current revision. These adapters/callers are
+included in the surface audit even where their interfaces did not change.
+
+Promotion preserves every individual probe/holdout case's previously detected
+expected dimensions and permits no new false-positive dimension or extra
+unclassified recommendation. Split totals alone cannot establish non-regression.
+Compositions equal to baseline after strategy/path ordering normalization are
+retained without further model evaluation, irrespective of stochastic scores.
+
 Fixed-string searches recorded in the task surface audit:
 `criteriaReviewPrompt`, `pathMatchedLessons`, `BEGIN UNTRUSTED DATA`,
 `runCriteriaReview`, `COMMAND_NAMES`, `readDeliveredReceipt`, `FileFollowupStore`.
