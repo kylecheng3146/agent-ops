@@ -17,7 +17,7 @@ import {casePaths, digest, exact, improves, invalid, LEARNING_LIMITS, noCaseRegr
 export interface LearningSettings {target: ReviewTargetId; model: string; effort: string}
 export interface LearningCallResult {value: unknown; durationMs: number; conditions?: string; usage?: ReviewUsage; failure?: string}
 export type LearningCall = (prompt: string, schema: Record<string, unknown>) => Promise<LearningCallResult>;
-export const EVALUATOR = digest([scoreReply.toString(), improves.toString(), noCaseRegressions.toString(), strategyDigest.toString(), caseBehavior.toString(), unchangedComposition.toString(), parseSuite.toString(), casePaths.toString(), parseProposal.toString(), evaluationPrompt.toString(), LEARNING_LIMITS]);
+export const EVALUATOR = digest([scoreReply.toString(), improves.toString(), noCaseRegressions.toString(), strategyDigest.toString(), applicableStrategies.toString(), caseBehavior.toString(), unchangedComposition.toString(), parseSuite.toString(), casePaths.toString(), parseProposal.toString(), evaluationPrompt.toString(), LEARNING_LIMITS]);
 export interface Evaluation {label: string; repetition: number; results: CaseResult[]; score: Score}
 export interface LearningTrial {
   schemaVersion: 1; evaluator: string; settings: LearningSettings; conditions: {command: string; args: readonly string[]; environment: string};
@@ -50,6 +50,10 @@ export function learningConditions(settings: LearningSettings, schema: Record<st
     environment: digest(isolatedReviewEnvironment(settings.target, "<isolated-workspace>", environment))};
 }
 
+function applicableStrategies(snapshot: Record<string, unknown>, proposal: Proposal) {
+  return proposal.strategies.filter(s => s.paths.some(p => casePaths(snapshot).some(q => globsOverlap(p, q))))
+    .map(s => ({...s, paths: [...s.paths].sort()})).sort((a, b) => a.id.localeCompare(b.id));
+}
 export function evaluationPrompt(suite: LearningSuite, proposal: Proposal): string {
   return dataPrompt("Evaluate each independent task using the following ordinary advisory policy. " +
     "Return {results:[{caseId,advice:{summary,recommendations,limitations},omissions:[{dimension,recommendationIndex}]}]}. " +
@@ -57,15 +61,15 @@ export function evaluationPrompt(suite: LearningSuite, proposal: Proposal): stri
     "Do not invent recommendations just to cover dimensions. Empty recommendations/omissions are valid. " +
     `Allowed dimensions: ${SCENARIO_DIMENSIONS.join(", ")}.\n` + criteriaReviewPrompt({verification: null}),
   {cases: suite.cases.map(({id, snapshot}) => ({caseId: id, snapshot: {...snapshot,
-    experiences: proposal.strategies.filter(s => s.paths.some(p => casePaths(snapshot).some(q => globsOverlap(p, q))))}}))});
+    experiences: applicableStrategies(snapshot, proposal)}}))});
 }
 
 function caseBehavior(row: CaseResult) {
   return {dimensions: row.omissions.map(o => o.dimension).sort(), extraRecommendations: row.advice.recommendations.length - row.omissions.length};
 }
 function unchangedComposition(suite: LearningSuite, base: Proposal, composition: Proposal): boolean {
-  return strategyDigest(base.strategies) === strategyDigest(composition.strategies) ||
-    evaluationPrompt(suite, base) === evaluationPrompt(suite, composition);
+  return suite.cases.every(c => strategyDigest(applicableStrategies(c.snapshot, base)) ===
+    strategyDigest(applicableStrategies(c.snapshot, composition)));
 }
 const signature = (evaluation: Evaluation): string => digest({score: evaluation.score, omissions: evaluation.results.map(row =>
   ({id: row.caseId, ...caseBehavior(row)})).sort((a, b) => a.id.localeCompare(b.id))});
@@ -109,7 +113,7 @@ export function replayLearningTrial(trial: LearningTrial): {status: LearningTria
     const after = composed.find(c => c.repetition === before.repetition)!;
     for (const item of trial.suite.cases) {
       const oneCase = {...trial.suite, cases: [item]};
-      if (evaluationPrompt(oneCase, trial.baseline) === evaluationPrompt(oneCase, trial.composition) &&
+      if (unchangedComposition(oneCase, trial.baseline, trial.composition) &&
           digest(caseBehavior(before.results.find(r => r.caseId === item.id)!)) !== digest(caseBehavior(after.results.find(r => r.caseId === item.id)!)))
         return {status: "RETAIN_BASELINE", reason: "UNSUPPORTED_EXECUTION_CONTRAST"};
     }

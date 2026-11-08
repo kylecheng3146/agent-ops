@@ -176,6 +176,42 @@ test("better replies on cases receiving no changed strategy cannot establish lea
   });
 });
 
+test("reordering applicable old paths with unrelated additions cannot manufacture held-out improvement", async () => {
+  for (const paths of [["src/unrelated/**"], ["src/queue/probe-retry.ts"]]) await fixture(async store => {
+    const regressionSuite = {...suite, cases: suite.cases.map(c => c.split === "holdout" ? {...c,
+      snapshot: {...c.snapshot, surface: {included: [{path: c.expected.length ? "src/history-a/send.ts" : "src/history-b/date.ts"}]}}} : c)};
+    const prior = {...proposal, strategies: [{id: "history", paths: ["src/history-a/**", "src/history-b/**"],
+      cue: "Prior context", check: "Prior check"}]};
+    const archived = await store.archive("trials", {fixture: "Previously adopted library"});
+    await store.adopt(await store.read(), {proposal: prior, trial: archived,
+      source: {receipt: source.receipt, taskId: source.taskId, commit: source.commit}, previous: null});
+    const before = await store.read();
+    const revised = {...proposal, strategies: [
+      ...prior.strategies.map(s => ({...s, paths: [...s.paths].reverse()})),
+      ...proposal.strategies.map(s => ({...s, paths}))
+    ]};
+    assert.equal(evaluationPrompt(regressionSuite, prior), evaluationPrompt(regressionSuite,
+      {...prior, strategies: prior.strategies.map(s => ({...s, paths: [...s.paths].reverse()}))}));
+    const ordinary = fixtureCall(), empty = fixtureCall({noGain: true});
+    let evaluations = 0;
+    const call: LearningCall = async (prompt, schema) => {
+      const result = await ordinary(prompt, schema);
+      if (prompt.startsWith("Propose")) return {...result, value: {candidates: [revised]}};
+      if (prompt.startsWith("Compose")) return {...result, value: revised};
+      if (++evaluations <= 2) return empty(prompt, schema);
+      const value = structuredClone(result.value) as {results: {caseId: string; advice: {recommendations: unknown[]}; omissions: unknown[]}[]};
+      for (const row of value.results) if (row.caseId !== "holdout-retry") {row.advice.recommendations = []; row.omissions = [];}
+      return {...result, value};
+    };
+    const result = await runLearningTrial({store, settings, source, suiteCommit: "c".repeat(40), suite: regressionSuite, call});
+    assert.equal(result.trial.status, "RETAIN_BASELINE", result.trial.reason);
+    assert.equal(result.trial.reason, paths[0] === "src/unrelated/**" ? "UNCHANGED_COMPOSITION" : "UNSUPPORTED_EXECUTION_CONTRAST");
+    assert.equal(result.adopted, null);
+    assert.equal((await store.read()).active, before.active);
+    assert.deepEqual(replayLearningTrial(result.trial), {status: result.trial.status, reason: result.trial.reason});
+  });
+});
+
 test("adoption cannot overwrite a concurrent revision; recovery preserves history and rejected versions cannot be restored", async () => {
   await fixture(async (store, root) => {
     const first = await trial(store), before = await store.read();
