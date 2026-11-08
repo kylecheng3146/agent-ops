@@ -544,7 +544,7 @@ codex` for current-source revalidation and bounded repair. Observations need
 
 ## Project status
 
-Version 1.2.0 is published on npm. Use `@latest` for the current release, or
+Version 1.2.1 is published on npm. Use `@latest` for the current release, or
 pin a specific version in automation when reproducibility matters; review
 release notes before upgrading. Release candidates (such as `1.0.0-rc.1`) are
 published under the `next` dist-tag (`@next`); `@latest` stays on the newest

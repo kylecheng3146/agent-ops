@@ -4,6 +4,15 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-08
+
+- `npm test` isolates temporary test directories under a per-run temporary root
+  in `TMPDIR`/`TMP`/`TEMP` and cleans them up after the child exits, preventing
+  OS temp directory accumulation.
+- `review-task` and `owned-local-proof` tests reap orphan test processes in
+  `finally` blocks before assertions, ensuring processes are killed even on test
+  failures.
+
 ## [1.2.0] - 2026-11-06
 
 - Authenticated runs no longer impose work or idle deadlines on setup/build,
