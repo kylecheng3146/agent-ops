@@ -164,3 +164,21 @@ test("learning target preserves fixed model, read-only flags and isolated execut
   for (const option of ["--harness", "--yes", "--grader", "--trust", "--base", "--profile"])
     assert.throws(() => parseArgs(["learn", "run", "--receipt", "r", "--suite", "s", "--model", "model-1", option, "x"]));
 });
+
+test("native failures and malformed replies without reported usage retain durable NOT_RUN evidence", async () => {
+  for (const response of [{stdout: "{}", exitCode: 0}, {stdout: "not-json", exitCode: 0}, {stdout: "", exitCode: 1}]) {
+    await fixture(async store => {
+      async function* chunks(value: string) {yield Buffer.from(value);}
+      const runner: VerificationProcessRunner = {start: () => ({pid: 123, stdout: chunks(response.stdout), stderr: chunks(""),
+        completion: Promise.resolve({exitCode: response.exitCode, signal: null}), terminateTree: async () => {}})};
+      const result = await trial(store, targetLearningCall(settings, runner));
+      assert.equal(result.trial.status, "NOT_RUN");
+      assert.equal(result.adopted, null);
+      assert.equal((await store.read()).active, null);
+      const saved = await store.artifact("trials", result.artifact) as LearningTrial;
+      assert.equal(saved.calls.length, 1);
+      assert.equal(Object.hasOwn(saved.calls[0].result, "usage"), false, "Unknown usage stays absent, never invented as zero");
+      if (response.stdout !== "{}") assert.equal(saved.calls[0].result.value, null);
+    });
+  }
+});

@@ -189,9 +189,10 @@ export function targetLearningCall(settings: LearningSettings, runner?: Verifica
       const output = await runVerificationCommand({id: "learning-experiment", command: invocation.command, args, cwd: ".",
         required: false, evidence: {kind: "exit-code"}}, {cwd: directory, runner, timeoutMs: 300_000,
         stdin: invocation.stdin, env: isolatedReviewEnvironment(settings.target, directory, baseEnvironment), replaceEnv: true, outputLimitBytes: 128 * 1024});
-      return {value: output.status === "PASS" ? extractReviewObject(settings.target, output.stdout) : null,
+      const usage = extractUsage(settings.target, output.stdout, output.stderr);
+      return {value: (output.status === "PASS" ? extractReviewObject(settings.target, output.stdout) : null) ?? null,
         conditions: digest(learningConditions(settings, schema, baseEnvironment)),
-        durationMs: output.durationMs, usage: extractUsage(settings.target, output.stdout, output.stderr),
+        durationMs: output.durationMs, ...(usage === undefined ? {} : {usage}),
         ...(output.status !== "PASS" || output.stdoutTruncated || output.stderrTruncated ? {failure: "TARGET_FAILED"} : {})};
     } finally {await rm(directory, {recursive: true, force: true});}
   };
