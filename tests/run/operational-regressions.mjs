@@ -112,6 +112,7 @@ export const operationalChecks = {
     const created = await tasks.create(child);
     assert.equal(created.task.goal, parent.task.goal);
     assert.deepEqual(created.task.debug, parent.task.debug);
+    assert.deepEqual((await tasks.create({...child, debug: {facts: ['Child input must not replace root intake']}})).task.debug, parent.task.debug);
   })),
   'operational-parent-surface': () => withRepository(f => parentFixture(f, async ({tasks, child}) => {
     await assert.rejects(tasks.create({...child, surface}), e => e.code === 'SURFACE_MISSING');

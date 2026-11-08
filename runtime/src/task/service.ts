@@ -243,6 +243,14 @@ export class TaskService {
     const criteria = structuredClone(input.criteria).map(criterion => ({...criterion,
       ...(criterion.acceptance === undefined ? {} : {acceptance: {...criterion.acceptance,
         baselineCommit: criterion.acceptance.baselineCommit ?? createdSourceCommit}})})) as AcceptanceCriterion[];
+    if (input.debug !== undefined && input.parentTaskId === undefined &&
+        !criteria.some(c => c.acceptance?.mode === "behavioral" && c.acceptance.bindings.some(b => (b.redCheckIds ?? []).length > 0))) {
+      const current = await this.#store.read();
+      const attachedId = current.sessions.find(s => s.sessionId === input.sessionId)?.taskId;
+      if (!current.tasks.some(r => r.task.id === attachedId && r.status === "active" && r.supersededBy === undefined))
+        throw taskError("TASK_DEBUG_RED_CHECK_REQUIRED",
+          "A DEBUG task needs a behavioral criterion whose redCheckIds fail at the baseline and pass on the candidate.");
+    }
     const surface = input.surface === undefined ? undefined : parseSurface(input.surface);
     const task: AgentTask = {
       schemaVersion: TASK_SCHEMA_VERSION,
