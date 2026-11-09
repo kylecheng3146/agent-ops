@@ -173,7 +173,260 @@ export const adviceChecks = {
   }
 };
 
+
+async function automationModules() {
+  return {...await adviceModules(), ...await load('runtime/src/learning/automation.js'), ...await load('runtime/src/learning/experiment.js')};
+}
+async function automationFixture(check) {
+  const m = await automationModules();
+  await withRepository(async f => {
+    const c = await delivered(m, f), history = await m.matchingCompletedCases(f.source, ['source.txt']);
+    const candidates = new m.CandidateStore(f.commonDir);
+    const enqueue = async (p = proposal, author = 'author') => (await candidates.enqueue({taskId: c.records[0].task.id, attemptId: author,
+      snapshotHash: 'a'.repeat(64), history, candidates: [{sourceCaseIds: [history[0].id], proposal: p}]}))[0];
+    const id = await enqueue();
+    const suite = {schemaVersion: 1, cases: Array.from({length: 4}, (_, i) => ({id: `independent-${i}`, split: i < 2 ? 'probe' : 'holdout',
+      snapshot: {originalGoal: `Independent ${i % 2 ? 'formatted display' : 'repeat delivery'} ${i}`,
+        criteria: [{id: 'behavior', description: 'Required behavior'}, {id: 'regression', description: 'Boundaries'}],
+        surface: {included: [{path: 'source.txt'}]}}, expected: i % 2 ? [] : ['redo']}))};
+    await writeFile(join(f.root, 'evaluation.json'), JSON.stringify(suite));
+    await checkedGit(f.root, ['add', 'evaluation.json']); await checkedGit(f.root, ['commit', '-qm', 'Register independent fixture suite']);
+    const settings = {target: 'codex', model: 'model-2026-01', effort: 'high'};
+    let configured = {...config, reviewRoles: [{role: 'independent-review', targets: ['codex']}],
+      learning: {suitePath: 'evaluation.json', suiteDigest: m.digest(suite), humanConfirmed: true, independentlyLabelled: true, settings}};
+    let now = new Date('2026-11-09T23:59:59Z'), allowed = true, authority = 'authority-a', live = true;
+    let owner = {pid: process.pid, identity: 'fixture', group: false};
+    const launches = [], prompts = [];
+    const controller = new m.LearningAutomation({...f.source, loadConfig: async () => configured,
+      authority: async () => ({allowed, fingerprint: authority, reason: 'NATIVE_DENIED'}),
+      owner: async () => owner, alive: async () => live, now: () => now, launch: async job => {launches.push(job);}});
+    const input = prompt => JSON.parse(prompt.slice(prompt.lastIndexOf('BEGIN UNTRUSTED DATA\n') + 21, prompt.lastIndexOf('\nEND UNTRUSTED DATA')));
+    const call = (options = {}) => async (prompt, schema) => {
+      prompts.push(prompt);
+      if (options.hook) await options.hook(prompt);
+      const data = input(prompt);
+      assert.ok(!prompt.startsWith('Propose'), 'Supplied candidates never regenerate proposals');
+      let value;
+      if (prompt.startsWith('Compose')) {
+        assert.ok(!prompt.includes('independent-2') && !prompt.includes('independent-3'));
+        assert.ok(!prompt.includes(suite.cases[2].snapshot.originalGoal));
+        value = options.composition ?? proposal;
+      } else {
+        value = {results: data.cases.map(c => {
+          const detects = (options.perfect || (!options.noGain && c.snapshot.experiences.length > 0)) && c.snapshot.originalGoal.includes('repeat');
+          return {caseId: c.caseId, advice: {...advice, recommendations: detects ? [{criterionId: 'behavior', issue: 'Repeat can duplicate delivery',
+            recommendation: 'Specify repeat safety', reason: 'Repeated calls are possible'}] : []},
+            omissions: detects ? [{dimension: 'redo', recommendationIndex: 0}] : []};
+        })};
+      }
+      return {value, durationMs: 1, conditions: m.digest(m.learningConditions(settings, schema)), ...(options.fail ? {failure: 'TARGET_FAILED'} : {})};
+    };
+    const run = async (job, fn = call()) => {await controller.bind(job.id, job.token, owner); await controller.execute(job.id, job.token, fn); return (await controller.read()).jobs.find(j => j.id === job.id);};
+    await check({m, f, controller, id, suite, settings, history, enqueue, launches, prompts, call, run,
+      setDay: value => {now = new Date(value);}, setAllowed: value => {allowed = value;}, setAuthority: value => {authority = value;},
+      setConfig: fn => {configured = fn(configured);}, setLive: value => {live = value;}, setOwner: value => {owner = value;}});
+  });
+}
+export const automationChecks = {
+  'learning-evaluation-adoption': async () => {
+    await automationFixture(async x => {
+      const before = await readFile(x.history[0].provenance.receiptPath, 'utf8');
+      const job = await x.controller.reconcile(), result = await x.run(job);
+      assert.equal(result.status, 'adopted', result.reason); assert.equal(result.invocations, 7);
+      assert.equal(x.prompts.length, 7); assert.equal(x.prompts.filter(p => p.startsWith('Compose')).length, 1);
+      const trial = await x.controller.store.artifact('trials', result.trial);
+      assert.equal(x.m.replayLearningTrial(trial).status, 'PASS');
+      assert.equal(await readFile(x.history[0].provenance.receiptPath, 'utf8'), before);
+      await x.controller.store.recover('retire', 'Fixture retirement');
+      await x.controller.store.recover('rollback', 'Fixture rollback', result.adopted);
+      assert.equal((await x.controller.store.read()).active, result.adopted);
+    });
+    await automationFixture(async x => {
+      const job = await x.controller.reconcile(), result = await x.run(job, x.call({perfect: true}));
+      assert.equal(result.status, 'retained'); assert.equal(result.reason, 'NO_HOLDOUT_HEADROOM');
+      assert.equal(result.invocations, 2); assert.ok(x.prompts.every(p => p.startsWith('Evaluate')));
+      assert.equal(x.m.replayLearningTrial(await x.controller.store.artifact('trials', result.trial)).reason, 'NO_HOLDOUT_HEADROOM');
+    });
+    for (const mode of ['noGain', 'unchanged', 'regression', 'uncertain']) await automationFixture(async x => {
+      let n = 0;
+      const ordinary = x.call({noGain: mode === 'noGain', ...(mode === 'unchanged' ? {composition: {...proposal, strategies: []}} : {})});
+      const model = async (prompt, schema) => {
+        const reply = await ordinary(prompt, schema);
+        if (!prompt.startsWith('Evaluate')) return reply;
+        n++;
+        if (mode === 'regression' && n > 2) {
+          const row = reply.value.results[1];
+          row.advice.recommendations.push({criterionId: 'behavior', issue: 'Invented omission', recommendation: 'Add unnecessary behavior', reason: 'Fake false positive'});
+        }
+        if (mode === 'uncertain' && n === 2) {
+          const perfect = await x.call({perfect: true})(prompt, schema); return perfect;
+        }
+        return reply;
+      };
+      const result = await x.run(await x.controller.reconcile(), model);
+      assert.notEqual(result.status, 'adopted', mode); assert.equal((await x.controller.store.read()).active, null);
+    });
+  },
+  'learning-automation-accounting': async () => {
+    await automationFixture(async x => {
+      const concurrent = await Promise.all(Array.from({length: 5}, () => x.controller.reconcile()));
+      assert.equal(concurrent.filter(Boolean).length, 1); assert.equal(x.launches.length, 1);
+      const first = concurrent.find(Boolean);
+      const failed = await x.run(first, x.call({fail: true}));
+      assert.equal(failed.status, 'failed'); assert.equal(failed.invocations, 1);
+      await x.controller.retry(first.id);
+      const second = await x.controller.reconcile(); await x.run(second, x.call({noGain: true}));
+      assert.equal((await x.controller.status()).quota.attempts, 2);
+      await x.controller.retry(second.id);
+      assert.equal(await x.controller.reconcile(), null);
+      assert.equal((await x.controller.status()).waiting[x.id], 'DAILY_QUOTA');
+      x.setDay('2026-11-10T00:00:00Z');
+      const third = await x.controller.reconcile(); assert.ok(third, 'Explicit retry survives until the next UTC quota day');
+      assert.equal((await x.controller.status()).quota.attempts, 1);
+      await x.run(third, x.call({fail: true}));
+      assert.equal((await x.controller.read()).jobs.length, 3);
+    });
+    await automationFixture(async x => {
+      const marker = join(x.f.root, 'launches.log');
+      const configured = {...config, reviewRoles: [{role: 'independent-review', targets: ['codex']}], learning: {
+        suitePath: 'evaluation.json', suiteDigest: x.m.digest(x.suite), humanConfirmed: true, independentlyLabelled: true, settings: x.settings}};
+      const script = `const {LearningAutomation}=await import(process.argv[1]);
+        const {git}=await import(process.argv[2]); const {appendFile}=await import('node:fs/promises');
+        const [mainRoot, commonDir, marker, configJson, pid]=process.argv.slice(3);
+        const controller=new LearningAutomation({mainRoot,commonDir,git,loadConfig:async()=>JSON.parse(configJson),
+          authority:async()=>({allowed:true,fingerprint:'authority-a',reason:'READY'}),
+          owner:async()=>({pid:Number(pid),identity:'fixture',group:false}), alive:async()=>true,
+          now:()=>new Date('2026-11-09T23:59:59Z'), launch:async job=>{await appendFile(marker,job.id+'\\n');}});
+        console.log(JSON.stringify(await controller.reconcile()));`;
+      const runs = await Promise.all([1, 2, 3].map(() => execFile(process.execPath, ['--input-type=module', '-e', script,
+        moduleUrl('runtime/src/learning/automation.js'), new URL('../followup/fixture.mjs', import.meta.url).href,
+        x.f.root, x.f.commonDir, marker, JSON.stringify(configured), String(process.pid)])));
+      const reserved = runs.map(r => JSON.parse(r.stdout)).filter(Boolean);
+      assert.equal(reserved.length, 1, 'Real independent processes atomically reserve one job');
+      assert.equal((await readFile(marker, 'utf8')).trim().split('\n').length, 1);
+      const result = await x.run(reserved[0]);
+      assert.equal(result.status, 'adopted', result.reason); assert.equal(x.prompts.length, 7);
+      assert.equal((await x.controller.status()).quota.attempts, 1);
+    });
+    await automationFixture(async x => {
+      const job = await x.controller.reconcile(); await x.controller.bind(job.id, job.token, {pid: process.pid, identity: 'fixture', group: false});
+      await x.controller.change(async state => {state.jobs[0].invocations = 12;});
+      await x.controller.execute(job.id, job.token, x.call());
+      assert.equal(x.prompts.length, 0, 'Durable reservation prevents a thirteenth invocation');
+      assert.equal((await x.controller.read()).jobs[0].invocations, 12);
+    });
+  },
+  'learning-automation-recovery': async () => {
+    await automationFixture(async x => {
+      const first = await x.controller.reconcile(); await x.run(first, x.call({fail: true}));
+      x.setDay('2026-11-10T00:00:00Z');
+      assert.equal(await x.controller.reconcile(), null, 'Failure never retries on a new day');
+      await x.enqueue({...proposal, strategies: [{...proposal.strategies[0], id: 'renamed'}]}, 'another-author');
+      assert.equal(await x.controller.reconcile(), null, 'Canonical content ignores advisory author and strategy IDs');
+      x.setAuthority('authority-b');
+      assert.ok(await x.controller.reconcile(), 'Meaningful immutable conditions change permits a new attempt');
+      x.setLive(false);
+      assert.equal(await x.controller.reconcile(), null, 'Dead owner becomes terminal without automatic retry');
+      assert.equal((await x.controller.read()).jobs.at(-1).reason, 'OWNER_EXITED_NO_RETRY');
+    });
+    await automationFixture(async x => {
+      x.controller.options.launch = async () => {throw new Error('Launch refused');};
+      const job = await x.controller.reconcile();
+      assert.equal((await x.controller.read()).jobs[0].reason, 'LAUNCH_FAILED_NO_RETRY');
+      assert.equal((await x.controller.status()).quota.attempts, 1);
+      assert.equal(await x.controller.reconcile(), null); assert.equal(x.prompts.length, 0);
+      await x.controller.retry(job.id); assert.ok(await x.controller.reconcile());
+    });
+    await automationFixture(async x => {
+      await rm(join(x.controller.candidates.directory, 'index.json'));
+      assert.equal(await x.controller.reconcile(), null); assert.equal(x.launches.length, 0);
+      assert.equal((await x.controller.status()).quota.attempts, 0, 'Passive history import has no experiment spending');
+    });
+  },
+  'learning-automation-authority': async () => {
+    for (const drift of ['denial', 'policy', 'suite', 'model', 'library', 'source']) await automationFixture(async x => {
+      const job = await x.controller.reconcile();
+      const mutate = async () => {
+        if (drift === 'denial') x.setAllowed(false);
+        if (drift === 'policy') x.setAuthority('changed-policy');
+        if (drift === 'model') x.setConfig(c => ({...c, learning: {...c.learning, settings: {...c.learning.settings, model: 'model-2027-01'}}}));
+        if (drift === 'suite') await writeFile(join(x.f.root, 'evaluation.json'), '{}');
+        if (drift === 'library') await x.controller.store.recover('retire', 'Concurrent library change');
+        if (drift === 'source') await rm(x.history[0].provenance.receiptPath);
+      };
+      let changed = false;
+      const model = x.call({hook: async () => {if (!changed) {changed = true; await mutate();}}});
+      const result = await x.run(job, model);
+      assert.equal(result.status, 'failed', drift); assert.equal(x.prompts.length, 1, 'Drift stops further spending');
+      assert.equal((await x.controller.store.read()).active, null);
+    });
+    if (process.platform !== 'win32') await automationFixture(async x => {
+      const bin = join(x.f.root, 'fake-models'), calls = join(x.f.root, 'model-calls.jsonl');
+      await mkdir(bin);
+      const executable = join(bin, 'codex');
+      await writeFile(executable, `#!${process.execPath}
+const fs=require('node:fs'); let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),prompt})+'\\n');
+const data=JSON.parse(prompt.slice(prompt.lastIndexOf('BEGIN UNTRUSTED DATA\\n')+21,prompt.lastIndexOf('\\nEND UNTRUSTED DATA')));
+const value=prompt.startsWith('Compose')?${JSON.stringify(proposal)}:{results:data.cases.map(c=>{
+const detects=c.snapshot.experiences.length>0&&c.snapshot.originalGoal.includes('repeat');
+return {caseId:c.caseId,advice:{summary:'Fixture',recommendations:detects?[{criterionId:'behavior',issue:'Repeated delivery',recommendation:'Specify repeat safety',reason:'Retry is possible'}]:[],limitations:[]},omissions:detects?[{dimension:'redo',recommendationIndex:0}]:[]};})};
+process.stdout.write(JSON.stringify(value));});
+`);
+      await chmod(executable, 0o700);
+      const configured = {...config, reviewRoles: [{role: 'independent-review', targets: ['codex']}], learning: {
+        suitePath: 'evaluation.json', suiteDigest: x.m.digest(x.suite), humanConfirmed: true, independentlyLabelled: true, settings: x.settings}};
+      await writeFile(join(x.f.root, '.agent-ops/config.json'), JSON.stringify(configured));
+      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^AGENT_OPS_(?:RUN|WORKER|SESSION|AGENT)_/u.test(key) && key !== 'CODEX_THREAD_ID'));
+      Object.assign(env, {AGENT_OPS_HOME: join(x.f.root, 'test-home'), PATH: bin + ':' + process.env.PATH});
+      const script = `const {productionLearningAutomation}=await import(process.argv[1]);
+        const {worktreeDependencies}=await import(process.argv[2]);const root=process.argv[3];
+        const deps=worktreeDependencies();await deps.trust.grant(root,await deps.loadConfig(root));
+        const controller=await productionLearningAutomation(root); console.log(JSON.stringify(await controller.reconcile()));`;
+      const launched = await execFile(process.execPath, ['--input-type=module', '-e', script,
+        moduleUrl('packages/cli/src/learning-deps.js'), moduleUrl('packages/cli/src/parallel-deps.js'), x.f.root], {env});
+      const job = JSON.parse(launched.stdout); assert.ok(job, 'Production scheduler starts an explicitly registered fixture');
+      let result;
+      for (let i = 0; i < 150; i++) {
+        result = (await x.controller.read()).jobs.find(j => j.id === job.id);
+        if (!['launching', 'running'].includes(result.status)) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(result.status, 'adopted', JSON.stringify(result));
+      const recorded = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(recorded.length, 7); assert.equal(result.invocations, 7);
+      assert.ok(recorded.every(c => c.cwd !== x.f.root && c.args.includes('read-only') && c.args.includes(x.settings.model)));
+      assert.ok(recorded.every(c => !c.prompt.startsWith('Propose')));
+      const listed = await execFile(process.execPath, [new URL(moduleUrl('packages/cli/src/bin.js')).pathname, 'learn', 'list', '--json'], {cwd: x.f.root, env});
+      const output = JSON.parse(listed.stdout);
+      assert.equal(output.data.automation.jobs.length, 1, 'Normal CLI reconciliation cannot rerun an already adopted candidate');
+      assert.equal((await readFile(calls, 'utf8')).trim().split('\n').length, 7);
+    });
+    await automationFixture(async x => {
+      x.setAllowed(false);
+      assert.equal(await x.controller.reconcile(), null); assert.equal((await x.controller.status()).waiting[x.id], 'NATIVE_DENIED');
+      x.setAllowed(true); x.setConfig(c => ({...c, learning: undefined}));
+      assert.equal(await x.controller.reconcile(), null); assert.equal((await x.controller.status()).waiting[x.id], 'SETUP_MISSING');
+      assert.equal((await x.controller.status()).quota.attempts, 0); assert.equal(x.launches.length, 0);
+    });
+    await automationFixture(async x => {
+      const job = await x.controller.reconcile(), bytes = JSON.stringify(job.input);
+      const original = x.call();
+      const result = await x.run(job, async (prompt, schema) => {
+        const reply = await original(prompt, schema);
+        // Mutating the launcher's returned copy cannot alter the controller's pinned artifact.
+        job.input.candidate.proposal.strategies[0].cue = 'mutated caller copy';
+        return reply;
+      });
+      assert.equal(result.status, 'adopted', result.reason);
+      assert.equal(JSON.stringify((await x.controller.read()).jobs[0].input), bytes);
+      assert.equal((await x.controller.status()).jobs[0].invocations, x.prompts.length);
+    });
+  }
+};
+
 export const pipelineChecks = {
+  ...automationChecks,
   ...adviceChecks,
   'learning-delivery-history': async () => {
     const m = await modules();
