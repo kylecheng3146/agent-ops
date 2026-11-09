@@ -1,3 +1,4 @@
+import {collectLearningReceipt} from "../../../runtime/src/learning/intake.js";
 import {recordProviderWait, resumeProviderWait} from "../../../runtime/src/run/provider-wait.js";
 import {criteriaReviewStatus} from "./criteria-review.js";
 import {collectFollowupReceipt} from "../../../runtime/src/followup/intake.js";
@@ -671,6 +672,9 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       await discardReviewCheckpoints(current).catch(() => {});
       await supervisor.finalize(runId, {targetCommit: receipt.candidateHead, candidateCommit: receipt.candidateHead,
         verificationPass: true, reviewPass: true, taskStateComplete: true, receiptWritten: true, receiptDigest: sha256(source)});
+      const learning = await collectLearningReceipt({git: deps.git, mainRoot: root, commonDir, path});
+      for (const warning of learning.warnings) await repository.appendEvent(runId, {type: "diagnostic",
+        code: "LEARNING_RECONCILIATION_PENDING", workerId: null, taskId: null, detail: warning}).catch(() => {});
       try {
         const followup = await collectFollowupReceipt({git: deps.git, mainRoot: root, commonDir,
           path, config: await deps.loadConfig(root), loadConfig: async () => await deps.loadConfig(root)});
