@@ -16,10 +16,11 @@ export interface LearningJob {
   status: "launching" | "running" | "adopted" | "retained" | "failed";
   reason: string; owner: LearningOwner; invocations: number; retryRequested: boolean;
   input: {candidate: CandidateRecord; setup: EligibleSetup; baseline: LearningState; authority: string};
+  inputDigest: string;
   trial?: string; adopted?: string | null;
 }
 export interface AutomationState {
-  schemaVersion: 1; jobs: LearningJob[]; waiting: Record<string, string>;
+  schemaVersion: 1; jobs: LearningJob[]; waiting: Record<string, string>; cursor?: number;
 }
 export interface LearningAutomationOptions extends LearningSource {
   loadConfig(): Promise<AgentOpsConfig>;
@@ -46,11 +47,12 @@ export class LearningAutomation {
     if (Buffer.byteLength(raw) > 4 * 1024 * 1024) invalid("Automation state exceeds bound; preserved.");
     const value: unknown = JSON.parse(raw);
     if (!object(value) || value.schemaVersion !== 1 || !Array.isArray(value.jobs) || !object(value.waiting) ||
+      (value.cursor !== undefined && (!Number.isSafeInteger(value.cursor) || (value.cursor as number) < 0)) ||
       !Object.values(value.waiting).every(v => typeof v === "string") || !value.jobs.every(j => object(j) && hash(j.id) && hash(j.key) &&
         hash(j.token) && hash(j.candidateId) && typeof j.day === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(j.day) &&
         ["launching", "running", "adopted", "retained", "failed"].includes(String(j.status)) && typeof j.reason === "string" &&
         typeof j.retryRequested === "boolean" && Number.isSafeInteger(j.invocations) && (j.invocations as number) >= 0 &&
-        (j.invocations as number) <= LEARNING_LIMITS.invocations && object(j.input) && object(j.owner) &&
+        (j.invocations as number) <= LEARNING_LIMITS.invocations && object(j.input) && j.inputDigest === digest(j.input) && object(j.owner) &&
         Number.isSafeInteger(j.owner.pid) && (j.owner.pid as number) > 0 && typeof j.owner.identity === "string" && typeof j.owner.group === "boolean") ||
         new Set(value.jobs.map(j => (j as LearningJob).id)).size !== value.jobs.length) invalid("Invalid automation state; preserved.");
     return value as unknown as AutomationState;
@@ -80,16 +82,23 @@ export class LearningAutomation {
     const ids = await this.candidates.ids();
     // No candidates means no launch, model call, or daily reservation from history import alone.
     if (ids.length === 0) return null;
+    const snapshot = await this.read();
+    for (const job of snapshot.jobs.filter(j => ["launching", "running"].includes(j.status)))
+      if (await this.options.alive(job.owner)) return null;
+    // Bound foreground Git/source validation; rotate so durable pending work cannot starve.
+    const cursor = (snapshot.cursor ?? 0) % ids.length;
+    const selected = [...ids.slice(cursor), ...ids.slice(0, cursor)].slice(0, 4);
     const config = await this.options.loadConfig(), authority = await this.options.authority(config);
-    const prepared = await Promise.all(ids.map(async id => {
+    const prepared = await Promise.all(selected.map(async id => {
       try {
         const candidate = await this.candidates.read(id);
-        const setup = await resolveLearningSetup({...this.options, config, candidate});
+        const setup = authority.allowed ? await resolveLearningSetup({...this.options, config, candidate})
+          : {status: "waiting" as const, reason: authority.reason};
         return {id, candidate, setup};
       } catch {return {id, candidate: null, setup: {status: "waiting" as const, reason: "CANDIDATE_INVALID"}};}
     }));
-    const owner = await this.options.owner();
     const reserved = await this.change(async state => {
+      state.cursor = (cursor + selected.length) % ids.length;
       for (const job of state.jobs.filter(j => ["launching", "running"].includes(j.status))) {
         if (!await this.options.alive(job.owner)) {job.status = "failed"; job.reason = "OWNER_EXITED_NO_RETRY";}
       }
@@ -107,10 +116,14 @@ export class LearningAutomation {
         const previous = state.jobs.filter(j => j.key === key).at(-1);
         if (previous !== undefined && !previous.retryRequested) {delete state.waiting[item.id]; continue;}
         if (state.jobs.filter(j => j.day === this.day()).length >= 2) {state.waiting[item.id] = "DAILY_QUOTA"; continue;}
+        let owner: LearningOwner;
+        try {owner = await this.options.owner();}
+        catch {state.waiting[item.id] = "OWNER_UNAVAILABLE"; continue;}
         if (previous !== undefined) previous.retryRequested = false;
+        const input = structuredClone({candidate: item.candidate, setup: item.setup, baseline, authority: authority.fingerprint});
         const job: LearningJob = {id: digest(randomUUID()), token: digest(randomUUID()), key, candidateId: item.id, day: this.day(),
           status: "launching", reason: "RESERVED", owner, invocations: 0, retryRequested: false,
-          input: structuredClone({candidate: item.candidate, setup: item.setup, baseline, authority: authority.fingerprint})};
+          input, inputDigest: digest(input)};
         state.jobs.push(job); delete state.waiting[item.id];
         return structuredClone(job);
       }

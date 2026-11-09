@@ -338,6 +338,17 @@ export const automationChecks = {
       await x.controller.retry(job.id); assert.ok(await x.controller.reconcile());
     });
     await automationFixture(async x => {
+      x.setConfig(c => ({...c, learning: undefined}));
+      x.controller.options.owner = async () => {throw new Error('Identity unavailable');};
+      for (let i = 0; i < 5; i++) await x.enqueue({...proposal, strategies: [{...proposal.strategies[0], cue: `Distinct pending cue ${i}`}]}, `author-${i}`);
+      assert.equal(await x.controller.reconcile(), null);
+      assert.equal(Object.keys((await x.controller.status()).waiting).length, 4, 'Foreground source checks are bounded');
+      assert.equal(await x.controller.reconcile(), null);
+      assert.equal(Object.keys((await x.controller.status()).waiting).length, 6, 'Rotating scans eventually report all durable pending candidates');
+      assert.ok(Object.values((await x.controller.status()).waiting).every(reason => reason === 'SETUP_MISSING'));
+      assert.equal(x.prompts.length, 0);
+    });
+    await automationFixture(async x => {
       await rm(join(x.controller.candidates.directory, 'index.json'));
       assert.equal(await x.controller.reconcile(), null); assert.equal(x.launches.length, 0);
       assert.equal((await x.controller.status()).quota.attempts, 0, 'Passive history import has no experiment spending');
@@ -363,6 +374,10 @@ export const automationChecks = {
     if (process.platform !== 'win32') await automationFixture(async x => {
       const bin = join(x.f.root, 'fake-models'), calls = join(x.f.root, 'model-calls.jsonl');
       await mkdir(bin);
+      await mkdir(join(x.f.root, 'test-home'));
+      // OS metadata is mocked inside this fixture; no elevated process inspection or real model is needed.
+      await writeFile(join(bin, 'ps'), `#!${process.execPath}\nprocess.stdout.write('fixture-start-' + process.argv[process.argv.indexOf('-p') + 1]);\n`);
+      await chmod(join(bin, 'ps'), 0o700);
       const executable = join(bin, 'codex');
       await writeFile(executable, `#!${process.execPath}
 const fs=require('node:fs'); let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{
@@ -421,6 +436,10 @@ process.stdout.write(JSON.stringify(value));});
       assert.equal(result.status, 'adopted', result.reason);
       assert.equal(JSON.stringify((await x.controller.read()).jobs[0].input), bytes);
       assert.equal((await x.controller.status()).jobs[0].invocations, x.prompts.length);
+      const saved = await x.controller.read();
+      saved.jobs[0].input.setup.suite.cases[0].expected = [];
+      await writeFile(x.controller.path, JSON.stringify(saved));
+      await assert.rejects(x.controller.read(), /Invalid automation state/, 'Changed pinned evaluation inputs are rejected');
     });
   }
 };

@@ -6,6 +6,8 @@ import {NodeVerificationProcessRunner} from "../../../runtime/src/verify/spawn.j
 const started = await new Promise<boolean>(resolve => {
   process.once("message", message => resolve(message === "start"));
   process.once("disconnect", () => resolve(false));
+  if (process.send === undefined) resolve(false);
+  else process.send("ready");
 });
 if (started) {
   const [root, id, token] = process.argv.slice(2);

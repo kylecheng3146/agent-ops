@@ -33,15 +33,21 @@ export async function productionLearningAutomation(cwd: string, ownedGroup = fal
       const child = spawn(process.execPath, [fileURLToPath(new URL("./learning-entry.js", import.meta.url)),
         context.mainRoot, job.id, job.token], {cwd: context.mainRoot, env: process.env,
         detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"], windowsHide: true});
-      child.once("error", reject);
-      child.once("spawn", () => {
+      let released = false;
+      const fail = (error: Error) => {clearTimeout(timer); if (!released) {child.kill(); reject(error);}};
+      const timer = setTimeout(() => fail(new Error("HANDSHAKE_TIMEOUT")), 10_000);
+      timer.unref();
+      child.once("error", fail);
+      child.once("exit", () => fail(new Error("OWNER_EXITED")));
+      child.once("message", message => {
         void (async () => {
+          if (message !== "ready") throw new Error("INVALID_HANDSHAKE");
           const identity = child.pid === undefined ? null : await nativeProcessIdentity(child.pid);
           if (identity === null || child.pid === undefined) throw new Error("OWNER_UNAVAILABLE");
           await controller.bind(job.id, job.token, {pid: child.pid, identity, group: true});
           await new Promise<void>((sent, failed) => child.send("start", error => error ? failed(error) : sent()));
-          child.disconnect(); child.unref(); resolve();
-        })().catch(error => {child.kill(); reject(error);});
+          released = true; clearTimeout(timer); child.disconnect(); child.unref(); resolve();
+        })().catch(fail);
       });
     });
   };
