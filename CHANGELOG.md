@@ -4,8 +4,14 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
-## [1.2.1] - 2026-11-08
+## [1.2.1] - 2026-11-09
 
+- Add opt-in, repository-local advisory learning from sealed task, diff, verify and review evidence; pair repeated baseline/candidate evaluations with independent holdouts and revalidate composed guidance before adoption.
+- Persist scoped experience with exact source/version/use records, conservative baseline retention, retirement and rollback. Existing model CLI subscription quota is bounded to two proposals, one composition and twelve extra invocations per trial.
+- Preserve requested acceptance check IDs in isolated baseline/candidate execution and bound the default acceptance run step to 600 seconds.
+- Automatically attach subsequent active-session tasks to their root while preserving immutable goals, debug inheritance and surface covers.
+- Reduce incidental discovery queries from built-in tokens, keep native authorization observations bounded/idempotent under concurrency, reject conflicting authorization-identity reuse without replacing audit artifacts, and scope escape catches to repository receipts across linked worktrees.
+- Gate: final common-source receipt sealing rejects missing child proof before integration and retains the complete task tree; ordinary per-task finish keeps its documented completion bases and reports when a complete sealed receipt is unavailable.
 - `npm test` isolates temporary test directories under a per-run temporary root
   in `TMPDIR`/`TMP`/`TEMP` and cleans them up after the child exits, preventing
   OS temp directory accumulation.

@@ -42,10 +42,14 @@ opencode installed; CI intentionally does not install that application. In a
 throwaway project, preview and apply `agent-ops init --scope project
 --harness opencode --profile advisory --yes`, confirm that only
 `.opencode/plugins/agent-ops.js` and the shared managed instruction artifacts
-changed, and verify that `opencode.json` was untouched. Repeat with
-`--profile guardrails` using a harmless bash command and confirm that
-`agent-ops doctor --json` reports lifecycle-summary as `UNSUPPORTED` while
-advisory runtime wiring is absent.
+changed, and verify that `opencode.json` was untouched. With advisory enabled,
+`agent-ops doctor --json` reports lifecycle-summary as `DEGRADED`: plugin
+initialization approximates session start. Repeat in a fresh project with
+`--profile guardrails` using a harmless bash command. Confirm that advisory
+SessionStart runtime wiring is absent and lifecycle-summary reports `PASS`
+because that capability is disabled.
+These expectations follow the adapter and doctor tests (checked 2026-11-09).
+Revalidate when opencode capability registrations or doctor status rules change.
 Do not use a destructive command for this smoke check.
 
 Changes to workflows, release policy, issue forms, or pull request governance
