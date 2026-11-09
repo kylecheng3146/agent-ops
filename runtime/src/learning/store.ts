@@ -83,11 +83,12 @@ export class FileLearningStore {
     return {state, version: state.active === null ? null : await this.version(state.active)};
   }
   /** The controller archives complete evidence before attempting this compare-and-swap. */
-  async adopt(expected: LearningState, version: LearningVersion): Promise<string | null> {
+  async adopt(expected: LearningState, version: LearningVersion, isCurrent?: () => Promise<boolean>): Promise<string | null> {
     const id = await this.archive("versions", version);
     return await withPrivateFileLock(this.path, this.commonDir, async () => {
       const state = await this.read();
       if (state.generation !== expected.generation || state.active !== expected.active) return null;
+      if (isCurrent !== undefined && !await isCurrent()) return null;
       await this.save(state, "adopt", id, "Repeated paired evaluation improved held-out omission detection without additional false positives.");
       return id;
     });

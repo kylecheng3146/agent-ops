@@ -295,6 +295,9 @@ test("learning target preserves fixed model, read-only flags and isolated execut
     await assert.rejects(stat(request.cwd), {code: "ENOENT"});
   }
   assert.equal(parseArgs(["learn"]).learningAction, "list");
+  assert.equal(parseArgs(["learn", "retry", "a".repeat(64)]).learningAction, "retry");
+  assert.throws(() => parseArgs(["learn", "retry"]));
+  assert.throws(() => parseArgs(["learn", "retry", "a".repeat(64), "--model", "model-1"]));
   assert.equal(parseArgs(["learn", "run", "--receipt", "receipt.json", "--suite", "suite.json", "--model", "model-1", "--no-execute"]).learningNoExecute, true);
   for (const option of ["--harness", "--yes", "--grader", "--trust", "--base", "--profile"])
     assert.throws(() => parseArgs(["learn", "run", "--receipt", "r", "--suite", "s", "--model", "model-1", option, "x"]));
