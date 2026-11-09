@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdir, stat, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, readdir, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {checkedGit, config, load, runner, withRepository} from '../followup/fixture.mjs';
 
@@ -80,7 +80,62 @@ async function parentFixture(f, check) {
   await check({tasks, parent, child});
 }
 
+async function authorizationRace(f, changes) {
+  const {FileRunRepository, createRunState} = await load('runtime/src/run/service.js');
+  const {bindRunPolicy} = await load('runtime/src/run/policy.js');
+  const {RunControlService} = await load('runtime/src/run/controls.js');
+  const repository = new FileRunRepository(join(f.commonDir, 'agent-ops/runs'), f.commonDir);
+  const state = createRunState({root: f.root, commonDir: f.commonDir, targetBranch: 'main', goal: 'Concurrent observations', host: 'claude', ownerSessionId: 'owner'});
+  await repository.create(state);
+  await bindRunPolicy(repository, state.runId, {config, runtimeHash: 'b'.repeat(64), baseTrustBinding: {canonicalPath: f.root,
+    remoteIdentity: 'local:fixture', configHash: calculateConfigHash(config), runtimeHash: 'a'.repeat(64)}});
+  await repository.mutate(state.runId, s => ({...s, workers: [{workerId: 'writer', taskId: 'task', host: 'claude', ownerSessionId: 'owner',
+    nativeSessionId: 'native', nativeJobId: 'thread', worktree: f.root, processId: null, processIdentity: null, generation: 1,
+    status: 'running', leaseExpiresAt: null, heartbeatAt: null, stopIntent: null, nativeGoalState: 'active', lastFailure: null}]}));
+  const before = await repository.read(state.runId), policy = before.policyBinding;
+  const authorization = {authorizationId: 'observation', workerId: 'writer', generation: 1, nativeSessionId: 'native',
+    source: 'claude-auto-mode', result: 'unknown', operation: 'Bash', command: 'echo harmless', resource: 'fixture', reason: 'Observed scope only',
+    commandDigest: sha256('echo harmless'), resourceDigest: sha256('fixture'), policyConfigHash: policy.configHash,
+    runtimeHash: policy.runtimeHash, policyArtifactDigest: policy.artifactDigest, expiresAt: policy.expiresAt};
+  let mutations = 0, release;
+  const bothReady = new Promise(resolve => {release = resolve;});
+  const controls = new RunControlService({read: repository.read.bind(repository), mutate: async (...args) => {
+    if (++mutations === 2) release();
+    await bothReady; // Both calls passed the unlocked checks before either real locked mutation starts.
+    return await repository.mutate(...args);
+  }});
+  const inputs = changes.map(change => ({...authorization, ...change}));
+  const results = await Promise.allSettled(inputs.map(input => controls.recordAuthorization(state.runId, input)));
+  assert.equal(mutations, 2);
+  const directory = join(f.commonDir, 'agent-ops/runs', state.runId, 'authorizations');
+  const artifacts = await Promise.all((await readdir(directory)).map(async name => JSON.parse(await readFile(join(directory, name), 'utf8'))));
+  return {repository, before, after: await repository.read(state.runId), results, artifacts, inputs};
+}
+
 export const operationalChecks = {
+  'operational-authorization-concurrency': async () => {
+    for (const second of [{}, {authorizationId: 'same-scope'}]) await withRepository(async f => {
+      const {repository, before, after, results, artifacts} = await authorizationRace(f, [{}, second]);
+      assert.ok(results.every(r => r.status === 'fulfilled'));
+      assert.equal(after.revision, before.revision + 1, 'Concurrent duplicate observations persist exactly once');
+      assert.equal(after.events.filter(e => e.code === 'RUN_COMMAND_AUTHORIZATION_OBSERVED').length, 1);
+      assert.equal(artifacts.length, 1);
+      const legacy = await repository.mutate(after.runId, s => s);
+      assert.equal(legacy.revision, after.revision + 1, 'Default unchanged mutations keep their existing revision semantics');
+      const path = join(f.commonDir, 'agent-ops/runs', after.runId + '.json'), original = await readFile(path, 'utf8');
+      const noop = await repository.mutate(after.runId, s => s, {skipUnchanged: true});
+      assert.equal(noop.revision, legacy.revision);
+      assert.equal(await readFile(path, 'utf8'), original);
+    });
+  },
+  'operational-authorization-conflict': () => withRepository(async f => {
+    const {before, after, results, artifacts, inputs} = await authorizationRace(f, [{}, {command: 'echo different', commandDigest: sha256('echo different')}]);
+    assert.equal(results.filter(r => r.status === 'fulfilled').length, 1, 'Conflicting concurrent identity reuse must be rejected');
+    assert.equal(results.filter(r => r.status === 'rejected' && r.reason.code === 'RUN_AUTHORIZATION_CONFLICT').length, 1);
+    assert.equal(after.revision, before.revision + 1);
+    assert.equal(artifacts.length, 1);
+    assert.equal(artifacts[0].command, inputs[results.findIndex(r => r.status === 'fulfilled')].command);
+  }),
   'operational-receipt-tree': () => withRepository(f => narrowChild(f, async ({record, parent, child, tasks, prove, options}) => {
     await assert.rejects(prepareFinishReceipt(await options()), e => e.code === 'WORKTREE_FINAL_EVIDENCE_MISSING');
     const proof = await options();

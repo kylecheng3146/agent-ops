@@ -243,8 +243,10 @@ export class RunControlService {
     if (skipUnknown(state)) return state;
     const saved = await this.#repository.mutate(runId, async current => {
       const worker = validBinding(current);
+      const latest = await readPrivateFile(path, current.commonDir);
+      if (latest !== null && latest !== content) throw error("RUN_AUTHORIZATION_CONFLICT", "An authorization identity cannot be reused for a different decision.");
       if (skipUnknown(current)) return current;
-      if (previous !== content) await writePrivateFile(path, content, current.commonDir);
+      if (latest !== content) await writePrivateFile(path, content, current.commonDir);
       if (current.events.some(event => event.id === id)) return current;
       const nextEvent = {
         id,
@@ -266,7 +268,7 @@ export class RunControlService {
         return false;
       });
       return {...current, events: retained.slice(-2_000)};
-    });
+    }, {skipUnchanged: authorization.result === "unknown"});
     if (authorization.result === "denied") throw error("RUN_COMMAND_DENIED", "The native host or organization denied this command; its audit is saved and the denial cannot be bypassed.");
     return saved;
   }

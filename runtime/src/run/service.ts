@@ -300,12 +300,17 @@ export interface RunIntegrationState {
   readonly updatedAt: string;
 }
 
+export interface RunMutationOptions {
+  /** Opt in only when returning the unmodified input should skip persistence. */
+  readonly skipUnchanged?: boolean;
+}
+
 export interface RunRepository {
   read(runId: string): Promise<RunState | null>;
   /** Create is optional for adapters backed by an atomic native RunStore. */
   create?(state: RunState): Promise<void>;
   write(state: RunState): Promise<void>;
-  mutate(runId: string, action: (state: RunState) => RunState | Promise<RunState>): Promise<RunState>;
+  mutate(runId: string, action: (state: RunState) => RunState | Promise<RunState>, options?: RunMutationOptions): Promise<RunState>;
   list(): Promise<readonly RunState[]>;
   appendEvent(runId: string, event: Omit<RunEvent, "id" | "at"> & { readonly at?: string }): Promise<RunState>;
 }
@@ -614,7 +619,7 @@ export class FileRunRepository implements RunRepository {
     });
   }
 
-  async mutate(runId: string, action: (state: RunState) => RunState | Promise<RunState>): Promise<RunState> {
+  async mutate(runId: string, action: (state: RunState) => RunState | Promise<RunState>, options?: RunMutationOptions): Promise<RunState> {
     const path = this.#path(runId);
     return await withPrivateFileLock(path, this.#anchor, async () => {
       const current = await this.read(runId);
@@ -636,6 +641,7 @@ export class FileRunRepository implements RunRepository {
         throw new AgentOpsError("RUN_IDENTITY_IMMUTABLE", "Run goal, target and ownership cannot change during a mutation.");
       if (current.status === "complete" && (next.status !== "complete" || !next.disableRestart || next.awaitingResume))
         throw new AgentOpsError("RUN_ALREADY_COMPLETE", "Final completion is immutable; cleanup cannot revive or downgrade this run.");
+      if (options?.skipUnchanged === true && next === current) return clone(current);
       const updated = { ...next, revision: (current.revision ?? 0) + 1, updatedAt: iso(this.#now(), "updatedAt") };
       await writePrivateFile(path, `${JSON.stringify(updated, null, 2)}\n`, this.#anchor);
       return clone(updated);
