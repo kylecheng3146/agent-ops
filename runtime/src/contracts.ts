@@ -156,6 +156,14 @@ export interface WorktreeConfig {
   setup?: WorktreeSetupCommand[];
 }
 
+export interface LearningConfig {
+  suitePath: string;
+  suiteDigest: string;
+  humanConfirmed: boolean;
+  independentlyLabelled: boolean;
+  settings: {target: ReviewTargetId; model: string; effort: string};
+}
+
 export interface AgentOpsConfig {
   schemaVersion: typeof CONFIG_SCHEMA_VERSION;
   profiles: Profile[];
@@ -167,6 +175,8 @@ export interface AgentOpsConfig {
   reviewRoles?: ReviewRoleConfig[];
   /** Absent means `mode: "off"`. */
   worktree?: WorktreeConfig;
+  /** Optional explicit registration; absence never enables model spending. */
+  learning?: LearningConfig;
 }
 
 export interface AcceptanceCriterion {

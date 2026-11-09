@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {adviceChecks} from './advice-checks.mjs';
 import {execFile as execute} from 'node:child_process';
 import {chmod, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -17,6 +18,7 @@ const finish = (m, f, c) => m.finishWorktree(f.deps, {cwd: f.root, name: c.recor
 const candidate = (f, options = {}) => reviewedCandidate(f, {modern: true, goal: 'Deliver traceable ordinary or repaired work', ...options});
 
 export const pipelineChecks = {
+  ...adviceChecks,
   'learning-delivery-history': async () => {
     const m = await modules();
     for (const tree of [false, true]) await withRepository(async f => {
