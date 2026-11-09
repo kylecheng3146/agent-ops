@@ -452,9 +452,79 @@ process.stdout.write(JSON.stringify(value));});
   }
 };
 
+async function legacyManualChecks() {
+  const m = await automationModules();
+  await withRepository(async f => {
+    const c = await delivered(m, f), receipt = (await m.readCompletedCase(f.source, (await new m.FileLearningStore(f.commonDir).caseIds())[0])).provenance.receiptPath;
+    const before = await readFile(receipt, 'utf8');
+    const configured = {...config, reviewRoles: [{role: 'independent-review', targets: ['codex']}]};
+    await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify(configured));
+    await writeFile(join(f.root, 'manual-suite.json'), await readFile(new URL('./scenarios.json', import.meta.url)));
+    await checkedGit(f.root, ['add', 'manual-suite.json']); await checkedGit(f.root, ['commit', '-qm', 'Legacy manual suite']);
+    const bin = join(f.commonDir, 'model-spies'), marker = join(f.commonDir, 'unexpected-model-call');
+    await mkdir(bin); await mkdir(join(f.commonDir, 'test-home'));
+    for (const name of ['codex', 'claude', 'agy']) {
+      const path = join(bin, name);
+      await writeFile(path, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called');process.exit(99);\n`);
+      await chmod(path, 0o700);
+    }
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^AGENT_OPS_(?:RUN|WORKER|SESSION|AGENT)_/u.test(key) && key !== 'CODEX_THREAD_ID'));
+    Object.assign(env, {AGENT_OPS_HOME: join(f.commonDir, 'test-home'), PATH: bin + ':' + process.env.PATH});
+    const script = `const {worktreeDependencies}=await import(process.argv[1]);const d=worktreeDependencies();await d.trust.grant(process.argv[2],await d.loadConfig(process.argv[2]));`;
+    await execFile(process.execPath, ['--input-type=module', '-e', script, moduleUrl('packages/cli/src/parallel-deps.js'), f.root], {env});
+    const cli = async args => {
+      const result = await execFile(process.execPath, [new URL(moduleUrl('packages/cli/src/bin.js')).pathname, 'learn', ...args, '--json'], {cwd: f.root, env})
+        .catch(error => assert.fail(error.stdout || error.stderr || error.message));
+      return JSON.parse(result.stdout);
+    };
+    const result = await cli(['run', '--receipt', receipt, '--suite', 'manual-suite.json', '--model', 'model-2026-01', '--no-execute']);
+    assert.equal(result.data.trial.status, 'NOT_RUN'); assert.equal(result.data.trial.calls.length, 0);
+    const artifact = result.data.artifact;
+    assert.deepEqual((await cli(['show', artifact])).data.trial, result.data.trial);
+    assert.equal((await cli(['replay', artifact])).data.replay.status, 'NOT_RUN');
+    const listing = (await cli(['list'])).data;
+    assert.equal(listing.state.schemaVersion, 1); assert.equal(listing.state.active, null);
+    assert.equal(listing.automation.quota.attempts, 0);
+    assert.equal((await cli(['retire', '--reason', 'Legacy manual retirement'])).code, 'LEARNING_RECOVERED');
+    // Recovery CLI reads the unchanged schema-1 version format, without an automation-specific field.
+    const store = new m.FileLearningStore(f.commonDir);
+    const previous = await store.adopt(await store.read(), {proposal, trial: artifact,
+      source: {receipt: m.digest(JSON.parse(before)), taskId: c.records[0].task.id, commit: c.head}, previous: null});
+    await cli(['retire', '--reason', 'Check legacy rollback']);
+    assert.equal((await cli(['rollback', previous, '--reason', 'Restore legacy version'])).data.state.active, previous);
+    assert.equal(await readFile(receipt, 'utf8'), before);
+    await assert.rejects(readFile(marker), {code: 'ENOENT'}, 'Legacy commands and passive reconciliation call no models');
+  });
+}
+
+const documentationChecks = async () => {
+  for (const lang of ['en', 'zh-TW']) {
+    const texts = await Promise.all(['guides/learning.md', 'guides/configuration.md', 'spec/review.md'].map(path =>
+      readFile(new URL(`../../docs/${lang}/${path}`, import.meta.url), 'utf8')));
+    for (const text of texts) {
+      for (const token of ['UTC', 'holdout', 'learn', 'retry', 'verify', 'finish']) assert.ok(text.includes(token), `${lang} docs require ${token}`);
+      assert.match(text, lang === 'en' ? /(?:unmeasured|do not establish paid production)/ : /(?:尚未測量|不能證明付費生產)/);
+    }
+    assert.ok(texts[1].includes('suiteDigest') && texts[1].includes('humanConfirmed') && texts[1].includes('independentlyLabelled'));
+    assert.ok(texts[0].includes('12,000') && texts[2].includes('12,000'));
+    assert.doesNotMatch(texts[0], /There is no background model work|本版沒有背景模型工作/);
+  }
+};
+
 export const pipelineChecks = {
   ...automationChecks,
   ...adviceChecks,
+  'learning-documentation': documentationChecks,
+  'learning-compatibility-delivery': async () => {
+    await legacyManualChecks();
+    await adviceChecks['learning-history-snapshots']();
+    await adviceChecks['learning-suite-eligibility']();
+    await pipelineChecks['learning-intake-reconciliation']();
+    await pipelineChecks['learning-source-immutability']();
+    await automationChecks['learning-automation-recovery']();
+    await automationChecks['learning-automation-authority']();
+    await documentationChecks();
+  },
   'learning-delivery-history': async () => {
     const m = await modules();
     for (const tree of [false, true]) await withRepository(async f => {

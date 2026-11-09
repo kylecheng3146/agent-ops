@@ -1,6 +1,7 @@
 # 本機 advisory 學習
 
-`agent-ops learn` 是主動啟動的一輪實驗，目標是改善驗收條件的情境缺漏辨識。
+本機學習會自動收錄合格交付，並在條件成立時實驗驗收條件的情境缺漏辨識；
+既有手動 `agent-ops learn` 一輪實驗仍可使用。
 模型權重不變，使用既有 CLI 訂閱額度；每輪最多兩個候選、一個組合版本、
 十二次額外 CLI 呼叫。CLI 次數不等於 provider 模型呼叫數。只記錄實際回報的
 token／成本；美元估算不當成訂閱帳單，未知用量不補零。
@@ -66,5 +67,49 @@ active pointer 與歷史由鎖及 generation 比對保護。trial 包含 prompt�
 不修改來源指紋、task criteria、verify 證據或正式 review attestation。
 原有 task → commit → verify → 兩輪獨立 review → finish 仍須完成。
 
-本版沒有背景模型工作、新相依套件、跨機器分享、訓練、候選修改評分規則，
+本版沒有永久 daemon、cron、新相依套件、跨 repository／雲端分享、訓練、候選修改評分規則，
 或自動修補產品程式碼。
+
+## 自動歷史收錄與條件式實驗
+
+每次合格的 final sealed、contract-bound 完成交付（包含一般成功與修復）以完整
+父子任務樹為一筆歷史案例，共用 review 僅保留引用，不逐子任務複製。
+收錄為 advisory、fail-open、冪等且不呼叫模型；一般 CLI 使用會補收漏失 receipt。
+receipt 無效或遺失時，不會因 finish 成功而取得資格。案例保存去秘密後的最終
+目標、criteria、verify／review 結論、受限路徑及確切來源；來源 task、receipt
+與正式證據保持不變。未採用的原始建議不會轉成可重用規則。
+
+新的路徑相關 criteria advisory 最多載入三筆案例，context 預算 12,000 bytes。
+這是**歷史參考，轉用尚未驗證**，不是 verify 證據或已實驗採用的經驗。
+無符合案例就不加入歷史。記錄確切引用與模型自報用途，歷史更新不重跑舊快照。
+同一次既有 data-only 呼叫可選擇提出來源連結候選，空清單合法；不增加提案 CLI
+次數，但既有呼叫增加受限的輸入／輸出 token。候選作者與組合階段不接收 holdout
+答案或結果；讀取來源的正式 reviewer 不負責產生這些提案。
+
+自動實驗必須明確完成[設定指南](configuration.md#自動學習註冊)的 repository
+註冊；預設不安裝 live suite／model。設定遺失、無效、未確認、洩漏或不適用時，
+候選保持 waiting 並顯示原因，不呼叫實驗模型。一般 CLI 檢查持久待辦，同一
+repository 最多一個背景實驗，不等待模型工作；單純匯入歷史不花實驗額度。
+
+每次嘗試固定不可變的候選、suite、baseline、模型／settings 與 evaluator，
+在隔離 data-only 工作區執行。啟動與採用前重驗 trust、policy、原生授權、
+來源及 library generation；保留明確拒絕，不在模型呼叫期間持有 task／proof 鎖。
+既有候選跳過提案生成；baseline 已無嚴格 holdout 改善空間時，提前停止候選／
+組合呼叫。重複配對、holdout、逐案例、誤報、組合及過時 baseline 閘門維持不變。
+僅通過且授權仍有效才自動採用，其他結果保留 baseline；不自動改寫／刪除舊經驗。
+
+日界為 **00:00 UTC**，每 repository 每 UTC 日最多**兩次自動嘗試**，每輪最多
+**十二次額外 CLI 呼叫**，啟動／呼叫失敗也計入。並行 CLI 以原子預留避免重複
+啟動／花費。CLI 次數不等於 provider request 數、固定 token 或金額；既有 advisory
+內產生候選不算額外呼叫。候選內容／scope 加上不可變評估條件、模型、evaluator
+及 baseline library 版本去重；成功、失敗、無改善或跨日均不自動重跑相同條件。
+基礎設施失敗留下持久診斷後停止，不自動重試或重複取樣直到 PASS。條件有實質
+改變或明確手動 retry 才能再次符合資格，仍保留歷史與當日計數。
+
+`agent-ops learn list --json` 顯示 waiting／running／adopted／retained／failed、
+原因碼、quota 與實際預留次數。`agent-ops learn retry <job-id>` 將終止的自動工作
+排入下一次一般 CLI 檢查，不繞過授權、適用性或日額度。既有
+run／list／show／replay／retire／rollback 與舊資料仍可讀。
+確定性 fake／model-spy 測試僅證明控制流程、隔離及花費上限；實際付費生產品質
+改善尚未測量，也不承諾改善。task → commit → verify → 兩輪獨立 review → finish
+正式證據閘門仍為必要。

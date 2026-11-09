@@ -264,3 +264,20 @@ native run 的 coordinator 最終驗收 MUST NOT 為同一份審查中已經回�
 - Positive: `第二輪連線中斷；supervisor 重放一次，必要 reviewer 沒有再被呼叫，run 以 receipt 完成。`
 - Negative: `一直重試直到 adversarial reviewer 通過，或在 stop、timeout、實質 FAIL 之後重放。`
 - Note: standalone `review`、`batch` 與 child handoff 保留程序內 retry，永不讀寫 checkpoint。有未提交修改的 coordinator checkout 永不重放，原樣保留給既有 repair 處理。
+
+新的一般 criteria advice 可額外載入最多三筆路徑相關的完成歷史案例，總量限制
+12,000 bytes。這是歷史參考，轉用尚未驗證，不是 verify 證據或已採用經驗。
+僅提供去秘密後的最終事實及確切來源，不加入未採用的原始建議；無符合就不加入。
+私存確切載入引用及模型自報用途；history／library 更新不重跑舊快照。
+既有 data-only 呼叫可選擇回傳來源連結候選（含空清單），增加受限輸入／輸出
+token，但不增加提案 CLI 次數；不讀 evaluation suite 或 holdout 答案／結果。
+讀取來源的正式 reviewer 不產生候選。
+
+僅明確提交、獨立標註且 human-confirmed 的評估設定及固定模型才允許條件式背景
+實驗；設定缺漏或無效就 waiting，不花模型額度。實驗固定隔離輸入，採用前重驗
+授權與 library；保留 baseline、重複配對、獨立 holdout、逐案例、組合及過時
+狀態保守閘門。每 UTC 日最多兩次自動嘗試，每輪十二次額外 CLI 呼叫，失敗也
+計入；不是 provider request 或固定費用。跨日不重跑相同條件，失敗持久保存且
+不自動重試基礎設施。`learn list --json` 顯示原因／quota；`learn retry <job-id>`
+明確要求重試，仍受相同閘門限制。這不替代 task verify、兩輪獨立 review 或
+finish；合成測試不能證明付費生產品質改善。
