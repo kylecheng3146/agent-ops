@@ -175,7 +175,15 @@ export const adviceChecks = {
 
 
 async function automationModules() {
-  return {...await adviceModules(), ...await load('runtime/src/learning/automation.js'), ...await load('runtime/src/learning/experiment.js')};
+  let automation;
+  try {automation = await load('runtime/src/learning/automation.js');}
+  catch (error) {
+    if (error.code === 'ERR_MODULE_NOT_FOUND' && error.url === moduleUrl('runtime/src/learning/automation.js')) {
+      assert.fail('The repository-local learning automation controller must exist');
+    }
+    throw error;
+  }
+  return {...await adviceModules(), ...automation, ...await load('runtime/src/learning/experiment.js')};
 }
 async function automationFixture(check) {
   const m = await automationModules();
