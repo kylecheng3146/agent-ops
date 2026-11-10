@@ -1,0 +1,9 @@
+worktree: session-d5aaaa73 (agent-ops/session-d5aaaa73)
+session: d5aaaa73-972b-4e35-9d2a-9db0ad5eb389
+agent-ops task task-efd7a5b4-a739-4d10-908a-84991f940a8a: Give Windows startup acceptance suite enough time
+intent: PR #93 windows-latest Node 22 killed the startup acceptance child at the 20-minute win32 limit (killed SIGTERM) after the learning checks grew the suite; passing Windows jobs were within minutes of it. Raise only the win32 limit to 40 minutes; keep POSIX at 15 minutes and every check unchanged.
+criteria:
+- windows-startup-limit: tests/run/startup.test.ts gives the startup acceptance child process 2_400_000 ms on win32 (was 1_200_000, exceeded on windows-latest Node 22 with killed SIGTERM) and keeps 900_000 ms elsewhere; PR #93 Windows CI is the platform evidence.
+- startup-checks-unchanged: No startup acceptance check, assertion, check count or other test timeout changes: the diff touches only the win32 timeout value and its comment in tests/run/startup.test.ts.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/9ecacaa5f6c05271d9112979120b32285ea34424bbe8cda4d2e0fd3e65174454-78547826a3f606f89ab4dda576713bf9db5ed89d.json
+receipt-sha256: ca5192a190fcff9ca3f89c1cc89bd629b28b6ec6d754f4c4ee586499c66e62f3
