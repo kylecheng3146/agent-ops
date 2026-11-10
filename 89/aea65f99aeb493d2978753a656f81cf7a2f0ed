@@ -1,0 +1,9 @@
+worktree: session-d5aaaa73 (agent-ops/session-d5aaaa73)
+session: d5aaaa73-972b-4e35-9d2a-9db0ad5eb389
+agent-ops task task-bb55e2b4-33ad-4765-950d-72eeab1584e4: Fix 1.3.0 release CI blockers
+intent: PR #93 CI: Windows fails learning pipeline checks because they spawn bin.js from a file URL pathname (C:\D:\...), and CodeQL flags incomplete regex escaping in the new version-consistency test. Use fileURLToPath for the CLI path and a string-based heading check; test-only changes.
+criteria:
+- windows-cli-path: tests/learning/pipeline-checks.mjs spawns the compiled CLI with fileURLToPath instead of a file URL pathname, so learning-cli-history-reconciliation and learning-compatibility-delivery no longer fail with MODULE_NOT_FOUND 'C:\D:\...\bin.js' on Windows; node-test passes.
+- codeql-heading-check: tests/release/version-consistency.test.ts checks for a dated `## [<version>] - YYYY-MM-DD` heading below `## [Unreleased]` without building a regular expression from the version string (removing the CodeQL incomplete-escaping alert) while still failing when the heading is missing or above Unreleased; node-test passes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/9ecacaa5f6c05271d9112979120b32285ea34424bbe8cda4d2e0fd3e65174454-89aea65f99aeb493d2978753a656f81cf7a2f0ed.json
+receipt-sha256: 8270449dd496fd3e16d592b583bfa8cf602606f89c8592d4066808a2bee709e3
