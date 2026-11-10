@@ -73,6 +73,21 @@ test("real paired replay shares execution and proves behavioral and invariant cr
   } finally {await rm(f.root, {recursive: true, force: true});}
 });
 
+test("a failing candidate row names the checks that did not pass", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(join(f.root, "product.mjs"), "export const value = 0;\n");
+    execFileSync("git", ["commit", "-qam", "regress"], {cwd: f.root, stdio: "ignore"});
+    const report = await f.verify();
+    assert.equal(report.status, "FAIL");
+    const row = (criterionId: string, phase: string) => report.acceptance?.find(r => r.criterionId === criterionId && r.phase === phase);
+    assert.equal(row("behavior", "candidate")?.status, "FAIL");
+    assert.deepEqual(row("behavior", "candidate")?.failedChecks, ["behavior"]);
+    assert.equal(row("invariant", "candidate")?.status, "PASS");
+    assert.equal(row("invariant", "candidate")?.failedChecks, undefined);
+  } finally {await rm(f.root, {recursive: true, force: true});}
+});
+
 test("setup failure persists UNKNOWN and never becomes red", async () => {
   const f = await fixture();
   try {

@@ -39,8 +39,19 @@ export interface VerifyCommandOptions {
 
 export type PublicVerificationCommandReport = Omit<
   VerificationCommandReport,
-  "diagnostic" | "startedAt" | "finishedAt"
->;
+  "diagnostic" | "startedAt" | "finishedAt" | "output"
+> & {
+  /** Failing command only: the last 2KB of its redacted output. */
+  readonly failureTail?: string;
+};
+
+const FAILURE_TAIL_BYTES = 2048;
+
+/** The last `bytes` of `text`, never starting inside a UTF-8 sequence. */
+function tail(text: string, bytes = FAILURE_TAIL_BYTES): string {
+  const buffer = Buffer.from(text, "utf8");
+  return buffer.length <= bytes ? text : buffer.subarray(buffer.length - bytes).toString("utf8").replace(/^�+/u, "");
+}
 
 export interface PublicVerificationReport extends Omit<
   VerificationReport,
@@ -102,7 +113,9 @@ function publicReport(
       timedOut: result.timedOut,
       testCount: result.testCount,
       evidenceReferences:
-        result.evidenceReferences.map(redactSecrets)
+        result.evidenceReferences.map(redactSecrets),
+      ...(result.output === undefined ? {} : {failureTail: tail(redactSecrets(result.output))}),
+      ...(result.logPath === undefined ? {} : {logPath: redactSecrets(result.logPath)})
     })),
     signal: report.signal,
     reviewScope: report.reviewScope.mode === "base"
@@ -135,7 +148,35 @@ function formatResult(
       )
     );
   }
-  return lines;
+  return [...lines, ...failureLines(result)];
+}
+
+// Read the failure here or in the log; rerunning the suite to see it costs a full verify.
+function failureLines(result: PublicVerificationCommandReport): string[] {
+  return [
+    ...(result.failureTail === undefined || result.failureTail.trim() === "" ? [] : [
+      `  Output (last ${FAILURE_TAIL_BYTES} bytes, redacted):`,
+      ...result.failureTail.replace(/\s+$/u, "").split("\n").map(line => `    ${safe(line.replace(/\t/gu, "  "))}`)
+    ]),
+    ...(result.logPath === undefined ? [] : [`  Log: ${safe(result.logPath)}`])
+  ];
+}
+
+function acceptanceLines(report: PublicVerificationReport): string[] {
+  return (report.acceptance ?? []).filter(row => row.status !== "PASS").map(row =>
+    `- ${row.status} ${safe(row.runnerId)} (${safe(row.criterionId)}, ${row.phase}): ${safe(row.failureClass)}` +
+    (row.failedChecks === undefined || row.failedChecks.length === 0 ? "" : `; checks: ${row.failedChecks.map(safe).join(", ")}`) +
+    // A timed-out runner step says which step and which limit; plain UNKNOWN left people guessing.
+    (row.detail === undefined ? "" : `; ${safe(row.detail)}`));
+}
+
+/** Why verification did not pass, safe to print: failing commands with their output tail and log, then non-PASS acceptance rows. */
+export function failureDetailLines(report: VerificationReport): string[] {
+  const visible = publicReport(report);
+  return [
+    ...visible.results.filter(result => result.status !== "PASS").flatMap(result => [`- ${result.status} ${safe(result.commandId)}`, ...failureLines(result)]),
+    ...acceptanceLines(visible)
+  ];
 }
 
 function formatReport(report: PublicVerificationReport): string {
@@ -145,9 +186,7 @@ function formatReport(report: PublicVerificationReport): string {
       report.selection.fallback ? "fallback" : "bounded"
     })`,
     ...report.results.flatMap(formatResult),
-    // A timed-out runner step says which step and which limit; plain UNKNOWN left people guessing.
-    ...(report.acceptance ?? []).flatMap(row => row.detail === undefined ? [] :
-      [`- ${row.status} ${safe(row.runnerId)} (${row.criterionId}, ${row.phase}): ${safe(row.detail)}`])
+    ...acceptanceLines(report)
   ];
   if (report.signal !== null) {
     lines.push(`Signal: ${report.signal}`);

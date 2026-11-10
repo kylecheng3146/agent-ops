@@ -32,7 +32,7 @@ export class FileLearningStore {
           (h.from === null || (v.versions as unknown[]).includes(h.from)) && (h.to === null || (v.versions as unknown[]).includes(h.to)))) invalid("Invalid learning state; preserved.");
     return v as unknown as LearningState;
   }
-  async archive(kind: "trials" | "versions" | "uses", value: unknown): Promise<string> {
+  async archive(kind: "trials" | "versions" | "uses" | "cases", value: unknown): Promise<string> {
     const safe = redactData(value), id = digest(safe), body = JSON.stringify(safe);
     if (Buffer.byteLength(body) > 4 * 1024 * 1024) invalid("Learning artifact exceeds 4 MiB.");
     const path = join(this.directory, kind, id + ".json");
@@ -41,13 +41,32 @@ export class FileLearningStore {
     if (previous === null) await writePrivateFile(path, body, this.commonDir);
     return id;
   }
-  async artifact(kind: "trials" | "versions", id: string): Promise<unknown> {
+  async artifact(kind: "trials" | "versions" | "cases", id: string): Promise<unknown> {
     if (!hash(id)) invalid("Artifact identity must be a digest.");
     const raw = await readPrivateFile(join(this.directory, kind, id + ".json"), this.commonDir);
     if (raw === null || Buffer.byteLength(raw) > 4 * 1024 * 1024) invalid("Learning artifact missing or oversized.");
     let value: unknown; try {value = JSON.parse(raw);} catch {invalid("Unreadable learning artifact.");}
     if (digest(value) !== id) invalid("Learning artifact digest mismatch.");
     return value;
+  }
+  async caseIds(): Promise<string[]> {
+    const raw = await readPrivateFile(join(this.directory, "cases.json"), this.commonDir);
+    if (raw === null) return [];
+    if (Buffer.byteLength(raw) > 4 * 1024 * 1024) invalid("Completed case index exceeds its bound.");
+    let ids: unknown; try {ids = JSON.parse(raw);} catch {invalid("Unreadable completed case index; preserved.");}
+    if (!Array.isArray(ids) || !ids.every(hash) || new Set(ids).size !== ids.length) invalid("Invalid completed case index; preserved.");
+    return ids;
+  }
+  /** Separate from adopted experience; importing history cannot change the library generation. */
+  async addCase(value: CompletedCase): Promise<boolean> {
+    return await withPrivateFileLock(join(this.directory, "cases.json"), this.commonDir, async () => {
+      const ids = await this.caseIds(), id = await this.archive("cases", value);
+      if (ids.includes(id)) return false;
+      const body = JSON.stringify([...ids, id]);
+      if (Buffer.byteLength(body) > 4 * 1024 * 1024) invalid("Completed case index is full; preserved.");
+      await writePrivateFile(join(this.directory, "cases.json"), body, this.commonDir);
+      return true;
+    });
   }
   async version(id: string): Promise<LearningVersion> {
     const value = await this.artifact("versions", id);
@@ -64,11 +83,12 @@ export class FileLearningStore {
     return {state, version: state.active === null ? null : await this.version(state.active)};
   }
   /** The controller archives complete evidence before attempting this compare-and-swap. */
-  async adopt(expected: LearningState, version: LearningVersion): Promise<string | null> {
+  async adopt(expected: LearningState, version: LearningVersion, isCurrent?: () => Promise<boolean>): Promise<string | null> {
     const id = await this.archive("versions", version);
     return await withPrivateFileLock(this.path, this.commonDir, async () => {
       const state = await this.read();
       if (state.generation !== expected.generation || state.active !== expected.active) return null;
+      if (isCurrent !== undefined && !await isCurrent()) return null;
       await this.save(state, "adopt", id, "Repeated paired evaluation improved held-out omission detection without additional false positives.");
       return id;
     });
@@ -92,6 +112,16 @@ export class FileLearningStore {
     await writePrivateFile(this.path, body, this.commonDir);
     return next;
   }
+}
+
+export interface CompletedCase {
+  schemaVersion: 1;
+  provenance: {receiptPath: string; receiptDigest: string; candidateHead: string; targetCommit: string; sourceFingerprint: string};
+  tasks: {id: string; parentTaskId: string | null; goal: string | null; criteria: {id: string; description: string}[];
+    verification: {criterionId: string; reference: string; digest: string; status: string}[]; review: string}[];
+  /** Shared reports remain in the sealed receipt; never copy unadopted recommendations into guidance. */
+  reviews: {taskId: string; digest: string; primary: string; adversarial: string; status: "PASS"}[];
+  paths: string[];
 }
 
 export interface ExperienceContext {id: string; revision: string; source: LearningVersion["source"]; cue: string; check: string; paths: string[]}

@@ -7,6 +7,7 @@ import { readActivities } from "../../runtime/src/office/activity.js";
 
 import { parseArgs } from "../../packages/cli/src/args.js";
 import {
+  failureDetailLines,
   runVerifyCommand,
   type VerificationExecutor,
   type VerifyTaskResolver
@@ -119,6 +120,44 @@ test("verify command resolves an attached session and preserves failure status",
   assert.match(result.data?.text ?? "", /CHANGE_APPROACH_REQUIRED/);
   assert.deepEqual(service.taskIds, ["task-one"]);
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET));
+});
+
+test("a failing verify shows the redacted output tail, the log and every non-PASS acceptance row", async () => {
+  const output = `EARLY-MARKER\n${"x".repeat(3000)}\ntoken=${SECRET}\nnot ok 7 - startup checks (tests/run/startup.test.ts:12:1)\n`;
+  const failing: VerificationReport = {
+    ...report("FAIL"),
+    results: [{...report("FAIL").results[0]!, output, logPath: ".agent-ops/tasks/verify-logs/unit.log"}],
+    acceptance: [
+      {criterionId: "behavior", runnerId: "acceptance", phase: "candidate", status: "FAIL", failureClass: "assertion",
+        reference: "e1.json", failedChecks: ["behavior", "edge"]},
+      {criterionId: "behavior", runnerId: "acceptance", phase: "baseline", status: "PASS", failureClass: "none", reference: "e2.json"}
+    ]
+  };
+  const result = await runVerifyCommand({
+    args: parseArgs(["verify", "--task", "task-one"]),
+    service: {verify: async () => failing},
+    taskService: resolver
+  });
+  const text = result.data?.text ?? "";
+  assert.equal(result.code, "VERIFICATION_FAILED");
+  assert.match(text, /Output \(last 2048 bytes, redacted\):/u);
+  assert.match(text, /startup checks \(tests\/run\/startup\.test\.ts:12:1\)/u);
+  assert.doesNotMatch(text, /EARLY-MARKER/u);
+  assert.match(text, /Log: \.agent-ops\/tasks\/verify-logs\/unit\.log/u);
+  assert.match(text, /- FAIL acceptance \(behavior, candidate\): assertion; checks: behavior, edge/u);
+  assert.doesNotMatch(text, /\(behavior, baseline\)/u);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET));
+  const visible = result.data?.report.results[0];
+  assert.ok(Buffer.byteLength(visible?.failureTail ?? "") <= 2048);
+  assert.equal(visible?.logPath, ".agent-ops/tasks/verify-logs/unit.log");
+  assert.equal("output" in (visible ?? {}), false);
+  assert.equal("diagnostic" in (visible ?? {}), false);
+  // batch prints the same failure detail on stderr.
+  const detail = failureDetailLines(failing).join("\n");
+  assert.match(detail, /^- FAIL unit\n {2}Output/u);
+  assert.match(detail, /checks: behavior, edge/u);
+  assert.doesNotMatch(detail, new RegExp(SECRET));
+  assert.deepEqual(failureDetailLines(report("PASS")), []);
 });
 
 test("verify command fails closed when no task target is available", async () => {

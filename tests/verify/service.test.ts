@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -559,4 +559,33 @@ test("empty required coverage is UNKNOWN while pure exit-code verification remai
       taskService: task.service, evidenceStore: new FileEvidenceStore(root, root), trusted: true });
     assert.equal((await passing.verify(task.taskId)).status, "PASS");
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a failing command keeps its redacted output and a private log so the failure is read, not rerun", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-verify-"));
+  try {
+    const task = await taskService(root);
+    const failingTest = "startup checks (tests/run/startup.test.ts:12:1) timed out";
+    const report = await new VerificationService({
+      root, scope: "project", config: config(), gitRunner: new SurfaceRunner("README.md"),
+      processRunner: new FixtureProcessRunner({
+        "unit-tool": { completion: { exitCode: 0, signal: null }, stdout: "# tests 1\n# pass 1\n" },
+        "lint-tool": { completion: { exitCode: 1, signal: null }, stderr: `token=${SECRET}\n${failingTest}\n` }
+      }),
+      taskService: task.service, evidenceStore: new FileEvidenceStore(root, root), trusted: true, now: clock()
+    }).verify(task.taskId);
+    assert.equal(report.status, "FAIL");
+    const lint = report.results.find(result => result.commandId === "lint")!;
+    assert.match(lint.output ?? "", /timed out/u);
+    assert.doesNotMatch(lint.output ?? "", new RegExp(SECRET));
+    assert.equal(lint.logPath, ".agent-ops/tasks/verify-logs/lint.log");
+    const log = join(root, ".agent-ops", "tasks", "verify-logs", "lint.log");
+    assert.equal(await readFile(log, "utf8"), lint.output);
+    if (process.platform !== "win32") assert.equal((await stat(log)).mode & 0o777, 0o600);
+    const unit = report.results.find(result => result.commandId === "unit")!;
+    assert.equal(unit.output, undefined);
+    assert.equal(unit.logPath, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

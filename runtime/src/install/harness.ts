@@ -591,6 +591,18 @@ function subagentInstruction(descriptor: HarnessDescriptor): string {
   }
 }
 
+/** How this harness waits for one long command without polling; AGENTS.md is shared by Codex and opencode. */
+function waitInstruction(descriptor: HarnessDescriptor): string {
+  switch (descriptor.control.instructionFile) {
+    case "CLAUDE.md":
+      return "start it with `run_in_background` and wait for the completion notification; never sleep-poll it.";
+    case "GEMINI.md":
+      return "run it as one blocking call.";
+    default:
+      return "sleep once for about the printed duration, then check the process; never poll it at short intervals.";
+  }
+}
+
 /**
  * The `run` profile's hand-off of feature-sized work to `agent-ops run`.
  * agy keeps the subtask flow: `run` launches only Claude Code or Codex.
@@ -726,6 +738,17 @@ export function managedRules(
       "   targets both run in configured order; with one target it runs twice.",
       "   The first session is necessary; a PASS then requires an adversarial",
       "   re-check carrying the first report. A first FAIL or NOT_RUN stops.",
+      "",
+      "`agent-ops verify`, `review` and `batch` run for many minutes and print",
+      "on stderr how long the last run took before they start. Wait for each in",
+      "one blocking step and send no status-only messages while it runs:",
+      waitInstruction(descriptor),
+      "Only when no duration is printed or this host cannot block, hand the wait",
+      "to a small-context subagent that runs the command and returns one line.",
+      "For a single task, `agent-ops batch --parent <task-id> --yes` verifies",
+      "only when evidence is stale and then reviews, in one call. A failing",
+      "verify prints the output tail and a log path: read them instead of",
+      "rerunning the suite.",
       "",
       "Treat `.agent-ops/config.json` as verifier authority. Discovery output is",
       "only a proposal until a user confirms it. Repository commands require an",

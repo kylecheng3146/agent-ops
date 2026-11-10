@@ -43,10 +43,11 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
       requiredVerifierIds: config.config.verification.commands.filter(command => command.required).map(command => command.id),
       runners: (config.config.verification.acceptanceRunners ?? []).map(({id, adapter, args}) => ({id, adapter, args}))};
     // Outside a supported Git layout the attempt archive stays in the worktree.
-    const commonDir = await resolveCheckouts(worktreeDependencies(), root).then(checkouts => checkouts.commonDir, () => undefined);
+    const checkouts = await resolveCheckouts(worktreeDependencies(), root).catch(() => undefined);
+    const commonDir = checkouts?.commonDir;
     process.stderr.write(`Criteria advisory for ${task.id}: waiting for one independent reviewer (no time budget; Ctrl-C cancels).\n`);
     let result = await runCriteriaReview({root, task, parent, target, model: role?.model, effort: role?.effort, verification,
-      ...(commonDir === undefined ? {} : {commonDir}),
+      ...(commonDir === undefined || checkouts === undefined ? {} : {commonDir, learningSource: {commonDir, mainRoot: checkouts.mainRoot, git: worktreeDependencies().git}}),
       rerun, ...(trigger === undefined ? {} : {trigger}), signal: controller.signal, runner: registeredRunProofRunner(),
       unavailableCode: config === undefined ? "CRITERIA_REVIEW_CONFIG_UNAVAILABLE" : target === undefined && role !== undefined ? "CRITERIA_REVIEW_NO_INDEPENDENT_TARGET" : "CRITERIA_REVIEW_UNCONFIGURED",
       log: async (report, path) => {

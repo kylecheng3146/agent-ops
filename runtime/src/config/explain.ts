@@ -1,4 +1,4 @@
-import type { EvidenceKind } from "../contracts.js";
+import type { EvidenceKind, LearningConfig } from "../contracts.js";
 import type {
   ConfigSource,
   MergedConfig
@@ -35,6 +35,7 @@ export interface SecurityExceptionExplanation extends SourceExplanation {
 }
 
 export interface ConfigExplanation {
+  learning?: LearningConfig & SourceExplanation;
   schemaVersion: number;
   features: {
     office: { enabled: boolean; source: ConfigSource; sourcePath: string };
@@ -58,6 +59,7 @@ export interface ConfigExplanation {
 
 export function explainConfig(merged: MergedConfig): ConfigExplanation {
   return {
+    ...(merged.provenance.learning === undefined ? {} : {learning: {...merged.provenance.learning.value, source: merged.provenance.learning.source, sourcePath: merged.provenance.learning.sourcePath}}),
     schemaVersion: merged.config.schemaVersion,
     features: {
       office: {

@@ -61,7 +61,7 @@ export type EscapesAction = "reflect";
 export type CliAction = EscapesAction | FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
-  learningAction?: "list" | "run" | "show" | "replay" | "rollback" | "retire";
+  learningAction?: "list" | "run" | "show" | "replay" | "rollback" | "retire" | "retry";
   learningId?: string;
   learningReceipt?: string;
   learningSuite?: string;
@@ -1344,7 +1344,7 @@ function parseLearningArgs(argv: readonly string[]): ParsedArgs {
   const args: ParsedArgs = {command: "learn", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
   if (argv.includes("--help") || argv.includes("-h")) return {...args, command: "help", helpTopic: "learn", json: argv.includes("--json")};
   const action = argv[0] === undefined || argv[0].startsWith("-") ? "list" : argv[0];
-  if (!["list", "run", "show", "replay", "rollback", "retire"].includes(action)) invalidValue("learn action", action);
+  if (!["list", "run", "show", "replay", "rollback", "retire", "retry"].includes(action)) invalidValue("learn action", action);
   args.learningAction = action as ParsedArgs["learningAction"];
   const seen = new Set<string>();
   for (let i = argv[0] === action ? 1 : 0; i < argv.length; i++) {
@@ -1372,8 +1372,8 @@ function parseLearningArgs(argv: readonly string[]): ParsedArgs {
       args.learningTarget = value as ReviewTargetId;
     }
   }
-  if (["show", "replay", "rollback"].includes(action) !== (args.learningId !== undefined))
-    throw new CliArgumentError("CLI_MISSING_VALUE", "show/replay/rollback need exactly one artifact or adopted version digest.");
+  if (["show", "replay", "rollback", "retry"].includes(action) !== (args.learningId !== undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "show/replay/rollback/retry need exactly one artifact or adopted version digest.");
   if (action === "run" && (!args.learningReceipt || !args.learningSuite || !args.learningModel))
     throw new CliArgumentError("CLI_MISSING_VALUE", "learn run needs --receipt, --suite and --model.");
   if ((action === "rollback" || action === "retire") && args.reason === undefined)

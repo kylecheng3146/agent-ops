@@ -443,3 +443,31 @@ Manifest 維持 schema v2。
 
 新增驗證命令時使用[驗收與證據規則](../../en/spec/acceptance-and-evidence.md)，
 設定 Codex、Claude Code 或 opencode 行為時使用[adapter 規則](../../en/spec/harness-adapters.md)。
+
+## 自動學習註冊
+
+自動實驗為可選的 repository 本機功能。人員確認已獨立標註、已提交的 suite 與
+明確固定版本模型後，才在 project 設定加入 `learning`。預設不安裝 live suite／
+model；沒有此欄位的既有設定仍合法。
+
+物件僅包含 `suitePath`（repository 相對路徑的 regular JSON）、`suiteDigest`
+（parsed JSON 正規化後的 SHA-256）、`humanConfirmed`、`independentlyLabelled`
+（兩者必須 true），以及含 `target`、`model`、`effort` 的 `settings`。
+target 必須已列為 `independent-review`。正規化 JSON 遞迴排序物件 key，保留
+array 順序；雜湊 UTF-8 JSON 編碼而非檔案空白。先提交 suite，才註冊；不使用
+浮動 latest／auto 模型。註冊不授予 trust，也不修改 verifier authority；設定
+變更仍須依原有授權程序。
+
+suite 至少需兩個不同 probe 與兩個獨立 holdout、受限且適用的路徑及既有固定
+標籤／evaluator。候選來源與 snapshot 不得包含 holdout 答案／結果。
+`tests/learning/scenarios.json` 是合成範例，自動註冊拒絕使用，不能證明生產品質
+改善。設定遺失、未確認、無效、洩漏、dirty 或不適用時，顯示 waiting 原因且
+不呼叫實驗模型。
+
+一般 CLI 檢查持久待辦，同 repository 同時最多一個背景實驗。日界為
+00:00 UTC，每日兩次自動嘗試、每輪十二次額外 CLI 呼叫，失敗也計入。
+provider request 數、token、金額是不同量測；跨日不重跑相同條件，基礎設施
+失敗不自動 retry。`agent-ops learn list --json` 顯示原因／quota，
+`agent-ops learn retry <job-id>` 明確重試終止工作，仍受授權與額度限制。
+固定輸入隔離、去重與保守採用詳見[學習指南](learning.md)。task → commit →
+verify → 兩輪獨立 review → finish 仍須完成；付費生產品質改善尚未測量。

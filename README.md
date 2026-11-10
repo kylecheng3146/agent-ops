@@ -544,7 +544,7 @@ codex` for current-source revalidation and bounded repair. Observations need
 
 ## Project status
 
-This source release is version 1.2.1. Use `@latest` for the current release, or
+This source release is version 1.3.0. Use `@latest` for the current release, or
 pin a specific version in automation when reproducibility matters; review
 release notes before upgrading. Release candidates (such as `1.0.0-rc.1`) are
 published under the `next` dist-tag (`@next`); `@latest` stays on the newest

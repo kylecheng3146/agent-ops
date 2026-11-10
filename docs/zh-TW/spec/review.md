@@ -254,6 +254,26 @@ permission bypass。外部 host runner 不可用時，結果 MUST 保持 NOT_RUN
 - Positive: `一個 FAIL 與一個 NOT_RUN 以 1 結束，先處理缺陷。`
 - Negative: `仍有 task 是 NOT_RUN 卻以 0 結束。`
 
+## REVIEW-WAIT-001
+
+`verify`、`review` 與 `batch` MUST 在開始前告訴代理如何等待，代理 MUST 以一次阻塞步驟等待每個指令。
+
+- Trigger: `verify`、`review`（不含 `show` 或 `--criteria`）或 `batch` 開始。
+- Action: 在任何工作前於 stderr 印一行：若 `<git-common-dir>/agent-ops/durations.json` 記有該指令的耗時，寫出上次的分鐘數；否則只印等待指引。使用 `--json` 時不印，讓合併 stdout 與 stderr 的呼叫端仍能從最後一行讀到 envelope。指令返回時以暫存檔改名寫入耗時毫秒。此檔僅供顯示、所有 worktree 共用、絕不作為證據，任何讀寫失敗都被忽略。受管理規則寫明各 harness 的等待方式：Claude Code 以 `run_in_background` 執行並等待完成通知，AGENTS.md 主機睡眠一次約等於印出的時間，agy 執行一次阻塞呼叫；等待期間不發只有狀態的訊息。只有沒有印出時間或主機無法阻塞時，才交給小 context 的子代理等待。單一 task 也可用 `agent-ops batch --parent <task-id> --yes`，證據過期才驗證，接著審查，一次完成。
+- Evidence: stderr 有等待行；有無 `durations.json` 時 stdout、envelope 與 exit code 都相同。
+- Positive: `代理依印出的 22 分鐘睡眠一次，再讀結果。`
+- Negative: `每 45 秒輪詢一次執行中的 verify，每次都發狀態訊息。`
+
+## REVIEW-WAIT-002
+
+失敗的 verify MUST 不需重跑就能看出失敗原因。
+
+- Trigger: 驗證指令或驗收列不是 PASS。
+- Action: 文字輸出對每個失敗指令顯示其遮罩後輸出（stderr，否則 stdout）的最後 2048 位元組，以及存放擷取輸出（受 runner 上限約束）的私有遮罩 log 路徑 `.agent-ops/tasks/verify-logs/<command-id>.log`；並列出每個非 PASS 驗收列的標準、階段、失敗類別、失敗的 check id 與逾時細節。`batch` 在驗證失敗時於 stderr 印出相同內容。JSON 報告只新增選用欄位 `failureTail`、`logPath` 與 `failedChecks`；證據與失敗指紋不變。
+- Evidence: 失敗測試的名稱出現在尾段或 log 中。
+- Positive: `FAIL node-test 顯示 "startup.test.ts ... timed out" 與 log 路徑。`
+- Negative: `只印 "FAIL node-test (passed tests: 1431)"，讓代理重跑整套測試。`
+
 ## REVIEW-RESUME-001
 
 native run 的 coordinator 最終驗收 MUST NOT 為同一份審查中已經回答過的輪次再付一次費用，且每個不可變的最終驗收 attempt MUST 至多自動重試一次。
@@ -264,3 +284,20 @@ native run 的 coordinator 最終驗收 MUST NOT 為同一份審查中已經回�
 - Positive: `第二輪連線中斷；supervisor 重放一次，必要 reviewer 沒有再被呼叫，run 以 receipt 完成。`
 - Negative: `一直重試直到 adversarial reviewer 通過，或在 stop、timeout、實質 FAIL 之後重放。`
 - Note: standalone `review`、`batch` 與 child handoff 保留程序內 retry，永不讀寫 checkpoint。有未提交修改的 coordinator checkout 永不重放，原樣保留給既有 repair 處理。
+
+新的一般 criteria advice 可額外載入最多三筆路徑相關的完成歷史案例，總量限制
+12,000 bytes。這是歷史參考，轉用尚未驗證，不是 verify 證據或已採用經驗。
+僅提供去秘密後的最終事實及確切來源，不加入未採用的原始建議；無符合就不加入。
+私存確切載入引用及模型自報用途；history／library 更新不重跑舊快照。
+既有 data-only 呼叫可選擇回傳來源連結候選（含空清單），增加受限輸入／輸出
+token，但不增加提案 CLI 次數；不讀 evaluation suite 或 holdout 答案／結果。
+讀取來源的正式 reviewer 不產生候選。
+
+僅明確提交、獨立標註且 human-confirmed 的評估設定及固定模型才允許條件式背景
+實驗；設定缺漏或無效就 waiting，不花模型額度。實驗固定隔離輸入，採用前重驗
+授權與 library；保留 baseline、重複配對、獨立 holdout、逐案例、組合及過時
+狀態保守閘門。每 UTC 日最多兩次自動嘗試，每輪十二次額外 CLI 呼叫，失敗也
+計入；不是 provider request 或固定費用。跨日不重跑相同條件，失敗持久保存且
+不自動重試基礎設施。`learn list --json` 顯示原因／quota；`learn retry <job-id>`
+明確要求重試，仍受相同閘門限制。這不替代 task verify、兩輪獨立 review 或
+finish；合成測試不能證明付費生產品質改善。
