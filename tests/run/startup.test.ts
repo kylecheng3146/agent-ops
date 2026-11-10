@@ -9,7 +9,8 @@ test("run startup ignores live runtime artifacts and preserves source and runtim
   const result = await promisify(execFile)(process.execPath, ["tests/run/startup.acceptance.mjs"], {
     cwd: process.cwd(), env: {...process.env, AGENT_OPS_DEBUG_TEST_BUILD: resolve(".tmp/test-dist")},
     // The real Git/process suite needs headroom while the other repository tests run.
-    timeout: process.platform === "win32" ? 1_200_000 : 900_000, maxBuffer: 4 * 1024 * 1024
+    // Windows CI ran past 20 minutes on Node 22 once the learning checks were added.
+    timeout: process.platform === "win32" ? 2_400_000 : 900_000, maxBuffer: 4 * 1024 * 1024
   }).catch((e: {stdout?: string}) => {if (!e.stdout?.trim()) throw e; return {stdout: e.stdout};});
   const report = JSON.parse(result.stdout.trim());
   assert.equal(report.completed, true);
