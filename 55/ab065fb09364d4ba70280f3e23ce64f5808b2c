@@ -21,3 +21,14 @@ criteria:
 - managed-wait-guidance: Generated managed rules for every harness tell agents to wait for verify/review/batch in one blocking step without status-only messages (CLAUDE.md: run_in_background and wait for the completion notification; AGENTS.md: one sleep of about the printed duration, then check; GEMINI.md: one blocking call), recommend agent-ops batch --parent <task-id> --yes for a single task too, and use a small-context subagent wait only when no duration is printed or the host cannot block; codex and opencode output stay identical; docs/en and docs/zh-TW review spec describe the same. Proven by node tests.
 receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/9ecacaa5f6c05271d9112979120b32285ea34424bbe8cda4d2e0fd3e65174454-ad678172387a6ab186c41e472efa46013363c068.json
 receipt-sha256: 3522b6fc13bddbcf4b933c7a7a2d75960640a60cd68f4d96bcccbd570a230a97
+
+worktree: session-d5aaaa73 (agent-ops/session-d5aaaa73)
+session: d5aaaa73-972b-4e35-9d2a-9db0ad5eb389
+agent-ops task task-8212e04c-81d5-496e-8253-7ffe55a30e1f: Prepare 1.3.0 release and keep JSON output clean
+intent: Bump the package to 1.3.0 (package.json, package-lock.json root entries, README project status) with a dated 1.3.0 CHANGELOG section describing automatic learning and the verify/review token-burn changes already on main, plus a version-consistency test. Fix the release blocker package:check found: under --json, verify/review/batch must print no stderr wait line so callers joining stdout and stderr still parse the JSON envelope from the last line; durations are still recorded.
+criteria:
+- version-bump: package.json version, the package-lock.json root version entries and the README project status all name 1.3.0, and CHANGELOG.md has a `## [1.3.0] - 2026-11-10` section directly below an empty `## [Unreleased]` heading; the package metadata and documentation tests pass.
+- release-notes: The 1.3.0 CHANGELOG section accurately describes the automatic learning intake, advisory history, evaluation and background automation delivered by task-671331c8 and the verify/review wait hint, failure output tail and log, and managed wait guidance delivered by task-3ca5240c, without claiming unmeasured model or token improvements.
+- json-quiet-hint: With --json, verify, review and batch print no wait line, so a caller that joins stdout and stderr still finds the JSON envelope on the last line (npm run package:check passes for verify/review TASK_NOT_FOUND); elapsed durations are still recorded and non-JSON runs still print the hint. Proven by node tests.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/9ecacaa5f6c05271d9112979120b32285ea34424bbe8cda4d2e0fd3e65174454-e2a7796478c36e205a127aedf6a845251de4651c.json
+receipt-sha256: f517a97d65b9757af8d2215107eb184a644f6dbb352173d72e51d2b81f92fc61
