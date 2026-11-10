@@ -7,12 +7,21 @@
   },
   "agentLabel": "scenario",
   "label": "scenario",
-  "missedPaths": [],
+  "missedPaths": [
+    "docs/en/guides/learning.md",
+    "docs/zh-TW/guides/learning.md",
+    "packages/cli/src/bin.ts",
+    "packages/cli/src/learning-deps.ts",
+    "runtime/src/learning/automation.ts",
+    "runtime/src/learning/history.ts",
+    "runtime/src/learning/intake.ts",
+    "runtime/src/learning/setup.ts"
+  ],
   "facts": [],
   "residualRisks": 0,
   "proof": {
     "status": "lesson",
     "reason": "scenario: no mechanical replay exists for this gate; recorded as an unproven lesson."
   },
-  "declaredAt": "2026-11-10T00:36:57.942Z"
+  "declaredAt": "2026-11-10T03:47:38.867Z"
 }
