@@ -24,6 +24,14 @@ async function readDurations(commonDir: string): Promise<Record<string, unknown>
 }
 
 /**
+ * JSON mode prints no hint: callers that join stdout and stderr read the envelope from the last line.
+ * Anything else gets the default stderr writer.
+ */
+export function hintWriter(json: boolean | undefined): ((line: string) => void) | undefined {
+  return json === true ? () => undefined : undefined;
+}
+
+/**
  * Prints the wait line on stderr before `work`, then records how long `work` took.
  * Every hint failure is swallowed: the command's result, exit code and stdout never depend on it.
  */

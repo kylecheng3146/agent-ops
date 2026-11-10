@@ -4,6 +4,37 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-10
+
+- Learning collects every eligible sealed, contract-bound delivery once as a
+  whole task tree with redacted, bounded case facts and exact provenance. Finish,
+  recovery and ordinary CLI reconciliation stay model-free and recover a failed
+  intake exactly once; invalid receipts stay ineligible and source proof is never
+  changed.
+- Criteria advisory loads bounded, path-relevant historical cases labelled
+  unvalidated, records which ones the model reports using, and may propose
+  source-linked candidates in the same call. Holdout exposure is checked against
+  the complete hash-bound author snapshot before any model call.
+- With an explicitly committed, human-confirmed evaluation suite and fixed models,
+  normal CLI use starts at most one isolated background trial at a time:
+  deduplicated by candidate and conditions, at most two attempts per UTC day and
+  twelve extra CLI invocations per trial, no automatic retry of an unchanged
+  trial, and the baseline is kept on every uncertain or failed outcome. Scoped
+  additions accumulate prior strategies and reject conflicts before model calls.
+  Explicit `learn` queries, replay and control commands stay passive.
+- `verify`, `review` and `batch` print on stderr how long the last run took
+  (kept display-only in `<git-common-dir>/agent-ops/durations.json`) and ask the
+  agent to wait in one step instead of polling; `--json` output stays unchanged.
+- A failing `verify` prints the redacted last 2KB of the failing command's
+  output, a private log path under `.agent-ops/tasks/verify-logs/`, and every
+  non-PASS acceptance row with its failing checks; `batch` prints the same on
+  stderr. The JSON report only gains optional fields.
+- Managed rules tell each harness how to wait for these commands (Claude Code:
+  `run_in_background`; AGENTS.md hosts: one sleep of about the printed duration;
+  agy: one blocking call), recommend `agent-ops batch --parent <task-id> --yes`
+  for a single task too, and keep a small-context subagent wait as a fallback.
+  Run `agent-ops update` to refresh installed rules.
+
 ## [1.2.1] - 2026-11-09
 
 - Add opt-in, repository-local advisory learning from sealed task, diff, verify and review evidence; pair repeated baseline/candidate evaluations with independent holdouts and revalidate composed guidance before adoption.

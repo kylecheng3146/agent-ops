@@ -100,7 +100,7 @@ import { runSurfaceGate, surfaceAdvisory } from "../../../runtime/src/surface/di
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
 import { failureDetailLines, runVerifyCommand } from "./commands/verify.js";
-import { withWaitHint } from "./wait-hint.js";
+import { hintWriter, withWaitHint } from "./wait-hint.js";
 import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
@@ -862,7 +862,7 @@ process.exitCode = await runCli(
             try {
               return await withWaitHint(await officeCommonDir(root), "review", async () => await runReviewCommand(
                 await buildReviewOptions(args, controller.signal)
-              ));
+              ), hintWriter(args.json));
             } catch (error) {
               if (
                 error instanceof ReviewInterruptedError &&
@@ -948,7 +948,7 @@ process.exitCode = await runCli(
                 phaseReporter: async (taskIds) => await officePhaseReporter(root,
                   (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read()).sessions
                     .filter(({taskId}) => taskIds.includes(taskId)).map(({sessionId}) => sessionId))
-              }));
+              }), hintWriter(args.json));
               if (interruptedBy !== undefined) {
                 process.exit(interruptedBy === "SIGINT" ? 130 : 143);
               }
@@ -1007,7 +1007,7 @@ process.exitCode = await runCli(
                   await taskService.status({taskId}), report);
                 return report;
               }}
-            }));
+            }), hintWriter(args.json));
           }
           if (args.command === "trust") {
             const config = (await loadEffectiveConfig(

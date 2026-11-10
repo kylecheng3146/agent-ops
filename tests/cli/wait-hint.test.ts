@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { durationsPath, withWaitHint } from "../../packages/cli/src/wait-hint.js";
+import { durationsPath, hintWriter, withWaitHint } from "../../packages/cli/src/wait-hint.js";
 
 test("the wait hint has no number until a run is recorded, then names the last minutes", async () => {
   const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-wait-"));
@@ -25,6 +25,26 @@ test("the wait hint has no number until a run is recorded, then names the last m
     // Each command keeps its own entry.
     assert.deepEqual(Object.keys(JSON.parse(await readFile(durationsPath(commonDir), "utf8"))).sort(), ["review", "verify"]);
   } finally {
+    await rm(commonDir, { recursive: true, force: true });
+  }
+});
+
+test("JSON mode prints no hint but still records the duration", async () => {
+  const commonDir = await mkdtemp(join(tmpdir(), "agent-ops-wait-"));
+  const original = process.stderr.write.bind(process.stderr);
+  const written: string[] = [];
+  try {
+    assert.equal(hintWriter(false), undefined);
+    assert.equal(hintWriter(undefined), undefined);
+    let clock = 0;
+    process.stderr.write = ((chunk: string | Uint8Array) => { written.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    const result = await withWaitHint(commonDir, "verify", async () => { clock += 60_000; return "json"; }, hintWriter(true), () => clock);
+    process.stderr.write = original;
+    assert.equal(result, "json");
+    assert.deepEqual(written, []);
+    assert.deepEqual(JSON.parse(await readFile(durationsPath(commonDir), "utf8")), {verify: 60_000});
+  } finally {
+    process.stderr.write = original;
     await rm(commonDir, { recursive: true, force: true });
   }
 });

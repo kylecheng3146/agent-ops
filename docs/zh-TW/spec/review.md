@@ -259,7 +259,7 @@ permission bypass。外部 host runner 不可用時，結果 MUST 保持 NOT_RUN
 `verify`、`review` 與 `batch` MUST 在開始前告訴代理如何等待，代理 MUST 以一次阻塞步驟等待每個指令。
 
 - Trigger: `verify`、`review`（不含 `show` 或 `--criteria`）或 `batch` 開始。
-- Action: 在任何工作前於 stderr 印一行：若 `<git-common-dir>/agent-ops/durations.json` 記有該指令的耗時，寫出上次的分鐘數；否則只印等待指引。指令返回時以暫存檔改名寫入耗時毫秒。此檔僅供顯示、所有 worktree 共用、絕不作為證據，任何讀寫失敗都被忽略。受管理規則寫明各 harness 的等待方式：Claude Code 以 `run_in_background` 執行並等待完成通知，AGENTS.md 主機睡眠一次約等於印出的時間，agy 執行一次阻塞呼叫；等待期間不發只有狀態的訊息。只有沒有印出時間或主機無法阻塞時，才交給小 context 的子代理等待。單一 task 也可用 `agent-ops batch --parent <task-id> --yes`，證據過期才驗證，接著審查，一次完成。
+- Action: 在任何工作前於 stderr 印一行：若 `<git-common-dir>/agent-ops/durations.json` 記有該指令的耗時，寫出上次的分鐘數；否則只印等待指引。使用 `--json` 時不印，讓合併 stdout 與 stderr 的呼叫端仍能從最後一行讀到 envelope。指令返回時以暫存檔改名寫入耗時毫秒。此檔僅供顯示、所有 worktree 共用、絕不作為證據，任何讀寫失敗都被忽略。受管理規則寫明各 harness 的等待方式：Claude Code 以 `run_in_background` 執行並等待完成通知，AGENTS.md 主機睡眠一次約等於印出的時間，agy 執行一次阻塞呼叫；等待期間不發只有狀態的訊息。只有沒有印出時間或主機無法阻塞時，才交給小 context 的子代理等待。單一 task 也可用 `agent-ops batch --parent <task-id> --yes`，證據過期才驗證，接著審查，一次完成。
 - Evidence: stderr 有等待行；有無 `durations.json` 時 stdout、envelope 與 exit code 都相同。
 - Positive: `代理依印出的 22 分鐘睡眠一次，再讀結果。`
 - Negative: `每 45 秒輪詢一次執行中的 verify，每次都發狀態訊息。`
