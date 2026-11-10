@@ -5,7 +5,7 @@ import type {FollowupSource} from "../followup/intake.js";
 import {globsOverlap} from "../escape/lessons.js";
 import {AgentOpsError} from "../fs/paths.js";
 import {validateEvidence} from "../schema/validate.js";
-import {taskContractHash} from "../task/contract.js";
+import {evidenceMatchesContract} from "../task/contract.js";
 import {digest, invalid, redactData} from "./data.js";
 import {FileLearningStore, type CompletedCase} from "./store.js";
 
@@ -45,7 +45,7 @@ export async function completedCaseFromReceipt(options: LearningSource & {path: 
       if (!checked.ok) invalid("Invalid sealed verification.");
       const v = checked.value;
       if (v.status === "PASS" && v.sourceFingerprint === receipt.sourceFingerprint &&
-          v.taskContractHash !== taskContractHash(task)) throw new AgentOpsError("LEARNING_SOURCE_INELIGIBLE", "Verification is not bound to the final task contract.");
+          !evidenceMatchesContract(v.taskContractHash, task)) throw new AgentOpsError("LEARNING_SOURCE_INELIGIBLE", "Verification is not bound to the final task criteria.");
       return {criterionId: c.id, reference, digest: sealed.digest, status: v.status};
     }));
     return {id: task.id, parentTaskId: task.parentTaskId ?? null, goal: task.goal ?? null,

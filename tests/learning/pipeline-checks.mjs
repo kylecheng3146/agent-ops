@@ -346,7 +346,20 @@ export const automationChecks = {
     await withRepository(async f => {
       const store = new m.FileLearningStore(f.commonDir), index = join(store.directory, 'cases.json');
       await mkdir(store.directory, {recursive: true}); await writeFile(index, 'broken index');
-      const c = await delivered(m, f, 'missed-intake');
+      const c = await reviewedCandidate(f, {name: 'missed-intake', modern: true, goal: 'Collect actual execution-bound delivery evidence'});
+      const {executionContractHash, taskContractHash} = await load('runtime/src/task/contract.js');
+      const {FileEvidenceStore} = await load('runtime/src/verify/evidence.js');
+      const tasks = f.deps.tasks(c.record.path), evidence = new FileEvidenceStore(c.record.path, c.record.path);
+      for (const record of await tasks.list()) {
+        assert.notEqual(executionContractHash(record.task), taskContractHash(record.task));
+        const references = {};
+        for (const [id, refs] of Object.entries(record.evidence)) references[id] = await Promise.all(refs.map(async ref => {
+          const value = JSON.parse(await readFile(join(c.record.path, ref), 'utf8'));
+          return evidence.save({...value, taskContractHash: executionContractHash(record.task)});
+        }));
+        await tasks.recordEvidence(record.task.id, references, c.record.base);
+      }
+      await finish(m, f, c);
       await writeFile(index, '[]');
       assert.deepEqual(await store.caseIds(), []);
       const {readdir} = await import('node:fs/promises');
