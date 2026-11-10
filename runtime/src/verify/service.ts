@@ -5,7 +5,10 @@ import type {
   VerificationCommand,
   VerificationEvidence
 } from "../contracts.js";
+import { join } from "node:path";
 import {executionContractHash, taskContractHash} from "../task/contract.js";
+import { writePrivateFile } from "../security/permissions.js";
+import { redactSecrets } from "../security/redact.js";
 import {replayAcceptance, type AcceptanceReplayResult} from "./acceptance-replay.js";
 import { AgentOpsError, resolveContainedPath } from "../fs/paths.js";
 import { validateTaskAgainstConfig } from "../schema/validate.js";
@@ -70,6 +73,10 @@ export interface VerificationCommandReport {
   readonly timedOut: boolean;
   readonly testCount: number | null;
   readonly diagnostic: string;
+  /** Failing command only: its captured output (bounded by the runner), redacted. */
+  readonly output?: string;
+  /** Failing command only: root-relative private log holding `output`, when it could be written. */
+  readonly logPath?: string;
   readonly evidenceReferences: readonly string[];
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -282,6 +289,18 @@ export class VerificationService {
         });
     const finishedAt = (this.#options.now ?? (() =>
       new Date().toISOString()))();
+    // The failing output is kept so a failure is read, not rerun; the log is a convenience and never evidence.
+    let failure: {output: string; logPath?: string} | undefined;
+    if (result.status !== "PASS") {
+      const output = redactSecrets(result.diagnostic);
+      const logPath = `.agent-ops/tasks/verify-logs/${command.id.replace(/[^A-Za-z0-9._-]/gu, "_")}.log`;
+      try {
+        await writePrivateFile(join(this.#options.root, ...logPath.split("/")), output, this.#options.root);
+        failure = {output, logPath};
+      } catch {
+        failure = {output};
+      }
+    }
     return {
       commandId: command.id,
       required: command.required,
@@ -291,6 +310,7 @@ export class VerificationService {
       timedOut: result.timedOut,
       testCount: result.testCount,
       diagnostic: fingerprint?.diagnostics ?? "",
+      ...failure,
       evidenceReferences: [],
       startedAt,
       finishedAt

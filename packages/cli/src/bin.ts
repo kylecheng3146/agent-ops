@@ -99,7 +99,8 @@ import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
 import { runSurfaceGate, surfaceAdvisory } from "../../../runtime/src/surface/discovery.js";
 import { resolveReviewRole } from "../../../runtime/src/review/roles.js";
 import { runTrustCommand } from "./commands/trust.js";
-import { runVerifyCommand } from "./commands/verify.js";
+import { failureDetailLines, runVerifyCommand } from "./commands/verify.js";
+import { withWaitHint } from "./wait-hint.js";
 import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
@@ -859,9 +860,9 @@ process.exitCode = await runCli(
             process.once("SIGINT", onSigint);
             process.once("SIGTERM", onSigterm);
             try {
-              return await runReviewCommand(
+              return await withWaitHint(await officeCommonDir(root), "review", async () => await runReviewCommand(
                 await buildReviewOptions(args, controller.signal)
-              );
+              ));
             } catch (error) {
               if (
                 error instanceof ReviewInterruptedError &&
@@ -896,7 +897,7 @@ process.exitCode = await runCli(
               const taskArgs = (taskId: string, base: string): ParsedArgs =>
                 parseArgs(["review", "--task", taskId, "--base", base, "--yes"]);
               const worktreeRecord = await readWorktreeRecord(root);
-              const envelope = await runBatchCommand({
+              const envelope = await withWaitHint(await officeCommonDir(root), "batch", async () => await runBatchCommand({
                 args,
                 tasks: taskService,
                 ...(worktreeRecord === null ? {} : { worktreeBase: worktreeRecord.base }),
@@ -919,6 +920,8 @@ process.exitCode = await runCli(
                     unlimitedWork: await runPolicyContext(root) !== null,
                     base
                   }).verify(taskId);
+                  for (const line of report.status === "PASS" ? [] : failureDetailLines(report))
+                    process.stderr.write(`batch: ${taskId.slice(5, 13)}: ${line}\n`);
                   return report.status === "PASS" ? "PASS" : "FAIL";
                 },
                 review: async (taskId, base, signal) => {
@@ -945,7 +948,7 @@ process.exitCode = await runCli(
                 phaseReporter: async (taskIds) => await officePhaseReporter(root,
                   (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read()).sessions
                     .filter(({taskId}) => taskIds.includes(taskId)).map(({sessionId}) => sessionId))
-              });
+              }));
               if (interruptedBy !== undefined) {
                 process.exit(interruptedBy === "SIGINT" ? 130 : 143);
               }
@@ -973,7 +976,7 @@ process.exitCode = await runCli(
               CLI_VERSION
             );
             const verifySessionId = sessionIdFromEnvironment();
-            return await runVerifyCommand({
+            return await withWaitHint(await officeCommonDir(root), "verify", async () => await runVerifyCommand({
               args,
               taskService,
               surface: async taskId => {
@@ -1004,7 +1007,7 @@ process.exitCode = await runCli(
                   await taskService.status({taskId}), report);
                 return report;
               }}
-            });
+            }));
           }
           if (args.command === "trust") {
             const config = (await loadEffectiveConfig(

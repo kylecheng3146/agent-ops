@@ -38,6 +38,8 @@ export interface AcceptanceReplayResult {
   readonly reference: string;
   /** Set when a step timed out: which step, its limit and the config field that raises it. */
   readonly detail?: string;
+  /** Set on a non-PASS row: candidate checks that did not pass, or baseline red checks that did not fail. */
+  readonly failedChecks?: readonly string[];
 }
 
 /** Limits for runner steps without their own timeoutMs: installs are slow, git plumbing is not. */
@@ -237,7 +239,9 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
             bindingHash: sha256(canonicalJson({runnerId: group.runner.id, materials: group.binding.materials})), phase, commit, pairedCommit: phase === "baseline" ? candidate : group.baseline, materialDigest, executionDigest, executionArtifact, checks}});
         const reference = await options.evidenceStore.save(evidence);
         reports.push({criterionId: criterion.id, runnerId: group.runner.id, phase, status, failureClass: evidence.failureClass, reference,
-          ...(timedOut === undefined || status === "PASS" ? {} : {detail: timedOut})});
+          ...(timedOut === undefined || status === "PASS" ? {} : {detail: timedOut}),
+          ...(status === "PASS" ? {} : {failedChecks: phase === "candidate" ? checks.filter(c => c.status !== "PASS").map(c => c.checkId)
+            : red.filter(id => !checks.some(c => c.checkId === id && c.status === "FAIL" && c.failureClass === "assertion"))})});
       }
     }
   }

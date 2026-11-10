@@ -265,6 +265,26 @@ test("managed rules tell every harness how to run a batch review", () => {
   }
 });
 
+test("managed rules tell every harness to wait for long commands in one step", () => {
+  const rules = (id: "claude" | "codex" | "agy" | "opencode") => managedRules(harnessDescriptor(id), {
+    scope: "project",
+    profiles: ["core"],
+    capabilities: ["rules", "task"]
+  }).replace(/\s+/gu, " ");
+  for (const id of ["claude", "codex", "agy", "opencode"] as const) {
+    const content = rules(id);
+    assert.match(content, /`agent-ops verify`, `review` and `batch` run for many minutes and print on stderr how long the last run took/u, id);
+    assert.match(content, /Wait for each in one blocking step and send no status-only messages while it runs/u, id);
+    assert.match(content, /Only when no duration is printed or this host cannot block, hand the wait to a small-context subagent/u, id);
+    assert.match(content, /For a single task, `agent-ops batch --parent <task-id> --yes` verifies only when evidence is stale and then reviews, in one call/u, id);
+    assert.match(content, /read them instead of rerunning the suite/u, id);
+  }
+  assert.match(rules("claude"), /start it with `run_in_background` and wait for the completion notification/u);
+  assert.match(rules("codex"), /sleep once for about the printed duration, then check the process/u);
+  assert.match(rules("agy"), /run it as one blocking call/u);
+  assert.equal(rules("codex"), rules("opencode"));
+});
+
 test("managed rules route parallel conversations through their own worktree", () => {
   const content = managedRules(harnessDescriptor("claude"), {
     scope: "project",
@@ -356,6 +376,9 @@ const CRITERIA_ADVISORY = [
   "", ""
 ].join("\n");
 
+// Added after the run profile; its host line differs per harness.
+const WAIT_RULE = /`agent-ops verify`, `review` and `batch` run for many minutes[\s\S]*?rerunning the suite\.\n\n/u;
+
 test("managed rules start every change with the surface audit", () => {
   for (const id of ["claude", "codex", "agy", "opencode"] as const) {
     const content = managedRules(harnessDescriptor(id), { scope: "project", profiles: ["core"], capabilities: ["rules", "task"] });
@@ -367,7 +390,7 @@ test("managed rules start every change with the surface audit", () => {
 test("managed rules without auto-run are byte-identical to before the run profile", () => {
   for (const { context, digests } of RULES_BEFORE_RUN) {
     for (const [id, digest] of Object.entries(digests)) {
-      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE).replace(DEBUG_RULE, "").replace(CRITERIA_ADVISORY, "");
+      const content = managedRules(harnessDescriptor(id as never), context as never).replace(SURFACE_STEPS, STEPS_BEFORE_SURFACE).replace(DEBUG_RULE, "").replace(CRITERIA_ADVISORY, "").replace(WAIT_RULE, "");
       assert.equal(createHash("sha256").update(content).digest("hex"), digest, id);
     }
   }

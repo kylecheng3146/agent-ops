@@ -289,6 +289,26 @@ A batch result MUST report every task's outcome and MUST exit 0 only when every 
 - Positive: `One FAIL and one NOT_RUN exit 1, so the defect is handled first.`
 - Negative: `Exit 0 while a task is still NOT_RUN.`
 
+## REVIEW-WAIT-001
+
+`verify`, `review` and `batch` MUST tell the agent how to wait before they start, and the agent MUST wait for each in one blocking step.
+
+- Trigger: `verify`, `review` (not `show` or `--criteria`) or `batch` starts.
+- Action: Print one stderr line before any work: with an elapsed time recorded for that command in `<git-common-dir>/agent-ops/durations.json`, it names the last run's minutes; otherwise only the wait guidance. Record the elapsed milliseconds there by temp-file rename when the command returns. The file is display-only, shared by every worktree, never evidence, and any read or write failure is ignored. Managed rules say how each harness waits: Claude Code runs the command with `run_in_background` and waits for the completion notification, AGENTS.md hosts sleep once for about the printed duration, agy runs one blocking call; no status-only messages while waiting. A small-context subagent waits only when no duration is printed or the host cannot block. For a single task, `agent-ops batch --parent <task-id> --yes` verifies only when evidence is stale and then reviews, in one call.
+- Evidence: stderr carries the wait line; stdout, the envelope and the exit code are the same with or without `durations.json`.
+- Positive: `The agent sleeps once for the printed 22 minutes, then reads the result.`
+- Negative: `Poll the running verify every 45 seconds with a status message each time.`
+
+## REVIEW-WAIT-002
+
+A failing verify MUST show why it failed without a rerun.
+
+- Trigger: A verification command or acceptance row is not PASS.
+- Action: The text output shows, for each failing command, the last 2048 bytes of its redacted output (stderr, else stdout) and the path of a private redacted log at `.agent-ops/tasks/verify-logs/<command-id>.log` holding the captured output (bounded by the runner), and each non-PASS acceptance row with criterion, phase, failure class, failing check ids and any timeout detail. `batch` prints the same lines on stderr for a failing verify. The JSON report only gains the optional `failureTail`, `logPath` and `failedChecks` fields; evidence and failure fingerprints are unchanged.
+- Evidence: The failing test's name appears in the tail or the log.
+- Positive: `FAIL node-test shows "startup.test.ts ... timed out" and the log path.`
+- Negative: `Print "FAIL node-test (passed tests: 1431)" and leave the agent to rerun the suite.`
+
 ## REVIEW-RESUME-001
 
 A native run's coordinator final proof MUST NOT pay again for a review round
