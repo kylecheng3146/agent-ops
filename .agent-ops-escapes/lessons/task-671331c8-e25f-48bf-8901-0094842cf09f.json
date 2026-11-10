@@ -1,0 +1,16 @@
+{
+  "id": "task-671331c8-e25f-48bf-8901-0094842cf09f",
+  "escape": "b97bdbfb3304ef03a923bff1070e629d916919dc",
+  "taskId": "task-671331c8-e25f-48bf-8901-0094842cf09f",
+  "label": "scenario",
+  "status": "no-entry",
+  "cue": null,
+  "check": null,
+  "evidence": "The escaped commit (b97bdbfb3304ef03a923bff1070e629d916919dc) introduced the automatic learning subsystem but omitted secondary constraints across all five acceptance criteria. The resulting fix diff is an omnibus collection of five distinct, component-specific completions: reconciling sealed delivery history during ordinary CLI use (packages/cli/src/learning-deps.ts), verifying complete author snapshot reports for holdout exposure (runtime/src/learning/history.ts and setup.ts), accumulating candidate strategies onto active baselines to reject conflicts and no-ops (runtime/src/learning/automation.ts), ensuring explicit CLI learn commands remain passive (packages/cli/src/bin.ts), and guarding test fixture imports against missing module errors (tests/learning/pipeline-checks.mjs). Because each modification addresses an independent, task-specific requirement already explicitly documented in the criteria rather than a recurring implementation defect or systemic pattern, no single transferable lesson or trigger generalizes beyond this fix.",
+  "trigger": null,
+  "backtest": null,
+  "reflector": {
+    "target": "agy",
+    "attempts": 1
+  }
+}
