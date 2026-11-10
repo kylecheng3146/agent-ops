@@ -1,3 +1,4 @@
+import {collectLearningReceipt, type LearningCollection} from "../learning/intake.js";
 import { withActivity } from "../office/activity.js";
 import { collectFollowupReceipt, type FollowupCollection } from "../followup/intake.js";
 import { lstat, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -59,6 +60,7 @@ export interface FinishResult {
   /** Both review rounds' residual risks, copied from the receipt so finish can print them. */
   readonly residualRisks?: readonly string[];
   readonly followup?: FollowupCollection;
+  readonly learning?: LearningCollection;
 }
 
 export interface FinalCandidateProof {
@@ -146,6 +148,7 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
     await markRunIntegration(commonDir, record, "receipt-written", name);
   };
   let followup: FollowupCollection | undefined;
+  let learning: LearningCollection | undefined;
   try {
     await step("note", async () => {
       if (!noteBound) await git(deps, record.mainRoot, ["notes", `--ref=${NOTES_REF}`, "add", "-m",
@@ -155,6 +158,7 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
     const config = await deps.loadConfig(record.mainRoot);
     followup = await collectFollowupReceipt({git: deps.git, mainRoot: record.mainRoot, commonDir, config,
       loadConfig: async () => await deps.loadConfig(record.mainRoot), path: integration.receiptPath!});
+    learning = await collectLearningReceipt({git: deps.git, mainRoot: record.mainRoot, commonDir, path: integration.receiptPath!});
     await step("gate", async () => {
       if (!config.features.completionGate.enabled) return;
       const gate = await deps.gate(record.mainRoot, config);
@@ -179,7 +183,7 @@ async function finishRunCleanup(deps: FinishDependencies, commonDir: string, rec
     throw cause;
   }
   await recoverRunIntegrationAfterCleanup(commonDir, record.runId!, deps.git);
-  return {record, mergedHead: proof.head, taskIds: (receipt.tasks ?? []).map(item => item.task.id), warnings: followup?.warnings ?? [], followup,
+  return {record, mergedHead: proof.head, taskIds: (receipt.tasks ?? []).map(item => item.task.id), warnings: [...(followup?.warnings ?? []), ...(learning?.warnings ?? [])], followup, learning,
     receipt: integration.receiptPath!, residualRisks: receipt.residualRisks ?? []};
 }
 
@@ -653,6 +657,8 @@ export async function finishWorktree(
     const followup = receipt === undefined ? undefined : await collectFollowupReceipt({git: deps.git, mainRoot, commonDir, config: mainConfig,
       loadConfig: async () => await deps.loadConfig(mainRoot), path: receipt.path});
     if (followup !== undefined) warnings.push(...followup.warnings);
+    const learning = receipt === undefined ? undefined : await collectLearningReceipt({git: deps.git, mainRoot, commonDir, path: receipt.path});
+    if (learning !== undefined) warnings.push(...learning.warnings);
     if (gateEnabled) {
       await attempt("gate", async () => {
         const mainGate = await deps.gate(mainRoot, mainConfig);
@@ -687,7 +693,7 @@ export async function finishWorktree(
     await attempt("remove", async () => await removeCheckout(deps, record,
       options.finalProof === undefined, options.finalProof?.head));
     if (receiptOptions !== undefined) await markRunIntegration(commonDir, record, "cleaned", "coordinator");
-    return { record, mergedHead, taskIds: tree.map(({ task }) => task.task.id), warnings, followup,
+    return { record, mergedHead, taskIds: tree.map(({ task }) => task.task.id), warnings, followup, learning,
       ...(receipt === undefined ? {} : { receipt: receipt.path, residualRisks: receipt.receipt.residualRisks }) };
   }));
 }

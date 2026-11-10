@@ -301,3 +301,27 @@ most once per immutable final attempt.
 - Positive: `The second round lost its connection; the supervisor replayed once, the necessary reviewer was not called again, and the run finished with a receipt.`
 - Negative: `Retry until the adversarial reviewer passes, or replay after a stop, a timeout or a substantive FAIL.`
 - Note: Standalone `review`, `batch` and child handoff keep their in-process retry and never read or write checkpoints. An uncommitted coordinator checkout is never replayed; it is left untouched for the existing repair.
+
+New ordinary criteria advice may additionally load at most three path-relevant
+completed historical cases within 12,000 bytes. This is historical reference
+whose transfer is unvalidated, not verification evidence or adopted experience.
+Only redacted final facts and exact provenance are supplied, never raw unadopted
+recommendations. No match adds no history. Exact loaded references and
+model-reported use are private records; history/library changes never rerun old
+snapshots. The existing data-only call may return optional source-linked
+candidates (including an empty list), with bounded extra input/output tokens but
+no additional proposal CLI invocation. It does not read the evaluation suite or
+holdout answers/results. Source-reading formal reviewers do not author candidates.
+
+Only explicit committed, independently labelled, human-confirmed evaluation setup
+and a fixed model permit conditional background experiments. Missing or invalid
+setup waits without model spending. Experiments pin isolated inputs and recheck
+authority/library state before adoption; baseline, repeated paired, independent
+holdout, per-case, composition and stale-state gates remain conservative. At most
+two automatic attempts per UTC day and twelve extra CLI invocations per trial
+(including failures); these are not provider request or fixed-cost counts.
+Unchanged conditions never rerun on date rollover; failures persist without
+automatic infrastructure retry. `learn list --json` exposes reasons/quota and
+`learn retry <job-id>` explicitly requests a retry subject to the same gates.
+This does not replace task verification, two fresh independent reviews or finish.
+Synthetic checks do not establish paid production quality improvement.

@@ -20,6 +20,7 @@ import {nativeResumeChecks} from './native-resume-checks.mjs';
 import {recoveryRepairChecks} from './recovery-repair-checks.mjs';
 import {unlimitedPolicyChecks} from './unlimited-policy-checks.mjs';
 import {serialWorkerChecks} from './serial-workers-checks.mjs';
+import {pipelineChecks} from '../learning/pipeline-checks.mjs';
 import {intakeChecks} from '../followup/intake-checks.mjs';
 import {assessmentChecks} from '../followup/assessment-checks.mjs';
 import {repairChecks} from '../followup/repair-checks.mjs';
@@ -79,6 +80,7 @@ const checks = {
   ...repairChecks,
   ...assessmentChecks,
   ...intakeChecks,
+  ...pipelineChecks,
   ...coordinatorProofPolicyChecks,
   ...coordinatorResponseChecks,
   ...handoffRecoveryChecks,

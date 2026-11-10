@@ -506,3 +506,37 @@ retains the complete merged settings. The manifest remains schema v2.
 Use the [acceptance and evidence rules](../spec/acceptance-and-evidence.md)
 when adding verification commands, and the [adapter rules](../spec/harness-adapters.md)
 when configuring Codex, Claude Code, or opencode behavior.
+
+## Automatic learning registration
+
+Automatic experiments are optional and repository-local. Add `learning` only to
+project configuration after a human confirms an independently labelled, committed
+suite and an explicit fixed/versioned model. No live model or evaluation suite is
+installed by default. Existing configurations without this field remain valid.
+
+The object has exactly `suitePath` (repository-relative regular JSON file),
+`suiteDigest` (SHA-256 of canonical parsed JSON), `humanConfirmed` and
+`independentlyLabelled` (both must be true), and `settings` with `target`, `model`
+and `effort`. The target must already be configured for `independent-review`.
+Canonical JSON recursively sorts object keys and preserves array order; hash its
+UTF-8 JSON encoding, not the file's whitespace. Commit the suite before registration.
+Do not use a floating `latest`/`auto` model. Registration does not grant trust or
+modify verifier authority; follow the normal authorization process for config changes.
+
+The suite needs at least two distinct probes and two distinct independent holdouts,
+bounded applicable paths and the existing fixed labels/evaluator. Keep held-out
+answers/results out of candidate authoring sources and snapshots. The example
+`tests/learning/scenarios.json` is synthetic and is refused for automatic registration;
+it is not proof of production improvement. Missing, unconfirmed, invalid, leaked,
+dirty or inapplicable setup leaves observable waiting reasons with no experiment calls.
+
+Normal CLI use checks durable pending work; at most one repository-local background
+experiment runs at a time. The boundary is 00:00 UTC: two automatic attempts/day,
+twelve extra CLI invocations/trial, including failures. Provider request count,
+tokens and money are different measures. Unchanged conditions never rerun merely
+because the day changes, and infrastructure failures do not automatically retry.
+Use `agent-ops learn list --json` for reasons/quota and `agent-ops learn retry
+<job-id>` for an explicit terminal-job retry, still subject to current authority
+and quota. See [learning](learning.md) for pinned isolation, deduplication and
+conservative adoption. Mandatory task → commit → verify → two fresh reviews → finish
+remains unchanged; paid production quality improvement is unmeasured.

@@ -108,8 +108,14 @@ export const COMMAND_HELP_TEXT: Readonly<Record<TopLevelCommand, string>> = {
        agent-ops learn <show|replay> <trial-digest> [--json]
        agent-ops learn rollback <adopted-version-digest> --reason <text> [--json]
        agent-ops learn retire --reason <text> [--json]
+       agent-ops learn retry <automatic-job-digest> [--json]
 
-Opt-in, repository-local learning from sealed completed receipts. Uses existing CLI
+Explicit committed human-confirmed learning setup enables one repository-local background
+experiment on ordinary CLI use when an advisory has supplied a new applicable candidate.
+learn list includes waiting/running/adopted/retained/failed reasons and usage. At most two
+automatic attempts per UTC calendar day; failed attempts count. Unchanged conditions never
+automatically retry, including after day rollover. retry requests a new accounted attempt.
+Passive import alone never launches experiments. Manual experiments use existing CLI
 quota: at most 2 candidates, 1 composition and 12 extra CLI invocations per round.
 Model ID must be explicit; tools remain read-only. The frozen committed suite needs
 at least 2 probe and 2 distinct held-out tasks. Expected labels never reach authoring

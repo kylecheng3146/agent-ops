@@ -1,3 +1,4 @@
+import {validLearningConfig} from "../learning/setup.js";
 import type {
   AcceptanceCriterion,
   AgentOpsConfig,
@@ -486,7 +487,8 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     "schemaVersion",
     "securityExceptions",
     "verification",
-    "worktree"
+    "worktree",
+    "learning"
   ], CONFIG_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
@@ -728,6 +730,10 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     if (!worktree.ok) {
       return worktree;
     }
+  }
+
+  if (root.learning !== undefined && !validLearningConfig(root.learning)) {
+    return failure("INVALID_LEARNING_SETUP", "$.learning", "Learning registration requires bounded suite identity, confirmation flags and explicit settings.");
   }
 
   return success(root as unknown as AgentOpsConfig);

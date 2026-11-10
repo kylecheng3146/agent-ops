@@ -387,6 +387,63 @@
           }
         }
       }
+    },
+    "learning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suitePath",
+        "suiteDigest",
+        "humanConfirmed",
+        "independentlyLabelled",
+        "settings"
+      ],
+      "properties": {
+        "suitePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\\\\\r\\n:*?]+$"
+        },
+        "suiteDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "humanConfirmed": {
+          "type": "boolean"
+        },
+        "independentlyLabelled": {
+          "type": "boolean"
+        },
+        "settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target",
+            "model",
+            "effort"
+          ],
+          "properties": {
+            "target": {
+              "enum": [
+                "codex",
+                "claude",
+                "agy"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "effort": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      }
     }
   },
   "allOf": [

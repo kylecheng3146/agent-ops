@@ -1,3 +1,4 @@
+import {productionLearningAutomation} from "../learning-deps.js";
 import {basename, resolve} from "node:path";
 import {AgentOpsError} from "../../../../runtime/src/fs/paths.js";
 import {readDeliveredReceipt} from "../../../../runtime/src/followup/receipt.js";
@@ -34,8 +35,12 @@ export async function runLearnCommand(options: {args: ParsedArgs; cwd: string}):
   const {args, cwd} = options, context = await followupRepositoryContext(cwd), store = new FileLearningStore(context.commonDir);
   const action = args.learningAction ?? "list";
   if (action === "list") {
-    const current = await store.current();
+    const current = {...await store.current(), automation: await (await productionLearningAutomation(cwd)).status()};
     return okEnvelope("LEARNING_STATE", {...current, text: JSON.stringify(current, null, 2)});
+  }
+  if (action === "retry") {
+    await (await productionLearningAutomation(cwd)).retry(args.learningId!);
+    return okEnvelope("LEARNING_RETRY_QUEUED", {text: "Retry requested; the next ordinary CLI use checks current authority, conditions and UTC daily quota. Prior attempts remain counted."});
   }
   if (action === "rollback" || action === "retire") {
     const state = await store.recover(action, args.reason!, args.learningId);

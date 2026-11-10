@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {reconcileRepositoryLearning} from "./learning-deps.js";
 import {runLearnCommand} from "./commands/learn.js";
 import {reviewCreatedCriteria, reviewRevisedCriteria, criteriaReviewStatus} from "./criteria-review.js";
 import {renderCriteriaReview} from "../../../runtime/src/review/criteria.js";
@@ -370,7 +371,7 @@ process.exitCode = await runCli(
             : process.cwd();
           if (args.scope !== "user" && !["init", "update", "uninstall", "followup", "escapes", "office"].includes(args.command)) {
             const collected = await reconcileRepositoryFollowups(root);
-            for (const warning of collected.warnings) process.stderr.write(`Warning: ${warning}\n`);
+            for (const warning of [...collected.warnings, ...await reconcileRepositoryLearning(root)]) process.stderr.write(`Warning: ${warning}\n`);
           }
           // Committed work is judged as a range by default; see defaultBase.
           if ((args.command === "verify" || (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {

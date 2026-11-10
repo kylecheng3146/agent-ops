@@ -8,6 +8,7 @@ import type {
   ReviewRoleConfig,
   SecurityException,
   VerificationCommand,
+  LearningConfig,
   WorktreeConfig
 } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
@@ -37,6 +38,7 @@ export interface ConfigProvenance {
   securityExceptions: EffectiveValue<SecurityException>[];
   reviewRoles: EffectiveValue<ReviewRoleConfig>[];
   worktree?: EffectiveValue<WorktreeConfig>;
+  learning?: EffectiveValue<LearningConfig>;
 }
 
 export interface MergedConfig {
@@ -248,6 +250,7 @@ export function mergeConfigLayers(
   let schemaVersion: EffectiveValue<number> | undefined;
   let features: EffectiveValue<AgentOpsFeatures> | undefined;
   let worktree: EffectiveValue<WorktreeConfig> | undefined;
+  let learning: EffectiveValue<LearningConfig> | undefined;
 
   for (const layer of layers) {
     schemaVersion = effective(layer.config.schemaVersion, layer);
@@ -257,6 +260,8 @@ export function mergeConfigLayers(
     if (layer.config.worktree !== undefined) {
       worktree = effective(layer.config.worktree, layer);
     }
+    // Registration is repository-specific; user defaults cannot enable automatic experiments.
+    if (layer.source === "project" && layer.config.learning !== undefined) learning = effective(layer.config.learning, layer);
     for (const profile of layer.config.profiles) {
       profiles.set(profile, effective(profile, layer));
     }
@@ -316,6 +321,7 @@ export function mergeConfigLayers(
     pathMappings: [...mappings.values()],
     securityExceptions: [...exceptions.values()],
     reviewRoles: [...reviewRoles.values()],
+    ...(learning === undefined ? {} : {learning}),
     ...(worktree === undefined ? {} : { worktree })
   };
   const config: AgentOpsConfig = {
@@ -337,6 +343,7 @@ export function mergeConfigLayers(
       : {
           reviewRoles: provenance.reviewRoles.map(({ value }) => value)
         }),
+    ...(learning === undefined ? {} : {learning: learning.value}),
     ...(worktree === undefined ? {} : { worktree: worktree.value })
   };
   const validation = validateConfig(config);
