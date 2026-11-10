@@ -12,7 +12,9 @@ test("README status, lockfile and CHANGELOG name the package version", async () 
   assert.equal(lock.packages[""]?.version, version);
   assert.ok((await read("README.md")).includes(`This source release is version ${version}.`));
   // The released version has a dated heading below Unreleased, which stays for the next changes.
-  const changelog = await read("CHANGELOG.md");
-  const released = changelog.search(new RegExp(`^## \\[${version.replace(/\./gu, "\\.")}\\] - \\d{4}-\\d{2}-\\d{2}$`, "mu"));
-  assert.ok(released > changelog.indexOf("## [Unreleased]") && changelog.indexOf("## [Unreleased]") >= 0);
+  const lines = (await read("CHANGELOG.md")).split("\n");
+  const prefix = `## [${version}] - `;
+  const released = lines.findIndex(line => line.startsWith(prefix) && /^\d{4}-\d{2}-\d{2}$/u.test(line.slice(prefix.length)));
+  const unreleased = lines.indexOf("## [Unreleased]");
+  assert.ok(unreleased >= 0 && released > unreleased);
 });

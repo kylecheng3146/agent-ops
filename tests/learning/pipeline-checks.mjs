@@ -3,6 +3,7 @@ import {execFile as execute} from 'node:child_process';
 import {chmod, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
 import {withRepository, reviewedCandidate, rewriteReceipt, sealNativeCandidate, load, moduleUrl, checkedGit, config} from '../followup/fixture.mjs';
 const execFile = promisify(execute);
 async function modules() {
@@ -257,7 +258,7 @@ async function fixtureCli(f, configured) {
     'const {worktreeDependencies}=await import(process.argv[1]);const d=worktreeDependencies();await d.trust.grant(process.argv[2],await d.loadConfig(process.argv[2]));',
     moduleUrl('packages/cli/src/parallel-deps.js'), f.root], {env});
   return {marker, run: async args => {
-    const result = await execFile(process.execPath, [new URL(moduleUrl('packages/cli/src/bin.js')).pathname, ...args, '--json'], {cwd: f.root, env})
+    const result = await execFile(process.execPath, [fileURLToPath(moduleUrl('packages/cli/src/bin.js')), ...args, '--json'], {cwd: f.root, env})
       .catch(error => assert.fail(error.stdout || error.stderr || error.message));
     return JSON.parse(result.stdout);
   }};
@@ -561,7 +562,7 @@ process.stdout.write(JSON.stringify(value));});
       assert.equal(recorded.length, 7); assert.equal(result.invocations, 7);
       assert.ok(recorded.every(c => c.cwd !== x.f.root && c.args.includes('read-only') && c.args.includes(x.settings.model)));
       assert.ok(recorded.every(c => !c.prompt.startsWith('Propose')));
-      const listed = await execFile(process.execPath, [new URL(moduleUrl('packages/cli/src/bin.js')).pathname, 'learn', 'list', '--json'], {cwd: x.f.root, env});
+      const listed = await execFile(process.execPath, [fileURLToPath(moduleUrl('packages/cli/src/bin.js')), 'learn', 'list', '--json'], {cwd: x.f.root, env});
       const output = JSON.parse(listed.stdout);
       assert.equal(output.data.automation.jobs.length, 1, 'Normal CLI reconciliation cannot rerun an already adopted candidate');
       assert.equal((await readFile(calls, 'utf8')).trim().split('\n').length, 7);
@@ -614,7 +615,7 @@ async function legacyManualChecks() {
     const script = `const {worktreeDependencies}=await import(process.argv[1]);const d=worktreeDependencies();await d.trust.grant(process.argv[2],await d.loadConfig(process.argv[2]));`;
     await execFile(process.execPath, ['--input-type=module', '-e', script, moduleUrl('packages/cli/src/parallel-deps.js'), f.root], {env});
     const cli = async args => {
-      const result = await execFile(process.execPath, [new URL(moduleUrl('packages/cli/src/bin.js')).pathname, 'learn', ...args, '--json'], {cwd: f.root, env})
+      const result = await execFile(process.execPath, [fileURLToPath(moduleUrl('packages/cli/src/bin.js')), 'learn', ...args, '--json'], {cwd: f.root, env})
         .catch(error => assert.fail(error.stdout || error.stderr || error.message));
       return JSON.parse(result.stdout);
     };
