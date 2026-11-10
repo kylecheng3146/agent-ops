@@ -290,7 +290,7 @@ export const automationChecks = {
         assert.deepEqual(await x.controller.candidates.read(id), candidate, 'Legacy candidates remain readable');
       }
       await writeFile(join(x.controller.candidates.directory, 'index.json'), JSON.stringify([id]));
-      assert.equal(await x.controller.reconcile(), null, `Exposed or unbound author must wait: ${exposure}`);
+      assert.equal(await x.controller.reconcile() === null, true, `Exposed or unbound author must wait: ${exposure}`);
       assert.equal((await x.controller.status()).quota.attempts, 0);
       assert.equal(x.prompts.length, 0); assert.equal(x.launches.length, 0);
       assert.match((await x.controller.status()).waiting[id], /LEAKAGE|AUTHOR_REPORT/);
@@ -371,6 +371,7 @@ export const automationChecks = {
       assert.equal(x.m.replayLearningTrial(trial).status, 'PASS');
       assert.equal(await readFile(x.history[0].provenance.receiptPath, 'utf8'), before);
       await x.controller.store.recover('retire', 'Fixture retirement');
+      assert.equal(await x.controller.reconcile() === null, true, 'Returning to the same baseline cannot repeat an adopted experiment');
       await x.controller.store.recover('rollback', 'Fixture rollback', result.adopted);
       assert.equal((await x.controller.store.read()).active, result.adopted);
     });
@@ -454,6 +455,8 @@ export const automationChecks = {
       const first = await x.controller.reconcile(); await x.run(first, x.call({fail: true}));
       x.setDay('2026-11-10T00:00:00Z');
       assert.equal(await x.controller.reconcile(), null, 'Failure never retries on a new day');
+      await x.controller.store.recover('retire', 'No active experience to retire');
+      assert.equal(await x.controller.reconcile() === null, true, 'Bookkeeping alone cannot retry unchanged evaluation inputs');
       await x.enqueue({...proposal, strategies: [{...proposal.strategies[0], id: 'renamed'}]}, 'another-author');
       assert.equal(await x.controller.reconcile(), null, 'Canonical content ignores advisory author and strategy IDs');
       x.setAuthority('authority-b');

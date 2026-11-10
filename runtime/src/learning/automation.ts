@@ -118,8 +118,9 @@ export class LearningAutomation {
         if (version !== null && candidateKey(version.proposal) === candidateKey(proposal)) {
           state.waiting[item.id] = "ALREADY_ADOPTED"; continue;
         }
+        // Generation fences adoption, but bookkeeping alone cannot reset terminal experiment deduplication.
         const key = digest({candidate: candidateKey(proposal), setup: item.setup.fingerprint,
-          baseline: {generation: baseline.generation, active: baseline.active}, authority: authority.fingerprint,
+          baseline: baseline.active, authority: authority.fingerprint,
           evaluator: EVALUATOR, conditions: learningConditions(item.setup.settings, {})});
         const previous = state.jobs.filter(j => j.key === key).at(-1);
         if (previous !== undefined && !previous.retryRequested) {delete state.waiting[item.id]; continue;}
