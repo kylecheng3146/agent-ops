@@ -3,13 +3,18 @@ import {join} from "node:path";
 import type {AgentOpsConfig} from "../contracts.js";
 import {readPrivateFile, withPrivateFileLock, writePrivateFile} from "../security/permissions.js";
 import {candidateKey, CandidateStore, type CandidateRecord} from "./history.js";
-import {digest, hash, invalid, object, redactData, LEARNING_LIMITS} from "./data.js";
+import {digest, hash, invalid, object, parseProposal, redactData, LEARNING_LIMITS, type Proposal} from "./data.js";
 import {EVALUATOR, learningConditions, runLearningTrial, type LearningCall} from "./experiment.js";
 import {FileLearningStore, type LearningState} from "./store.js";
 import {resolveLearningSetup, type LearningSetup} from "./setup.js";
 import type {LearningSource} from "./intake.js";
 
 type EligibleSetup = Extract<LearningSetup, {status: "eligible"}>;
+function appendToBaseline(candidate: Proposal, baseline: Proposal["strategies"]): Proposal {
+  const key = (strategy: Proposal["strategies"][number]) => candidateKey({...candidate, strategies: [strategy]});
+  const known = new Set(baseline.map(key));
+  return parseProposal({...candidate, strategies: [...baseline, ...candidate.strategies.filter(s => !known.has(key(s)))]});
+}
 export interface LearningOwner {pid: number; identity: string; group: boolean}
 export interface LearningJob {
   id: string; key: string; token: string; candidateId: string; day: string;
@@ -107,10 +112,13 @@ export class LearningAutomation {
       for (const item of prepared) {
         if (!authority.allowed) {state.waiting[item.id] = authority.reason; continue;}
         if (item.setup.status !== "eligible" || item.candidate === null) {state.waiting[item.id] = item.setup.reason; continue;}
-        if (version !== null && candidateKey(version.proposal) === candidateKey(item.candidate.proposal)) {
+        let proposal: Proposal;
+        try {proposal = appendToBaseline(item.candidate.proposal, version?.proposal.strategies ?? []);}
+        catch {state.waiting[item.id] = "CANDIDATE_CONFLICTS_WITH_BASELINE"; continue;}
+        if (version !== null && candidateKey(version.proposal) === candidateKey(proposal)) {
           state.waiting[item.id] = "ALREADY_ADOPTED"; continue;
         }
-        const key = digest({candidate: candidateKey(item.candidate.proposal), setup: item.setup.fingerprint,
+        const key = digest({candidate: candidateKey(proposal), setup: item.setup.fingerprint,
           baseline: {generation: baseline.generation, active: baseline.active}, authority: authority.fingerprint,
           evaluator: EVALUATOR, conditions: learningConditions(item.setup.settings, {})});
         const previous = state.jobs.filter(j => j.key === key).at(-1);
@@ -165,6 +173,8 @@ export class LearningAutomation {
     try {
       if (!await this.current(job)) throw new Error("CONDITIONS_CHANGED");
       const {candidate, setup} = job.input, source = candidate.history[0]!;
+      const baseline = job.input.baseline.active === null ? [] : (await this.store.version(job.input.baseline.active)).proposal.strategies;
+      const proposal = appendToBaseline(candidate.proposal, baseline);
       const counted: LearningCall = async (prompt, schema) => {
         if (!await this.current(job)) throw new Error("CONDITIONS_CHANGED");
         await this.change(async state => {
@@ -176,7 +186,7 @@ export class LearningAutomation {
       };
       const result = await runLearningTrial({store: this.store, settings: setup.settings, suite: setup.suite, suiteCommit: setup.suiteCommit,
         source: {receipt: source.provenance.receiptDigest, taskId: source.tasks[0]!.id, commit: source.provenance.candidateHead,
-          evidence: {history: candidate.history}}, suppliedCandidates: [candidate.proposal], baselineState: job.input.baseline,
+          evidence: {history: candidate.history}}, suppliedCandidates: [proposal], baselineState: job.input.baseline,
         call: counted, isCurrent: async () => await this.current(job)});
       await this.change(async state => {
         const active = state.jobs.find(j => j.id === id && j.token === token);

@@ -8,7 +8,29 @@ export interface HistoricalCandidate {sourceCaseIds: string[]; proposal: Proposa
 export interface HistoricalAdvice {candidates?: HistoricalCandidate[]; historicalUses?: {caseId: string; use: string}[]}
 export interface CandidateRecord {
   schemaVersion: 1; proposal: Proposal; history: HistoricalCaseContext[];
-  author: {taskId: string; attemptId: string; snapshotHash: string};
+  author: {taskId: string; attemptId: string; snapshotHash: string; reportDigest?: string};
+}
+function authorReportPath(commonDir: string, author: CandidateRecord["author"]): string {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(author.taskId) || !/^[a-zA-Z0-9-]{1,64}$/u.test(author.attemptId)) invalid("Invalid author report identity.");
+  return join(commonDir, "agent-ops", "criteria-advisory", `${author.taskId}-${author.attemptId}.json`);
+}
+/** Bind the complete seen input, not just the historical cases the author chose to cite. */
+export async function candidateAuthorSnapshot(commonDir: string, candidate: CandidateRecord): Promise<Record<string, unknown>> {
+  if (!hash(candidate.author.reportDigest)) invalid("Candidate has no bound author report.");
+  const raw = await readPrivateFile(authorReportPath(commonDir, candidate.author), commonDir);
+  if (raw === null || Buffer.byteLength(raw) > 256 * 1024 || digest(raw) !== candidate.author.reportDigest) invalid("Author report changed or unavailable.");
+  const report: unknown = JSON.parse(raw);
+  if (!object(report) || report.kind !== "criteria-advisory" || report.status !== "COMPLETED" ||
+      report.code !== "CRITERIA_REVIEW_COMPLETED" || report.taskId !== candidate.author.taskId ||
+      report.attemptId !== candidate.author.attemptId || report.snapshotHash !== candidate.author.snapshotHash ||
+      !object(report.snapshot) || !Array.isArray(report.snapshot.history) || !object(report.advice) ||
+      !validateHistoricalAdvice(report.advice) || !Array.isArray(report.advice.candidates)) invalid("Invalid author report.");
+  const history = report.snapshot.history;
+  if (!candidate.history.every(context => history.some(item => digest(item) === digest(context))) ||
+      !report.advice.candidates.some(row => object(row) && digest(row.proposal) === digest(candidate.proposal) &&
+        Array.isArray(row.sourceCaseIds) && digest([...row.sourceCaseIds].sort()) === digest(candidate.history.map(h => h.id).sort())))
+    invalid("Candidate does not match its author report.");
+  return report.snapshot;
 }
 export function historicalAdviceSchema(base: Record<string, unknown>): Record<string, unknown> {
   const string = {type: "string", minLength: 1, maxLength: 2048};
@@ -73,18 +95,22 @@ export class CandidateStore {
     if (raw === null || Buffer.byteLength(raw) > 32000) invalid("Candidate missing or oversized.");
     const value = JSON.parse(raw) as CandidateRecord;
     if (digest(value) !== id || value.schemaVersion !== 1 || !Array.isArray(value.history) || value.history.length > 3 ||
-      !object(value.author) || !text(value.author.taskId, 128) || !text(value.author.attemptId, 64) || !hash(value.author.snapshotHash)) invalid("Invalid candidate record.");
+      !object(value.author) || !text(value.author.taskId, 128) || !text(value.author.attemptId, 64) || !hash(value.author.snapshotHash) ||
+      (value.author.reportDigest !== undefined && !hash(value.author.reportDigest))) invalid("Invalid candidate record.");
     parseProposal(value.proposal);
     return value;
   }
   async enqueue(input: {taskId: string; attemptId: string; snapshotHash: string; history: HistoricalCaseContext[]; candidates: HistoricalCandidate[]}): Promise<string[]> {
     if (!validateHistoricalAdvice({candidates: input.candidates}, input.history, input.history.flatMap(c => c.paths))) invalid("Invalid historical candidates.");
+    if (input.candidates.length === 0) return [];
+    const report = await readPrivateFile(authorReportPath(this.commonDir, input), this.commonDir);
+    if (report === null || Buffer.byteLength(report) > 256 * 1024) invalid("Author report unavailable or oversized.");
     return await withPrivateFileLock(join(this.directory, "index.json"), this.commonDir, async () => {
       const ids = await this.ids(), added: string[] = [];
       for (const candidate of input.candidates) {
         const value = redactData({schemaVersion: 1, proposal: candidate.proposal,
           history: input.history.filter(c => candidate.sourceCaseIds.includes(c.id)),
-          author: {taskId: input.taskId, attemptId: input.attemptId, snapshotHash: input.snapshotHash}}) as CandidateRecord;
+          author: {taskId: input.taskId, attemptId: input.attemptId, snapshotHash: input.snapshotHash, reportDigest: digest(report)}}) as CandidateRecord;
         // Preserve each immutable author/source record; execution dedup includes evaluation conditions later.
         const id = digest(value), body = JSON.stringify(value);
         if (Buffer.byteLength(body) > 32000) invalid("Candidate exceeds bound.");

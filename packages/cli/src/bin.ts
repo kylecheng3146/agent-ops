@@ -371,7 +371,7 @@ process.exitCode = await runCli(
             : process.cwd();
           if (args.scope !== "user" && !["init", "update", "uninstall", "followup", "escapes", "office"].includes(args.command)) {
             const collected = await reconcileRepositoryFollowups(root);
-            for (const warning of [...collected.warnings, ...await reconcileRepositoryLearning(root)]) process.stderr.write(`Warning: ${warning}\n`);
+            for (const warning of [...collected.warnings, ...await reconcileRepositoryLearning(root, args.command !== "learn")]) process.stderr.write(`Warning: ${warning}\n`);
           }
           // Committed work is judged as a range by default; see defaultBase.
           if ((args.command === "verify" || (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {

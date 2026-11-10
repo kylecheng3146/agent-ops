@@ -25,14 +25,14 @@ async function adviceModules() {
     ...await load('runtime/src/learning/setup.js'), ...await load('runtime/src/parallel/finish.js'),
     ...await load('runtime/src/learning/data.js')};}
   catch (error) {
-    if (error.code === 'ERR_MODULE_NOT_FOUND' && ['history', 'setup'].some(name =>
+    if (error.code === 'ERR_MODULE_NOT_FOUND' && ['intake', 'history', 'setup'].some(name =>
       error.url === moduleUrl(`runtime/src/learning/${name}.js`)))
       assert.fail('Historical candidate authoring and evaluation setup must exist');
     throw error;
   }
 }
-async function delivered(m, f, name = 'history') {
-  const c = await reviewedCandidate(f, {name, modern: true, goal: 'Preserve traceable delivery behavior'});
+async function delivered(m, f, name = 'history', goal = 'Preserve traceable delivery behavior') {
+  const c = await reviewedCandidate(f, {name, modern: true, goal});
   await m.finishWorktree(f.deps, {cwd: f.root, name: c.record.name, finalProof: c.finalProof});
   return c;
 }
@@ -44,6 +44,15 @@ function modelSpy(reply) {
     return {pid: 123, stdout: stream(JSON.stringify(reply())), stderr: stream(),
       completion: Promise.resolve({exitCode: 0, signal: null}), terminateTree: async () => {}};
   }}};
+}
+async function authoredCandidate(m, f, c, history, p = proposal, author = 'author', goal = 'A related follow-up task') {
+  const spy = modelSpy(() => ({...advice, candidates: [{sourceCaseIds: [history[0].id], proposal: p}]}));
+  const result = await m.runCriteriaReview({root: f.root, commonDir: f.commonDir, learningSource: f.source,
+    task: {...c.records[0].task, id: `task-${author}`, goal, surface}, target: 'codex', runner: spy.runner, rerun: true});
+  assert.equal(result.report.status, 'COMPLETED', JSON.stringify(result));
+  const store = new m.CandidateStore(f.commonDir), id = (await store.ids()).at(-1), candidate = await store.read(id);
+  assert.equal(candidate.author.attemptId, result.report.attemptId);
+  return {id, candidate};
 }
 export const adviceChecks = {
   'learning-advisory-proposals': async () => {
@@ -118,7 +127,7 @@ export const adviceChecks = {
     const m = await adviceModules();
     await withRepository(async f => {
       const c = await delivered(m, f), history = await m.matchingCompletedCases(f.source, ['source.txt']);
-      const candidate = {schemaVersion: 1, proposal, history, author: {taskId: c.records[0].task.id, attemptId: 'author', snapshotHash: 'a'.repeat(64)}};
+      const {candidate} = await authoredCandidate(m, f, c, history);
       const suite = {schemaVersion: 1, cases: Array.from({length: 4}, (_, i) => ({id: `independent-${i}`, split: i < 2 ? 'probe' : 'holdout',
         snapshot: {originalGoal: `Independent labelled behavior ${i}`, criteria: [{id: 'behavior', description: `Required behavior ${i}`}, {id: 'regression', description: 'Boundaries'}], surface: {included: [{path: 'source.txt'}]}}, expected: i % 2 ? [] : ['redo']}))};
       const registration = {suitePath: 'evaluation.json', suiteDigest: m.digest(suite), humanConfirmed: true, independentlyLabelled: true, settings: {target: 'codex', model: 'model-2026-01', effort: 'high'}};
@@ -189,9 +198,7 @@ async function automationFixture(check) {
   const m = await automationModules();
   await withRepository(async f => {
     const c = await delivered(m, f), history = await m.matchingCompletedCases(f.source, ['source.txt']);
-    const candidates = new m.CandidateStore(f.commonDir);
-    const enqueue = async (p = proposal, author = 'author') => (await candidates.enqueue({taskId: c.records[0].task.id, attemptId: author,
-      snapshotHash: 'a'.repeat(64), history, candidates: [{sourceCaseIds: [history[0].id], proposal: p}]}))[0];
+    const enqueue = async (p = proposal, author = 'author', goal) => (await authoredCandidate(m, f, c, history, p, author, goal)).id;
     const id = await enqueue();
     const suite = {schemaVersion: 1, cases: Array.from({length: 4}, (_, i) => ({id: `independent-${i}`, split: i < 2 ? 'probe' : 'holdout',
       snapshot: {originalGoal: `Independent ${i % 2 ? 'formatted display' : 'repeat delivery'} ${i}`,
@@ -235,7 +242,125 @@ async function automationFixture(check) {
       setConfig: fn => {configured = fn(configured);}, setLive: value => {live = value;}, setOwner: value => {owner = value;}});
   });
 }
+async function fixtureCli(f, configured) {
+  const bin = join(f.commonDir, 'passive-cli-spies'), marker = join(bin, 'model-calls');
+  await mkdir(bin); await mkdir(join(bin, 'home'));
+  await writeFile(join(f.root, '.agent-ops/config.json'), JSON.stringify(configured));
+  for (const name of ['codex', 'claude', 'agy', 'ps']) {
+    const body = name === 'ps' ? `process.stdout.write('fixture-start-' + process.argv[process.argv.indexOf('-p') + 1]);`
+      : `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'called\\n');process.exit(99);`;
+    await writeFile(join(bin, name), `#!${process.execPath}\n${body}\n`); await chmod(join(bin, name), 0o700);
+  }
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^AGENT_OPS_(?:RUN|WORKER|SESSION|AGENT)_/u.test(key) && key !== 'CODEX_THREAD_ID'));
+  Object.assign(env, {AGENT_OPS_HOME: join(bin, 'home'), PATH: bin + ':' + process.env.PATH});
+  await execFile(process.execPath, ['--input-type=module', '-e',
+    'const {worktreeDependencies}=await import(process.argv[1]);const d=worktreeDependencies();await d.trust.grant(process.argv[2],await d.loadConfig(process.argv[2]));',
+    moduleUrl('packages/cli/src/parallel-deps.js'), f.root], {env});
+  return {marker, run: async args => {
+    const result = await execFile(process.execPath, [new URL(moduleUrl('packages/cli/src/bin.js')).pathname, ...args, '--json'], {cwd: f.root, env})
+      .catch(error => assert.fail(error.stdout || error.stderr || error.message));
+    return JSON.parse(result.stdout);
+  }};
+}
+async function settledAutomation(controller) {
+  let state;
+  for (let i = 0; i < 100; i++) {
+    state = await controller.read();
+    if (!state.jobs.some(j => ['launching', 'running'].includes(j.status))) return state;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.fail('Fixture automatic worker did not settle: ' + JSON.stringify(state));
+}
 export const automationChecks = {
+  'learning-author-input-isolation': async () => {
+    for (const exposure of ['uncited-history', 'current-task', 'changed-archive', 'legacy-author']) await automationFixture(async x => {
+      const goal = x.suite.cases[2].snapshot.originalGoal;
+      if (exposure === 'uncited-history') await delivered(x.m, x.f, 'uncited-holdout', goal);
+      let id = await x.enqueue(proposal, exposure, exposure === 'current-task' ? goal : undefined);
+      const candidate = await x.controller.candidates.read(id);
+      assert.equal(candidate.history.length, 1, 'The author cites only the original clean source');
+      if (exposure === 'changed-archive') {
+        const path = join(x.f.commonDir, 'agent-ops/criteria-advisory', `${candidate.author.taskId}-${candidate.author.attemptId}.json`);
+        const report = JSON.parse(await readFile(path, 'utf8')); report.snapshot.originalGoal = 'Modified after candidate capture';
+        await writeFile(path, JSON.stringify(report));
+      }
+      if (exposure === 'legacy-author') {
+        delete candidate.author.reportDigest; id = x.m.digest(candidate);
+        await writeFile(join(x.controller.candidates.directory, id + '.json'), JSON.stringify(candidate));
+        assert.deepEqual(await x.controller.candidates.read(id), candidate, 'Legacy candidates remain readable');
+      }
+      await writeFile(join(x.controller.candidates.directory, 'index.json'), JSON.stringify([id]));
+      assert.equal(await x.controller.reconcile(), null, `Exposed or unbound author must wait: ${exposure}`);
+      assert.equal((await x.controller.status()).quota.attempts, 0);
+      assert.equal(x.prompts.length, 0); assert.equal(x.launches.length, 0);
+      assert.match((await x.controller.status()).waiting[id], /LEAKAGE|AUTHOR_REPORT/);
+    });
+    await automationFixture(async x => {
+      assert.ok(await x.controller.reconcile(), 'An intact blinded real advisory remains eligible');
+    });
+  },
+  'learning-incremental-adoption': async () => {
+    await automationFixture(async x => {
+      const previous = {...proposal, strategies: [{id: 'existing-unrelated', paths: ['other.txt'], cue: 'Existing cue', check: 'Preserve existing check'}]};
+      const trial = await x.m.runLearningTrial({store: x.controller.store, settings: x.settings, suite: x.suite,
+        suiteCommit: await checkedGit(x.f.root, ['rev-parse', 'HEAD']), call: null,
+        source: {receipt: x.history[0].provenance.receiptDigest, taskId: x.history[0].tasks[0].id, commit: x.history[0].provenance.candidateHead, evidence: {}}});
+      await x.controller.store.adopt(await x.controller.store.read(), {proposal: previous, trial: trial.artifact,
+        source: {receipt: trial.trial.source.receipt, taskId: trial.trial.source.taskId, commit: trial.trial.source.commit}, previous: null});
+      const job = await x.controller.reconcile(); assert.ok(job);
+      const result = await x.run(job, x.call({composition: {...proposal, strategies: [...previous.strategies, ...proposal.strategies]}}));
+      assert.equal(result.status, 'adopted', result.reason);
+      const active = (await x.controller.store.current()).version;
+      assert.deepEqual(active.proposal.strategies, [...previous.strategies, ...proposal.strategies]);
+      assert.equal(result.invocations, 7);
+      assert.equal(await x.controller.reconcile(), null, 'An already adopted scoped addition is a no-op');
+      const conflict = await x.enqueue({...proposal, strategies: [{...proposal.strategies[0], cue: 'Conflicting replacement'}]}, 'conflict');
+      assert.equal(await x.controller.reconcile(), null, 'A conflicting addition cannot reserve another trial');
+      assert.equal((await x.controller.read()).waiting[conflict], 'CANDIDATE_CONFLICTS_WITH_BASELINE');
+      assert.equal((await x.controller.read()).jobs.length, 1); assert.equal(x.prompts.length, 7);
+    });
+  },
+  'learning-explicit-commands-passive': async () => {
+    if (process.platform === 'win32') return;
+    await automationFixture(async x => {
+      const cli = await fixtureCli(x.f, await x.controller.options.loadConfig());
+      const result = await cli.run(['learn', 'run', '--receipt', x.history[0].provenance.receiptPath,
+        '--suite', 'evaluation.json', '--model', x.settings.model, '--no-execute']);
+      const state = await settledAutomation(x.controller);
+      assert.equal(state.jobs.length, 0, '--no-execute cannot launch or reserve an unrelated pending trial');
+      assert.equal(result.data.trial.status, 'NOT_RUN');
+      for (const args of [['show', result.data.artifact], ['replay', result.data.artifact], ['list'], ['retire', '--reason', 'Passive control']]) {
+        await cli.run(['learn', ...args]); assert.equal((await x.controller.read()).jobs.length, 0);
+      }
+      const reserved = await x.controller.reconcile(); await x.controller.fail(reserved.id, reserved.token, 'Fixture terminal job');
+      await cli.run(['learn', 'retry', reserved.id]); await cli.run(['learn', 'list']);
+      assert.equal((await x.controller.read()).jobs.length, 1, 'Retry waits for a normal non-learn command');
+      await assert.rejects(readFile(cli.marker), {code: 'ENOENT'});
+      await cli.run(['config', 'explain']);
+      assert.equal((await settledAutomation(x.controller)).jobs.length, 2, 'Ordinary CLI use still schedules eligible work');
+      assert.equal((await readFile(cli.marker, 'utf8')).trim(), 'called');
+    });
+  },
+  'learning-cli-history-reconciliation': async () => {
+    const m = await automationModules();
+    await withRepository(async f => {
+      const store = new m.FileLearningStore(f.commonDir), index = join(store.directory, 'cases.json');
+      await mkdir(store.directory, {recursive: true}); await writeFile(index, 'broken index');
+      const c = await delivered(m, f, 'missed-intake');
+      await writeFile(index, '[]');
+      assert.deepEqual(await store.caseIds(), []);
+      const {readdir} = await import('node:fs/promises');
+      const receipts = join(f.commonDir, 'agent-ops/receipts');
+      const before = await Promise.all((await readdir(receipts)).filter(n => n.endsWith('.json')).map(async n => [n, await readFile(join(receipts, n), 'utf8')]));
+      const cli = await fixtureCli(f, {...config, reviewRoles: [{role: 'independent-review', targets: ['codex']}]});
+      await cli.run(['config', 'explain']);
+      const ids = await store.caseIds(); assert.equal(ids.length, 1, 'A normal CLI use must recover the missed sealed delivery');
+      await cli.run(['config', 'explain']); assert.deepEqual(await store.caseIds(), ids, 'Reconciliation is idempotent');
+      for (const [name, bytes] of before) assert.equal(await readFile(join(receipts, name), 'utf8'), bytes);
+      assert.equal((await m.readCompletedCase(f.source, ids[0])).tasks[0].id, c.records[0].task.id);
+      assert.equal((await store.read()).generation, 0); await assert.rejects(readFile(cli.marker), {code: 'ENOENT'});
+    });
+  },
   'learning-evaluation-adoption': async () => {
     await automationFixture(async x => {
       const before = await readFile(x.history[0].provenance.receiptPath, 'utf8');

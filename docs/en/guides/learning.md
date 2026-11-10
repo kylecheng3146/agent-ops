@@ -117,6 +117,11 @@ inapplicable setup leaves candidates waiting with a reason and zero experiment
 calls. Ordinary CLI use checks durable pending candidates and may start one local
 background experiment at a time; the normal command does not await model work.
 Passive history import alone never spends experiment quota.
+Explicit `learn` commands import history without scheduling another background
+experiment, so list, show, replay, `run --no-execute` and controls stay passive
+even with eligible pending work. Candidates bind the complete author snapshot,
+including uncited loaded history and the current task. Missing, changed or
+unbound author records remain waiting.
 
 Each attempt pins immutable candidate, suite, baseline, model/settings and evaluator
 conditions in an isolated data-only workspace. Trust, policy, native authorization,

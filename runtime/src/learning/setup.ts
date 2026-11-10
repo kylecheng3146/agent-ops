@@ -1,7 +1,7 @@
 import type {AgentOpsConfig, LearningConfig} from "../contracts.js";
 import {globsOverlap} from "../escape/lessons.js";
 import {casePaths, digest, exact, object, parseProposal, parseSuite, redactData, text, type LearningSuite} from "./data.js";
-import {validateHistoricalAdvice, type CandidateRecord} from "./history.js";
+import {candidateAuthorSnapshot, validateHistoricalAdvice, type CandidateRecord} from "./history.js";
 import type {LearningSettings} from "./experiment.js";
 import {readCompletedCase, type LearningSource} from "./intake.js";
 
@@ -52,10 +52,14 @@ export async function resolveLearningSetup(options: LearningSource & {config: Ag
       !(p.endsWith("/**") && boundedPath(p.slice(0, -3)))))) return wait("SUITE_SCOPE_INVALID");
     const identities = suite.cases.map(c => digest({goal: c.snapshot.originalGoal, criteria: c.snapshot.criteria, paths: casePaths(c.snapshot).sort()}));
     if (new Set(identities).size !== identities.length) return wait("SUITE_DUPLICATE_TASKS");
-    const sourceText = JSON.stringify(options.candidate);
-    if (suite.cases.some(c => options.candidate.history.some(h => h.tasks.some(t => t.goal === c.snapshot.originalGoal)) ||
-      sourceText.includes(JSON.stringify(c.snapshot.originalGoal).slice(1, -1)) || sourceText.includes(JSON.stringify(c.snapshot)))) return wait("SOURCE_CASE_LEAKAGE");
-    if (suite.cases.filter(c => c.split === "holdout").some(c => sourceText.includes(JSON.stringify(c.id).slice(1, -1)))) return wait("HOLDOUT_LEAKAGE");
+    const exposure = (value: unknown): string | null => {
+      const sourceText = JSON.stringify(value);
+      if (suite.cases.some(c => sourceText.includes(JSON.stringify(c.snapshot.originalGoal).slice(1, -1)) ||
+        sourceText.includes(JSON.stringify(c.snapshot)))) return "SOURCE_CASE_LEAKAGE";
+      return suite.cases.some(c => c.split === "holdout" && sourceText.includes(JSON.stringify(c.id).slice(1, -1))) ? "HOLDOUT_LEAKAGE" : null;
+    };
+    const sourceExposure = exposure(options.candidate);
+    if (sourceExposure !== null) return wait(sourceExposure);
     try {
       if (options.candidate.history.length < 1 || options.candidate.history.length > 3 ||
           !validateHistoricalAdvice({candidates: [{sourceCaseIds: options.candidate.history.map(h => h.id), proposal}]},
@@ -67,6 +71,11 @@ export async function resolveLearningSetup(options: LearningSource & {config: Ag
         if (digest(facts) !== digest({provenance: context.provenance, paths: context.paths, tasks: context.tasks})) return wait("CANDIDATE_SOURCE_CHANGED");
       }
     } catch {return wait("CANDIDATE_SOURCE_CHANGED");}
+    let authorSnapshot: Record<string, unknown>;
+    try {authorSnapshot = await candidateAuthorSnapshot(options.commonDir, options.candidate);}
+    catch {return wait("AUTHOR_REPORT_INVALID_OR_UNAVAILABLE");}
+    const authorExposure = exposure(authorSnapshot);
+    if (authorExposure !== null) return wait(authorExposure);
     if (proposal.strategies.length === 0 || proposal.strategies.some(s => ["probe", "holdout"].some(split =>
       !suite.cases.some(c => c.split === split && s.paths.some(p => casePaths(c.snapshot).some(q => globsOverlap(p, q))))))) return wait("SUITE_INAPPLICABLE");
     return {status: "eligible", reason: "READY", suite, suiteCommit, suiteDigest: registration.suiteDigest,

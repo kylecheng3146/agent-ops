@@ -5,6 +5,7 @@ import {AgentOpsError} from "../../../runtime/src/fs/paths.js";
 import {LearningAutomation, type LearningJob, type LearningOwner} from "../../../runtime/src/learning/automation.js";
 import {digest} from "../../../runtime/src/learning/data.js";
 import {EVALUATOR} from "../../../runtime/src/learning/experiment.js";
+import {reconcileLearning} from "../../../runtime/src/learning/intake.js";
 import {nativeProcessIdentity} from "../../../runtime/src/run/transport.js";
 import {nativeProcessGroupAlive} from "../../../runtime/src/run/hosts/util.js";
 import {followupRepositoryContext} from "./followup-deps.js";
@@ -60,9 +61,16 @@ export async function productionLearningAutomation(cwd: string, ownedGroup = fal
   return controller;
 }
 /** Advisory scheduling is separate from passive receipt/history import. No retries or fallback authority. */
-export async function reconcileRepositoryLearning(cwd: string): Promise<string[]> {
-  try {await (await productionLearningAutomation(cwd)).reconcile(); return [];}
+export async function reconcileRepositoryLearning(cwd: string, schedule = true): Promise<string[]> {
+  const warnings: string[] = [];
+  try {
+    const collected = await reconcileLearning(await followupRepositoryContext(cwd));
+    warnings.push(...collected.warnings);
+    if (schedule) await (await productionLearningAutomation(cwd)).reconcile();
+    return warnings;
+  }
   catch (error) {
-    return error instanceof AgentOpsError && error.code === "WORKTREE_NOT_GIT" ? [] : ["learning: AUTOMATION_UNAVAILABLE; existing baseline retained; inspect learn list."];
+    return error instanceof AgentOpsError && error.code === "WORKTREE_NOT_GIT" ? warnings :
+      [...warnings, "learning: AUTOMATION_UNAVAILABLE; existing baseline retained; inspect learn list."];
   }
 }

@@ -90,6 +90,9 @@ receipt 無效或遺失時，不會因 finish 成功而取得資格。案例保�
 註冊；預設不安裝 live suite／model。設定遺失、無效、未確認、洩漏或不適用時，
 候選保持 waiting 並顯示原因，不呼叫實驗模型。一般 CLI 檢查持久待辦，同一
 repository 最多一個背景實驗，不等待模型工作；單純匯入歷史不花實驗額度。
+明確的 `learn` 命令只補收歷史，不啟動其他背景實驗；因此 list、show、replay、
+`run --no-execute` 與控制命令不會因待辦而額外花費。候選綁定完整作者快照，
+包括未引用的已載入歷史與當前任務；作者紀錄缺失、變更或未綁定時保持 waiting。
 
 每次嘗試固定不可變的候選、suite、baseline、模型／settings 與 evaluator，
 在隔離 data-only 工作區執行。啟動與採用前重驗 trust、policy、原生授權、
