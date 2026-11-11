@@ -520,7 +520,10 @@ The object has exactly `suitePath` (repository-relative regular JSON file),
 and `effort`. The target must already be configured for `independent-review`.
 Canonical JSON recursively sorts object keys and preserves array order; hash its
 UTF-8 JSON encoding, not the file's whitespace. Commit the suite before registration.
-Do not use a floating `latest`/`auto` model. Registration does not grant trust or
+Do not use a floating `latest`/`auto` model: the id must end in a date or `@vN`/`:N`.
+agy lists no dated snapshots, so with target `agy` the exact id printed by
+`agy models` (a version digit and a `-low`/`-medium`/`-high` tier, such as
+`gemini-3.8-flash-high`) is accepted instead. Registration does not grant trust or
 modify verifier authority; follow the normal authorization process for config changes.
 
 The suite needs at least two distinct probes and two distinct independent holdouts,

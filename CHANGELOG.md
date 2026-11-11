@@ -4,6 +4,12 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Automatic learning registration with target `agy` accepts the exact id printed
+  by `agy models` (version digit plus `-low`/`-medium`/`-high` tier, such as
+  `gemini-3.8-flash-high`), because agy lists no dated snapshots. Other targets
+  still need a dated or `@vN`/`:N` id, floating `auto`/`default`/`latest` ids
+  still wait `MODEL_NOT_FIXED`, and existing registrations keep their fingerprint.
+
 ## [1.3.0] - 2026-11-10
 
 - Learning collects every eligible sealed, contract-bound delivery once as a

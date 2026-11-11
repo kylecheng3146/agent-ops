@@ -143,7 +143,11 @@ export const adviceChecks = {
       assert.equal(eligible.suiteCommit, await checkedGit(f.root, ['rev-parse', 'HEAD']));
       assert.equal((await resolve({...configured, learning: {...registration, humanConfirmed: false}})).reason, 'SUITE_UNCONFIRMED');
       assert.equal((await resolve({...configured, learning: {...registration, independentlyLabelled: false}})).reason, 'SUITE_UNCONFIRMED');
-      for (const model of ['latest', 'default', 'model-1-latest', 'opus', 'gpt-4o', 'gpt-5.4']) assert.equal((await resolve({...configured, learning: {...registration, settings: {...registration.settings, model}}})).reason, 'MODEL_NOT_FIXED');
+      assert.equal(eligible.fingerprint, m.digest({registration, suite, settings: registration.settings}), 'Previously accepted registrations keep their fingerprint');
+      for (const model of ['latest', 'default', 'model-1-latest', 'opus', 'gpt-4o', 'gpt-5.4', 'gpt-5.4-high']) assert.equal((await resolve({...configured, learning: {...registration, settings: {...registration.settings, model}}})).reason, 'MODEL_NOT_FIXED');
+      const agy = settings => ({...configured, reviewRoles: [{role: 'independent-review', targets: ['agy']}], learning: {...registration, settings: {...registration.settings, target: 'agy', ...settings}}});
+      assert.equal((await resolve(agy({model: 'gemini-3.8-flash-high'}))).status, 'eligible', 'agy catalog ids are the strongest pin agy offers');
+      for (const model of ['gemini-high', 'gemini-3.8-latest-high', 'auto-3-medium', 'gemini-3.8-flash']) assert.equal((await resolve(agy({model}))).reason, 'MODEL_NOT_FIXED', model);
       assert.equal((await resolve({...configured, learning: {...registration, suiteDigest: '0'.repeat(64)}})).reason, 'SUITE_DIGEST_CHANGED');
       assert.equal((await resolve({...configured, learning: {...registration, suitePath: 'tests/learning/scenarios.json'}})).reason, 'SYNTHETIC_SUITE');
       assert.equal((await resolve({...configured, reviewRoles: []})).reason, 'TARGET_UNCONFIGURED');
@@ -648,6 +652,7 @@ const documentationChecks = async () => {
       assert.match(text, lang === 'en' ? /(?:unmeasured|do not establish paid production)/ : /(?:尚未測量|不能證明付費生產)/);
     }
     assert.ok(texts[1].includes('suiteDigest') && texts[1].includes('humanConfirmed') && texts[1].includes('independentlyLabelled'));
+    assert.ok(texts[1].includes('agy models'), `${lang} configuration guide documents the agy catalog id pin`);
     assert.ok(texts[0].includes('12,000') && texts[2].includes('12,000'));
     assert.doesNotMatch(texts[0], /There is no background model work|本版沒有背景模型工作/);
   }

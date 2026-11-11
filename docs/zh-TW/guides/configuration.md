@@ -455,7 +455,10 @@ model；沒有此欄位的既有設定仍合法。
 （兩者必須 true），以及含 `target`、`model`、`effort` 的 `settings`。
 target 必須已列為 `independent-review`。正規化 JSON 遞迴排序物件 key，保留
 array 順序；雜湊 UTF-8 JSON 編碼而非檔案空白。先提交 suite，才註冊；不使用
-浮動 latest／auto 模型。註冊不授予 trust，也不修改 verifier authority；設定
+浮動 latest／auto 模型，id 結尾須為日期或 `@vN`／`:N`。agy 不提供日期快照，
+所以 target 為 `agy` 時改接受 `agy models` 列出的精確 id（含版本數字並以
+`-low`／`-medium`／`-high` 結尾，例如 `gemini-3.8-flash-high`）。註冊不授予
+trust，也不修改 verifier authority；設定
 變更仍須依原有授權程序。
 
 suite 至少需兩個不同 probe 與兩個獨立 holdout、受限且適用的路徑及既有固定
