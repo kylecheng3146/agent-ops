@@ -1,0 +1,9 @@
+worktree: session-c500ec2d (agent-ops/session-c500ec2d)
+session: c500ec2d-3eab-4ef7-a7eb-3a66b5f54025
+agent-ops task task-c95f2b22-372d-440c-8b7e-08000bfd3f3c: learning: accept agy catalog model ids for automatic registration
+intent: In resolveLearningSetup, accept for target agy only an id with a version digit ending in -low/-medium/-high; keep all other model rules, reason codes and fingerprints; document in en/zh-TW configuration guides and CHANGELOG Unreleased; extend learning-suite-eligibility and learning-documentation checks.
+criteria:
+- agy-catalog-model-pin: With target agy configured for independent-review, a committed confirmed registration whose model is an exact agy catalog id (version digit plus -low/-medium/-high tier, e.g. gemini-3.8-flash-high) resolves eligible instead of waiting MODEL_NOT_FIXED; agy ids without a version digit or with auto/default/latest tokens, the same tier-style id under a non-agy target (gpt-5.4-high on codex) and every previously rejected id still wait MODEL_NOT_FIXED. A previously accepted registration (dated id model-2026-01 on codex) still resolves eligible with fingerprint equal to digest({registration, suite, settings}).
+- agy-pin-documented: English and Traditional Chinese configuration guides state that agy exposes no dated snapshots so the exact id listed by `agy models` is accepted, and CHANGELOG Unreleased records it; the learning-documentation check requires `agy models` in both configuration guides.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/96a8e3f3ba5f7eb4ad8ef4c6489817f29a1bda350f152f0321c3fa7aff423a26-82b5acf3c3b8ced8edf85c8e02cd5df059a96ade.json
+receipt-sha256: 27414ea270f94515effaa8c925ea464e22d0964294dbb34f7569fb5125831e8b
