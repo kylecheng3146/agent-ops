@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-11
+
 - Automatic learning registration with target `agy` accepts the exact id printed
   by `agy models` (version digit plus `-low`/`-medium`/`-high` tier, such as
   `gemini-3.8-flash-high`), because agy lists no dated snapshots. Other targets
