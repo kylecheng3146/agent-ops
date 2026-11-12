@@ -1,0 +1,382 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "probe-office-revive",
+      "split": "probe",
+      "snapshot": {
+        "originalGoal": "另外幫我修正 會一直被啟動 office 的 網頁 的問題",
+        "criteria": [
+          {
+            "id": "revive-same-url",
+            "description": "After the Office server exits (idle) and a hook revives it, the revived server answers on the previous URL (same port and token), so an open tab reconnects, and ensureBackgroundOffice does not open another browser page."
+          },
+          {
+            "id": "slow-snapshot-live",
+            "description": "A live Office server whose snapshot takes longer than the liveness timeout is still detected as live by readLiveOffice, so ensure never boots it out and starts a second one."
+          },
+          {
+            "id": "unit-tests",
+            "description": "npm test passes, including the updated Office server tests for record reuse."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "packages/cli/src/office-entry.ts"
+            },
+            {
+              "path": "runtime/src/office/server.ts"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "concurrency"
+      ]
+    },
+    {
+      "id": "holdout-office-view",
+      "split": "holdout",
+      "snapshot": {
+        "originalGoal": "# Goal: `agent-ops office`, a DOS-RPG office view of every agent in the repo\n\nOriginal user request (verbatim): 現在進度如何, 我完全看不到做到哪....這次有辦法再幫我加入一個UI顯示嗎\nFollow-up (verbatim): 做成一個dos RPG風格的辦公室樣子裡面看得到這種改動呢?\n(\"I can't see how far a run has got. Add a UI: a DOS-RPG-style office where\nthe changes are visible.\") Reference: a 16-color top-down 1990s DOS RPG\ninterior (wooden floor, furniture, small characters). Do not copy any\ncommercial game's art.\n\nProblem today: `run status` shows only budget and worker counts, and `run logs`\nis flooded with `RUN_COMMAND_AUTHORIZATION_OBSERVED`, so nothing says which\nstage a run is in or what it is changing.\n\n## Decisions already made with the user (do not reopen)\n\n1. Surface: a local web page served on loopback.\n2. Data: (a) new explicit phase data in run state, written by the supervisor at\n   deterministic transitions: planning (no plan yet), implementing (worker\n   running), verifying, reviewing, integrating; plus each task's latest verify\n   and review result and passed/total criteria. (b) the server computes each\n   worktree's `git diff --stat` and changed paths itself. Never read native\n   Claude/Codex transcripts.\n3. Art: drawn in code, with no external or bundled image assets. A fixed 16-color\n   palette; each sprite is a character matrix (e.g. 16x16, one character per\n   palette index) rendered scaled on a canvas with pixelated scaling.\n4. Scene: one zone per stage. Each worker character walks to its phase's zone:\n   whiteboard = planning, desk = implementing, lab bench = verifying, meeting\n   table = reviewing, front door = integrating. A paper stack on a worker's desk\n   grows with the changed-file count, a bookshelf lights one book per passed\n   criterion (for example 2/6), a wall clock shows the remaining budget, a \"!\"\n   above a character marks an unanswered question, and a bottom RPG dialogue\n   box shows narration.\n5. Scope: the whole repository as one building. Each run is one floor using the\n   scene above (coordinator + up to 2 workers + up to 2 reviewers). Ordinary\n   session worktrees (`worktree list`) are single desks in a lobby. Running\n   `agent-ops review` / `batch` reviews (the review slots) show in a meeting\n   room.\n6. Read-only. Clicking a character or zone opens an RPG-style status window\n   (task, phase, changed files, criteria) with copyable CLI commands such as\n   `agent-ops run respond <id> --question-id <q> --answer \"...\"`,\n   `run resume <id>`, `run stop <id>`. The server exposes GET only.\n7. Lifecycle: at most one server per repository. `run start` reuses a live\n   server recorded in `<git common dir>/agent-ops/office.json` or starts one\n   under launchd. The URL appears in `run start` and `run status` output. The\n   server exits 10 minutes after no run is active. `agent-ops office` prints the\n   URL, starting the server if needed, so sessions without a run can see the\n   building too.\n8. Narration is inferred from git changes, with no worker cooperation:\n   recently changed `docs/**` -> \"writing docs\", `tests/**` -> \"writing\n   tests\", otherwise \"editing <file>\". Paths only, never file contents.\n\n## Defaults chosen without asking (keep unless they break something)\n\n- Server: `node:http`. Front end: one inline HTML page with vanilla JS and\n  canvas; no new dependencies, no bundler, no WebSocket. The page polls a JSON\n  snapshot about every 2 seconds.\n- Security: bind 127.0.0.1 on a random port; the URL carries an unguessable\n  token; reject requests whose Host is not the loopback address and port\n  (DNS-rebinding guard); every non-GET is 405. Goal text and paths are shown, so\n  the token is required.\n- Platform: launchd auto-start is macOS-only, like `run`; elsewhere\n  `agent-ops office` runs in the foreground.\n- Run state stays readable by older snapshots: phase fields are optional, and\n  their absence renders as \"unknown\".\n\n## Proposed acceptance criteria\n\n1. Run state records the phase per worker and run, set by the supervisor at each\n   transition in decision 2, plus per-task verify/review result and passed/total\n   criteria; state written before this change still validates. Unit tests.\n2. A pure snapshot builder aggregates every run in the common dir, every\n   agent-ops worktree and the active review slots, with per-worktree diff stat,\n   changed paths and the decision-8 narration. Unit tests on fixtures.\n3. The office server serves the page and snapshot JSON only with the token, only\n   on loopback with a matching Host, GET only (others 405), records itself in\n   `office.json`, is reused rather than duplicated, and exits after 10 idle\n   minutes. Tests with an injected clock.\n4. `run start` and `run status` print the office URL; `agent-ops office`\n   prints or starts it. CLI tests.\n5. The page draws the decision-4/5 scene from in-code sprites with no asset\n   files, moves characters to their phase zone, and opens a status window with\n   copyable commands on click. A test maps a snapshot to a scene model\n   (positions, paper count, lit books, \"!\"), plus a manual screenshot check.\n6. README, `docs/en/spec` and the `docs/zh-TW/spec` mirror document the office;\n   `npm test`, `npm run package:check` and the source scan pass.",
+        "criteria": [
+          {
+            "id": "phase-state",
+            "description": "Run state records optional per-run and per-worker phase (planning, implementing, verifying, reviewing, integrating) set by the supervisor at each transition, plus per-task latest verify/review result and passed/total criteria; run state written before this change still validates and renders phase as unknown. Covered by unit tests in npm test."
+          },
+          {
+            "id": "snapshot",
+            "description": "A pure snapshot builder aggregates every run in the git common dir, every agent-ops worktree and active review/batch slots, with per-worktree diff stat, changed paths and decision-8 path-only narration (docs -> writing docs, tests -> writing tests, else editing <file>). Covered by unit tests on fixtures in npm test."
+          },
+          {
+            "id": "server-cli",
+            "description": "The office server (node:http) serves the page and snapshot JSON only with the token, only on 127.0.0.1 with a matching Host header, GET only (other methods 405), records itself in <git common dir>/agent-ops/office.json, is reused rather than duplicated, and exits after 10 idle minutes (tests with an injected clock); `agent-ops office` prints the URL starting the server if needed, and `run start` and `run status` print the office URL. Covered by server and CLI tests in npm test."
+          },
+          {
+            "id": "scene",
+            "description": "The page draws the DOS-RPG scene from in-code 16-color character-matrix sprites with no asset files, moves characters to their phase zone, and opens a status window with copyable commands on click; a pure scene-model function maps a snapshot to positions, paper count, lit books and '!' markers, covered by a unit test in npm test."
+          },
+          {
+            "id": "docs-gates",
+            "description": "README, docs/en/spec and the docs/zh-TW/spec mirror document `agent-ops office`; npm test, npm run package:check and the source scan pass."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "packages/cli/src/args.ts"
+            },
+            {
+              "path": "packages/cli/src/bin.ts"
+            },
+            {
+              "path": "packages/cli/src/cli.ts"
+            },
+            {
+              "path": "packages/cli/src/commands/advance.ts"
+            },
+            {
+              "path": "packages/cli/src/commands/office.ts"
+            },
+            {
+              "path": "packages/cli/src/commands/run.ts"
+            },
+            {
+              "path": "packages/cli/src/office-entry.ts"
+            },
+            {
+              "path": "packages/cli/src/run-deps.ts"
+            },
+            {
+              "path": "packages/cli/src/run-entry.ts"
+            },
+            {
+              "path": "runtime/src/review/slots.ts"
+            },
+            {
+              "path": "runtime/src/run/phase.ts"
+            },
+            {
+              "path": "runtime/src/run/service.ts"
+            },
+            {
+              "path": "runtime/src/office/**"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "timeBoundary"
+      ]
+    },
+    {
+      "id": "probe-agy-model-pin",
+      "split": "probe",
+      "snapshot": {
+        "originalGoal": "使用者選擇「改 agent-ops 規則」：1.3.0 自動學習註冊只接受結尾帶日期或 @vN 的 model id，agy 的 id（例如 gemini-3.8-flash-high）全部被判 MODEL_NOT_FIXED，wixgo（唯一 review target 是 agy）因此無法啟用自動實驗。放寬規則讓 agy 的精確目錄 id 可以註冊，並發 1.3.1。",
+        "criteria": [
+          {
+            "id": "agy-catalog-model-pin",
+            "description": "With target agy configured for independent-review, a committed confirmed registration whose model is an exact agy catalog id (version digit plus -low/-medium/-high tier, e.g. gemini-3.8-flash-high) resolves eligible instead of waiting MODEL_NOT_FIXED; agy ids without a version digit or with auto/default/latest tokens, the same tier-style id under a non-agy target (gpt-5.4-high on codex) and every previously rejected id still wait MODEL_NOT_FIXED. A previously accepted registration (dated id model-2026-01 on codex) still resolves eligible with fingerprint equal to digest({registration, suite, settings})."
+          },
+          {
+            "id": "agy-pin-documented",
+            "description": "English and Traditional Chinese configuration guides state that agy exposes no dated snapshots so the exact id listed by `agy models` is accepted, and CHANGELOG Unreleased records it; the learning-documentation check requires `agy models` in both configuration guides."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "runtime/src/learning/setup.ts"
+            }
+          ]
+        }
+      },
+      "expected": []
+    },
+    {
+      "id": "holdout-learning-automation",
+      "split": "holdout",
+      "snapshot": {
+        "originalGoal": "自動收錄所有交付 → 有新候選及適用評估案例才自動實驗 → 通過才採用。授權接手修正",
+        "criteria": [
+          {
+            "id": "delivery-history",
+            "description": "Every eligible sealed contract-bound ordinary or repaired delivery is collected once as a full task tree, with redacted bounded completed-case facts and exact provenance; finish/recovery/reconciliation stay responsive, advisory and model-free, invalid receipts remain ineligible, and source proof stays immutable. Ordinary CLI use must recover failed sealed intake exactly once without changing proof or calling models."
+          },
+          {
+            "id": "advisory-proposals",
+            "description": "New existing data-only criteria advisory calls load bounded path-relevant historical cases labelled unvalidated, record exact references and supported model-reported use, optionally emit validated source-linked empty-or-bounded candidates without an extra CLI call or holdout exposure; old advice/snapshots remain compatible. Eligibility must check the full hash-bound author snapshot, including uncited history and the current task, for holdout exposure before any model call."
+          },
+          {
+            "id": "evaluation-adoption",
+            "description": "Only explicit committed independently labelled human-confirmed applicable suites and fixed models permit trials; pinned data-only inputs and current authority guard supplied-candidate repeated paired/probe/holdout/per-case/composition evaluation, no-headroom early stop, unchanged/unsupported rejection and stale-library CAS adoption, retaining baseline on every uncertain/failed outcome. Scoped additions must accumulate unchanged prior strategies and reject conflicts or no-ops before model calls."
+          },
+          {
+            "id": "automation-accounting",
+            "description": "Normal CLI use starts at most one repository-local isolated background trial, with durable atomic canonical candidate/conditions dedup, no passive-import spend or daemon, UTC-day max two attempts and max twelve extra CLI invocations per trial, truthful failure accounting, no unchanged automatic retry, authority drift/crash retention and explicit manual retry history. Every explicit learn query, replay, no-execute and control command must remain passive with eligible queued work."
+          },
+          {
+            "id": "compatibility-delivery",
+            "description": "Manual learn run/list/show/replay/retire/rollback and old configuration/data/receipt/task/review flows remain compatible; observable waiting/running/adopted/retained/failed reasons and quotas, EN/zh-TW learning/configuration/review docs, maintenance backups and source audits are delivered without dependencies or security weakening; final committed candidate passes mandatory verification, two fresh independent reviews and finish. All original candidate materials must replay with exact missing-feature assertion guards rather than module/fixture infrastructure failures."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "packages/cli/src/args.ts"
+            },
+            {
+              "path": "packages/cli/src/bin.ts"
+            },
+            {
+              "path": "packages/cli/src/cli.ts"
+            },
+            {
+              "path": "packages/cli/src/commands/learn.ts"
+            },
+            {
+              "path": "packages/cli/src/criteria-review.ts"
+            },
+            {
+              "path": "packages/cli/src/learning-deps.ts"
+            },
+            {
+              "path": "packages/cli/src/learning-entry.ts"
+            },
+            {
+              "path": "packages/cli/src/run-entry.ts"
+            },
+            {
+              "path": "runtime/src/config/explain.ts"
+            },
+            {
+              "path": "runtime/src/config/merge.ts"
+            },
+            {
+              "path": "runtime/src/contracts.ts"
+            },
+            {
+              "path": "runtime/src/parallel/finish.ts"
+            },
+            {
+              "path": "runtime/src/review/criteria.ts"
+            },
+            {
+              "path": "runtime/src/schema/validate.ts"
+            },
+            {
+              "path": "runtime/src/learning/**"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "redo"
+      ]
+    },
+    {
+      "id": "probe-cross-host-resume",
+      "split": "probe",
+      "snapshot": {
+        "originalGoal": "支援 agent-ops run resume <id> --host <claude|codex> 跨 host 接手續跑（限 paused / blocked / budget-limited 且所有 writer 確認已終止；切換 coordinator 與所有非 delivered worker、重設 nativeInstance、保留已交付 worker 不動、寫入稽核事件並保留完整驗證與兩輪審查關卡，同步更新 baseline 規則與中英文規格）。",
+        "criteria": [
+          {
+            "id": "c1-resume-host-takeover",
+            "description": "Omitting --host on run resume preserves baseline same-host behavior; supplying --host <claude|codex> (alone or combined with --retry-delivery or --retry-approval) switches a paused, blocked, or budget-limited run before integration only when all writers and proof processes have confirmed non-future death timestamps (rejecting invalid run states, active/unconfirmed/future-dated writers, or active proof processes with RUN_HOST_SWITCH_INVALID, and rejecting unauthorized host modifications outside resume), rebinds the coordinator and non-delivered workers to start clean native sessions on the target host without reusing prior host session identifiers while keeping delivered workers and their deliveries untouched, records a RUN_HOST_SWITCHED audit event, and preserves mandatory verification and two-round review finalization gates."
+          },
+          {
+            "id": "c2-cli-and-autorun-surface",
+            "description": "CLI argument parsing accepts --host <claude|codex> on run resume and forwards it to the resume service, rejects unsupported host values or --host on non-resume control actions with CLI_INVALID_OPTION, fails preflight with RUN_NATIVE_UNAVAILABLE when the target host CLI binary or version check is unavailable, and includes agent-ops run resume <id> [--host <claude|codex>] in CLI run help text and managed auto-run baseline instructions."
+          },
+          {
+            "id": "c3-spec-sync",
+            "description": "Bilingual specifications (docs/en/spec/loop-engineering.md, docs/zh-TW/spec/loop-engineering.md, docs/en/spec/harness-adapters.md, docs/zh-TW/spec/harness-adapters.md) accurately and consistently document cross-host run resume takeover, preconditions, worker rebinding, delivered worker preservation, mandatory verification/two-round review gates, and RUN_HOST_SWITCHED auditing."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "packages/cli/src/args.ts"
+            },
+            {
+              "path": "packages/cli/src/cli.ts"
+            },
+            {
+              "path": "packages/cli/src/commands/run.ts"
+            },
+            {
+              "path": "packages/cli/src/run-deps.ts"
+            },
+            {
+              "path": "runtime/src/install/harness.ts"
+            },
+            {
+              "path": "runtime/src/run/service.ts"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "redo"
+      ]
+    },
+    {
+      "id": "holdout-approval-retry-resume",
+      "split": "holdout",
+      "snapshot": {
+        "originalGoal": "agent-ops run resume run-40719b9f27704318\n\n\n順便修復這個resume 一直失敗的問題",
+        "criteria": [
+          {
+            "id": "approval-quota-resume",
+            "description": "A targeted explicit run-resume acknowledgement retries only the provenance-valid failed native approval review in the original run, preserving denial artifacts, original goal and accounting; every command still needs fresh native approval."
+          },
+          {
+            "id": "denial-boundary",
+            "description": "Genuine, ambiguous, foreign, missing or tampered denials remain blocking; no-progress, budget, stop, writer identity and policy boundaries remain effective."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "packages/cli/src/args.ts"
+            },
+            {
+              "path": "packages/cli/src/cli.ts"
+            },
+            {
+              "path": "packages/cli/src/commands/run.ts"
+            },
+            {
+              "path": "packages/cli/src/run-deps.ts"
+            },
+            {
+              "path": "runtime/src/run/controls.ts"
+            },
+            {
+              "path": "runtime/src/run/service.ts"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "timeBoundary"
+      ]
+    },
+    {
+      "id": "probe-review-timeouts",
+      "split": "probe",
+      "snapshot": {
+        "originalGoal": "Gate friction fix A from the 2026-10-14 grill: acceptance runner steps shared a 60 s default and agy review rounds outran 900 s; split runner defaults, name the timed-out step, raise the review round default to 30 minutes and honor a larger configured reviewer timeout.",
+        "criteria": [
+          {
+            "id": "ac1-runner-timeouts",
+            "description": "Acceptance runner steps without their own timeoutMs use per-step defaults (setup 600 s, build 300 s, testBuild 300 s, run 300 s, git checkout 60 s) instead of a shared 60 s; a step that times out yields UNKNOWN with a detail naming the step, its limit and the timeoutMs field that raises it, printed by agent-ops verify. Configuration guides (en, zh-TW) and CHANGELOG describe it. Checks: acceptance-step-timeouts, acceptance-timeout-detail."
+          },
+          {
+            "id": "ac2-review-timeout",
+            "description": "DEFAULT_REVIEW_TIMEOUT_MS is 30 minutes per reviewer round (was 15); a configured reviewRoles[].timeoutMs is honored even above the default (it was silently capped), short stages keep their own ceilings, the chain deadline still wins, and the stall guards are unchanged. Checks: review-default-timeout, review-timeout-not-capped."
+          },
+          {
+            "id": "ac3-suite",
+            "description": "The full npm test suite passes, including the startup runner count (59) and the updated thirty-minute review default test."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "packages/cli/src/commands/verify.ts"
+            },
+            {
+              "path": "runtime/src/review/execute.ts"
+            },
+            {
+              "path": "runtime/src/review/slots.ts"
+            },
+            {
+              "path": "runtime/src/verify/acceptance-replay.ts"
+            }
+          ]
+        }
+      },
+      "expected": []
+    },
+    {
+      "id": "holdout-replay-cleanup",
+      "split": "holdout",
+      "snapshot": {
+        "originalGoal": "Release 0.10.0 Windows CI: a verify step killed for its time limit holds the replay checkout open, rm throws EBUSY and verify crashes instead of reporting TIMEOUT. Cleanup must never replace the result.",
+        "criteria": [
+          {
+            "id": "ac1-cleanup-fail-open",
+            "description": "When the acceptance replay checkout cannot be removed after a run (Windows EBUSY after a killed step; a read-only directory in the check), verify returns its report instead of throwing, and the undeletable checkout is left in the temp directory. Replay, review attempt and probe cleanup all use removeTemporary (runtime/src/fs/temporary.ts), which retries transient errors. Check: temporary-cleanup-fail-open."
+          },
+          {
+            "id": "ac2-suite",
+            "description": "The full npm test suite passes, including the startup runner count (63), and CHANGELOG 0.10.0 describes the fix."
+          }
+        ],
+        "surface": {
+          "included": [
+            {
+              "path": "runtime/src/fs/temporary.ts"
+            },
+            {
+              "path": "runtime/src/review/execute.ts"
+            },
+            {
+              "path": "runtime/src/review/probe.ts"
+            },
+            {
+              "path": "runtime/src/verify/acceptance-replay.ts"
+            }
+          ]
+        }
+      },
+      "expected": [
+        "redo"
+      ]
+    }
+  ]
+}
