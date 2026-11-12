@@ -177,6 +177,8 @@ export interface AgentOpsConfig {
   worktree?: WorktreeConfig;
   /** Optional explicit registration; absence never enables model spending. */
   learning?: LearningConfig;
+  /** Project-only opt-in. Omission preserves the legacy path and spending. */
+  qa?: import("./qa/types.js").QaConfig;
 }
 
 export interface AcceptanceCriterion {
@@ -188,6 +190,8 @@ export interface AcceptanceCriterion {
 }
 
 export interface AgentTask {
+  /** Frozen requirement; project defaults cannot remove an enrolled gate. */
+  qa?: import("./qa/types.js").QaPolicyBinding;
   debug?: { rootTaskId: string; facts: string[]; unknowns: string[] };
   schemaVersion: 1 | typeof TASK_SCHEMA_VERSION;
   id: string;

@@ -415,7 +415,7 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
           }
           const config = await deps.loadConfig(workerRoot);
           const service = new TaskService(new FileTaskStore(join(workerRoot, ".agent-ops", "tasks", "state.json"), workerRoot), {
-            generateId: () => node.taskId, completion: {root: workerRoot, gitRunner: gitRunner(workerRoot), loadConfig: async () => config}});
+            deliveryRole: "child", generateId: () => node.taskId, completion: {root: workerRoot, gitRunner: gitRunner(workerRoot), loadConfig: async () => config}});
           await service.create({title: plan.title, intent: plan.intent, criteria: plan.criteria, goal: current.goal,
             sessionId: ownerSessionId, policyConfigHash: calculateConfigHash(config), ...(plan.covers === undefined ? {} : {surface: {covers: plan.covers}})});
           const advisory = await criteriaStep(workerRoot, node.taskId);
