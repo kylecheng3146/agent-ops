@@ -85,6 +85,23 @@ export interface QaUsage {
   readonly totalTokens: number | null;
   readonly costUsd: number | null;
 }
+/** Import changes the candidate: anything observed before importedCommit is never final proof. */
+export interface QaMaterialLineage {
+  readonly authoredCommit: string;
+  readonly importedCommit: string;
+}
+/** What a writable QA author reports. DATA only: never a verdict, and never trusted for paths or versions. */
+export interface QaAuthorResponse {
+  readonly schemaVersion: 1;
+  readonly generation: number;
+  readonly plan: string;
+  readonly candidateCommit: string;
+  readonly materials: readonly (AcceptanceMaterial & { readonly caseIds: readonly string[] })[];
+  /** Existing-file changes QA needs: returned to the developer, never merged from the QA checkout. */
+  readonly requestedEdits: readonly { readonly path: string; readonly reason: string }[];
+  readonly observations: readonly { readonly caseId: string; readonly notes: readonly string[] }[];
+  readonly questions: readonly QaQuestion[];
+}
 export interface QaAttempt {
   readonly schemaVersion: 1;
   readonly id: string;
@@ -98,6 +115,7 @@ export interface QaAttempt {
   readonly materialDigest: string;
   readonly executions: readonly QaReference[];
   readonly usage: QaUsage;
+  readonly lineage?: QaMaterialLineage;
 }
 export interface QaExecution {
   readonly schemaVersion: 1;

@@ -2,7 +2,7 @@ import { acceptanceError, acceptanceSourcePath, commitIdentity, materialPath } f
 import { AgentOpsError } from "../fs/paths.js";
 import { SCENARIO_DIMENSIONS } from "../surface/schema.js";
 import { makeAcceptanceCheck, makeAcceptanceRun, type AcceptanceRun } from "../verify/acceptance-protocol.js";
-import type { QaArtifactKind, QaArtifacts, QaConfig, QaControl, QaPolicyBinding, QaReference, QaVersion } from "./types.js";
+import type { QaArtifactKind, QaArtifacts, QaAuthorResponse, QaConfig, QaControl, QaPolicyBinding, QaReference, QaVersion } from "./types.js";
 
 type RecordValue = Record<string, unknown>;
 const record = (v: unknown): v is RecordValue => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -107,7 +107,11 @@ function artifact(kind: QaArtifactKind, v: unknown): boolean {
         list(v.environment, e => shape(e, ["name", "required", "status", "evidence"]) && text(e.name) && typeof e.required === "boolean" &&
           oneOf(e.status, ["available", "missing", "unknown"]) && strings(e.evidence, text, 1)) && uniqueIds(v.questions, question);
     case "attempt":
-      return exact(v, [...base, "id", "generation", "plan", "session", "startedAt", "finishedAt", "materials", "materialDigest", "executions", "usage"]) &&
+      return exact(v, [...base, "id", "generation", "plan", "session", "startedAt", "finishedAt", "materials", "materialDigest", "executions", "usage"], ["lineage"]) &&
+        // Lineage names the final candidate: imported material always moves it past the authored commit.
+        (v.lineage === undefined || (shape(v.lineage, ["authoredCommit", "importedCommit"]) && commitIdentity(v.lineage.authoredCommit) &&
+          v.lineage.importedCommit === version.candidateCommit && Array.isArray(v.materials) &&
+          (v.materials.length === 0) === (v.lineage.authoredCommit === v.lineage.importedCommit))) &&
         qaId(v.id) && integer(v.generation, 1) && validQaReference(v.plan, "plan") && session(v.session) && (v.session as RecordValue).writable === true && date(v.startedAt) &&
         (v.finishedAt === null || (date(v.finishedAt) && Date.parse(v.finishedAt) >= Date.parse(v.startedAt))) && list(v.materials, material) &&
         new Set(v.materials.map(m => (m as RecordValue).path)).size === v.materials.length && hash(v.materialDigest) && references(v.executions, "execution") && usage(v.usage);
@@ -131,6 +135,17 @@ function artifact(kind: QaArtifactKind, v: unknown): boolean {
 export function parseQaArtifact<K extends QaArtifactKind>(kind: K, value: unknown): QaArtifacts[K] {
   if (!kinds.includes(kind) || !artifact(kind, value)) throw new AgentOpsError("QA_ARTIFACT_INVALID", "QA artifact has an unsupported schema or invalid bounded data.");
   return structuredClone(value) as QaArtifacts[K];
+}
+/** Strict: an unknown key, a stale binding shape or a non-material role is a rejected response, not a partial one. */
+export function parseQaAuthorResponse(v: unknown): QaAuthorResponse {
+  if (!shape(v, ["schemaVersion", "generation", "plan", "candidateCommit", "materials", "requestedEdits", "observations", "questions"]) ||
+      v.schemaVersion !== 1 || !integer(v.generation, 1) || !hash(v.plan) || !commitIdentity(v.candidateCommit) ||
+      !list(v.materials, m => shape(m, ["path", "role", "caseIds"]) && text(m.path) && oneOf(m.role, ["test", "fixture", "helper"]) && strings(m.caseIds, qaId, 1)) ||
+      new Set(v.materials.map(m => (m as RecordValue).path)).size !== v.materials.length ||
+      !list(v.requestedEdits, e => shape(e, ["path", "reason"]) && text(e.path) && text(e.reason)) ||
+      !list(v.observations, o => shape(o, ["caseId", "notes"]) && qaId(o.caseId) && strings(o.notes, text, 1)) || !uniqueIds(v.questions, question))
+    throw new AgentOpsError("QA_RESPONSE_INVALID", "QA author response has an unsupported schema or invalid bounded data.");
+  return structuredClone(v) as unknown as QaAuthorResponse;
 }
 export function parseQaControl(v: unknown): QaControl {
   if (!shape(v, ["schemaVersion", "taskId", "revision", "generation", "state", "continuation", "owner", "plan", "attempt", "report", "attestation", "progress", "updatedAt"]) ||
