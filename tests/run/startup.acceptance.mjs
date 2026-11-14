@@ -33,6 +33,7 @@ import {installRunnerChecks} from '../install/runner-checks.mjs';
 import {operationalChecks} from './operational-regressions.mjs';
 import {foundationChecks} from '../qa/foundation-checks.mjs';
 import {executionChecks} from '../qa/execution-checks.mjs';
+import {proofChecks} from '../qa/proof-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -76,6 +77,7 @@ async function fixture(check) {
 const checks = {
   ...foundationChecks,
   ...executionChecks,
+  ...proofChecks,
   ...operationalChecks,
   ...runResilienceChecks,
   ...installRunnerChecks,

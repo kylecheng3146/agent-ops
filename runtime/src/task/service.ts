@@ -1147,7 +1147,8 @@ export class TaskService {
     }
     if (this.#completion === undefined) throw taskError("TASK_PIN_REQUIRED", "New pins require a saved review source.");
     const {finding: _finding, ...unbound} = criterion;
-    const resolved = await loadFindingPin(this.#completion.root, record, finding.reportDigest + ":" + finding.findingIndex, unbound, records);
+    const resolved = await loadFindingPin(this.#completion.root, record,
+      (finding.source === "qa" ? "qa:" : "") + finding.reportDigest + ":" + finding.findingIndex, unbound, records);
     if (canonicalJson(resolved.finding) !== canonicalJson(finding) || resolved.acceptance?.baselineCommit !== criterion.acceptance?.baselineCommit)
       throw taskError("TASK_PIN_REQUIRED", "Pin identity and baseline must match the saved failed report.");
   }
@@ -1166,7 +1167,7 @@ export class TaskService {
       throw taskError("TASK_CRITERION_ID_CONFLICT", "A new pin requires a new criterion ID.");
     const criteria = existing === undefined ? [...record.task.criteria, pinned] : record.task.criteria.map(c => c.id === existing.id ? pinned : c);
     const updated = await this.revise(taskId, {expectedContractHash, criteria,
-      reason: reason ?? "Pin saved review finding " + reference + " against the immutable original goal.", diagnostics: ["finding:" + reference, "pin:" + pinned.finding!.pinId]});
+      reason: reason ?? "Pin saved " + (pinned.finding!.source === "qa" ? "QA" : "review") + " finding " + reference + " against the immutable original goal.", diagnostics: ["finding:" + reference, "pin:" + pinned.finding!.pinId]});
     return {record: updated, pendingCriterion: pinned};
   }
 

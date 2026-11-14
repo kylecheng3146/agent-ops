@@ -935,7 +935,8 @@ export function validateCriterion(
   }
   if (value.finding !== undefined) {
     const f = value.finding;
-    if (!isRecord(f) || unknownFieldFailure(f, ["pinId", "reportDigest", "findingIndex", "candidateCommit", "criterionIds"], path + ".finding") !== undefined ||
+    if (!isRecord(f) || unknownFieldFailure(f, ["pinId", "reportDigest", "findingIndex", "candidateCommit", "criterionIds", "source"], path + ".finding") !== undefined ||
+      (f.source !== undefined && f.source !== "qa") ||
       typeof f.pinId !== "string" || !HASH_PATTERN.test(f.pinId) || typeof f.reportDigest !== "string" || !HASH_PATTERN.test(f.reportDigest) ||
       !Number.isSafeInteger(f.findingIndex) || (f.findingIndex as number) < 0 || !commitIdentity(f.candidateCommit) ||
       !isStringArray(f.criterionIds) || !f.criterionIds.every(id => typeof id === "string" && id.split(":").length <= 2 && id.split(":").every(isIdentifier)) || !hasUniqueStrings(f.criterionIds))

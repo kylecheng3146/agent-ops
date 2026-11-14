@@ -171,6 +171,8 @@ export interface QaAttestation {
   readonly decisions: readonly QaReference[];
   readonly materialDigest: string;
   readonly caseIds: readonly string[];
+  /** Required cases judged by reasoned inspection: both final reviewers must examine them; never executed proof. The controller always writes it. */
+  readonly nonmechanicalCaseIds?: readonly string[];
   readonly session: QaSession;
   readonly generation: number;
   readonly sealedAt: string;
@@ -186,6 +188,15 @@ export interface QaOwner {
   readonly processId: number | null;
   readonly processIdentity: string | null;
 }
+/** A paused native QA author: provider limits may resume; a native denial resumes only by explicit user command. */
+export interface QaNativeSession {
+  readonly session: QaSession;
+  readonly nativeSessionId: string;
+  readonly checkout: string;
+  readonly reason: "provider-limit" | "denied";
+  readonly resetAt: string | null;
+  readonly observedAt: string;
+}
 export interface QaControl {
   readonly schemaVersion: 1;
   readonly taskId: string;
@@ -200,6 +211,9 @@ export interface QaControl {
   readonly attestation: QaReference | null;
   readonly progress: QaProgress | null;
   readonly updatedAt: string;
+  /** Genuine human answers bound to this task's plan and report questions. */
+  readonly decisions?: readonly QaReference[];
+  readonly native?: QaNativeSession;
 }
 export interface QaArtifacts {
   plan: QaPlan;

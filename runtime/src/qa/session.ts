@@ -81,8 +81,9 @@ export async function claimQaControl(store: FileQaStore, claim: QaClaim): Promis
     revision: (saved?.revision ?? 0) + 1, generation: (saved?.generation ?? 0) + 1, state: claim.state, continuation: true,
     owner: {controllerId: claim.controllerId, session: claim.session, processId: null, processIdentity: null},
     plan: saved?.plan ?? null, attempt: saved?.attempt ?? null, report: saved?.report ?? null,
-    // An owned generation cannot also hold a sealed verdict.
-    attestation: null, progress: saved?.progress ?? null, updatedAt: claim.now}));
+    // An owned generation cannot also hold a sealed verdict; a claimed native pause is consumed.
+    attestation: null, progress: saved?.progress ?? null, updatedAt: claim.now,
+    ...(saved?.decisions === undefined ? {} : {decisions: saved.decisions})}));
 }
 function owns(current: QaControl | null, held: QaControl): current is QaControl {
   return current !== null && current.generation === held.generation && current.continuation &&
@@ -105,7 +106,7 @@ export async function registerQaProcess(store: FileQaStore, held: QaControl, pid
 }
 /** Releases only the exact generation and owner that claimed it; anything else is a stale result. */
 export async function releaseQaControl(store: FileQaStore, held: QaControl,
-  patch: Partial<Pick<QaControl, "state" | "plan" | "attempt" | "report" | "continuation">>, now: string): Promise<QaControl> {
+  patch: Partial<Pick<QaControl, "state" | "plan" | "attempt" | "report" | "continuation" | "progress" | "native">>, now: string): Promise<QaControl> {
   return await store.updateControl(held.taskId, held.revision, current => {
     if (!owns(current, held)) throw new AgentOpsError("QA_STALE_WRITER", "QA control moved to another owner, generation or stop; this session's result is rejected.");
     return {...current, ...patch, revision: current.revision + 1, owner: null, updatedAt: now};

@@ -1,5 +1,7 @@
+import {execFile} from "node:child_process";
 import {readdir} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
+import {promisify} from "node:util";
 import type {AcceptanceCriterion} from "../contracts.js";
 import {AgentOpsError} from "../fs/paths.js";
 import {sha256} from "../fs/hash.js";
@@ -10,12 +12,70 @@ import {validateCriterion} from "../schema/validate.js";
 import {commitIdentity} from "../schema/acceptance.js";
 import {goalHash, taskContractHash} from "./contract.js";
 import type {StoredTaskRecord} from "./store.js";
+import {qaVersionMatches} from "../qa/policy.js";
+import {FileQaStore} from "../qa/store.js";
+import type {QaReport} from "../qa/types.js";
+import {aggregateAcceptanceRun} from "../verify/acceptance-protocol.js";
+
+const exec = promisify(execFile);
+
+/** Shared pin identity rules: explicit recurrence, one criterion per finding, failed-candidate baseline. */
+function pin(record: StoredTaskRecord, input: AcceptanceCriterion, pinId: string,
+  source: NonNullable<AcceptanceCriterion["finding"]>): AcceptanceCriterion {
+  if (input.acceptance === undefined || input.acceptance.mode === "invariant")
+    throw new AgentOpsError("TASK_PIN_ACCEPTANCE_REQUIRED", "Pinned findings require behavioral red checks or an explicit review-only contract.");
+  const requestedPin = input.finding?.pinId;
+  const existing = record.task.criteria.find(c => c.finding?.pinId === (requestedPin ?? pinId));
+  if (requestedPin !== undefined && existing === undefined)
+    throw new AgentOpsError("TASK_PIN_UNKNOWN", "Explicit recurrence must name an existing pin ID.");
+  if (existing !== undefined && requestedPin === undefined) {
+    if (input.id !== existing.id) throw new AgentOpsError("TASK_PIN_EXISTS", "This finding already has a criterion; name its pin ID to record recurrence.");
+    return structuredClone(existing);
+  }
+  return {...structuredClone(input), id: existing?.id ?? input.id,
+    acceptance: {...input.acceptance, baselineCommit: existing?.acceptance?.baselineCommit ?? source.candidateCommit},
+    finding: existing?.finding ?? source};
+}
+
+/**
+ * A validated independent-QA finding: the private report must bind this task's goal and a known
+ * contract, and the finding must be reproducible from a saved candidate execution that failed by
+ * assertion. Infrastructure, timeout, skip or retry output never proves red. No review is forged.
+ */
+async function loadQaFindingPin(root: string, record: StoredTaskRecord, digest: string, index: number,
+  input: AcceptanceCriterion, hashes: ReadonlySet<string>): Promise<AcceptanceCriterion> {
+  const notFound = () => new AgentOpsError("TASK_FINDING_NOT_FOUND", "No saved QA report binds this finding to the task's goal, contract and candidate commit.");
+  let report: QaReport;
+  let store: FileQaStore;
+  try {
+    const commonDir = resolve(root, (await exec("git", ["rev-parse", "--git-common-dir"], {cwd: root})).stdout.trim());
+    store = new FileQaStore(commonDir);
+    report = await store.get({kind: "report", digest});
+  } catch {throw notFound();}
+  const finding = report.findings[index];
+  if (finding === undefined || report.version.taskId !== record.task.id || report.version.goalHash !== goalHash(record.task) ||
+    !hashes.has(report.version.taskContractHash)) throw notFound();
+  const unreproduced = () => new AgentOpsError("TASK_QA_FINDING_UNREPRODUCED", "Only a QA finding reproduced by a saved candidate assertion failure can be pinned.");
+  if (!finding.reproducible) throw unreproduced();
+  const executions = await Promise.all(finding.executions.map(ref => store.get({...ref, kind: "execution"}).catch(() => null)));
+  const plan = await store.get({kind: "attempt", digest: report.attempt.digest}).then(a => store.get({kind: "plan", digest: a.plan.digest})).catch(() => null);
+  const qaCase = plan?.cases.find(c => c.id === finding.caseId);
+  const red = qaCase === undefined ? [] : executions.filter(e => e !== null && e.caseId === finding.caseId && e.run.phase === "candidate" &&
+    qaVersionMatches(e.version, report.version) && qaCase.bindings.some(b => b.runnerId === e.runnerId &&
+      aggregateAcceptanceRun(e.run, b.checkIds).status === "FAIL"));
+  if (red.length === 0) throw unreproduced();
+  return pin(record, input, sha256("qa:" + digest + ":" + index), {pinId: sha256("qa:" + digest + ":" + index), reportDigest: digest,
+    findingIndex: index, candidateCommit: report.version.candidateCommit, criterionIds: [...finding.criterionIds], source: "qa"});
+}
 
 export async function loadFindingPin(root: string, record: StoredTaskRecord, reference: string,
   input: AcceptanceCriterion, records: readonly StoredTaskRecord[] = [record]): Promise<AcceptanceCriterion> {
   const checked = validateCriterion(input.finding !== undefined && input.acceptance !== undefined
     ? {...input, acceptance: {...input.acceptance, baselineCommit: input.finding.candidateCommit}} : input, "$.criterion");
   if (!checked.ok) throw new AgentOpsError("TASK_PIN_CRITERION_INVALID", "Pin requires a valid acceptance criterion.");
+  const qa = reference.match(/^qa:([a-f0-9]{64}):(0|[1-9][0-9]{0,2})$/u);
+  if (qa !== null) return await loadQaFindingPin(root, record, qa[1]!, Number(qa[2]),
+    input, new Set([taskContractHash(record.task), ...(record.revisions ?? []).flatMap(r => [r.previousHash, r.currentHash])]));
   const match = reference.match(/^([a-f0-9]{64}):(0|[1-9][0-9]{0,2})$/u);
   if (match === null) throw new AgentOpsError("TASK_FINDING_REFERENCE_INVALID", "Finding reference must be report digest:finding index.");
   const digest = match[1]!;
@@ -44,21 +104,9 @@ export async function loadFindingPin(root: string, record: StoredTaskRecord, ref
       const valid = validateReviewReport(report, report.results.map(r => r.criterionId));
       if (!valid.ok || reviewReportDigest(valid.value) !== digest || index >= valid.value.findings.length) continue;
       const finding = valid.value.findings[index]!;
-      if (input.acceptance === undefined || input.acceptance.mode === "invariant")
-        throw new AgentOpsError("TASK_PIN_ACCEPTANCE_REQUIRED", "Pinned findings require behavioral red checks or an explicit review-only contract.");
       const pinId = sha256(digest + ":" + index);
-      const requestedPin = input.finding?.pinId;
-      const existing = record.task.criteria.find(c => c.finding?.pinId === (requestedPin ?? pinId));
-      if (requestedPin !== undefined && existing === undefined)
-        throw new AgentOpsError("TASK_PIN_UNKNOWN", "Explicit recurrence must name an existing pin ID.");
-      if (existing !== undefined && requestedPin === undefined) {
-        if (input.id !== existing.id) throw new AgentOpsError("TASK_PIN_EXISTS", "This finding already has a criterion; name its pin ID to record recurrence.");
-        return structuredClone(existing);
-      }
-      return {...structuredClone(input), id: existing?.id ?? input.id,
-        acceptance: {...input.acceptance, baselineCommit: existing?.acceptance?.baselineCommit ?? artifact.candidateCommit},
-        finding: existing?.finding ?? {pinId, reportDigest: digest, findingIndex: index,
-          candidateCommit: artifact.candidateCommit, criterionIds: [...finding.criterionIds]}};
+      return pin(record, input, pinId, {pinId, reportDigest: digest, findingIndex: index,
+        candidateCommit: artifact.candidateCommit, criterionIds: [...finding.criterionIds]});
     }
   }
   throw new AgentOpsError("TASK_FINDING_NOT_FOUND", "No saved failed report binds this finding to the task's goal, contract and candidate commit.");

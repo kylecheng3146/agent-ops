@@ -186,7 +186,8 @@ export interface AcceptanceCriterion {
   description: string;
   verifierIds: string[];
   acceptance?: CriterionAcceptance;
-  finding?: { pinId: string; reportDigest: string; findingIndex: number; candidateCommit: string; criterionIds: string[] };
+  /** Absent source means a saved failed review; "qa" means a validated private independent-QA report. */
+  finding?: { pinId: string; reportDigest: string; findingIndex: number; candidateCommit: string; criterionIds: string[]; source?: "qa" };
 }
 
 export interface AgentTask {

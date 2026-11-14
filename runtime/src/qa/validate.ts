@@ -127,9 +127,10 @@ function artifact(kind: QaArtifactKind, v: unknown): boolean {
       return exact(v, [...base, "plan", "questionId", "answer", "answeredBy", "answeredAt"]) && validQaReference(v.plan, "plan") &&
         qaId(v.questionId) && text(v.answer, 8192) && text(v.answeredBy, 256) && date(v.answeredAt);
     case "attestation":
-      return exact(v, [...base, "plan", "report", "executions", "decisions", "materialDigest", "caseIds", "session", "generation", "sealedAt"]) &&
+      return exact(v, [...base, "plan", "report", "executions", "decisions", "materialDigest", "caseIds", "session", "generation", "sealedAt"], ["nonmechanicalCaseIds"]) &&
         validQaReference(v.plan, "plan") && validQaReference(v.report, "report") && references(v.executions, "execution") && references(v.decisions, "decision") &&
-        hash(v.materialDigest) && strings(v.caseIds, qaId, 1) && session(v.session) && (v.session as RecordValue).writable === true && integer(v.generation, 1) && date(v.sealedAt);
+        hash(v.materialDigest) && strings(v.caseIds, qaId, 1) && (v.nonmechanicalCaseIds === undefined ||
+          (strings(v.nonmechanicalCaseIds, qaId) && v.nonmechanicalCaseIds.every(id => (v.caseIds as string[]).includes(id)))) && session(v.session) && (v.session as RecordValue).writable === true && integer(v.generation, 1) && date(v.sealedAt);
   }
 }
 export function parseQaArtifact<K extends QaArtifactKind>(kind: K, value: unknown): QaArtifacts[K] {
@@ -148,7 +149,11 @@ export function parseQaAuthorResponse(v: unknown): QaAuthorResponse {
   return structuredClone(v) as unknown as QaAuthorResponse;
 }
 export function parseQaControl(v: unknown): QaControl {
-  if (!shape(v, ["schemaVersion", "taskId", "revision", "generation", "state", "continuation", "owner", "plan", "attempt", "report", "attestation", "progress", "updatedAt"]) ||
+  if (!shape(v, ["schemaVersion", "taskId", "revision", "generation", "state", "continuation", "owner", "plan", "attempt", "report", "attestation", "progress", "updatedAt"],
+      ["decisions", "native"]) || (v.decisions !== undefined && !references(v.decisions, "decision")) ||
+      (v.native !== undefined && !(shape(v.native, ["session", "nativeSessionId", "checkout", "reason", "resetAt", "observedAt"]) && session(v.native.session) &&
+        (v.native.session as RecordValue).writable === true && text(v.native.nativeSessionId, 256) && text(v.native.checkout) &&
+        oneOf(v.native.reason, ["provider-limit", "denied"]) && (v.native.resetAt === null || date(v.native.resetAt)) && date(v.native.observedAt))) ||
       v.schemaVersion !== 1 || !qaId(v.taskId) || !integer(v.revision, 1) || !integer(v.generation, 1) ||
       !oneOf(v.state, ["planning", "plan-ready", "testing", "passed", "awaiting-repair", "awaiting-input", "blocked", "stopped"]) || typeof v.continuation !== "boolean" ||
       (v.state === "stopped" && v.continuation !== false) || !date(v.updatedAt) ||
