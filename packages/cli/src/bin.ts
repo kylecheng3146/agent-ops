@@ -103,6 +103,8 @@ import { failureDetailLines, runVerifyCommand } from "./commands/verify.js";
 import { hintWriter, withWaitHint } from "./wait-hint.js";
 import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
+import { runDeliveryQa } from "./qa-delivery.js";
+import { qaDeliveryError } from "../../../runtime/src/qa/delivery.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
 import { runEscapesCommand, runEscapesReflectCommand } from "./commands/escapes.js";
 import { targetReflector } from "../../../runtime/src/escape/reflect.js";
@@ -991,6 +993,11 @@ process.exitCode = await runCli(
               activity: {commonDir: await officeCommonDir(root), root, ...(verifySessionId === undefined ? {} : {sessionId: verifySessionId})},
               service: {verify: async taskId => {
                 const run = await runPolicyContext(root);
+                // An ordinary enrolled delivery: independent QA runs on the committed candidate first (runs QA in advance).
+                if (run === null) {
+                  const qa = await runDeliveryQa({root, taskId, ...(args.base === undefined ? {} : {base: args.base})});
+                  if (qa !== null && qa.state !== "passed") throw qaDeliveryError(qa);
+                }
                 const report = await new VerificationService({
                 root,
                 scope: args.scope === "user" ? "user" : "project",

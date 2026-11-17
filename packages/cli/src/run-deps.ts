@@ -32,6 +32,8 @@ import {redactSecrets} from "../../../runtime/src/security/redact.js";
 import {RunControlService} from "../../../runtime/src/run/controls.js";
 import {recordRunPhase} from "../../../runtime/src/run/phase.js";
 import {runAdvanceCommand, type AdvancePhaseObserver} from "./commands/advance.js";
+import {stopLiveQaWriter} from "../../../runtime/src/qa/delivery.js";
+import {FileQaStore} from "../../../runtime/src/qa/store.js";
 
 /** Worktree construction happens before a native lease exists; it must never write global trust. */
 export async function runWorktreeDependencies(deps: FinishDependencies, state: RunState): Promise<FinishDependencies> {
@@ -287,6 +289,9 @@ export async function productionRunContext(cwd: string, options: {launchd?: Pick
       await repository.mutate(runId, current => ({...current,
         ...(current.proofProcess?.processId === proof.processId ? {proofProcess: null} : {})}));
     }
+    // A QA author is its own native process group, not part of the proof process: stop it the same way.
+    if (result.state.rootTaskId !== null)
+      await stopLiveQaWriter(new FileQaStore(result.state.commonDir), result.state.rootTaskId, new Date().toISOString());
     try {await launchd.bootout(runDescriptor(result.state));}
     catch (cause) {disableError ??= cause;}
     const state = await repository.mutate(runId, current => ({...current, status: "paused", budget: {...current.budget,

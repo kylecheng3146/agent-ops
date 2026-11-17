@@ -34,6 +34,7 @@ import {operationalChecks} from './operational-regressions.mjs';
 import {foundationChecks} from '../qa/foundation-checks.mjs';
 import {executionChecks} from '../qa/execution-checks.mjs';
 import {proofChecks} from '../qa/proof-checks.mjs';
+import {deliveryChecks} from '../qa/delivery-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -78,6 +79,7 @@ const checks = {
   ...foundationChecks,
   ...executionChecks,
   ...proofChecks,
+  ...deliveryChecks,
   ...operationalChecks,
   ...runResilienceChecks,
   ...installRunnerChecks,

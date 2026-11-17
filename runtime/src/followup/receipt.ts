@@ -11,6 +11,7 @@ import { readPrivateFile } from "../security/permissions.js";
 import { goalHash, taskContractHash, treeContractHash } from "../task/contract.js";
 import type { StoredTaskRecord } from "../task/store.js";
 import { validateRunIntegrationReceipt } from "../run/integration.js";
+import { validQaReceiptProof } from "../qa/gate.js";
 
 export interface DeliveredReview {
   readonly taskId: string;
@@ -53,6 +54,10 @@ export async function readDeliveredReceipt(options: {
   if (note.exitCode !== 0 || !note.stdout.trimEnd().endsWith(`\nreceipt: ${path}\nreceipt-sha256: ${digest}`) ||
       (await git(mainRoot, ["merge-base", "--is-ancestor", receipt.targetCommit, receipt.candidateHead])).exitCode !== 0) invalid();
   if (receipt.integrationJournal !== undefined) validateRunIntegrationReceipt(receipt.integrationJournal, receipt);
+  // An enrolled delivery is authentic only with its sealed QA proof; legacy and QA-off receipts carry none.
+  const qa = receipt.qa ?? {};
+  if (typeof qa !== "object" || qa === null || Object.keys(qa).some(id => !receipt.tasks.some(record => record?.task?.id === id && record.task.qa !== undefined)) ||
+      receipt.tasks.some(record => record?.task?.qa !== undefined && (qa[record.task.id] === undefined || !validQaReceiptProof(qa[record.task.id]!, receipt, record.task.id)))) invalid();
   const reviews: DeliveredReview[] = [];
   const tasks: readonly StoredTaskRecord[] = receipt.tasks;
   for (const record of tasks) {

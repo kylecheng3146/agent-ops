@@ -89,6 +89,11 @@ export interface QaUsage {
 export interface QaMaterialLineage {
   readonly authoredCommit: string;
   readonly importedCommit: string;
+  /**
+   * Re-execution of materials an earlier attempt imported: this attempt imported nothing, so authored and imported
+   * name the current candidate, and this names the earlier import commit. Material digests are re-checked at the candidate.
+   */
+  readonly materialsFrom?: string;
 }
 /** What a writable QA author reports. DATA only: never a verdict, and never trusted for paths or versions. */
 export interface QaAuthorResponse {

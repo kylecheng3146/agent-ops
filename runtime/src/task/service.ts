@@ -38,6 +38,7 @@ import {declareEscape, resolveOrigin} from "../escape/link.js";
 import {configProposal} from "../escape/rules.js";
 import {logGateCatch} from "../logging/local-log.js";
 import {qaPolicyBinding} from "../qa/policy.js";
+import type {QaPolicyBinding} from "../qa/types.js";
 import {collectChangeSurface} from "../verify/change-surface.js";
 
 export interface ReviseTaskInput {
@@ -82,6 +83,8 @@ export interface CreateTaskInput {
   readonly requireSurface?: boolean;
   /** Optional escape-of declaration (Escape Loop, advisory). */
   readonly origin?: TaskOrigin;
+  /** A landing root inherits its run root's exact QA enrollment (null: not enrolled); omitted follows the project opt-in. */
+  readonly qaBinding?: QaPolicyBinding | null;
 }
 
 export interface TaskServiceOptions {
@@ -345,7 +348,9 @@ export class TaskService {
             "A DEBUG task needs a behavioral criterion whose redCheckIds fail at the baseline and pass on the candidate.");
         validation.value.debug = {rootTaskId: task.id, facts: [...(input.debug.facts ?? [])], unknowns: [...(input.debug.unknowns ?? [])]};
       }
-      if (config?.qa?.enabled === true && parentId === undefined && this.#deliveryRole !== "child")
+      if (input.qaBinding !== undefined) {
+        if (input.qaBinding !== null && parentId === undefined) validation.value.qa = structuredClone(input.qaBinding);
+      } else if (config?.qa?.enabled === true && parentId === undefined && this.#deliveryRole !== "child")
         validation.value.qa = qaPolicyBinding(config, now, "new", false, this.#platform);
       const inherited = validateTask(validation.value);
       if (!inherited.ok) throw taskError("TASK_INVALID", inherited.errors[0]?.message ?? "Invalid inherited task contract.");
@@ -812,7 +817,7 @@ export class TaskService {
     const sourceFingerprint = await fingerprint();
     const problem = await checkTaskCompletionEvidence({ ...current, evidence }, {
       root: completion.root, config, sourceFingerprint,
-      evidenceStore
+      evidenceStore, records: (await this.#store.read()).tasks, platform: this.#platform
     });
     if (problem !== null) {
       throw taskError(`TASK_COMPLETION_${problem.code}`, problem.remedy);

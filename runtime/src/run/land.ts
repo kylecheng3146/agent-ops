@@ -12,6 +12,7 @@ import {
   addWorktree, readWorktreeRecord, removeCheckout, sessionWorktreeName, type WorktreeRecord
 } from "../parallel/service.js";
 import { readPrivateFile, writePrivateFile } from "../security/permissions.js";
+import type { QaDeliveryScope } from "../qa/gate.js";
 import { landingMarkerLive, MAX_EVENTS, type RunRepository, type RunState, type RunTaskNode } from "./service.js";
 
 const LIVE_WORKER = ["assigned", "starting", "running", "idle", "handing-off"];
@@ -58,6 +59,8 @@ export interface LandAdvanceInput {
   readonly sessionId: string;
   readonly parentTaskId: string;
   readonly children: readonly WorktreeRecord[];
+  /** Independent QA of a landing proves exactly the selected tasks on top of already-landed dependencies, never the whole goal. */
+  readonly qaScope: QaDeliveryScope;
 }
 
 export interface LandRunOptions {
@@ -136,7 +139,9 @@ async function createLandingRoot(deps: FinishDependencies, state: RunState, reco
     goal: `Land delivered tasks ${ids.join(", ")} of run ${state.runId} ahead of the rest of its goal:\n${state.goal}`.slice(0, 64_000),
     intent: "Merge only the frozen deliveries of the listed run tasks; the run, its root task and its checkouts stay as they are.",
     criteria, createdSourceCommit: base, policyConfigHash: calculateConfigHash(config), sessionId: record.sessionId,
-    ...(root?.task.surface === undefined ? {} : {surface: root.task.surface})
+    ...(root?.task.surface === undefined ? {} : {surface: root.task.surface}),
+    // The landing inherits the run root's exact QA enrollment: a project default can neither add nor drop the gate.
+    ...(root === null ? {} : {qaBinding: root.task.qa ?? null})
   });
   return created.task.id;
 }
@@ -163,7 +168,10 @@ export async function landRun(options: LandRunOptions): Promise<LandRunResult> {
     const sessionId = landingSessionId(held.runId);
     const record = await freshLandingWorktree(options.deps, held, sessionId);
     const parentTaskId = await createLandingRoot(options.deps, held, record, selected);
-    const {receipt} = await options.advance({cwd: held.root, sessionId, parentTaskId, children});
+    const ids = new Set(taskIds);
+    const qaScope: QaDeliveryScope = {scope: "partial",
+      dependencyTaskIds: [...new Set(selected.flatMap(task => task.dependencies).filter(id => !ids.has(id)))].sort()};
+    const {receipt} = await options.advance({cwd: held.root, sessionId, parentTaskId, children, qaScope});
     const target = await git(options.deps, held.root, ["rev-parse", `${held.targetBranch}^{commit}`]);
     const state = await options.repository.mutate(options.runId, current => ({...current, landing: null,
       landings: [...(current.landings ?? []), {taskIds, receipt, target, landedAt: now()}],

@@ -498,14 +498,16 @@ export class CompletionGateService {
     if (stored.status !== "complete") {
       return gateResult("block", "FAIL", "COMPLETION_GATE_TASK_INCOMPLETE", "Complete the attached task after verification and review.");
     }
-    const unfinished = findIncompleteSubtask(await this.#options.taskService.list(), stored.task.id);
+    const records = await this.#options.taskService.list();
+    const unfinished = findIncompleteSubtask(records, stored.task.id);
     if (unfinished !== undefined) {
       return gateResult("block", "FAIL", "COMPLETION_GATE_SUBTASK_INCOMPLETE", `Complete subtask ${unfinished.task.id} before its parent.`);
     }
     const sourceFingerprint = await this.#evidenceFingerprint(stored.completionBase, stored.noChangePaths);
     const problem = await checkTaskCompletionEvidence(stored, {
       ...this.#options,
-      sourceFingerprint
+      sourceFingerprint,
+      records
     });
     if (problem !== null) {
       return gateResult("block", problem.status, `COMPLETION_GATE_${problem.code}`, problem.remedy);

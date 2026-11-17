@@ -109,9 +109,12 @@ function artifact(kind: QaArtifactKind, v: unknown): boolean {
     case "attempt":
       return exact(v, [...base, "id", "generation", "plan", "session", "startedAt", "finishedAt", "materials", "materialDigest", "executions", "usage"], ["lineage"]) &&
         // Lineage names the final candidate: imported material always moves it past the authored commit.
-        (v.lineage === undefined || (shape(v.lineage, ["authoredCommit", "importedCommit"]) && commitIdentity(v.lineage.authoredCommit) &&
-          v.lineage.importedCommit === version.candidateCommit && Array.isArray(v.materials) &&
-          (v.materials.length === 0) === (v.lineage.authoredCommit === v.lineage.importedCommit))) &&
+        (v.lineage === undefined || (shape(v.lineage, ["authoredCommit", "importedCommit"], ["materialsFrom"]) && commitIdentity(v.lineage.authoredCommit) &&
+          v.lineage.importedCommit === version.candidateCommit && Array.isArray(v.materials) && (v.lineage.materialsFrom === undefined
+            ? (v.materials.length === 0) === (v.lineage.authoredCommit === v.lineage.importedCommit)
+            // A re-execution imported nothing: it names the candidate twice and the earlier import its materials came from.
+            : commitIdentity(v.lineage.materialsFrom) && v.lineage.materialsFrom !== v.lineage.importedCommit &&
+              v.lineage.authoredCommit === v.lineage.importedCommit && v.materials.length > 0))) &&
         qaId(v.id) && integer(v.generation, 1) && validQaReference(v.plan, "plan") && session(v.session) && (v.session as RecordValue).writable === true && date(v.startedAt) &&
         (v.finishedAt === null || (date(v.finishedAt) && Date.parse(v.finishedAt) >= Date.parse(v.startedAt))) && list(v.materials, material) &&
         new Set(v.materials.map(m => (m as RecordValue).path)).size === v.materials.length && hash(v.materialDigest) && references(v.executions, "execution") && usage(v.usage);
