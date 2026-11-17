@@ -25,7 +25,8 @@ export async function respondQa(input: QaRespondInput): Promise<QaControl> {
     throw new AgentOpsError("QA_ANSWER_NOT_HUMAN", "A QA session cannot answer its own questions; a human answer must be relayed.");
   const control = await store.readControl(taskId);
   if (control === null || control.plan === null) throw new AgentOpsError("QA_NOT_STARTED", "This task has no QA plan with questions.");
-  if (control.state !== "awaiting-input" || control.owner !== null)
+  // An optional question stays answerable while the plan waits for its author; a live writer is never interrupted.
+  if ((control.state !== "awaiting-input" && control.state !== "plan-ready") || control.owner !== null)
     throw new AgentOpsError("QA_NOT_AWAITING_INPUT", `QA is ${control.state}; it is not waiting for a human answer.`);
   const plan = await store.get({...control.plan, kind: "plan"});
   const report = control.report === null ? null : await store.get({...control.report, kind: "report"});
@@ -44,7 +45,7 @@ export async function respondQa(input: QaRespondInput): Promise<QaControl> {
     input.questionId]);
   const waiting = asked.some(q => q.required && !answeredIds.has(q.id));
   // Planning questions resume planning-ready work; questions raised while testing resume testing.
-  const state: QaState = waiting ? "awaiting-input" : control.report === null ? "plan-ready" : "testing";
+  const state: QaState = waiting ? "awaiting-input" : control.state === "plan-ready" || control.report === null ? "plan-ready" : "testing";
   return await store.updateControl(taskId, control.revision, current => ({...current!, revision: current!.revision + 1, decisions, state, updatedAt: input.now}));
 }
 

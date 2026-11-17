@@ -199,6 +199,12 @@ export const executionChecks = {
     const author = (mode, patch = {}) => runQaAuthor({store: f.store, root: f.root, version: f.version, plan, checkout: join(f.outside, `checkout-${++n}`),
       available: ['claude', 'codex', 'agy'], implementationHost: 'codex', implementationSessionId: 'developer-session', controllerId: 'controller', host: host(mode), ...patch});
     const result = await author('ok');
+    // Live: the author got only the plan digest; the plan and human answers live in private state the clone cannot reach.
+    const inputPath = join(f.outside, 'checkout-1/.agent-ops/qa-author-input.json');
+    assert.equal(existsSync(inputPath), true, 'The controller writes the plan and recorded decisions into the isolated checkout');
+    const input = JSON.parse(await readFile(inputPath, 'utf8'));
+    assert.deepEqual({plan: input.plan, cases: input.cases.map(c => c.id), decisions: input.decisions},
+      {plan: plan.digest, cases: (await f.store.get(plan)).cases.map(c => c.id), decisions: []});
     assert.equal(result.session.host, 'claude'); assert.equal(result.session.writable, true); assert.equal(result.session.fallbackReason, null);
     assert.notEqual(result.session.sessionId, 'developer-session');
     const [call] = calls;

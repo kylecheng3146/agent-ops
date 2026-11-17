@@ -421,7 +421,8 @@ export const proofChecks = {
     await f.commit(2);
     const imported = await f.importMaterial();
     const locale = {id: 'locale-choice', prompt: 'Which locale is required?', required: true, criterionIds: ['behavior']};
-    let ready = await f.prepare({cases: [answerCase, docsCase], questions: [locale], state: 'awaiting-input'});
+    const padding = {id: 'zero-padding', prompt: 'Accept 007?', required: false, criterionIds: ['behavior']};
+    let ready = await f.prepare({cases: [answerCase, docsCase], questions: [locale, padding], state: 'awaiting-input'});
     const respond = patch => respondQa({store: f.store, version: f.version(), questionId: 'locale-choice', answer: 'en-US only',
       answeredBy: 'human via relay', now: at, env: {}, ...patch});
     await assert.rejects(respond({env: {AGENT_OPS_QA_TASK_ID: f.record.task.id}}), {code: 'QA_ANSWER_NOT_HUMAN'}, 'QA cannot answer its own question');
@@ -434,9 +435,15 @@ export const proofChecks = {
     const decision = await f.store.get(decisionRef);
     assert.deepEqual({task: decision.version.taskId, question: decision.questionId, plan: decision.plan.digest, answer: decision.answer},
       {task: f.record.task.id, question: 'locale-choice', plan: (await control(f)).plan.digest, answer: 'en-US only'});
-    await assert.rejects(respond(), {code: 'QA_NOT_AWAITING_INPUT'});
+    await assert.rejects(respond(), {code: 'QA_QUESTION_ANSWERED'});
+    // Live: answering the required question made the plan ready, and the human's answer to the optional one was refused.
+    const optional = respond({questionId: 'zero-padding', answer: 'Reject all'});
+    await assert.doesNotReject(optional, 'An optional question stays answerable while the plan waits for its author');
+    current = await optional;
+    assert.deepEqual({state: current.state, decisions: current.decisions.length}, {state: 'plan-ready', decisions: 2});
     // Questions raised while testing pause the tested candidate; the answer resumes testing, then sealing.
     current = await f.store.updateControl(f.record.task.id, current.revision, c => ({...c, revision: c.revision + 1, state: 'testing'}));
+    await assert.rejects(respond({questionId: 'zero-padding'}), {code: 'QA_NOT_AWAITING_INPUT'}, 'Testing is never interrupted by an answer');
     const wording = {id: 'ux-wording', prompt: 'Is the wording acceptable?', required: true, criterionIds: ['compatibility']};
     const tested = await f.execute(current.generation, imported, {author: {questions: [wording]}});
     assert.equal(tested.state, 'awaiting-input');
@@ -444,7 +451,7 @@ export const proofChecks = {
     current = await respond({questionId: 'ux-wording', answer: 'Acceptable for v1'});
     assert.equal(current.state, 'testing');
     const sealed = await sealQaAttestation({store: f.store, version: f.version(), tasks: [f.record.task], gitRunner: f.gitRunner});
-    assert.equal((await f.store.get(sealed.attestation)).decisions.length, 2);
+    assert.equal((await f.store.get(sealed.attestation)).decisions.length, 3);
     // A human answer cannot waive a required mechanical failure or a missing necessary environment.
     await f.commit(3);
     const browser = {name: 'browser', required: true, status: 'missing', evidence: ['No authorized browser tool']};

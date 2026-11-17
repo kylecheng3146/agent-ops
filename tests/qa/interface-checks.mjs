@@ -137,7 +137,7 @@ export const interfaceChecks = {
     const answered = await runQaCommand(options({action: 'respond', taskId: enrolled.task.id, questionId: 'q-locale', answer: 'de-DE'}));
     assert.equal(answered.code, 'QA_ANSWER_RECORDED');
     assert.equal((await f.store.readControl(enrolled.task.id)).state, 'plan-ready');
-    assert.equal((await runQaCommand(options({action: 'respond', taskId: enrolled.task.id, questionId: 'q-invented', answer: 'yes'}))).code, 'QA_NOT_AWAITING_INPUT');
+    assert.equal((await runQaCommand(options({action: 'respond', taskId: enrolled.task.id, questionId: 'q-invented', answer: 'yes'}))).code, 'QA_QUESTION_UNKNOWN');
     // run on an enrolled delivery reports the real QA state; a failure is never a PASS.
     next = result(enrolled.task.id, 'awaiting-repair', {blockers: ['finding:f-1'], pins: [`qa:${'b'.repeat(64)}:0`]});
     const repair = await runQaCommand(options({action: 'run', taskId: enrolled.task.id, yes: true, base: 'main'}));
