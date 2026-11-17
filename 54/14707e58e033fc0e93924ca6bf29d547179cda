@@ -1,0 +1,9 @@
+worktree: session-01a1e99c (agent-ops/session-01a1e99c)
+session: 01a1e99c-f69e-7de1-b5a2-6b28b1005a71
+agent-ops task task-cedb5c23-98fb-442b-a094-cff5e05587d4: Keep native lifecycle repair out of verification stagnation
+intent: Separate native lifecycle notifications from fresh verification failure accounting without changing ledger schemas, proof gates, recovery authorization or existing blocked histories.
+criteria:
+- native-is-not-proof-failure: Native completion/exit and stale-request repair across generations never create or replace proof failure observations; repeated real verification still blocks.
+- preserve-delivery-and-controls: Native completion still requires verified delivery; stop, denial, provider quota and real semantic no-progress guards retain their behavior and all failure history.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/4c8ab705cfc56e57133a89f6f2c3ef8315d77907d0c7ae2ef68df34a36bb6112-5414707e58e033fc0e93924ca6bf29d547179cda.json
+receipt-sha256: 43094270d71e3b7288c52da3ce4b351f6270f9e280e21877ea2e2fce6d9b61c0
