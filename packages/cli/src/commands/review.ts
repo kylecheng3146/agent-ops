@@ -497,7 +497,6 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   ESCAPE_LESSON_UNSAFE: "escape-lesson-unsafe"
 };
 
-/** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
 /** Enrolled roots' QA facts for both reviewers; an unreadable store is reported as such, never as PASS. */
 async function reviewQaData(root: string, records: readonly StoredTaskRecord[], config: AgentOpsConfig,
   candidateCommit: string, sourceFingerprint: string): Promise<unknown[]> {
@@ -522,6 +521,7 @@ export const QA_PROOF: ReviewCriterion = {
     "its sessions were independent (fallback reasons recorded), nonmechanical cases hold on your own judgment, and import lineage reaches this HEAD."
 };
 
+/** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
 export const ESCAPE_LABEL: ReviewCriterion = {
   id: "escape-label",
   description: "Each declared escape's primary label names the earliest gate that could have caught it (requirement, surface, " +

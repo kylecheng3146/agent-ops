@@ -7,7 +7,11 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
-const load = path => import(pathToFileURL(join(build, path)).href);
+// A missing capability module is an observable assertion failure on the baseline, not an infrastructure error.
+const load = path => import(pathToFileURL(join(build, path)).href).catch(error => {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND' && String(error.message).includes(join(build, path))) assert.fail(`${path} must be built`);
+  throw error;
+});
 const hash = value => createHash('sha256').update(value).digest('hex');
 const config = () => ({schemaVersion: 3, profiles: ['core', 'loop'], verification: {commands: [
   {id: 'tests', command: 'node', args: ['test.mjs'], cwd: '.', required: true, evidence: {kind: 'exit-code'}}]},

@@ -8,7 +8,11 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
-const load = path => import(pathToFileURL(join(build, path)).href);
+// A missing capability module is an observable assertion failure on the baseline, not an infrastructure error.
+const load = path => import(pathToFileURL(join(build, path)).href).catch(error => {
+  if (error?.code === 'ERR_MODULE_NOT_FOUND' && String(error.message).includes(join(build, path))) assert.fail(`${path} must be built`);
+  throw error;
+});
 // A capability absent from the build is an observable assertion failure, not a module-load error.
 async function need(path, ...names) {
   const mod = await load(path).catch(() => ({}));
