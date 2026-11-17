@@ -605,9 +605,12 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
       const current = (await repository.read(runId))!;
       const saved = current.workers.find(w => w.workerId === worker.workerId)!;
       let noProgress = false;
-      if (code === "VERIFICATION_FAILED") {
-        const attemptId = [...current.events].reverse().find(e => e.code === "RUN_VERIFICATION_OBSERVED" && e.workerId === worker.workerId &&
-            e.taskId === worker.taskId && JSON.parse(e.detail ?? "{}").generation === worker.generation)?.id;
+      const nativeNotification = ["RUN_NATIVE_EXITED", "RUN_NATIVE_COMPLETION_UNPROVEN", "RUN_REQUEST_INVALID", "RUN_REQUEST_STALE"].includes(code);
+      if (!nativeNotification) {
+        const attemptId = code === "VERIFICATION_FAILED"
+          ? [...current.events].reverse().find(e => e.code === "RUN_VERIFICATION_OBSERVED" && e.workerId === worker.workerId &&
+            e.taskId === worker.taskId && JSON.parse(e.detail ?? "{}").generation === worker.generation)?.id
+          : `${worker.workerId}:${worker.generation}:${code}`;
         if (attemptId === undefined || saved.lastFailure?.attemptId === attemptId) return;
         const localTasks = await new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops", "tasks", "state.json"), worker.worktree!)).list();
         const pins = await pendingFindingPins(worker.worktree!, localTasks, worker.taskId);
