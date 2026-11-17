@@ -122,6 +122,7 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
       timing: plan?.timing === "early" ? "early" : options.timing ?? "late",
       ...(surface !== undefined && "included" in surface ? {surfaceIds: surface.included.map(s => s.id)} : {}),
       runners: options.trusted ? options.config.verification.acceptanceRunners ?? [] : [], advisory: options.advisory,
+      ...(root.createdSourceCommit === undefined ? {} : {baselineCommit: root.createdSourceCommit}),
       available: options.available, implementationHost: options.implementationHost, implementationSessionId: options.implementationSessionId,
       controllerId: options.controllerId, ...(options.explicit === undefined ? {} : {explicit: options.explicit}),
       ...(options.planningRunner === undefined ? {} : {runner: options.planningRunner}), ...(options.signal === undefined ? {} : {signal: options.signal}),

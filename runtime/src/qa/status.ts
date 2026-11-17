@@ -109,9 +109,13 @@ export async function qaStatus(store: FileQaStore, records: readonly StoredTaskR
   // An owner record alone is not a running writer: a killed session leaves it behind (seen live).
   const owner = control?.owner == null ? null : await qaOwnerStatus(control.owner, probe);
   const writer = owner === null ? undefined : owner === "dead" ? "exited" as const : owner;
+  // A required mechanical case the current plan's last report left UNKNOWN blocks delivery; say which (seen live: "blocked" with no blocker).
+  const report = show.state === "passed" || control?.report == null || plan === null ? null : await store.get({...control.report, kind: "report"});
+  const unknown = report === null || (await store.get({...report.attempt, kind: "attempt"})).plan.digest !== control!.plan!.digest ? []
+    : plan!.cases.filter(c => c.required && c.mode !== "nonmechanical" && report.results.some(r => r.caseId === c.id && r.status === "UNKNOWN"));
   const blockers = [
     ...(plan?.environment ?? []).filter(e => e.required && e.status !== "available").map(e => `environment:${e.name}`),
-    ...questions.map(q => `question:${q.id}`), ...findings.map(f => `finding:${f.id}`),
+    ...questions.map(q => `question:${q.id}`), ...findings.map(f => `finding:${f.id}`), ...unknown.map(c => `unexecuted:${c.id}`),
     ...(show.native === null ? [] : [`native:${show.native.reason}`]), ...(show.state === "stopped" ? ["stopped"] : []), ...(writer === "exited" ? ["writer:exited"] : [])];
   return {rootTaskId: root.task.id, state: show.state, outcome, late: root.task.qa!.late, historical, live: writer === "live",
     ...(writer === undefined ? {} : {writer}), findings: findings.length, questions: questions.length, blockers, updatedAt: control?.updatedAt ?? null};

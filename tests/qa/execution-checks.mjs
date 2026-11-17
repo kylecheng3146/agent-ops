@@ -177,6 +177,11 @@ export const executionChecks = {
       {code: 'QA_PLAN_INVALID', message: /Case case-happy: Behavioral acceptance requires at least one designated red check/u}, 'A behavioral case without red checks is never weakened');
     assert.match(request.stdin, /redCheckIds at least one/u, 'Behavioral red checks are a stated rule, not a hidden rejection');
     assert.match(request.stdin, /not environment/u, 'QA-added material and the authoring checkout are not planned as environment');
+    // Live: planners without the baseline twice planned a behavior it already had as behavioral, leaving the case UNKNOWN.
+    const baselined = fakePlanner(planAnswer());
+    await runQaPlanning({...base, baselineCommit: 'a'.repeat(40), runner: baselined.runner});
+    assert.ok(baselined.requests[0].stdin.includes(`"baselineCommit":"${'a'.repeat(40)}"`), 'The planner sees the immutable baseline red checks run against');
+    assert.match(baselined.requests[0].stdin, /Behavior the baseline already has is an invariant case/u);
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(planAnswer(), 1).runner}), {code: 'QA_PLAN_NOT_RUN'});
     const none = await runQaPlanning({...base, advisory: null, runner: fakePlanner(planAnswer()).runner});
     assert.deepEqual((await f.store.get(none.plan)).advisoryReferences, []);

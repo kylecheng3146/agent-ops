@@ -183,6 +183,10 @@ export const proofChecks = {
       assert.equal(report.results.find(r => r.caseId === 'case-answer').status, 'UNKNOWN', `${mode} must stay UNKNOWN`);
       assert.equal(result.state, 'blocked', `${mode}: a necessary unexecuted check blocks delivery`);
       assert.ok(result.blockers.includes('unexecuted:case-answer'));
+      // Live: status and qa show said "blocked" without naming the UNKNOWN case that blocks.
+      if (mode === 'crash') assert.ok((await (await load('runtime/src/qa/status.js')).qaStatus(f.store,
+        [{...f.record, task: {...f.record.task, qa: {late: false}}}], f.record.task.id, null))
+        .blockers.includes('unexecuted:case-answer'), 'Status names the UNKNOWN case that blocks delivery');
       await assert.rejects(sealQaAttestation({store: f.store, version: f.version(), tasks: [f.record.task], gitRunner: f.gitRunner}),
         e => ['QA_NOT_READY', 'QA_CONTINUATION_DISABLED'].includes(e.code));
       if (mode !== 'always') for (const ref of report.results.find(r => r.caseId === 'case-answer').executions) {

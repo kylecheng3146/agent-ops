@@ -60,6 +60,8 @@ export interface QaPlanningOptions {
   readonly surfaceIds?: readonly string[];
   /** Configured acceptance runners the repository trust record authorizes; nothing else may be bound. */
   readonly runners: readonly AcceptanceRunner[];
+  /** Immutable task baseline red checks run against, so behavior it already has is planned invariant. */
+  readonly baselineCommit?: string;
   readonly advisory: CriteriaReviewView | null;
   readonly available: readonly ReviewTargetId[];
   readonly implementationHost: ReviewTargetId | null;
@@ -93,6 +95,7 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>): string {
     "Cover the happy path and, where the risk warrants it, negative, boundary, retry/concurrency and recovery cases. Answer each of the five scenarios as applies with behavior, or na with a reason; they are not exhaustive.",
     "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
     "Ids are lowercase kebab-case. Every binding names at least one material file. A behavioral case lists in redCheckIds at least one of its checkIds that must fail by assertion on the baseline; an invariant case has no redCheckIds; a nonmechanical case has no bindings and a nonmechanicalReason. A scenario is either {\"applies\":true,\"behavior\":...} or {\"na\":...}.",
+    "Your clone holds the candidate and its history; baselineCommit in DATA, when present, is that immutable baseline (inspect it with git show <baselineCommit>:<path>). Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
     "List every environment a necessary case needs and whether you observed it available, missing or unknown. Do not list the test material QA will add or the isolated writable checkout the controller provides for authoring: they are not environment. Ask a question only for a genuine requirement, scope or authority decision; never answer one yourself.",
     "The advisory in DATA is an earlier data-only criteria review. Consume it as input; it is not executed QA. A plan is not proof: include no verdict.",
     "Return only JSON matching this schema.", JSON.stringify(QA_PLAN_SCHEMA),
@@ -175,6 +178,7 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
       tasks: options.tasks.map(t => ({id: t.id, title: t.title, intent: t.intent ?? null, criteria: t.criteria, surface: t.surface ?? null})),
       dependencyTaskIds: options.dependencyTaskIds ?? [], surfaceIds: options.surfaceIds ?? null,
       runners: options.runners.map(r => ({id: r.id, adapter: r.adapter})),
+      ...(options.baselineCommit === undefined ? {} : {baselineCommit: options.baselineCommit}),
       advisory: options.advisory === null ? {unavailable: "No criteria advisory was available; plan from the requirements alone."}
         : {status: options.advisory.report.status, stale: options.advisory.stale, advice: options.advisory.report.advice ?? null}};
     const prompt = qaPlanningPrompt(snapshot);
