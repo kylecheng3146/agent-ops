@@ -114,7 +114,8 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   const ids = tasks.map(t => t.id);
   const planCurrent = plan !== null && qaContractsMatch(plan.version, current) && canonicalJson(plan.taskIds) === canonicalJson(ids) &&
     plan.scope === scope.scope && canonicalJson([...plan.dependencyTaskIds].sort()) === canonicalJson([...scope.dependencyTaskIds].sort());
-  if (!planCurrent) {
+  // An explicit qa plan reruns even a current plan: a defective plan must be replaceable.
+  if (!planCurrent || options.planOnly === true && options.explicit === true) {
     log(`QA planning for ${taskId}: one independent read-only planner session.`);
     const surface = root.task.surface;
     const planned = await runQaPlanning({store, root: options.root, version: current,

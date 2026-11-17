@@ -198,11 +198,16 @@ export const deliveryChecks = {
     const planned = await f.orchestrate(root.id, {planOnly: true, timing: 'early'});
     assert.deepEqual({state: planned.state, sessions: planned.sessions, authors: f.calls.length}, {state: 'plan-ready', sessions: 1, authors: 0});
     assert.equal((await f.store.get(planned.plan)).timing, 'early');
+    // Live: an explicit qa plan on a current plan did nothing, so a defective plan could never be rerun; automatic planning still reuses it.
+    await f.orchestrate(root.id, {planOnly: true, timing: 'early'});
+    assert.equal(f.planner.calls, 1, 'Automatic planning reuses a current plan');
+    const replanned = await f.orchestrate(root.id, {planOnly: true, timing: 'early', explicit: true});
+    assert.deepEqual({state: replanned.state, sessions: replanned.sessions, planner: f.planner.calls}, {state: 'plan-ready', sessions: 1, planner: 2});
     // Integrated delivery: fresh author, import commit, execution on the final candidate, then a controller seal.
     const developed = await f.commit(2);
     const passed = await f.orchestrate(root.id);
     assert.equal(passed.state, 'passed', passed.blockers.join('; '));
-    assert.deepEqual({sessions: passed.sessions, imported: passed.imported, planner: f.planner.calls}, {sessions: 1, imported: true, planner: 1});
+    assert.deepEqual({sessions: passed.sessions, imported: passed.imported, planner: f.planner.calls}, {sessions: 1, imported: true, planner: 2});
     assert.notEqual(passed.candidateCommit, developed, 'Importing QA material makes a new final candidate');
     assert.equal(f.calls.at(-1).input.env.AGENT_OPS_QA_TASK_ID, root.id);
     assert.notEqual(f.calls.at(-1).input.cwd, f.root, 'The QA author never writes the delivery checkout');
