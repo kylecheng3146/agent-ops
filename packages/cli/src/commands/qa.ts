@@ -65,7 +65,9 @@ export async function runQaCommand(options: QaCommandOptions): Promise<CliEnvelo
     if (record === undefined) throw new AgentOpsError("TASK_NOT_FOUND", `Task not found: ${taskId}`);
     const commonDir = await qaCommonDirectory(root);
     const store = new FileQaStore(commonDir);
-    const status = await qaStatus(store, records, taskId, await head(root));
+    // Model-free: the complete delivery version (HEAD, source fingerprint, config, contracts), as the delivery gate checks it.
+    const current = {root, loadConfig: options.loadConfig, ...(args.base === undefined ? {} : {base: args.base})};
+    const status = await qaStatus(store, records, taskId, current);
     const deliveryId = status.rootTaskId ?? taskId;
     const data = (extra: Partial<QaCommandData> = {}, text = renderQaStatus(status, taskId)): QaCommandData =>
       ({action, taskId, status, ...extra, text});
@@ -113,7 +115,7 @@ export async function runQaCommand(options: QaCommandOptions): Promise<CliEnvelo
       ...(action === "plan" ? {planOnly: true, timing: delivery.task.qa?.late === true || await head(root) !== delivery.createdSourceCommit ? "late" as const : "early" as const}
         : args.base === undefined ? {} : {base: args.base})});
     if (result === null) throw new AgentOpsError("QA_NOT_ENROLLED", `${deliveryId} is not enrolled; QA is not required.`);
-    const after = await qaStatus(store, (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read()).tasks, taskId, await head(root));
+    const after = await qaStatus(store, (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read()).tasks, taskId, current);
     const text = `${renderQaStatus(after, taskId)}\nQA sessions started: ${result.sessions}${result.imported ? "; QA materials were committed" : ""}.`;
     if (action === "run" && result.state !== "passed") {
       const error = qaDeliveryError(result);

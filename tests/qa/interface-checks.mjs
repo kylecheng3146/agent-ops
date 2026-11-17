@@ -61,6 +61,22 @@ async function fixture(check) {
   } finally {await rm(root, {recursive: true, force: true});}
 }
 
+/** Commit a candidate after the task's creation and seal a PASS for its complete delivery version, as verify would. */
+async function sealCandidate(f, task) {
+  const {qaDeliveryVersion} = await need('runtime/src/qa/gate.js', 'qaDeliveryVersion');
+  const {resolveReviewScope} = await load('runtime/src/review/scope.js');
+  const {calculateSourceFingerprint} = await load('runtime/src/verify/source-fingerprint.js');
+  await writeFile(join(f.root, 'feature.mjs'), 'export const answer = () => 2;\n');
+  f.git(['commit', '-qam', 'candidate']);
+  const base = (await f.records()).find(r => r.task.id === task.id).createdSourceCommit;
+  const sourceFingerprint = await calculateSourceFingerprint(f.root, await resolveReviewScope({root: f.root, runner: f.gitRunner, base}), f.gitRunner);
+  const version = qaDeliveryVersion({tasks: [task], config, candidateCommit: f.git(['rev-parse', 'HEAD']), sourceFingerprint});
+  const attestation = await f.store.put('attestation', {schemaVersion: 1, version, plan: {kind: 'plan', digest: 'd'.repeat(64)}, report: {kind: 'report', digest: 'e'.repeat(64)},
+    executions: [], decisions: [], materialDigest: 'c'.repeat(64), caseIds: ['case-one'], session: author, generation: 1, sealedAt: at});
+  await f.store.updateControl(task.id, 0, () => ({schemaVersion: 1, taskId: task.id, revision: 1, generation: 1, state: 'passed',
+    continuation: true, owner: null, plan: null, attempt: null, report: null, attestation, progress: null, updatedAt: at}));
+}
+
 export const interfaceChecks = {
   'qa-cli-commands': () => fixture(async f => {
     const {runQaCommand} = await need('packages/cli/src/commands/qa.js', 'runQaCommand');
@@ -218,28 +234,25 @@ export const interfaceChecks = {
     const {buildOfficeSnapshot, shownQa} = await need('runtime/src/office/snapshot.js', 'buildOfficeSnapshot', 'shownQa');
     const {runTaskCommand} = await load('packages/cli/src/commands/task.js');
     const {officePage} = await load('runtime/src/office/page.js');
-    const {qaDeliveryVersion} = await load('runtime/src/qa/gate.js');
     const legacy = await f.service().create({title: 'Legacy', criteria: criteria('legacy'), qaBinding: null});
     const enrolled = await f.service().create({title: 'Enrolled', criteria: criteria('observable'), qaBinding: f.binding});
-    const head = f.git(['rev-parse', 'HEAD']);
-    const notEnrolled = await qaStatus(f.store, await f.records(), legacy.task.id, head);
+    const current = {root: f.root, gitRunner: f.gitRunner, loadConfig: async () => structuredClone(config)};
+    const notEnrolled = await qaStatus(f.store, await f.records(), legacy.task.id, current);
     assert.deepEqual([notEnrolled.state, notEnrolled.outcome, notEnrolled.rootTaskId], ['not-enrolled', 'NOT_REQUIRED', null]);
     assert.match(renderQaStatus(notEnrolled, legacy.task.id), /not enrolled \(not required; this is not a QA PASS\)/u);
     // task status/JSON carry the QA summary next to (never instead of) verify coverage.
     const status = await runTaskCommand({args: {command: 'task', action: 'status', taskId: legacy.task.id, profiles: [], dryRun: false, json: true, yes: false, rerun: false},
-      service: f.service(), qaStatus: async (record, records) => await qaStatus(f.store, records, record.task.id, head)});
+      service: f.service(), qaStatus: async (record, records) => await qaStatus(f.store, records, record.task.id, current)});
     assert.equal(status.data.qa.state, 'not-enrolled');
     assert.match(status.data.text, /Independent QA: not enrolled/u); assert.match(status.data.text, /Acceptance: /u);
-    // A sealed PASS is PASS only for the candidate it names; another HEAD makes it STALE; a finished delivery keeps it as history.
-    const version = qaDeliveryVersion({tasks: [enrolled.task], config, candidateCommit: head, sourceFingerprint: 'a'.repeat(64)});
-    const attestation = await f.store.put('attestation', {schemaVersion: 1, version, plan: {kind: 'plan', digest: 'd'.repeat(64)}, report: {kind: 'report', digest: 'e'.repeat(64)},
-      executions: [], decisions: [], materialDigest: 'c'.repeat(64), caseIds: ['case-one'], session: author, generation: 1, sealedAt: at});
-    await f.store.updateControl(enrolled.task.id, 0, () => ({schemaVersion: 1, taskId: enrolled.task.id, revision: 1, generation: 1, state: 'passed',
-      continuation: true, owner: null, plan: null, attempt: null, report: null, attestation, progress: null, updatedAt: at}));
-    assert.equal((await qaStatus(f.store, await f.records(), enrolled.task.id, head)).outcome, 'PASS');
-    assert.equal((await qaStatus(f.store, await f.records(), enrolled.task.id, '0'.repeat(40))).outcome, 'STALE');
+    // A sealed PASS is PASS only for the version it names; another HEAD makes it STALE; a finished delivery keeps it as history.
+    await sealCandidate(f, enrolled.task);
+    assert.equal((await qaStatus(f.store, await f.records(), enrolled.task.id, current)).outcome, 'PASS');
+    f.git(['commit', '-q', '--allow-empty', '-m', 'another candidate']);
+    assert.equal((await qaStatus(f.store, await f.records(), enrolled.task.id, current)).outcome, 'STALE');
+    assert.equal((await qaStatus(f.store, await f.records(), enrolled.task.id, null)).outcome, 'STALE', 'An uncomputable version is never PASS');
     const finished = (await f.records()).map(r => r.task.id === enrolled.task.id ? {...r, status: 'complete'} : r);
-    const history = await qaStatus(f.store, finished, enrolled.task.id, '0'.repeat(40));
+    const history = await qaStatus(f.store, finished, enrolled.task.id, current);
     assert.deepEqual([history.outcome, history.historical], ['PASS', true]);
     // Office: live QA always shows; an inactive or halted QA state retires after the window, leaving its records alone.
     const now = Date.parse(at) + 3 * 60 * 60 * 1000;
@@ -255,6 +268,44 @@ export const interfaceChecks = {
     const page = officePage('nonce');
     for (const label of ['Independent QA', '獨立 QA', 'not enrolled (not required)', '未加入（不需要）', 'agent-ops qa show --task '])
       assert.ok(page.includes(label), `Office labels independent QA apart from verify: ${label}`);
+  }),
+  // Active status compares the complete delivery version the gate uses: HEAD alone cannot hide dirty source or changed config.
+  'qa-status-freshness': () => fixture(async f => {
+    const {qaStatus} = await need('runtime/src/qa/status.js', 'qaStatus');
+    const {runQaCommand} = await need('packages/cli/src/commands/qa.js', 'runQaCommand');
+    const {collectOfficeInput} = await need('runtime/src/office/collect.js', 'collectOfficeInput');
+    const {recordOfficeSession} = await need('runtime/src/office/sessions.js', 'recordOfficeSession');
+    const enrolled = await f.service().create({title: 'Enrolled', criteria: criteria('observable'), qaBinding: f.binding});
+    await sealCandidate(f, enrolled.task);
+    const commonDir = join(f.root, '.git'), configPath = join(f.root, '.agent-ops/config.json');
+    await recordOfficeSession({commonDir, projectRoot: f.root, sessionId: 'qa-fresh', harness: 'claude', event: 'start', taskId: enrolled.task.id, now: Date.parse(at)});
+    let spent = 0;
+    const spend = async () => {spent++; return null;};
+    const loadConfig = async () => JSON.parse(await readFile(configPath, 'utf8'));
+    const outcomes = async (records = undefined) => {
+      const status = await qaStatus(f.store, records ?? await f.records(), enrolled.task.id, {root: f.root, gitRunner: f.gitRunner, loadConfig});
+      if (records !== undefined) return [status.outcome, status.historical];
+      const shown = await runQaCommand({args: {command: 'qa', action: 'show', taskId: enrolled.task.id, profiles: [], dryRun: false, json: true, yes: false, rerun: false},
+        root: f.root, deliver: spend, adopt: spend, loadConfig, fingerprint: async () => {spent++; return 'a'.repeat(64);}, inRun: false, now: () => at});
+      const office = await collectOfficeInput(f.root, commonDir, undefined, Date.parse(at), loadConfig);
+      return [status.outcome, shown.data.status.outcome, office.sessions.find(s => s.sessionId === 'qa-fresh')?.qa?.outcome];
+    };
+    assert.deepEqual(await outcomes(), ['PASS', 'PASS', 'PASS'], 'The unchanged sealed candidate stays PASS everywhere');
+    await writeFile(join(f.root, 'feature.mjs'), 'export const answer = () => 3;\n');
+    assert.deepEqual(await outcomes(), ['STALE', 'STALE', 'STALE'], 'Dirty source at the same HEAD is never PASS');
+    f.git(['checkout', '--', 'feature.mjs']);
+    assert.deepEqual(await outcomes(), ['PASS', 'PASS', 'PASS']);
+    const saved = await readFile(configPath, 'utf8');
+    await writeFile(configPath, JSON.stringify({...config, verification: {commands: [{...config.verification.commands[0], args: ['other.mjs']}]}}));
+    assert.equal(f.git(['status', '--porcelain']), '', 'Config lives outside tracked source, so HEAD and source are unchanged');
+    assert.deepEqual(await outcomes(), ['STALE', 'STALE', 'STALE'], 'Changed config at the same HEAD is never PASS');
+    await writeFile(configPath, saved);
+    assert.deepEqual(await outcomes(), ['PASS', 'PASS', 'PASS']);
+    // A finished delivery keeps the proof it finished with, even after the checkout moves on.
+    await writeFile(join(f.root, 'feature.mjs'), 'export const answer = () => 4;\n');
+    const finished = (await f.records()).map(r => r.task.id === enrolled.task.id ? {...r, status: 'complete'} : r);
+    assert.deepEqual(await outcomes(finished), ['PASS', true]);
+    assert.equal(spent, 0, 'Status, show and Office start no model, host or runner');
   }),
   'qa-managed-guides': async () => {
     const {COMMAND_HELP_TEXT} = await load('packages/cli/src/cli.js');

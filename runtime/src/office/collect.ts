@@ -8,7 +8,7 @@ import {readWorktreeRecord, parseWorktreeListPorcelain} from "../parallel/servic
 import {FileRunRepository, type RunState} from "../run/service.js";
 import {criteriaProgress} from "../run/phase.js";
 import {parseTaskStateSource, type StoredTaskRecord} from "../task/store.js";
-import type {VerificationEvidence} from "../contracts.js";
+import type {AgentOpsConfig, VerificationEvidence} from "../contracts.js";
 import {findReviewAttestation} from "../review/attestation.js";
 import {FileEvidenceStore} from "../verify/evidence.js";
 import {readPrivateFile} from "../security/permissions.js";
@@ -149,15 +149,24 @@ function evidenceValue(value: unknown, taskId: string, criterionId: string): Ver
     ? value as VerificationEvidence : null;
 }
 
+/** Where Office reads QA: the shared private store and, to judge an active PASS, the checkout's effective config. */
+interface OfficeQaSource {
+  readonly commonDir: string;
+  /** Without it an active sealed PASS cannot be compared with the current version, so it shows STALE, never PASS. */
+  readonly loadConfig?: OfficeConfigLoader;
+}
+export type OfficeConfigLoader = (root: string) => Promise<AgentOpsConfig>;
+
 /** Saved private QA state only; an unreadable store shows no QA rather than a guess. */
-async function officeQa(root: string, commonDir: string | undefined, records: readonly StoredTaskRecord[], taskId: string): Promise<QaStatus | null> {
-  if (commonDir === undefined) return null;
-  // Not enrolled needs no Git or QA read; only an enrolled delivery is compared with HEAD.
-  const head = qaDeliveryRoot(records, taskId) === null ? "" : (await officeGit(root, ["rev-parse", "HEAD"])).stdout.trim();
-  return await qaStatus(new FileQaStore(commonDir), records, taskId, head === "" ? null : head).catch(() => null);
+async function officeQa(root: string, source: OfficeQaSource | undefined, records: readonly StoredTaskRecord[], taskId: string): Promise<QaStatus | null> {
+  if (source === undefined) return null;
+  // Not enrolled needs no Git, config or QA read; only an enrolled delivery is compared with the complete current version.
+  const loadConfig = source.loadConfig;
+  const current = qaDeliveryRoot(records, taskId) === null || loadConfig === undefined ? null : {root, loadConfig: async () => await loadConfig(root)};
+  return await qaStatus(new FileQaStore(source.commonDir), records, taskId, current).catch(() => null);
 }
 
-async function taskView(root: string, record: StoredTaskRecord, commonDir?: string, records: readonly StoredTaskRecord[] = [record]): Promise<OfficeTaskView> {
+async function taskView(root: string, record: StoredTaskRecord, qa?: OfficeQaSource, records: readonly StoredTaskRecord[] = [record]): Promise<OfficeTaskView> {
   const store = new FileEvidenceStore(root, root);
   const loaded: LoadedEvidence[] = [];
   for (const criterion of record.task.criteria) {
@@ -220,7 +229,7 @@ async function taskView(root: string, record: StoredTaskRecord, commonDir?: stri
           ? "implementing"
           : "planning";
   return {taskId: record.task.id, status: record.status, phase, progress, title: record.task.title, criteria,
-    review: await latestReview(root, record.task.id), completedAt: record.completedAt, qa: await officeQa(root, commonDir, records, record.task.id)};
+    review: await latestReview(root, record.task.id), completedAt: record.completedAt, qa: await officeQa(root, qa, records, record.task.id)};
 }
 
 async function taskState(root: string): Promise<ReturnType<typeof parseTaskStateSource> | null> {
@@ -230,13 +239,13 @@ async function taskState(root: string): Promise<ReturnType<typeof parseTaskState
   catch { return null; }
 }
 
-async function attachedTaskView(root: string, sessionId: string, fallbackTaskId?: string, commonDir?: string): Promise<OfficeTaskView | null> {
+async function attachedTaskView(root: string, sessionId: string, fallbackTaskId?: string, qa?: OfficeQaSource): Promise<OfficeTaskView | null> {
   const state = await taskState(root);
   if (state === null) return null;
   const taskId = state.sessions.find(session => session.sessionId === sessionId)?.taskId ?? fallbackTaskId;
   if (taskId === undefined) return null;
   const record = state.tasks.find(task => task.task.id === taskId);
-  return record === undefined ? null : await taskView(root, record, commonDir, state.tasks);
+  return record === undefined ? null : await taskView(root, record, qa, state.tasks);
 }
 
 /** Changed paths and line counts against the worktree's base, committed or not. */
@@ -292,12 +301,12 @@ export async function readRuns(commonDir: string): Promise<RunState[]> {
 }
 
 async function readSessions(mainRoot: string, commonDir: string, now: number,
-  trustedRoots: readonly string[] = [mainRoot]): Promise<OfficeSessionView[]> {
+  trustedRoots: readonly string[] = [mainRoot], loadConfig?: OfficeConfigLoader): Promise<OfficeSessionView[]> {
   const sessions = await readOfficeSessions(commonDir, now).catch(() => []);
   const views = await Promise.all(sessions.map(async session => {
     let task: OfficeTaskView | null = null;
     for (const root of trustedRoots) {
-      task = await attachedTaskView(root, session.sessionId, root === mainRoot ? session.taskId : undefined, commonDir);
+      task = await attachedTaskView(root, session.sessionId, root === mainRoot ? session.taskId : undefined, {commonDir, ...(loadConfig === undefined ? {} : {loadConfig})});
       if (task !== null) break;
     }
     const observedPhase = session?.phase === undefined ? undefined : officePhase(session.phase) ?? "unknown";
@@ -337,7 +346,7 @@ export async function readReviewSlots(commonDir: string): Promise<OfficeReviewSl
 }
 
 export async function collectOfficeInput(mainRoot: string, commonDir: string, git: OfficeGit = officeGit,
-  now = Date.now()): Promise<OfficeInput> {
+  now = Date.now(), loadConfig?: OfficeConfigLoader): Promise<OfficeInput> {
   const worktrees: OfficeWorktreeInput[] = [];
   const discovered: Array<{readonly path: string; readonly record: NonNullable<Awaited<ReturnType<typeof readWorktreeRecord>>>}> = [];
   const merged = new Set<string>();
@@ -353,10 +362,10 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
     discovered.push({path, record});
   }
   const sessions = (await readSessions(mainRoot, commonDir, now,
-    [mainRoot, ...discovered.map(item => item.path)])).filter(session => !merged.has(session.sessionId));
+    [mainRoot, ...discovered.map(item => item.path)], loadConfig)).filter(session => !merged.has(session.sessionId));
   for (const {path, record} of discovered) {
     const session = sessions.find(item => item.sessionId === record.sessionId);
-    const task = await attachedTaskView(path, record.sessionId, session?.taskId, commonDir);
+    const task = await attachedTaskView(path, record.sessionId, session?.taskId, {commonDir, ...(loadConfig === undefined ? {} : {loadConfig})});
     const ahead = /^[0-9a-f]{40,64}$/u.test(record.base) ? Number.parseInt((await git(path, ["rev-list", "--count", record.base + "..HEAD"])).stdout.trim(), 10) : Number.NaN;
     const base = {name: record.name, path, branch: record.branch, sessionId: record.sessionId,
       ...(record.runId === undefined ? {} : {runId: record.runId}), diff: await worktreeDiff(git, path, record.base),
@@ -389,7 +398,7 @@ export interface OfficeBuilding {
  * stayed quiet past the retention window with nothing left to show.
  */
 export async function collectOfficeBuilding(home: OfficeHome, enabled: (mainRoot: string) => Promise<boolean>,
-  git: OfficeGit = officeGit, now = Date.now()): Promise<OfficeBuilding> {
+  git: OfficeGit = officeGit, now = Date.now(), loadConfig?: OfficeConfigLoader): Promise<OfficeBuilding> {
   const parts: Array<{readonly repo: string; readonly snapshot: OfficeSnapshot}> = [];
   const forget: string[] = [];
   const names = new Set<string>();
@@ -399,7 +408,7 @@ export async function collectOfficeBuilding(home: OfficeHome, enabled: (mainRoot
       continue;
     }
     // One unreadable repository must not hide the rest of the building.
-    const snapshot = await collectOfficeInput(repo.mainRoot, repo.commonDir, git, now).then(buildOfficeSnapshot, () => null);
+    const snapshot = await collectOfficeInput(repo.mainRoot, repo.commonDir, git, now, loadConfig).then(buildOfficeSnapshot, () => null);
     if (snapshot === null) continue;
     if (snapshot.runs.length + snapshot.lobby.length + snapshot.reviews.length === 0 &&
       now - Date.parse(repo.lastSeenAt) >= OFFICE_SESSION_RETENTION_MS) {

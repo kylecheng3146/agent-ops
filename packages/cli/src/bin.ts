@@ -709,8 +709,8 @@ process.exitCode = await runCli(
               // enrolled delivery root reads not-enrolled without touching Git or the QA store.
               qaStatus: async (record, records) => qaDeliveryRoot(records, record.task.id) === null
                 ? await qaStatus(new FileQaStore(root), records, record.task.id, null)
-                : await qaStatus(new FileQaStore(await qaCommonDirectory(root)), records, record.task.id,
-                  (await gitRunner(root).run(["rev-parse", "HEAD"])).stdout.toString().trim() || null),
+                : await qaStatus(new FileQaStore(await qaCommonDirectory(root)), records, record.task.id, {root, gitRunner: gitRunner(root),
+                  loadConfig: async () => (await loadEffectiveConfig(root, "project")).config, ...(args.base === undefined ? {} : {base: args.base})}),
               onTaskRevised: async record => await reviewRevisedCriteria(root, record.task),
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId }),
