@@ -1,0 +1,9 @@
+worktree: session-01a1e99c (agent-ops/session-01a1e99c)
+session: 01a1e99c-f69e-7de1-b5a2-6b28b1005a71
+agent-ops task task-a1ea7b67-b18d-42cb-8d47-41117604b1ee: Preserve learning registration during init and update
+intent: Preserve the existing optional learning registration through the existing shared config rewrite, including update, repeated update and init re-planning; absent registration remains absent. No schema, default, verifier, dependency, installed-runtime or trust change.
+criteria:
+- preserve-learning-registration: Update CLI dry-run preview, applied and repeated project update, and init re-plan retain all existing learning registration fields, including false confirmation values; preview does not write the config.
+- preserve-install-defaults: Absent learning remains absent in preview, update and init re-plan. The bound checks also preserve acceptance runners and diagnostics; required node-test covers existing config ownership and migration tests. No actual user environment is activated.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/4c8ab705cfc56e57133a89f6f2c3ef8315d77907d0c7ae2ef68df34a36bb6112-c2cfb68b4ff6f64dbe57bcb9a6aae2f22be436eb.json
+receipt-sha256: fba12dbfbd2d9e6372db20b31c9147a6e1dab5818647df15fbba689b54ee7542
