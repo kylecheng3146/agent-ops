@@ -18,6 +18,8 @@ import {buildOfficeSnapshot, mergeOfficeSnapshots} from "./snapshot.js";
 import type {OfficeCriterion, OfficeReview, OfficeReviewRound, OfficeDiff, OfficeInput, OfficePhase, OfficeReviewSlot, OfficeSessionView, OfficeSnapshot, OfficeWorktreeInput} from "./snapshot.js";
 import {forgetOfficeRepos, readOfficeRepos} from "./repos.js";
 import {readActivities} from "./activity.js";
+import {qaDeliveryRoot, qaStatus, type QaStatus} from "../qa/status.js";
+import {FileQaStore} from "../qa/store.js";
 import type {OfficeHome} from "./server.js";
 
 export type OfficeGit = (cwd: string, args: readonly string[]) => Promise<{exitCode: number; stdout: string}>;
@@ -39,6 +41,7 @@ interface OfficeTaskView {
   readonly criteria: readonly OfficeCriterion[];
   readonly review: OfficeReview | null;
   readonly completedAt: string | null;
+  readonly qa: QaStatus | null;
 }
 
 // The office reads two kinds of proof files, never anything a task record merely points at:
@@ -146,7 +149,15 @@ function evidenceValue(value: unknown, taskId: string, criterionId: string): Ver
     ? value as VerificationEvidence : null;
 }
 
-async function taskView(root: string, record: StoredTaskRecord): Promise<OfficeTaskView> {
+/** Saved private QA state only; an unreadable store shows no QA rather than a guess. */
+async function officeQa(root: string, commonDir: string | undefined, records: readonly StoredTaskRecord[], taskId: string): Promise<QaStatus | null> {
+  if (commonDir === undefined) return null;
+  // Not enrolled needs no Git or QA read; only an enrolled delivery is compared with HEAD.
+  const head = qaDeliveryRoot(records, taskId) === null ? "" : (await officeGit(root, ["rev-parse", "HEAD"])).stdout.trim();
+  return await qaStatus(new FileQaStore(commonDir), records, taskId, head === "" ? null : head).catch(() => null);
+}
+
+async function taskView(root: string, record: StoredTaskRecord, commonDir?: string, records: readonly StoredTaskRecord[] = [record]): Promise<OfficeTaskView> {
   const store = new FileEvidenceStore(root, root);
   const loaded: LoadedEvidence[] = [];
   for (const criterion of record.task.criteria) {
@@ -209,7 +220,7 @@ async function taskView(root: string, record: StoredTaskRecord): Promise<OfficeT
           ? "implementing"
           : "planning";
   return {taskId: record.task.id, status: record.status, phase, progress, title: record.task.title, criteria,
-    review: await latestReview(root, record.task.id), completedAt: record.completedAt};
+    review: await latestReview(root, record.task.id), completedAt: record.completedAt, qa: await officeQa(root, commonDir, records, record.task.id)};
 }
 
 async function taskState(root: string): Promise<ReturnType<typeof parseTaskStateSource> | null> {
@@ -219,13 +230,13 @@ async function taskState(root: string): Promise<ReturnType<typeof parseTaskState
   catch { return null; }
 }
 
-async function attachedTaskView(root: string, sessionId: string, fallbackTaskId?: string): Promise<OfficeTaskView | null> {
+async function attachedTaskView(root: string, sessionId: string, fallbackTaskId?: string, commonDir?: string): Promise<OfficeTaskView | null> {
   const state = await taskState(root);
   if (state === null) return null;
   const taskId = state.sessions.find(session => session.sessionId === sessionId)?.taskId ?? fallbackTaskId;
   if (taskId === undefined) return null;
   const record = state.tasks.find(task => task.task.id === taskId);
-  return record === undefined ? null : await taskView(root, record);
+  return record === undefined ? null : await taskView(root, record, commonDir, state.tasks);
 }
 
 /** Changed paths and line counts against the worktree's base, committed or not. */
@@ -286,7 +297,7 @@ async function readSessions(mainRoot: string, commonDir: string, now: number,
   const views = await Promise.all(sessions.map(async session => {
     let task: OfficeTaskView | null = null;
     for (const root of trustedRoots) {
-      task = await attachedTaskView(root, session.sessionId, root === mainRoot ? session.taskId : undefined);
+      task = await attachedTaskView(root, session.sessionId, root === mainRoot ? session.taskId : undefined, commonDir);
       if (task !== null) break;
     }
     const observedPhase = session?.phase === undefined ? undefined : officePhase(session.phase) ?? "unknown";
@@ -298,7 +309,7 @@ async function readSessions(mainRoot: string, commonDir: string, now: number,
     return task === null
       ? session
       : {...session, taskId: task.taskId, phase, taskStatus: task.status, progress: task.progress, title: task.title, criteria: task.criteria, review: task.review,
-        completedAt: task.completedAt, status: task.status === "complete" ? "idle" as const : session.status};
+        qa: task.qa, completedAt: task.completedAt, status: task.status === "complete" ? "idle" as const : session.status};
   }));
   return views.filter(session => session.completedAt === undefined || session.completedAt === null ||
     now - Date.parse(session.completedAt) <= OFFICE_SESSION_RETENTION_MS);
@@ -345,7 +356,7 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
     [mainRoot, ...discovered.map(item => item.path)])).filter(session => !merged.has(session.sessionId));
   for (const {path, record} of discovered) {
     const session = sessions.find(item => item.sessionId === record.sessionId);
-    const task = await attachedTaskView(path, record.sessionId, session?.taskId);
+    const task = await attachedTaskView(path, record.sessionId, session?.taskId, commonDir);
     const ahead = /^[0-9a-f]{40,64}$/u.test(record.base) ? Number.parseInt((await git(path, ["rev-list", "--count", record.base + "..HEAD"])).stdout.trim(), 10) : Number.NaN;
     const base = {name: record.name, path, branch: record.branch, sessionId: record.sessionId,
       ...(record.runId === undefined ? {} : {runId: record.runId}), diff: await worktreeDiff(git, path, record.base),
@@ -360,7 +371,7 @@ export async function collectOfficeInput(mainRoot: string, commonDir: string, gi
       ? session === undefined ? base : {...base, ...(officePhase(session.phase) === undefined ? {} : {phase: officePhase(session.phase)}), status: session.status,
           ...(session.taskId === undefined ? {} : {taskId: session.taskId}), host: session.host ?? session.harness}
       : {...base, phase, status: task.status, taskId: task.taskId, progress: task.progress, title: task.title, criteria: task.criteria, review: task.review,
-          ...(task.completedAt === null ? {} : {completedAt: task.completedAt}), host: session?.host ?? session?.harness});
+          qa: task.qa, ...(task.completedAt === null ? {} : {completedAt: task.completedAt}), host: session?.host ?? session?.harness});
   }
   return {runs: await readRuns(commonDir), worktrees, sessions, reviews: await readReviewSlots(commonDir),
     activities: await readActivities(commonDir).catch(() => []), now};

@@ -50,7 +50,9 @@ changelog, and is removed only in the next major release.
 `agent-ops update` brings installed files to the current release. A newer 1.x
 release reads or migrates config and state from an older 1.x release.
 Downgrading is not supported: an older release may refuse state written by a
-newer one.
+newer one. In particular, an older CLI (1.3.x and earlier) may reject independent
+QA data: the config `qa` field, a task's `qa` binding, QA finding pins and
+receipt QA proof. Projects that never ran `--qa on` write none of it.
 
 ## Supported releases
 
@@ -64,7 +66,7 @@ release.
 | Area | Support |
 | --- | --- |
 | macOS | All features, including background native runs (`agent-ops run`). |
-| Linux and Windows | All features except background native runs, which stop with `RUN_BACKGROUND_UNSUPPORTED`. |
+| Linux and Windows | All features except background native runs, which stop with `RUN_BACKGROUND_UNSUPPORTED`, and independent QA, which stops with `QA_UNSUPPORTED_PLATFORM`. |
 | Hosts | Each host's capabilities follow the [harness adapter matrix](../spec/harness-adapters.md); the completion gate runs on agy and Claude Code. |
 
 A change to a platform or host tier is listed in the changelog.

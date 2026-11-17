@@ -474,3 +474,13 @@ provider request 數、token、金額是不同量測；跨日不重跑相同條�
 `agent-ops learn retry <job-id>` 明確重試終止工作，仍受授權與額度限制。
 固定輸入隔離、去重與保守採用詳見[學習指南](learning.md)。task → commit →
 verify → 兩輪獨立 review → finish 仍須完成；付費生產品質改善尚未測量。
+
+## 獨立 QA
+
+`"qa": {"enabled": true}` 讓專案加入獨立 QA（只支援 macOS）。用
+`agent-ops init --qa on` 或 `agent-ops update --qa on` 設定；`--qa off` 會移除此欄位，
+沒有欄位即代表關閉。它只用於專案範圍。未指定 `--qa` 時 update 保留目前選擇，也不會
+詢問。此欄位只會登記新的交付根 task：每個 task 把凍結的 QA 政策綁進契約，所以之後
+關閉專案 QA 不會移除已登記 task 的 gate。QA 以 `independent-review` 的 target 作為
+候選 host，並以受信任的 `verification.acceptanceRunners` 執行案例；不新增 runner、
+相依套件或瀏覽器引擎。詳見[獨立 QA](qa.md)。

@@ -283,3 +283,18 @@ Project init/update 在所有 harness 與 profile 安裝 `.agent-ops/.gitignore`
   清理與復原不得遺失連結。
 - `followup process` CLI 權限只隨 opt-in run profile 提供，並在一般 init/update 計畫中可見；
   不授權修改信任或 policy。不新增 Office 寫入 UI、SessionStart 摘要、雲端服務或強制關卡。
+
+## EVIDENCE-QA-001
+
+已登記的交付在沒有 controller 封存、且針對確切已 commit 候選版本的獨立 QA PASS 前，不得（MUST NOT）交付；獨立 QA 也不得（MUST NOT）取代 required verifier 或審查。
+
+- Trigger: 完成、finish、advance、finalize 或 land 一個根 task 帶有 `qa` 綁定的 task tree。
+- Action: 交付前檢查共用的 QA 證據 gate；透過 QA controller 規劃、撰寫、匯入、執行與封存。
+- Evidence: 封存的 attestation 載明候選 commit、source fingerprint、目標、task、tree、範圍、config 與 QA 政策 hash、每個必要案例與每則記錄的真人決定。
+- Positive: `verify --task` 在已 commit 的候選版本上執行獨立 QA，匯入新的測試檔，每個案例都在 baseline 紅、候選版本綠，封存 PASS 後才執行一般 verifier。
+- Negative: 把模型宣稱完成、native goal 完成、一般測試套件 PASS、真人回答，或未登記的舊 task 當成 QA PASS。
+
+- 每個專案明確選擇加入（`init`/`update --qa on`），且只綁定新的交付根 task；關閉專案 QA 不會移除已登記 task 的 gate。進行中 task 的採用必須明確執行（`qa plan --task <id> --yes`），實作已開始時標記為晚規劃。已完成的 task 永遠不重新判定。
+- 子 task 保留本地 verify；獨立 QA 涵蓋整合後的交付。部分 `run land` 只證明所選 task 與其相依。
+- QA 只在隔離 clone 中撰寫測試、fixture 與 helper 素材；產品修正以 `qa:<digest>:<index>` 釘選退回開發者。缺少必要環境、native 拒絕、provider 限制與沒有變化的語意失敗都會阻擋，永遠不會變成 PASS。
+- v1 只在 macOS 執行；其他平台上的已登記交付以 `QA_UNSUPPORTED_PLATFORM` 失敗。詳見 `docs/zh-TW/guides/qa.md`。

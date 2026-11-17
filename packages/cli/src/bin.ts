@@ -103,8 +103,12 @@ import { failureDetailLines, runVerifyCommand } from "./commands/verify.js";
 import { hintWriter, withWaitHint } from "./wait-hint.js";
 import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
-import { runDeliveryQa } from "./qa-delivery.js";
+import { qaSourceFingerprint, runDeliveryQa } from "./qa-delivery.js";
 import { qaDeliveryError } from "../../../runtime/src/qa/delivery.js";
+import { runQaCommand } from "./commands/qa.js";
+import { qaCommonDirectory } from "../../../runtime/src/qa/gate.js";
+import { qaDeliveryRoot, qaStatus } from "../../../runtime/src/qa/status.js";
+import { FileQaStore } from "../../../runtime/src/qa/store.js";
 import { runReviewShowCommand } from "./commands/review-show.js";
 import { runEscapesCommand, runEscapesReflectCommand } from "./commands/escapes.js";
 import { targetReflector } from "../../../runtime/src/escape/reflect.js";
@@ -372,12 +376,15 @@ process.exitCode = await runCli(
           const root = args.scope === "user"
             ? process.env.AGENT_OPS_HOME ?? homedir()
             : process.cwd();
-          if (args.scope !== "user" && !["init", "update", "uninstall", "followup", "escapes", "office"].includes(args.command)) {
+          // qa show only reads saved state: it starts nothing, background learning included.
+          if (args.scope !== "user" && !["init", "update", "uninstall", "followup", "escapes", "office"].includes(args.command) &&
+            !(args.command === "qa" && args.action === "show")) {
             const collected = await reconcileRepositoryFollowups(root);
             for (const warning of [...collected.warnings, ...await reconcileRepositoryLearning(root, args.command !== "learn")]) process.stderr.write(`Warning: ${warning}\n`);
           }
           // Committed work is judged as a range by default; see defaultBase.
-          if ((args.command === "verify" || (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {
+          if ((args.command === "verify" || (args.command === "qa" && args.action === "run") ||
+            (args.command === "review" && args.action !== "show" && !args.criteriaReview)) && args.base === undefined && args.scope !== "user") {
             const taskId = args.taskId;
             const base = await defaultBase(root, gitRunner(root), async () => {
               if (taskId === undefined) return undefined;
@@ -634,6 +641,13 @@ process.exitCode = await runCli(
               )).config
             } }
           );
+          if (args.command === "qa") {
+            return await runQaCommand({args, root, deliver: runDeliveryQa,
+              adopt: async (taskId, expectedContractHash, reason) => await taskService.adoptQa(taskId, {expectedContractHash, reason}),
+              loadConfig: async () => (await loadEffectiveConfig(root, "project")).config,
+              fingerprint: async base => await qaSourceFingerprint(root, base, true),
+              inRun: process.env.AGENT_OPS_RUN_ID !== undefined || await runPolicyContext(root) !== null});
+          }
           if (args.command === "allow-stop") {
             const config = (await loadEffectiveConfig(root, "project")).config;
             return await runAllowStopCommand({
@@ -691,6 +705,12 @@ process.exitCode = await runCli(
               root,
               onTaskCreated: async (record, createdRoot) => await reviewCreatedCriteria(createdRoot ?? root, record.task),
               criteriaStatus: async record => await criteriaReviewStatus(root, record.task),
+              // Saved private state only: no model, host or runner is started for status. A task with no
+              // enrolled delivery root reads not-enrolled without touching Git or the QA store.
+              qaStatus: async (record, records) => qaDeliveryRoot(records, record.task.id) === null
+                ? await qaStatus(new FileQaStore(root), records, record.task.id, null)
+                : await qaStatus(new FileQaStore(await qaCommonDirectory(root)), records, record.task.id,
+                  (await gitRunner(root).run(["rev-parse", "HEAD"])).stdout.toString().trim() || null),
               onTaskRevised: async record => await reviewRevisedCriteria(root, record.task),
               ...(policyConfigHash === undefined ? {} : { policyConfigHash }),
               ...(sessionId === undefined ? {} : { sessionId }),

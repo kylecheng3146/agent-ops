@@ -214,7 +214,7 @@ export function qaDeliveryError(result: QaDeliveryResult): AgentOpsError {
   const code = result.state === "awaiting-repair" ? "QA_REPAIR_REQUIRED" : result.state === "awaiting-input" ? "QA_AWAITING_INPUT"
     : result.state === "blocked" ? "QA_BLOCKED" : "QA_NOT_PASSED";
   const next = result.state === "awaiting-repair"
-    ? ` Repair the product (QA writes no product code), pin with agent-ops task pin-finding --task ${result.taskId} --finding <pin>, commit, then run QA again; pins: ${result.pins.join(", ") || "none"}.`
+    ? ` Repair the product (QA writes no product code), pin each with agent-ops task pin-finding ${result.taskId} <pin> --expected-contract <hash> --criterion-file <json>, commit, then run QA again; pins: ${result.pins.join(", ") || "none"}.`
     : result.state === "awaiting-input" ? " Relay the QA question to a human; only their genuine answer may be recorded, never an agent's." : "";
   return new AgentOpsError(code, `Independent QA for ${result.taskId} is ${result.state}: ${result.blockers.join("; ") || "no PASS"}.${next} Inspect with agent-ops qa show --task ${result.taskId}.`);
 }

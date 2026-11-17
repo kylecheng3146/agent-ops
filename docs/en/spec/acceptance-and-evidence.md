@@ -374,3 +374,18 @@ provenance and MUST NOT be treated as resolved by generic passing checks.
   in normal init/update plans. They grant no trust/policy changes. No Office
   write UI, SessionStart summary, cloud service or additional mandatory gate is
   introduced.
+
+## EVIDENCE-QA-001
+
+An enrolled delivery MUST NOT be delivered without a controller-sealed independent QA PASS for its exact committed candidate, and independent QA MUST NOT replace required verifiers or review.
+
+- Trigger: Completing, finishing, advancing, finalizing or landing a task tree whose root carries a `qa` binding.
+- Action: Check the shared QA evidence gate before delivery; plan, author, import, execute and seal through the QA controller.
+- Evidence: The sealed attestation names the candidate commit, source fingerprint, goal, task, tree, scope, config and QA policy hashes, every required case and every recorded human decision.
+- Positive: `verify --task` runs independent QA on the committed candidate, imports its new test files, executes every case red-at-baseline and green-on-candidate, and seals PASS before the normal verifiers run.
+- Negative: Treating a model's "done", a native completed goal, a generic suite PASS, a human answer or a not-enrolled legacy task as a QA PASS.
+
+- Opt-in is explicit per project (`init`/`update --qa on`) and binds new delivery roots only; switching the project off never removes an enrolled task's gate. Adoption of an active task is explicit (`qa plan --task <id> --yes`) and marked late after implementation started. Completed tasks are never re-judged.
+- Children keep their local verify; independent QA covers the integrated delivery. A partial `run land` proves the selected tasks and their dependencies only.
+- QA writes test, fixture and helper materials only, in an isolated clone; product fixes return to the developer as `qa:<digest>:<index>` pins. Required environment that is missing, native denials, provider limits and unchanged semantic failures block; they never become PASS.
+- v1 runs on macOS only; an enrolled delivery elsewhere fails with `QA_UNSUPPORTED_PLATFORM`. See `docs/en/guides/qa.md`.

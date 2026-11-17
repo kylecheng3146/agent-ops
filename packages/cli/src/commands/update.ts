@@ -92,6 +92,7 @@ export function formatUpdatePlan(
       `Target version: ${plan.targetVersion}`,
       `Office (Preview): ${plan.installation.config.features.office?.enabled === true ? "enabled" : "disabled"}`,
       `Auto-run: ${plan.installation.config.profiles.includes("run") ? "enabled" : "disabled"}`,
+      ...(plan.installation.scope === "project" ? [`Independent QA: ${plan.installation.config.qa?.enabled === true ? "enabled for new delivery tasks (macOS only; separate Claude/Codex sessions; usage reported, not capped)" : "disabled"}`] : []),
       `Harness: ${plan.installation.harness.join(", ")}`,
       ...(plan.installation.config.worktree === undefined
         ? []
@@ -232,6 +233,8 @@ export async function runUpdateCommand(
     root: options.root,
     adapters: options.adapters,
     ...(officeEnabled === undefined ? {} : { officeEnabled }),
+    // Explicit only: QA is never offered by a prompt, so silence keeps the current choice.
+    ...(options.args.qa === undefined ? {} : { qaEnabled: options.args.qa === "on" }),
     ...(autoRun === undefined ? {} : { autoRun }),
     ...(options.args.harness === undefined
       ? {}

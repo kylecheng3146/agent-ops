@@ -35,6 +35,19 @@ export interface DeliveryQaInput {
   readonly signal?: AbortSignal;
 }
 
+/** The source fingerprint verify and the delivery gate use; before implementation only contracts are bound. */
+export async function qaSourceFingerprint(root: string, base: string | undefined, beforeImplementation: boolean): Promise<string> {
+  const runner = gitRunner(root);
+  try {
+    return await calculateSourceFingerprint(root, await resolveReviewScope({root, runner, ...(base === undefined ? {} : {base})}), runner);
+  } catch (error) {
+    // A plan made before implementation has no change surface yet; it binds contracts, never a candidate's proof.
+    if (beforeImplementation && error instanceof AgentOpsError && error.code === "REVIEW_NO_CHANGE_SURFACE")
+      return sha256(`qa-plan-candidate:${await resolveGitCommit(runner, "HEAD")}`);
+    throw error;
+  }
+}
+
 /**
  * Production QA for one integrated delivery, at a CLI or run boundary (TaskService stays model-free).
  * Returns null for an unenrolled task without loading config or spending anything.
@@ -49,16 +62,7 @@ export async function runDeliveryQa(input: DeliveryQaInput): Promise<QaDeliveryR
   const role = config.reviewRoles?.find(r => r.role === "independent-review");
   const run = await runPolicyContext(root).catch(() => null);
   const implementationHost = host(run?.state.host) ?? host(process.env.AGENT_OPS_HOST);
-  const fingerprint = async () => {
-    try {
-      return await calculateSourceFingerprint(root, await resolveReviewScope({root, runner, ...(input.base === undefined ? {} : {base: input.base})}), runner);
-    } catch (error) {
-      // A plan made before implementation has no change surface yet; it binds contracts, never a candidate's proof.
-      if (input.planOnly && error instanceof AgentOpsError && error.code === "REVIEW_NO_CHANGE_SURFACE")
-        return sha256(`qa-plan-candidate:${await resolveGitCommit(runner, "HEAD")}`);
-      throw error;
-    }
-  };
+  const fingerprint = async () => await qaSourceFingerprint(root, input.base, input.planOnly === true);
   return await runQaDelivery({store: new FileQaStore(await qaCommonDirectory(root)), root, rootTaskId: taskId, records: state.tasks, config,
     trusted: await repositoryTrust(root, config, CLI_VERSION) === "TRUSTED", ...(input.scope === undefined ? {} : {scope: input.scope}),
     fingerprint, gitRunner: runner, processRunner: registeredRunProofRunner(), planningRunner: registeredRunProofRunner(),

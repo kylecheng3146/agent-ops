@@ -17,6 +17,7 @@ import type {
 import type {
   StoredTaskRecord
 } from "../../../../runtime/src/task/store.js";
+import { renderQaStatus, type QaStatus } from "../../../../runtime/src/qa/status.js";
 import type { ParsedArgs, TaskAction } from "../args.js";
 import {
   errorEnvelope,
@@ -30,6 +31,8 @@ export interface TaskCommandOptions {
   readonly sessionId?: string;
   readonly onTaskCreated?: (record: StoredTaskRecord, root?: string) => Promise<CriteriaReviewView>;
   readonly criteriaStatus?: (record: StoredTaskRecord) => Promise<CriteriaReviewView | null>;
+  /** Model-free QA summary for task status; absent prints none. */
+  readonly qaStatus?: (record: StoredTaskRecord, records: readonly StoredTaskRecord[]) => Promise<QaStatus>;
   /** After a saved revision: reruns the criteria advisory once when it is due, else reports its status. */
   readonly onTaskRevised?: (record: StoredTaskRecord) => Promise<CriteriaReviewView | null>;
   readonly policyConfigHash?: string;
@@ -58,6 +61,8 @@ export interface TaskCommandData {
   /** Escape Loop link state, labels, facts and blame hints of a declared escape-of origin. */
   readonly escape?: unknown;
   readonly criteriaReview?: CriteriaReviewView;
+  /** Independent QA, separate from verify: legacy tasks read not-enrolled, never PASS. */
+  readonly qa?: QaStatus;
   readonly text: string;
 }
 
@@ -369,8 +374,10 @@ export async function runTaskCommand(
       const reviewOnly = coverage.rows.filter(row => row.mode === "review-only").length;
       const legacy = coverage.rows.filter(row => row.mode === "legacy").length;
       const envelope = taskEnvelope(action, "TASK_STATUS", `Read task ${record.task.id}.`, record);
+      const qa = options.qaStatus === undefined ? undefined : await options.qaStatus(record, await options.service.list({}));
       return await withCriteriaStatus({...envelope, data: {...envelope.data!, coverage, treeContractHash: await options.service.treeContract(record.task.id),
-        text: envelope.data!.text + "\nAcceptance: " + proven + "/" + mechanical + " mechanical proven; " + reviewOnly + " review-only; " + legacy + " legacy; originally mechanical " + coverage.originalMechanical +
+        ...(qa === undefined ? {} : {qa}),
+        text: envelope.data!.text + (qa === undefined ? "" : "\n" + renderQaStatus(qa, record.task.id)) + "\nAcceptance: " + proven + "/" + mechanical + " mechanical proven; " + reviewOnly + " review-only; " + legacy + " legacy; originally mechanical " + coverage.originalMechanical +
           "; reviewed " + coverage.reviewed + "; undischarged " + coverage.rows.filter(row => row.status !== "proven" && !coverage.reviewed).length}}, options);
     }
     if (action === "attach") {

@@ -2,6 +2,7 @@ import type {RunPhase, RunState, RunTaskProgress} from "../run/service.js";
 import {activeWallTimeMs} from "../run/scheduler.js";
 import type {OfficeSessionRecord} from "./sessions.js";
 import type {OfficeActivity} from "./activity.js";
+import type {QaStatus} from "../qa/status.js";
 
 /** `git diff --stat` of one worktree against its base, paths only. */
 export interface OfficeDiff {
@@ -61,6 +62,8 @@ export interface OfficeWorktreeInput {
   readonly ahead?: number;
   readonly completedAt?: string | null;
   readonly host?: string;
+  /** Independent QA of the attached task (separate from verify); read from saved state only. */
+  readonly qa?: QaStatus | null;
 }
 
 export interface OfficeReviewSlot {
@@ -98,6 +101,7 @@ export interface OfficeSessionView extends OfficeSessionRecord {
   readonly title?: string;
   readonly criteria?: readonly OfficeCriterion[];
   readonly review?: OfficeReview | null;
+  readonly qa?: QaStatus | null;
 }
 
 export type OfficePhase = RunPhase | "unknown";
@@ -131,6 +135,8 @@ export interface OfficeRun {
   readonly completedAt?: string | null;
   readonly activities?: readonly OfficeActivityView[];
   readonly repo?: string;
+  /** The root task's independent QA, while live or within the retention window. */
+  readonly qa?: QaStatus;
 }
 
 export interface OfficeDesk {
@@ -156,6 +162,8 @@ export interface OfficeDesk {
   readonly sessionActive?: boolean;
   readonly activities?: readonly OfficeActivityView[];
   readonly repo?: string;
+  /** The task's independent QA, while live or within the retention window. */
+  readonly qa?: QaStatus;
 }
 
 export interface OfficeSnapshot {
@@ -174,6 +182,16 @@ const PHASES = new Set<OfficePhase>(["planning", "implementing", "verifying", "r
 
 function phaseOf(value: string | undefined): OfficePhase {
   return value !== undefined && PHASES.has(value as OfficePhase) ? value as OfficePhase : "unknown";
+}
+
+/**
+ * QA a room shows: live work always; an idle, halted or finished QA state retires after the completed-room
+ * window. Only the view is dropped: the private QA records stay untouched.
+ */
+export function shownQa(qa: QaStatus | null | undefined, now: number): {qa: QaStatus} | Record<string, never> {
+  if (qa == null) return {};
+  if (!qa.live && qa.updatedAt !== null && now - Date.parse(qa.updatedAt) >= COMPLETED_RETENTION_MS) return {};
+  return {qa};
 }
 
 /** Decision 8: narration comes from changed paths only. */
@@ -220,7 +238,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       // The root task is the only source of run-level proof. A
       // missing proof stays null; worker progress must never become root proof.
       ...(rootTaskId === null ? {} : {progress: rootTree?.progress ?? rootTask?.progress ?? null,
-        ...(rootTree?.criteria === undefined ? {} : {criteria: rootTree.criteria})}),
+        ...(rootTree?.criteria === undefined ? {} : {criteria: rootTree.criteria}), ...shownQa(rootTree?.qa, input.now)}),
       status: run.status, phase: run.phase ?? "unknown",
       budget: {limitMs: run.budget.limitMs, usedMs, remainingMs: run.budget.limitMs === null ? null : Math.max(0, run.budget.limitMs - usedMs)},
       questions, agents, reviewers,
@@ -265,6 +283,7 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(worktree.ahead === undefined ? {} : {ahead: worktree.ahead}),
       ...(completedAt === null && session?.completedAt === undefined ? {} : {completedAt}),
       ...(worktree.host === undefined && session?.host === undefined ? {} : {host: worktree.host ?? session?.host}),
+      ...shownQa(worktree.qa ?? session?.qa, input.now),
     });
     deskPaths.set(lobby.length - 1, worktree.path);
     represented.add(worktree.sessionId);
@@ -289,7 +308,8 @@ export function buildOfficeSnapshot(input: OfficeInput): OfficeSnapshot {
       ...(session.criteria === undefined ? {} : {criteria: session.criteria}),
       ...(session.review === undefined ? {} : {review: session.review}),
       ...(completedAt === null ? {} : {completedAt}),
-      ...(session.host === undefined ? {} : {host: session.host})
+      ...(session.host === undefined ? {} : {host: session.host}),
+      ...shownQa(session.qa, input.now)
     });
   }
   attachActivities(input, runs, lobby, deskPaths);

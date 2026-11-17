@@ -96,6 +96,8 @@ export interface CreateInstallPlanOptions {
   readonly completionGateEnabled?: boolean;
   /** Explicit Office Preview choice; undefined preserves an existing choice. */
   readonly officeEnabled?: boolean;
+  /** Explicit project QA choice; undefined preserves an existing choice, and a new install stays off. */
+  readonly qaEnabled?: boolean;
   /**
    * Update may reconcile an existing managed installation when the selected
    * harness set or capability-implied hooks changes. Init keeps the existing
@@ -239,12 +241,14 @@ function buildConfig(
     readonly securityExceptions: AgentOpsConfig["securityExceptions"];
     readonly reviewRoles?: readonly ReviewRoleConfig[];
     readonly worktree?: WorktreeConfig;
+    readonly qa?: AgentOpsConfig["qa"];
   },
   reviewTargets: readonly ReviewTargetId[] = [],
   detectedCommands: readonly VerificationCommand[] = [],
   completionGateEnabled = false,
   worktree?: WorktreeConfig | null,
-  officeEnabled?: boolean
+  officeEnabled?: boolean,
+  qaEnabled?: boolean
 ): AgentOpsConfig {
   // Absent reviewRoles means external review is disabled; an empty selection
   // must therefore omit the field rather than write an empty array.
@@ -278,7 +282,9 @@ function buildConfig(
     pathMappings: existing?.pathMappings ?? [],
     securityExceptions: existing?.securityExceptions ?? [],
     ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] }),
-    ...(effectiveWorktree === undefined ? {} : { worktree: effectiveWorktree })
+    ...(effectiveWorktree === undefined ? {} : { worktree: effectiveWorktree }),
+    // Off is absence, so a project that never opted in keeps its config and hashes byte-identical.
+    ...(qaEnabled === true || (qaEnabled === undefined && existing?.qa?.enabled === true) ? { qa: { enabled: true } } : {})
   };
 }
 
@@ -293,7 +299,8 @@ async function planConfig(
   reviewTargets: readonly ReviewTargetId[] = [],
   completionGateEnabled = false,
   worktree?: WorktreeConfig | null,
-  officeEnabled?: boolean
+  officeEnabled?: boolean,
+  qaEnabled?: boolean
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -318,6 +325,7 @@ async function planConfig(
         readonly securityExceptions: AgentOpsConfig["securityExceptions"];
         readonly reviewRoles?: readonly ReviewRoleConfig[];
         readonly worktree?: WorktreeConfig;
+        readonly qa?: AgentOpsConfig["qa"];
       }
     | undefined;
   if (suppliedConfig !== undefined) {
@@ -375,7 +383,8 @@ async function planConfig(
     detected.commands,
     completionGateEnabled,
     worktree,
-    officeEnabled
+    officeEnabled,
+    qaEnabled
   );
   const content = `${JSON.stringify(config, null, 2)}\n`;
   return {
@@ -845,7 +854,8 @@ export async function createInstallPlan(
     options.reviewTargets ?? [],
     completionGateEnabled,
     options.worktree,
-    options.officeEnabled
+    options.officeEnabled,
+    options.qaEnabled
   );
   resolved.capabilities = resolveCapabilities(config.config).capabilities;
   const existingOpencodePluginPath = existing?.manifest.artifacts.find(

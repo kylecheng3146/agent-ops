@@ -855,6 +855,29 @@ export function managedRules(
       ""
     );
   }
+  if (context.capabilities.includes("independent-qa")) {
+    lines.push(
+      "Independent QA is enabled for this project (macOS only). A new delivery",
+      "root task is enrolled when created and gets one independent read-only QA",
+      "plan after its criteria advisory; subtasks keep their local verify and",
+      "their integrated root is QA'd. For an enrolled ordinary task,",
+      "`agent-ops verify --task <id>` first runs QA on the committed candidate: a",
+      "separate Claude/Codex session writes test materials only in an isolated",
+      "clone, and the controller imports, commits, executes and seals them.",
+      "Start it, and `agent-ops qa run --task <id> --yes`, through the trusted",
+      "outer host like review. `agent-ops qa show --task <id>` reads QA state",
+      "without model calls. QA_REPAIR_REQUIRED: fix the product yourself (QA",
+      "writes no product code), pin each `qa:<digest>:<index>` finding with",
+      "`task pin-finding`, commit, then verify again. QA_AWAITING_INPUT: relay",
+      "the question to the user verbatim; only the user answers, with",
+      "`agent-ops qa respond --task <id> --question <id> --answer <text>`; never",
+      "compose an answer. Never edit, weaken or delete QA materials to pass.",
+      "`agent-ops qa stop --task <id>` stops ordinary QA; a run's QA stops",
+      "with `agent-ops run stop <run-id>`. Missing environment, native denials",
+      "and provider limits stay blocked, never PASS.",
+      ""
+    );
+  }
   lines.push(
     `This file is routed from the active ${descriptor.control.instructionFile}.`,
     ""

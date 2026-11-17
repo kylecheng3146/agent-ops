@@ -28,7 +28,8 @@ export const COMMAND_NAMES = [
   "office",
   "escapes",
   "followup",
-  "learn"
+  "learn",
+  "qa"
 ] as const;
 
 const COMMAND_SET = new Set<string>(COMMAND_NAMES);
@@ -58,7 +59,9 @@ export const WORKTREE_ACTIONS: readonly WorktreeAction[] = ["add", "commit", "fi
 export type RunAction = "start" | "status" | "logs" | "resume" | "stop" | "respond" | "land";
 export type FollowupAction = "list" | "show" | "import" | "sync" | "clarify" | "accept" | "defer" | "reopen" | "process";
 export type EscapesAction = "reflect";
-export type CliAction = EscapesAction | FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
+export type QaAction = "plan" | "run" | "show" | "respond" | "stop";
+export const QA_ACTIONS: readonly QaAction[] = ["plan", "run", "show", "respond", "stop"];
+export type CliAction = QaAction | EscapesAction | FollowupAction | RunAction | ConfigAction | TaskAction | TrustAction | ReviewAction | WorktreeAction;
 
 export interface ParsedArgs {
   learningAction?: "list" | "run" | "show" | "replay" | "rollback" | "retire" | "retry";
@@ -102,6 +105,8 @@ export interface ParsedArgs {
   /** Explicitly enable the agy project-loop completion gate. */
   completionGate?: boolean;
   office?: "on" | "off";
+  /** init/update: explicit project QA opt-in; absent preserves the current choice (new installs stay off). */
+  qa?: "on" | "off";
   /** update: add or remove the `run` profile; `loop` stays either way. */
   autoRun?: "on" | "off";
   /** Authorizes doctor's expensive review-target authentication probe. */
@@ -238,6 +243,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (argv[0] === "followup") return parseFollowupArgs(argv.slice(1));
   if (argv[0] === "run") return parseRunArgs(argv.slice(1));
   if (argv[0] === "escapes") return parseEscapesArgs(argv.slice(1));
+  if (argv[0] === "qa") return parseQaArgs(argv.slice(1));
   if (argv[0] === "task" && argv[1] === "debug")
     throw new CliArgumentError("TASK_DEBUG_REMOVED", "task debug was removed in 0.11.0. A DEBUG task is task create --debug with a behavioral " +
       "criterion whose redCheckIds fail at the baseline and pass on the candidate; then verify, review and finish as usual. " +
@@ -280,6 +286,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const checkAuthTargets: ReviewTargetId[] = [];
   let completionGate: boolean | undefined;
   let office: "on" | "off" | undefined;
+  let qa: "on" | "off" | undefined;
   let autoRun: "on" | "off" | undefined;
   let dryRun = false;
   let json = false;
@@ -492,6 +499,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         const value = readOptionValue(argv, index, token);
         if (value !== "on" && value !== "off") invalidValue(token, value);
         office = value as "on" | "off";
+        index += 1;
+        break;
+      }
+      case "--qa": {
+        if (qa !== undefined) duplicate(token);
+        const value = readOptionValue(argv, index, token);
+        if (value !== "on" && value !== "off") invalidValue(token, value);
+        qa = value as "on" | "off";
         index += 1;
         break;
       }
@@ -730,6 +745,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       reviewTargets.length > 0 ||
       completionGate !== undefined ||
       office !== undefined ||
+      qa !== undefined ||
       autoRun !== undefined ||
       sessionId !== undefined ||
       base !== undefined ||
@@ -889,6 +905,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   if (office !== undefined && command !== "init" && command !== "update") {
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--office may be used only with init or update.");
+  }
+  if (qa !== undefined && ((command !== "init" && command !== "update") || scope === "user")) {
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--qa is a project-only choice for init or update.", "--qa");
   }
   if (autoRun !== undefined && command !== "update") {
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--auto-run may be used only with update; init selects the run profile.");
@@ -1157,6 +1176,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     ...(criteriaReview ? {criteriaReview: true} : {}),
     ...(completionGate === undefined ? {} : { completionGate }),
     ...(office === undefined ? {} : { office }),
+    ...(qa === undefined ? {} : { qa }),
     ...(autoRun === undefined ? {} : { autoRun }),
     ...(criteria.length === 0 ? {} : { criteria }),
     ...(criterionFiles.length === 0 ? {} : {criterionFiles}),
@@ -1263,6 +1283,51 @@ function parseRunArgs(argv: readonly string[]): ParsedArgs {
     } else if (args.questionId !== undefined || args.answer !== undefined || args.answerFile !== undefined)
       throw new CliArgumentError("CLI_INVALID_OPTION", "Answer options require run respond.");
   }
+  return args;
+}
+
+/**
+ * qa <plan|run|show|respond|stop> --task <id>: plan and run spend model sessions, so they need --yes;
+ * show reads saved state only; respond records one relayed human answer; stop fences the ordinary QA writer.
+ */
+function parseQaArgs(argv: readonly string[]): ParsedArgs {
+  const args: ParsedArgs = {command: "qa", profiles: [], dryRun: false, json: false, yes: false, rerun: false};
+  const action = argv[0] as QaAction;
+  if (argv.includes("--help") || argv.includes("-h"))
+    return {...args, command: "help", helpTopic: "qa", ...(QA_ACTIONS.includes(action) ? {helpAction: action} : {}), json: argv.includes("--json")};
+  if (!QA_ACTIONS.includes(action))
+    throw new CliArgumentError("CLI_ACTION_REQUIRED", `The qa command requires one of: ${QA_ACTIONS.join(", ")}.`);
+  args.action = action;
+  const seen = new Set<string>();
+  for (let i = 1; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (!token.startsWith("-")) throw new CliArgumentError("CLI_UNEXPECTED_ARGUMENT", `Unexpected argument: ${token}`);
+    if (seen.has(token)) duplicate(token);
+    seen.add(token);
+    if (token === "--json") {args.json = true; continue;}
+    if (token === "--yes") {args.yes = true; continue;}
+    if (!["--task", "--base", "--question", "--answer"].includes(token))
+      throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown qa option: ${token}`, token);
+    const value = readOptionValue(argv, i++, token);
+    if (value.trim() === "" || value.includes("\0")) invalidValue(token, value);
+    if (token === "--task") {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(value)) invalidValue(token, value);
+      args.taskId = value;
+    }
+    if (token === "--base") args.base = value;
+    if (token === "--question") args.questionId = value;
+    if (token === "--answer") args.answer = value;
+  }
+  if (args.taskId === undefined) throw new CliArgumentError("CLI_MISSING_VALUE", `qa ${action} requires --task <id>.`, "--task");
+  if ((action === "plan" || action === "run") !== args.yes)
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", action === "plan" || action === "run"
+      ? `qa ${action} requires --yes to authorize independent QA model sessions.`
+      : `qa ${action} starts no model session; omit --yes.`, "--yes");
+  if (args.base !== undefined && action !== "run")
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--base may be used only with qa run.", "--base");
+  if ((action === "respond") !== (args.questionId !== undefined && args.answer !== undefined) ||
+      (action !== "respond" && (args.questionId !== undefined || args.answer !== undefined)))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "qa respond requires exactly --question <id> and --answer <text>; other actions take neither.");
   return args;
 }
 
