@@ -8,6 +8,7 @@ import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { removeTemporary } from "../fs/temporary.js";
 import { redactSecrets } from "../security/redact.js";
+import { acceptanceError } from "../schema/acceptance.js";
 import { SCENARIO_DIMENSIONS } from "../surface/schema.js";
 import { runVerificationCommand, type VerificationProcessRunner } from "../verify/spawn.js";
 import type { CriteriaReviewView } from "../review/criteria.js";
@@ -98,14 +99,27 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>): string {
     "BEGIN UNTRUSTED DATA", canonicalJson(redacted(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
 
-/** The schema admits {applies:false, na}; it means exactly {na}, the stored shape. Anything else is left for validation. */
-function notApplicable(answer: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  const scenarios = answer?.scenarios;
-  if (typeof scenarios !== "object" || scenarios === null || Array.isArray(scenarios)) return answer;
-  return {...answer, scenarios: Object.fromEntries(Object.entries(scenarios).map(([k, s]) => {
-    const v = s as Record<string, unknown>;
-    return [k, typeof v === "object" && v !== null && v.applies === false && Object.keys(v).length === 2 && "na" in v ? {na: v.na} : s];
-  }))};
+/**
+ * Shapes a live planner returns that have exactly one stricter meaning: a scenario {applies:false, na} is {na}, and an
+ * "invariant" case that designates red checks is behavioral (its red checks must fail on the baseline, never weaker).
+ */
+function normalizePlanAnswer(answer: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (answer === undefined) return answer;
+  const object = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  const scenarios = object(answer.scenarios) ? Object.fromEntries(Object.entries(answer.scenarios).map(([k, s]) =>
+    [k, object(s) && s.applies === false && Object.keys(s).length === 2 && "na" in s ? {na: s.na} : s])) : answer.scenarios;
+  const cases = Array.isArray(answer.cases) ? answer.cases.map(c => object(c) && c.mode === "invariant" && Array.isArray(c.bindings) &&
+    c.bindings.some(b => object(b) && Array.isArray(b.redCheckIds) && b.redCheckIds.length > 0) ? {...c, mode: "behavioral"} : c) : answer.cases;
+  return {...answer, scenarios, cases};
+}
+/** The first case rule a rejected plan breaks, so the operator sees why it was not used. */
+function caseRuleError(answer: Record<string, unknown> | undefined, baselineCommit: string): string {
+  for (const c of Array.isArray(answer?.cases) ? answer.cases as Record<string, unknown>[] : []) {
+    const error = acceptanceError({mode: c?.mode === "nonmechanical" ? "review-only" : c?.mode, baselineCommit, bindings: c?.bindings,
+      ...(c?.nonmechanicalReason === undefined ? {} : {reviewOnlyReason: c.nonmechanicalReason})});
+    if (error !== undefined) return ` Case ${String(c?.id).slice(0, 128)}: ${error}`;
+  }
+  return "";
 }
 function planError(message: string): never {throw new AgentOpsError("QA_PLAN_INVALID", message);}
 /** Controller checks the model cannot satisfy by assertion: requirement mapping, surfaces and runner authority. */
@@ -179,13 +193,13 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     if (result.failureClass === "aborted") throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning was cancelled; no plan was saved.");
     if (result.status !== "PASS" || result.stdoutTruncated)
       throw new AgentOpsError("QA_PLAN_NOT_RUN", `The QA planner did not answer (${result.failureClass}); QA stays unverified.`);
-    const answer = notApplicable(extractReviewObject(session.host, result.stdout));
+    const answer = normalizePlanAnswer(extractReviewObject(session.host, result.stdout));
     let plan: QaPlan;
     try {
       plan = parseQaArtifact("plan", {schemaVersion: 1, id: `plan-${held.generation}`, version: options.version, originalGoal: options.originalGoal,
         taskIds: options.tasks.map(t => t.id), dependencyTaskIds: [...(options.dependencyTaskIds ?? [])], scope: options.scope, session,
         createdAt: now(), timing: options.timing, advisoryReferences, ...answer});
-    } catch {return planError("The QA planner returned an invalid plan; it is not used.");}
+    } catch {return planError(`The QA planner returned an invalid plan; it is not used.${caseRuleError(answer, options.version.candidateCommit)}`);}
     const environment = derive(options, plan.cases, plan.environment);
     const ref = await options.store.put("plan", {...plan, environment});
     const blockers = environment.filter(e => e.required && e.status !== "available").map(e => `${e.name}: ${e.status}`);

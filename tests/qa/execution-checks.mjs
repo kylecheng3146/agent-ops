@@ -170,6 +170,11 @@ export const executionChecks = {
     await assert.doesNotReject(planned, 'A not-applicable scenario with applies false is a valid plan');
     const live = await planned;
     assert.equal(live.state, 'plan-ready'); assert.deepEqual((await f.store.get(live.plan)).scenarios.redo, {na: 'No replay'});
+    const upgraded = runQaPlanning({...base, runner: fakePlanner(planAnswer({cases: [{...planCases()[0], mode: 'invariant'}, planCases()[1]]})).runner});
+    await assert.doesNotReject(upgraded, 'An invariant case with red checks is planned as behavioral');
+    assert.equal((await f.store.get((await upgraded).plan)).cases[0].mode, 'behavioral', 'Red checks keep the stricter baseline-red rule');
+    await assert.rejects(runQaPlanning({...base, runner: fakePlanner(planAnswer({cases: [{...planCases()[0], bindings: [{...binding, redCheckIds: undefined}]}, planCases()[1]]})).runner}),
+      {code: 'QA_PLAN_INVALID', message: /Case case-happy: Behavioral acceptance requires at least one designated red check/u}, 'A behavioral case without red checks is never weakened');
     assert.match(request.stdin, /redCheckIds at least one/u, 'Behavioral red checks are a stated rule, not a hidden rejection');
     assert.match(request.stdin, /not environment/u, 'QA-added material and the authoring checkout are not planned as environment');
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(planAnswer(), 1).runner}), {code: 'QA_PLAN_NOT_RUN'});
