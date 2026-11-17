@@ -415,7 +415,7 @@ export class RunSupervisor {
     })).workers.find((candidate) => candidate.workerId === workerId)!;
   }
 
-  /** Persist a structured FAIL and stop a worker after two identical stagnant rounds. */
+  /** Retain native diagnostics; stop only after two identical stagnant proof failures. */
   async recordFailure(runId: string, workerId: string, generation: number, input: WorkerFailureInput): Promise<WorkerFailureResult> {
     assertId(workerId, "workerId");
     assertId(input.failureClass, "failureClass");
@@ -449,6 +449,7 @@ export class RunSupervisor {
         (!activeWorker(worker) && !["fenced", "stopped"].includes(worker.status))) {
         throw error("RUN_WORKER_STALE", `Failure report rejected for stale worker ${workerId}.`);
       }
+      const lifecycle = failure.phase === "native";
       const previous = worker.lastFailure;
       if (input.attemptId !== undefined && previous?.attemptId === input.attemptId) return current;
       const sameSemanticFailure = previous !== null &&
@@ -459,16 +460,16 @@ export class RunSupervisor {
         (previous.phase ?? null) === (failure.phase ?? null) &&
         (previous.progressDigest === undefined || failure.progressDigest === undefined ||
           previous.progressDigest === failure.progressDigest);
-      const noProgress = previous !== null && !previous.usefulProgress && !failure.usefulProgress &&
+      const noProgress = !lifecycle && previous !== null && !previous.usefulProgress && !failure.usefulProgress &&
         sameSemanticFailure;
-      const next = replaceWorker(current, {
+      const next = lifecycle ? current : replaceWorker(current, {
         ...worker,
         lastFailure: failure
       });
       return {
         ...next,
         events: [...next.events, {
-          id: failureEventId, at: failure.observedAt, type: "diagnostic" as const, code: noProgress ? "RUN_NO_PROGRESS_REPEAT" : "RUN_FAILURE_RECORDED",
+          id: failureEventId, at: failure.observedAt, type: "diagnostic" as const, code: lifecycle ? failure.failureClass : noProgress ? "RUN_NO_PROGRESS_REPEAT" : "RUN_FAILURE_RECORDED",
           workerId, taskId: worker.taskId,
           detail: JSON.stringify({ checkId: failure.checkId, pinId: failure.pinId, phase: failure.phase ?? null, failureClass: failure.failureClass, fingerprint: failure.fingerprint, progressDigest: failure.progressDigest ?? null, diagnosticDigest: failure.diagnosticDigest, round: failure.round, usefulProgress: failure.usefulProgress })
         }].slice(-2_000),

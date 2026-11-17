@@ -135,6 +135,38 @@ export const runResilienceChecks = {
     const input = {checkId: 'node-test', pinId: null, failureClass: 'assertion', fingerprint: 'a'.repeat(64), diagnosticDigest: 'b'.repeat(64), usefulProgress: false, attemptId: 'verify-1', round: 1};
     assert.equal((await supervisor.recordFailure(state.runId, worker.workerId, 1, input)).noProgress, false);
     assert.equal((await supervisor.recordFailure(state.runId, worker.workerId, 1, {...input, round: 2})).noProgress, false, 'Re-observing an attempt cannot count as a repair round');
+    const proofFailure = (await repository.read(state.runId)).workers[0].lastFailure;
+    for (const generation of [1, 2]) {
+      await repository.mutate(state.runId, s => ({...s, workers: s.workers.map(w => ({...w, generation}))}));
+      for (const code of ['RUN_NATIVE_COMPLETION_UNPROVEN', 'RUN_NATIVE_EXITED', 'RUN_REQUEST_STALE', 'RUN_REQUEST_INVALID']) {
+        const notice = await supervisor.recordFailure(state.runId, worker.workerId, generation, {
+          checkId: code, pinId: null, failureClass: code, phase: 'native', fingerprint: null,
+          diagnosticDigest: 'c'.repeat(64), round: 0, usefulProgress: false
+        });
+        assert.equal(notice.noProgress, false, 'Native notices across generations are not fresh proof failures');
+        assert.deepEqual(notice.state.workers[0].lastFailure, proofFailure, 'Native notices must preserve the previous proof failure');
+        assert.equal(notice.state.events.at(-1).code, code, 'Native diagnostic history is retained');
+      }
+    }
+    const stopping = new RunSupervisor({repository, host: {...host, inspect: async () => ({processAlive: false,
+      processIdentity: null, nativeGoalState: 'inactive', stateDigest: null})}});
+    const repeated = await stopping.recordFailure(state.runId, worker.workerId, 2, {...input, attemptId: 'verify-2', round: 2});
+    assert.equal(repeated.noProgress, true, 'Two distinct stagnant proof attempts still block despite native notices between them');
+    assert.equal(repeated.state.tasks[0].status, 'blocked');
+    assert.ok(repeated.state.events.some(e => e.code === 'RUN_FAILURE_RECORDED'));
+    assert.ok(repeated.state.events.some(e => e.code === 'RUN_NO_PROGRESS_REPEAT'));
+    await fixture(async f => {
+      const empty = new RunSupervisor({repository: f.repository, host: f.host});
+      for (const generation of [1, 2]) {
+        await f.repository.mutate(f.state.runId, s => ({...s, workers: s.workers.map(w => ({...w, generation}))}));
+        for (const failureClass of ['RUN_NATIVE_COMPLETION_UNPROVEN', 'RUN_NATIVE_EXITED']) {
+          const result = await empty.recordFailure(f.state.runId, f.worker.workerId, generation, {...input,
+            checkId: failureClass, failureClass, phase: 'native', attemptId: `${generation}:${failureClass}`});
+          assert.equal(result.noProgress, false);
+          assert.equal(result.state.workers[0].lastFailure, null, 'Native notices cannot establish a proof failure baseline');
+        }
+      }
+    });
   }),
   'run-recovery-controls': () => fixture(async ({repository, state, event, host, sent, now}) => {
     const {recordProviderWait, resumeProviderWait} = await load('runtime/src/run/provider-wait.js');

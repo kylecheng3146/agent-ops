@@ -604,36 +604,42 @@ export async function superviseNativeRun(root: string, runId: string): Promise<v
     async function repair(worker: RunWorkerRecord, code: string, message: string): Promise<void> {
       const current = (await repository.read(runId))!;
       const saved = current.workers.find(w => w.workerId === worker.workerId)!;
-      const attemptId = code === "VERIFICATION_FAILED"
-        ? [...current.events].reverse().find(e => e.code === "RUN_VERIFICATION_OBSERVED" && e.workerId === worker.workerId &&
-          e.taskId === worker.taskId && JSON.parse(e.detail ?? "{}").generation === worker.generation)?.id
-        : `${worker.workerId}:${worker.generation}:${code}`;
-      if (attemptId !== undefined && saved.lastFailure?.attemptId === attemptId) return;
-      const localTasks = await new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops", "tasks", "state.json"), worker.worktree!)).list();
-      const pins = await pendingFindingPins(worker.worktree!, localTasks, worker.taskId);
-      const observation = await observeRunFailure(current, worker.worktree!, localTasks, worker.taskId, code, pins);
-      const failed = observation.checks.find(check => check.status !== "PASS");
-      const previousPath = join(directory, runId, "failure-observations", worker.workerId + ".json");
-      const previous = await readPrivateFile(previousPath, commonDir);
-      const priorDigest = previous === null ? null : JSON.parse(previous).digest as string;
-      if (priorDigest !== null && !/^[a-f0-9]{64}$/u.test(priorDigest)) throw new AgentOpsError("RUN_FAILURE_OBSERVATION_CHANGED", "Failure observation pointer is invalid.");
-      const prior = priorDigest === null ? null : await readPrivateFile(join(directory, runId, "failure-observations", priorDigest + ".json"), commonDir);
-      if (priorDigest !== null && (prior === null || sha256(prior) !== priorDigest)) throw new AgentOpsError("RUN_FAILURE_OBSERVATION_CHANGED", "Failure observation is missing or changed.");
-      const usefulProgress = prior !== null && compareFailureObservations(JSON.parse(prior) as FailureObservation, observation).usefulProgress;
-      const content = canonicalJson(observation), digest = sha256(content);
-      await writePrivateFile(join(directory, runId, "failure-observations", digest + ".json"), content, commonDir);
-      await writePrivateFile(previousPath, canonicalJson({digest}), commonDir);
-      const result = await supervisor.recordFailure(runId, worker.workerId, worker.generation, {
-        checkId: failed?.checkId ?? code, pinId: failed?.pinId ?? null, phase: failed?.phase ?? "native", failureClass: failed?.failureClass ?? code,
-        fingerprint: observation.failureKey ?? sha256(canonicalJson({taskId: worker.taskId, code})), progressDigest: observation.progressDigest,
-        ...(attemptId === undefined ? {} : {attemptId}), diagnosticDigest: sha256(message), round: (saved.lastFailure?.round ?? 0) + 1, usefulProgress});
-      if (result.noProgress) {
+      let noProgress = false;
+      if (code === "VERIFICATION_FAILED") {
+        const attemptId = [...current.events].reverse().find(e => e.code === "RUN_VERIFICATION_OBSERVED" && e.workerId === worker.workerId &&
+            e.taskId === worker.taskId && JSON.parse(e.detail ?? "{}").generation === worker.generation)?.id;
+        if (attemptId === undefined || saved.lastFailure?.attemptId === attemptId) return;
+        const localTasks = await new TaskService(new FileTaskStore(join(worker.worktree!, ".agent-ops", "tasks", "state.json"), worker.worktree!)).list();
+        const pins = await pendingFindingPins(worker.worktree!, localTasks, worker.taskId);
+        const observation = await observeRunFailure(current, worker.worktree!, localTasks, worker.taskId, code, pins);
+        const failed = observation.checks.find(check => check.status !== "PASS");
+        const previousPath = join(directory, runId, "failure-observations", worker.workerId + ".json");
+        const previous = await readPrivateFile(previousPath, commonDir);
+        const priorDigest = previous === null ? null : JSON.parse(previous).digest as string;
+        if (priorDigest !== null && !/^[a-f0-9]{64}$/u.test(priorDigest)) throw new AgentOpsError("RUN_FAILURE_OBSERVATION_CHANGED", "Failure observation pointer is invalid.");
+        const prior = priorDigest === null ? null : await readPrivateFile(join(directory, runId, "failure-observations", priorDigest + ".json"), commonDir);
+        if (priorDigest !== null && (prior === null || sha256(prior) !== priorDigest)) throw new AgentOpsError("RUN_FAILURE_OBSERVATION_CHANGED", "Failure observation is missing or changed.");
+        const usefulProgress = prior !== null && compareFailureObservations(JSON.parse(prior) as FailureObservation, observation).usefulProgress;
+        const content = canonicalJson(observation), digest = sha256(content);
+        await writePrivateFile(join(directory, runId, "failure-observations", digest + ".json"), content, commonDir);
+        await writePrivateFile(previousPath, canonicalJson({digest}), commonDir);
+        const result = await supervisor.recordFailure(runId, worker.workerId, worker.generation, {
+          checkId: failed?.checkId ?? code, pinId: failed?.pinId ?? null, phase: failed?.phase ?? "native", failureClass: failed?.failureClass ?? code,
+          fingerprint: observation.failureKey ?? sha256(canonicalJson({taskId: worker.taskId, code})), progressDigest: observation.progressDigest,
+          attemptId, diagnosticDigest: sha256(message), round: (saved.lastFailure?.round ?? 0) + 1, usefulProgress});
+        noProgress = result.noProgress;
+      } else {
+        await supervisor.recordFailure(runId, worker.workerId, worker.generation, {
+          checkId: code, pinId: null, phase: "native", failureClass: code, fingerprint: null,
+          diagnosticDigest: sha256(message), round: 0, usefulProgress: false});
+      }
+      if (noProgress) {
         await scheduler.blockTaskAndDependents(runId, worker.taskId, code);
         if (worker.workerId === current.coordinatorId)
           await repository.mutate(runId, state => ({...state, status: "blocked", disableRestart: true}));
         return;
       }
-      const latest = result.state.workers.find(w => w.workerId === worker.workerId)!;
+      const latest = (await repository.read(runId))!.workers.find(w => w.workerId === worker.workerId)!;
       if (["fenced", "stopped"].includes(latest.status)) {
         const clean = latest.worktree !== null && (await collectChangeSurface(gitRunner(latest.worktree))).paths.length === 0;
         const reset = await resetStoppedRepairThread(repository, runId, latest.workerId, latest.generation, clean);
