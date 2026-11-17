@@ -29,7 +29,47 @@ async function fixture(build, check) {
   }
 }
 
+async function previewLearning({root, options, path, mod}, learning) {
+  const {runUpdateCommand} = await mod('packages/cli/src/commands/update.js');
+  const {parseArgs} = await mod('packages/cli/src/args.js');
+  const before = await readFile(path, 'utf8');
+  const preview = await runUpdateCommand({root, adapters: options.adapters, isTTY: false,
+    args: parseArgs(['update', '--scope', 'project', '--target-version', '1.3.0', '--dry-run', '--json']),
+    confirm: async () => assert.fail('Preview must not request confirmation')});
+  assert.equal(preview.code, 'UPDATE_PLAN_READY');
+  const operation = preview.data.plan.installation.operations.find(o => o.path === '.agent-ops/config.json');
+  assert.equal(operation.kind, 'write');
+  assert.deepEqual(JSON.parse(operation.content).learning, learning, 'CLI update preview preserves learning registration');
+  assert.equal(await readFile(path, 'utf8'), before, 'Preview must not write the config');
+}
+
 export const installRunnerChecks = {
+  'install-learning-preserved': async build => {
+    for (const [humanConfirmed, independentlyLabelled] of [[true, true], [true, false], [false, true], [false, false]])
+      await fixture(build, async f => {
+        const {createUpdatePlan, applyUpdatePlan} = await f.mod('runtime/src/install/update.js');
+        const learning = {suitePath: 'fixtures/labelled-suite.json', suiteDigest: 'a'.repeat(64), humanConfirmed, independentlyLabelled,
+          settings: {target: 'agy', model: 'fixture-model-v1', effort: 'high'}};
+        await writeFile(f.path, JSON.stringify({...f.config, learning}));
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await previewLearning(f, learning);
+          const plan = await createUpdatePlan({...f.options, targetVersion: '1.3.0'});
+          assert.deepEqual(plan.installation.config.learning, learning);
+          await applyUpdatePlan(f.root, plan);
+          assert.deepEqual(JSON.parse(await readFile(f.path, 'utf8')).learning, learning, 'Applied update retains every registration field');
+        }
+        assert.deepEqual((await f.createInstallPlan(f.options)).config.learning, learning, 'Init re-plan retains the registration');
+      });
+  },
+  'install-learning-absent': build => fixture(build, async f => {
+    const {createUpdatePlan, applyUpdatePlan} = await f.mod('runtime/src/install/update.js');
+    await previewLearning(f, undefined);
+    const plan = await createUpdatePlan({...f.options, targetVersion: '1.3.0'});
+    assert.equal(Object.hasOwn(plan.installation.config, 'learning'), false);
+    await applyUpdatePlan(f.root, plan);
+    assert.equal(Object.hasOwn(JSON.parse(await readFile(f.path, 'utf8')), 'learning'), false);
+    assert.equal(Object.hasOwn((await f.createInstallPlan(f.options)).config, 'learning'), false);
+  }),
   'install-runners-preserved': async build => {
     for (const detected of [false, true]) await fixture(build, async ({root, options, path, mod, createInstallPlan}) => {
       const {createUpdatePlan, applyUpdatePlan} = await mod('runtime/src/install/update.js');

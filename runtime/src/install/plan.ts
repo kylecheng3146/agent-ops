@@ -235,6 +235,7 @@ function buildConfig(
   existing?: {
     readonly verification: VerificationConfig;
     readonly features: AgentOpsFeatures;
+    readonly learning?: AgentOpsConfig["learning"];
     readonly pathMappings: AgentOpsConfig["pathMappings"];
     readonly securityExceptions: AgentOpsConfig["securityExceptions"];
     readonly reviewRoles?: readonly ReviewRoleConfig[];
@@ -275,6 +276,7 @@ function buildConfig(
         ? (existing === undefined ? { office: { enabled: false } } : {})
         : { office: { enabled: officeEnabled } })
     },
+    ...(existing?.learning === undefined ? {} : { learning: existing.learning }),
     pathMappings: existing?.pathMappings ?? [],
     securityExceptions: existing?.securityExceptions ?? [],
     ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] }),
