@@ -254,6 +254,18 @@ export const interfaceChecks = {
     const finished = (await f.records()).map(r => r.task.id === enrolled.task.id ? {...r, status: 'complete'} : r);
     const history = await qaStatus(f.store, finished, enrolled.task.id, current);
     assert.deepEqual([history.outcome, history.historical], ['PASS', true]);
+    // Live: a killed QA session left its owner record; status said "writer live" for a process that no longer existed.
+    let saved = await f.store.readControl(enrolled.task.id);
+    const owner = {controllerId: 'qa-controller', session: {host: 'codex', sessionId: 'qa-writer', implementationSessionId: 'dev', implementationHost: 'claude',
+      writable: true, fallbackReason: null}, processId: 4242, processIdentity: 'started-earlier'};
+    saved = await f.store.updateControl(enrolled.task.id, saved.revision, c => ({...c, revision: c.revision + 1, state: 'testing', owner}));
+    const probe = alive => ({identity: async () => alive ? 'started-earlier' : null, groupAlive: () => alive, signalGroup: async () => {}});
+    const exited = await qaStatus(f.store, await f.records(), enrolled.task.id, current, probe(false));
+    assert.deepEqual({live: exited.live, writer: exited.writer, blocked: exited.blockers.includes('writer:exited')}, {live: false, writer: 'exited', blocked: true});
+    assert.match(renderQaStatus(exited, enrolled.task.id), /writer exited/u); assert.doesNotMatch(renderQaStatus(exited, enrolled.task.id), /writer live/u);
+    const running = await qaStatus(f.store, await f.records(), enrolled.task.id, current, probe(true));
+    assert.deepEqual({live: running.live, writer: running.writer}, {live: true, writer: 'live'});
+    await f.store.updateControl(enrolled.task.id, saved.revision, c => ({...c, revision: c.revision + 1, state: 'passed', owner: null}));
     // Office: live QA always shows; an inactive or halted QA state retires after the window, leaving its records alone.
     const now = Date.parse(at) + 3 * 60 * 60 * 1000;
     const live = {...notEnrolled, rootTaskId: 'task-live', state: 'testing', outcome: 'PENDING', live: true, updatedAt: at};

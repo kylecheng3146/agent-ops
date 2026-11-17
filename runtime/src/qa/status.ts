@@ -8,6 +8,7 @@ import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import { showQa, type QaShow } from "./decisions.js";
 import { qaDeliveryTree, qaDeliveryVersion } from "./gate.js";
 import { qaVersionMatches } from "./policy.js";
+import { nativeQaProbe, qaOwnerStatus, type QaProcessProbe } from "./session.js";
 import type { FileQaStore } from "./store.js";
 import type { QaVersion } from "./types.js";
 
@@ -27,8 +28,10 @@ export interface QaStatus {
   readonly late: boolean;
   /** The delivery is no longer active: its saved QA is history, not a live gate. */
   readonly historical: boolean;
-  /** A registered QA writer still owns the task. */
+  /** A registered QA writer still owns the task and its process is confirmed running. */
   readonly live: boolean;
+  /** The saved writer, probed without starting anything: an exited writer left no result and blocks until QA runs again. */
+  readonly writer?: "live" | "exited" | "unidentified";
   readonly findings: number;
   readonly questions: number;
   readonly blockers: readonly string[];
@@ -86,7 +89,8 @@ async function matchesCurrent(saved: QaVersion, current: QaCurrent, root: Stored
   return false;
 }
 
-export async function qaStatus(store: FileQaStore, records: readonly StoredTaskRecord[], taskId: string, current: QaCurrent | null): Promise<QaStatus> {
+export async function qaStatus(store: FileQaStore, records: readonly StoredTaskRecord[], taskId: string, current: QaCurrent | null,
+  probe: QaProcessProbe = nativeQaProbe): Promise<QaStatus> {
   const root = qaDeliveryRoot(records, taskId);
   if (root === null) return NOT_ENROLLED;
   const control = await store.readControl(root.task.id);
@@ -102,19 +106,22 @@ export async function qaStatus(store: FileQaStore, records: readonly StoredTaskR
   const plan = control?.plan == null ? null : await store.get({...control.plan, kind: "plan"});
   const questions = show.questions.filter(q => q.required && !q.answered);
   const findings = show.state === "passed" ? [] : show.findings.filter(f => f.blocking);
+  // An owner record alone is not a running writer: a killed session leaves it behind (seen live).
+  const owner = control?.owner == null ? null : await qaOwnerStatus(control.owner, probe);
+  const writer = owner === null ? undefined : owner === "dead" ? "exited" as const : owner;
   const blockers = [
     ...(plan?.environment ?? []).filter(e => e.required && e.status !== "available").map(e => `environment:${e.name}`),
     ...questions.map(q => `question:${q.id}`), ...findings.map(f => `finding:${f.id}`),
-    ...(show.native === null ? [] : [`native:${show.native.reason}`]), ...(show.state === "stopped" ? ["stopped"] : [])];
-  return {rootTaskId: root.task.id, state: show.state, outcome, late: root.task.qa!.late, historical, live: show.writer !== null,
-    findings: findings.length, questions: questions.length, blockers, updatedAt: control?.updatedAt ?? null};
+    ...(show.native === null ? [] : [`native:${show.native.reason}`]), ...(show.state === "stopped" ? ["stopped"] : []), ...(writer === "exited" ? ["writer:exited"] : [])];
+  return {rootTaskId: root.task.id, state: show.state, outcome, late: root.task.qa!.late, historical, live: writer === "live",
+    ...(writer === undefined ? {} : {writer}), findings: findings.length, questions: questions.length, blockers, updatedAt: control?.updatedAt ?? null};
 }
 
 /** One line for task status; a legacy task says it is not enrolled, never that QA passed. */
 export function renderQaStatus(status: QaStatus, taskId: string): string {
   if (status.rootTaskId === null) return "Independent QA: not enrolled (not required; this is not a QA PASS)";
   const notes = [status.rootTaskId === taskId ? null : `delivery root ${status.rootTaskId}`, status.late ? "adopted late" : null,
-    status.historical ? "historical" : null, status.live ? "writer live" : null].filter((n): n is string => n !== null);
+    status.historical ? "historical" : null, status.writer === undefined ? (status.live ? "writer live" : null) : `writer ${status.writer}`].filter((n): n is string => n !== null);
   return `Independent QA: ${status.state} · ${status.outcome}${notes.length === 0 ? "" : ` (${notes.join(", ")})`}; ` +
     `blocking findings ${status.findings}; open questions ${status.questions}` +
     (status.blockers.length === 0 ? "" : `; blockers ${status.blockers.join(", ")}`);
