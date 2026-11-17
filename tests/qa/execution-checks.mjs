@@ -165,6 +165,13 @@ export const executionChecks = {
       const after = await f.store.readControl(task.id);
       assert.deepEqual({state: after.state, plan: after.plan, attestation: after.attestation}, {state: 'blocked', plan: control.plan, attestation: null});
     }
+    // Live codex planners answered {applies:false, na}, which the schema admits; it is stored as {na}, and the prompt states the validator's rules.
+    const planned = runQaPlanning({...base, runner: fakePlanner(planAnswer({scenarios: {...scenarios, redo: {applies: false, na: 'No replay'}}})).runner});
+    await assert.doesNotReject(planned, 'A not-applicable scenario with applies false is a valid plan');
+    const live = await planned;
+    assert.equal(live.state, 'plan-ready'); assert.deepEqual((await f.store.get(live.plan)).scenarios.redo, {na: 'No replay'});
+    assert.match(request.stdin, /redCheckIds at least one/u, 'Behavioral red checks are a stated rule, not a hidden rejection');
+    assert.match(request.stdin, /not environment/u, 'QA-added material and the authoring checkout are not planned as environment');
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(planAnswer(), 1).runner}), {code: 'QA_PLAN_NOT_RUN'});
     const none = await runQaPlanning({...base, advisory: null, runner: fakePlanner(planAnswer()).runner});
     assert.deepEqual((await f.store.get(none.plan)).advisoryReferences, []);

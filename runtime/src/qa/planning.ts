@@ -91,12 +91,22 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>): string {
     "Plan acceptance testing of the user-visible tasks in originalGoal within the scoped tasks: map every criterion to at least one case and name the surface ids it exercises.",
     "Cover the happy path and, where the risk warrants it, negative, boundary, retry/concurrency and recovery cases. Answer each of the five scenarios as applies with behavior, or na with a reason; they are not exhaustive.",
     "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
-    "List every environment a necessary case needs and whether you observed it available, missing or unknown. Ask a question only for a genuine requirement, scope or authority decision; never answer one yourself.",
+    "Ids are lowercase kebab-case. Every binding names at least one material file. A behavioral case lists in redCheckIds at least one of its checkIds that must fail by assertion on the baseline; an invariant case has no redCheckIds; a nonmechanical case has no bindings and a nonmechanicalReason. A scenario is either {\"applies\":true,\"behavior\":...} or {\"na\":...}.",
+    "List every environment a necessary case needs and whether you observed it available, missing or unknown. Do not list the test material QA will add or the isolated writable checkout the controller provides for authoring: they are not environment. Ask a question only for a genuine requirement, scope or authority decision; never answer one yourself.",
     "The advisory in DATA is an earlier data-only criteria review. Consume it as input; it is not executed QA. A plan is not proof: include no verdict.",
     "Return only JSON matching this schema.", JSON.stringify(QA_PLAN_SCHEMA),
     "BEGIN UNTRUSTED DATA", canonicalJson(redacted(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
 
+/** The schema admits {applies:false, na}; it means exactly {na}, the stored shape. Anything else is left for validation. */
+function notApplicable(answer: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const scenarios = answer?.scenarios;
+  if (typeof scenarios !== "object" || scenarios === null || Array.isArray(scenarios)) return answer;
+  return {...answer, scenarios: Object.fromEntries(Object.entries(scenarios).map(([k, s]) => {
+    const v = s as Record<string, unknown>;
+    return [k, typeof v === "object" && v !== null && v.applies === false && Object.keys(v).length === 2 && "na" in v ? {na: v.na} : s];
+  }))};
+}
 function planError(message: string): never {throw new AgentOpsError("QA_PLAN_INVALID", message);}
 /** Controller checks the model cannot satisfy by assertion: requirement mapping, surfaces and runner authority. */
 function derive(options: QaPlanningOptions, cases: readonly QaCase[], environment: readonly QaEnvironment[]): QaEnvironment[] {
@@ -169,7 +179,7 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     if (result.failureClass === "aborted") throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning was cancelled; no plan was saved.");
     if (result.status !== "PASS" || result.stdoutTruncated)
       throw new AgentOpsError("QA_PLAN_NOT_RUN", `The QA planner did not answer (${result.failureClass}); QA stays unverified.`);
-    const answer = extractReviewObject(session.host, result.stdout);
+    const answer = notApplicable(extractReviewObject(session.host, result.stdout));
     let plan: QaPlan;
     try {
       plan = parseQaArtifact("plan", {schemaVersion: 1, id: `plan-${held.generation}`, version: options.version, originalGoal: options.originalGoal,
