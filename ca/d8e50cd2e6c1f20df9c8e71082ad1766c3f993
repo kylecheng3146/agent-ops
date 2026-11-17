@@ -1,0 +1,9 @@
+worktree: session-8ac4495e (agent-ops/session-8ac4495e)
+session: 8AC4495E-E10F-46E1-A641-EEBBF084713F
+agent-ops task task-065d76fc-f803-4830-b81e-43de6d92302e: Align published 1.3.1 metadata
+intent: Merge origin/main metadata only while preserving all current local source fixes, QA evidence, and release workflow contracts.
+criteria:
+- published-version-metadata: The user-visible source metadata identifies the already published 1.3.1 release consistently: package.json and package-lock agree, README reports 1.3.1, and CHANGELOG has the dated 1.3.1 heading below Unreleased.
+- cli-version-observable: The CLI's observable version identity remains tied to the package metadata and reports 1.3.1 after the alignment, while the existing runtime, native-completion and learning-preservation regression suites remain unchanged.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/931478f3fc57340af846584201d714c89f56dbc12d149c53ee5b7dd4a64e2800-cad8e50cd2e6c1f20df9c8e71082ad1766c3f993.json
+receipt-sha256: 2cda6e4b41c5d3b2cd658f9588c91a35bd36efd2873dd2156d5b0dd3ad88e930
