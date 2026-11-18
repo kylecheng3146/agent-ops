@@ -11,6 +11,7 @@ import type {
   LearningConfig,
   WorktreeConfig
 } from "../contracts.js";
+import type { QaConfig } from "../qa/types.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { validateConfig } from "../schema/validate.js";
 
@@ -39,6 +40,7 @@ export interface ConfigProvenance {
   reviewRoles: EffectiveValue<ReviewRoleConfig>[];
   worktree?: EffectiveValue<WorktreeConfig>;
   learning?: EffectiveValue<LearningConfig>;
+  qa?: EffectiveValue<QaConfig>;
 }
 
 export interface MergedConfig {
@@ -251,6 +253,7 @@ export function mergeConfigLayers(
   let features: EffectiveValue<AgentOpsFeatures> | undefined;
   let worktree: EffectiveValue<WorktreeConfig> | undefined;
   let learning: EffectiveValue<LearningConfig> | undefined;
+  let qa: EffectiveValue<QaConfig> | undefined;
 
   for (const layer of layers) {
     schemaVersion = effective(layer.config.schemaVersion, layer);
@@ -262,6 +265,8 @@ export function mergeConfigLayers(
     }
     // Registration is repository-specific; user defaults cannot enable automatic experiments.
     if (layer.source === "project" && layer.config.learning !== undefined) learning = effective(layer.config.learning, layer);
+    // A user-level default must never enroll a project without its own opt-in.
+    if (layer.source === "project" && layer.config.qa !== undefined) qa = effective(layer.config.qa, layer);
     for (const profile of layer.config.profiles) {
       profiles.set(profile, effective(profile, layer));
     }
@@ -322,6 +327,7 @@ export function mergeConfigLayers(
     securityExceptions: [...exceptions.values()],
     reviewRoles: [...reviewRoles.values()],
     ...(learning === undefined ? {} : {learning}),
+    ...(qa === undefined ? {} : {qa}),
     ...(worktree === undefined ? {} : { worktree })
   };
   const config: AgentOpsConfig = {
@@ -344,6 +350,7 @@ export function mergeConfigLayers(
           reviewRoles: provenance.reviewRoles.map(({ value }) => value)
         }),
     ...(learning === undefined ? {} : {learning: learning.value}),
+    ...(qa === undefined ? {} : {qa: qa.value}),
     ...(worktree === undefined ? {} : { worktree: worktree.value })
   };
   const validation = validateConfig(config);

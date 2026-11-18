@@ -25,6 +25,8 @@ export interface ReviewPacket {
   readonly surface?: ReviewSurfaceData;
   /** Escape Loop: declared origins with link state, labels, replay facts and linked residual risks. */
   readonly escape?: readonly unknown[];
+  /** Independent QA proof of enrolled delivery roots: untrusted data both reviewers inspect, never a review artifact. */
+  readonly qa?: readonly unknown[];
   readonly contractArtifacts?: readonly {readonly path: string; readonly digest: string; readonly content: string}[];
   readonly contractManifest?: {readonly path: string; readonly digest: string; readonly content: string};
   readonly request: string;
@@ -116,7 +118,8 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
     ...input.artifactRefs,
     ...input.evidenceRequirements.flatMap((requirement) => [requirement.criterionId, requirement.requirement]),
     ...(input.surface === undefined ? [] : [JSON.stringify(input.surface)]),
-    ...(input.escape === undefined ? [] : [JSON.stringify(input.escape)])
+    ...(input.escape === undefined ? [] : [JSON.stringify(input.escape)]),
+    ...(input.qa === undefined ? [] : [JSON.stringify(input.qa)])
   ]) {
     checkSensitive(value);
   }
@@ -124,6 +127,7 @@ export function buildReviewPacket(input: ReviewPacketInput): ReviewPacket {
     // Task text, redacted like every other string the reviewer reads.
     ...(input.surface === undefined ? {} : {surface: safeDeep(input.surface) as ReviewSurfaceData}),
     ...(input.escape === undefined ? {} : {escape: safeDeep(input.escape) as unknown[]}),
+    ...(input.qa === undefined ? {} : {qa: safeDeep(input.qa) as unknown[]}),
     ...(input.contractArtifacts === undefined ? {} : {contractArtifacts: input.contractArtifacts}),
     ...(input.contractManifest === undefined ? {} : {contractManifest: input.contractManifest}),
     request: safe(input.request),

@@ -17,6 +17,9 @@ import type { IntegratedChild } from "./integrate.js";
 import type { WorktreeRecord } from "./service.js";
 import { validateRunIntegrationReceipt, type IntegrationReceiptBinding } from "../run/integration.js";
 import { receiptRange, type FileFingerprint } from "../escape/link.js";
+import { qaDeliveryTree, qaDeliveryVersion, sealQaReceiptProof, type QaReceiptProof } from "../qa/gate.js";
+import { qaVersionMatches } from "../qa/policy.js";
+import { FileQaStore } from "../qa/store.js";
 
 interface SealedValue {
   readonly digest: string;
@@ -56,6 +59,8 @@ export interface FinishReceipt {
     readonly artifactRefs: readonly string[];
   };
   readonly integrationJournal?: IntegrationReceiptBinding;
+  /** Enrolled delivery roots only: the sealed independent-QA proof, readable after checkout and private-state cleanup. */
+  readonly qa?: Readonly<Record<string, QaReceiptProof>>;
 }
 
 function seal(value: unknown): SealedValue {
@@ -112,7 +117,7 @@ export async function prepareFinishReceipt(options: {
   const modes = new Set<"tree" | "per-task-fallback">();
   for (const task of tasks) {
     const problem = await checkTaskCompletionEvidence(task, {
-      root: record.path, config, sourceFingerprint, evidenceStore
+      root: record.path, config, sourceFingerprint, evidenceStore, records: tasks
     });
     if (problem !== null) {
       throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Task ${task.task.id}: ${problem.remedy}`);
@@ -154,6 +159,17 @@ export async function prepareFinishReceipt(options: {
     .map(({ attestation }) => JSON.stringify((attestation.value as { tree?: unknown }).tree))).size !== 1)) {
     throw new AgentOpsError("WORKTREE_FINAL_REVIEW_MISMATCH", "Final tasks do not share one complete review mode and tree scope.");
   }
+  const qa: Record<string, QaReceiptProof> = {};
+  for (const task of tasks.filter(item => item.task.qa !== undefined)) {
+    const store = new FileQaStore(options.commonDir);
+    const version = qaDeliveryVersion({tasks: qaDeliveryTree(tasks, task.task.id).map(item => item.task), config, candidateCommit: candidateHead, sourceFingerprint});
+    const control = await store.readControl(task.task.id);
+    const attestation = control?.state === "passed" && control.attestation !== null ? control.attestation : null;
+    if (attestation === null || !qaVersionMatches((await store.get({...attestation, kind: "attestation"})).version, version))
+      throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Missing sealed independent QA for ${task.task.id}.`);
+    try {qa[task.task.id] = await sealQaReceiptProof(store, attestation, record.path);}
+    catch (cause) {throw new AgentOpsError("WORKTREE_FINAL_EVIDENCE_MISSING", `Independent QA proof for ${task.task.id} is incomplete.`, {cause});}
+  }
   const historicalReviews: Record<string, SealedValue> = {};
   let names: string[];
   try {names = await readdir(join(record.path, REVIEW_ATTESTATION_DIRECTORY));}
@@ -194,7 +210,8 @@ export async function prepareFinishReceipt(options: {
         artifactRefs: options.noChange.artifactRefs
       }
     }),
-    ...(options.integrationJournal === undefined ? {} : { integrationJournal: options.integrationJournal })
+    ...(options.integrationJournal === undefined ? {} : { integrationJournal: options.integrationJournal }),
+    ...(Object.keys(qa).length === 0 ? {} : {qa})
   };
   const content = `${JSON.stringify(receipt, null, 2)}\n`;
   const path = receiptPath(options.commonDir, record, candidateHead);
@@ -203,7 +220,8 @@ export async function prepareFinishReceipt(options: {
   if (reread !== content || Object.values(verification).some((item) => !validSeal(item)) ||
       Object.values(executionArtifacts).some(item => !validSeal(item)) ||
       Object.values(historicalReviews).some(item => !validSeal(item)) ||
-      Object.values(reviews).some(({ attestation, report }) => !validSeal(attestation) || !validSeal(report))) {
+      Object.values(reviews).some(({ attestation, report }) => !validSeal(attestation) || !validSeal(report)) ||
+      Object.values(qa).some(proof => [...Object.values(proof.artifacts), ...Object.values(proof.evidence)].some(item => !validSeal(item)))) {
     throw new AgentOpsError("WORKTREE_RECEIPT_INVALID", "The local finish receipt could not be read back intact.");
   }
   return { path, digest: sha256(content), receipt };

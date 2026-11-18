@@ -388,7 +388,10 @@ const raw = {
       const rows = [];
       const walk = async dir => {for (const name of (await readdir(dir)).sort()) {
         const path = join(dir, name), s = await stat(path);
-        if (s.isDirectory()) await walk(path); else rows.push(`${path} ${s.size} ${s.mtimeMs}`);
+        // This process's own liveness heartbeat is touched every 500 ms by a timer, not by the report;
+        // keep its path and size so a new or rewritten marker still fails, but not its mtime.
+        const live = name.startsWith(`.agent-ops-process-${process.pid}-`);
+        if (s.isDirectory()) await walk(path); else rows.push(live ? `${path} ${s.size}` : `${path} ${s.size} ${s.mtimeMs}`);
       }};
       await walk(f.root); await walk(home); return rows;
     };

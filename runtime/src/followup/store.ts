@@ -21,6 +21,22 @@ export interface FollowupProvenance {
   readonly provenanceLimit: DeliveredReview["provenanceLimit"];
 }
 
+/**
+ * A nonblocking finding from independent QA. It names the private QA report, never a delivery
+ * receipt or review, so it cannot stand in for review proof or be assessed against a receipt.
+ */
+export interface QaFollowupProvenance {
+  readonly origin: "qa";
+  readonly taskId: string;
+  readonly reportDigest: string;
+  readonly index: number;
+  readonly caseId: string;
+  readonly candidateHead: string;
+  readonly sourceFingerprint: string;
+  readonly sourceKind: "finding";
+  readonly introduced: boolean;
+}
+
 export interface FollowupHistory {
   readonly at: string;
   readonly action: "collected" | "clarified" | "accepted" | "deferred" | "reopened";
@@ -32,7 +48,7 @@ export interface FollowupItem {
   readonly id: string;
   readonly kind: "candidate" | "observation";
   readonly original: ReviewFinding | string;
-  readonly provenance: FollowupProvenance;
+  readonly provenance: FollowupProvenance | QaFollowupProvenance;
   readonly clarification?: ReviewFinding;
   readonly disposition: "pending" | "accepted" | "deferred";
   readonly history: readonly FollowupHistory[];
@@ -46,6 +62,10 @@ export interface FollowupLedger {
 export function followupIdentity(provenance: FollowupProvenance): string {
   return `followup-${sha256(JSON.stringify([provenance.receiptDigest, provenance.taskId,
     provenance.reportDigest, provenance.round, provenance.sourceKind, provenance.index]))}`;
+}
+
+export function qaFollowupIdentity(provenance: QaFollowupProvenance): string {
+  return `followup-${sha256(JSON.stringify(["qa", provenance.reportDigest, provenance.taskId, provenance.index]))}`;
 }
 
 function invalid(): never {
@@ -75,6 +95,19 @@ function checked(value: unknown): FollowupLedger {
   const items: readonly FollowupItem[] = state.items;
   for (const item of items) {
     const p = item?.provenance;
+    if (p !== undefined && "origin" in p) {
+      const q = p as QaFollowupProvenance;
+      if (q.origin !== "qa" || Object.keys(q).length !== 9 || item.kind !== "candidate" || !["pending", "accepted", "deferred"].includes(item.disposition) ||
+          ![q.reportDigest, q.sourceFingerprint].every(hash => typeof hash === "string" && /^[a-f0-9]{64}$/u.test(hash)) ||
+          typeof q.candidateHead !== "string" || !/^[a-f0-9]{40,64}$/u.test(q.candidateHead) || !text(q.taskId) || !text(q.caseId) ||
+          q.sourceKind !== "finding" || typeof q.introduced !== "boolean" || !Number.isSafeInteger(q.index) || q.index < 0 ||
+          item.id !== qaFollowupIdentity(q) || typeof item.original === "string" || !validateFollowupFinding(item.original) ||
+          item.clarification !== undefined || !Array.isArray(item.history) || item.history.length === 0 || item.history[0].action !== "collected" ||
+          item.history.some((event: FollowupHistory) => event === null || typeof event.at !== "string" || !Number.isFinite(Date.parse(event.at)) ||
+            !["collected", "accepted", "deferred", "reopened"].includes(event.action) ||
+            (["accepted", "deferred"].includes(event.action) && !text(event.reason)) || event.finding !== undefined)) invalid();
+      continue;
+    }
     if (p === undefined || !["candidate", "observation"].includes(item.kind) ||
         !["pending", "accepted", "deferred"].includes(item.disposition) ||
         ![p.receiptDigest, p.reportDigest, p.sourceFingerprint].every(hash => typeof hash === "string" && /^[a-f0-9]{64}$/u.test(hash)) ||

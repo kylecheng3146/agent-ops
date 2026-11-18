@@ -5,7 +5,9 @@ import type { AgentOpsConfig } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import type { WorktreeDependencies } from "../parallel/service.js";
 import { readDeliveredReceipt } from "./receipt.js";
-import { FileFollowupStore, followupIdentity, type FollowupItem, type FollowupProvenance } from "./store.js";
+import { FileFollowupStore, followupIdentity, qaFollowupIdentity, type FollowupItem, type FollowupProvenance, type QaFollowupProvenance } from "./store.js";
+import type { ReviewFinding } from "../review/report.js";
+import type { QaReport } from "../qa/types.js";
 import { reconcileFollowupRepairs } from "./process.js";
 
 export interface FollowupCollection {
@@ -83,4 +85,35 @@ export async function reconcileFollowups(options: FollowupSource): Promise<Follo
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") result.warnings.push(warning(error));
   }
   return result;
+}
+
+/**
+ * Nonblocking QA findings (pre-existing or outside required scope) become followup candidates with
+ * QA provenance. The followup text format is shared; the provenance says QA, never review or receipt.
+ * Fail-open like receipt collection: followup metadata cannot change a QA verdict.
+ */
+export async function collectQaFollowups(options: { readonly commonDir: string; readonly report: QaReport;
+  readonly reportDigest: string }): Promise<FollowupCollection> {
+  try {
+    const { report } = options;
+    const pending: FollowupItem[] = report.findings.flatMap((f, index) => {
+      if (f.blocking) return [];
+      const provenance: QaFollowupProvenance = { origin: "qa", taskId: report.version.taskId, reportDigest: options.reportDigest, index,
+        caseId: f.caseId, candidateHead: report.version.candidateCommit, sourceFingerprint: report.version.sourceFingerprint,
+        sourceKind: "finding", introduced: f.introduced };
+      const original: ReviewFinding = { severity: "minor", blocking: false, title: f.summary,
+        details: `Independent QA case ${f.caseId}. Expected: ${f.expected} Actual: ${f.actual}`, locations: f.locations.map(l => ({ ...l })),
+        evidence: [...f.reproduction, ...f.executions.map(e => `qa-execution:${e.digest}`)],
+        recommendation: "Assess this nonblocking independent QA finding before acting; it is not review proof.",
+        criterionIds: [...f.criterionIds], origin: f.introduced ? "introduced" : "pre-existing" };
+      return [{ id: qaFollowupIdentity(provenance), kind: "candidate" as const, original, provenance, disposition: "pending" as const,
+        history: [{ at: new Date().toISOString(), action: "collected" as const }] }];
+    });
+    return await new FileFollowupStore(options.commonDir).mutate(items => {
+      const known = new Set(items.map(item => item.id));
+      const added = pending.filter(item => !known.has(item.id));
+      items.push(...added);
+      return { added: added.length, candidates: added.length, observations: 0, warnings: [] };
+    });
+  } catch (error) { return { added: 0, candidates: 0, observations: 0, warnings: [warning(error)] }; }
 }

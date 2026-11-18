@@ -112,6 +112,14 @@ ordinary sessions. Ordinary-session presence follows hook activity; a crashed
 or silent session expires after 30 minutes without an event. Office failures
 remain advisory and never block session work.
 
+Independent QA is opt-in per project, off by default and macOS only. With
+`agent-ops update --qa on`, each new delivery task gets an independent QA plan after
+its criteria advisory, and before delivery a separate Claude/Codex session writes
+test materials in an isolated clone; the controller imports, executes and seals
+them, and finish, advance, land and the Stop gate require that sealed PASS next to
+verify and both reviews. Use `agent-ops qa plan|run|show|respond|stop --task <id>`;
+see the [QA guide](docs/en/guides/qa.md) ([繁體中文](docs/zh-TW/guides/qa.md)).
+
 Native lifecycle reachability and framework probe conditions are recorded in
 [the capability probe](docs/harness/native-goal-probe.md); these observations do not
 establish external adoption or a reduction in review cost.

@@ -543,3 +543,15 @@ Use `agent-ops learn list --json` for reasons/quota and `agent-ops learn retry
 and quota. See [learning](learning.md) for pinned isolation, deduplication and
 conservative adoption. Mandatory task → commit → verify → two fresh reviews → finish
 remains unchanged; paid production quality improvement is unmeasured.
+
+## Independent QA
+
+`"qa": {"enabled": true}` opts the project in to independent QA (macOS only).
+Set it with `agent-ops init --qa on` or `agent-ops update --qa on`; `--qa off`
+removes the field, and an absent field means off. It is project-only. Update
+preserves the current choice unless `--qa` is given and never prompts for it.
+The field enrolls new delivery root tasks only: each one binds a frozen QA policy
+into its contract, so turning the project off later never removes an enrolled
+task's gate. QA reuses the `independent-review` targets as candidate hosts and the
+trusted `verification.acceptanceRunners` to execute cases; it adds no runner,
+dependency or browser engine. See [Independent QA](qa.md).

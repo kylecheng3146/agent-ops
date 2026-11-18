@@ -242,6 +242,9 @@
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              "source": {
+                "const": "qa"
               }
             }
           }
@@ -330,6 +333,64 @@
           }
         }
       }
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "required",
+        "policyHash",
+        "enrolledAt",
+        "enrollment",
+        "late"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "required": {
+          "const": true
+        },
+        "policyHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "enrolledAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        },
+        "enrollment": {
+          "enum": [
+            "new",
+            "adopted"
+          ]
+        },
+        "late": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "enrollment": {
+                "const": "new"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "late": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "$defs": {
@@ -392,6 +453,24 @@
           }
         },
         "type": "object"
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "required": [
+          "qa"
+        ],
+        "properties": {"qa": {}}
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "const": 2
+          },
+          "parentTaskId": false
+        }
       }
     }
   ]

@@ -44,7 +44,8 @@ import {resolveGitCommit} from "../../../../runtime/src/verify/change-surface.js
 import {sha256} from "../../../../runtime/src/fs/hash.js";
 import {readPrivateFile, writePrivateFile} from "../../../../runtime/src/security/permissions.js";
 import {redactSecrets} from "../../../../runtime/src/security/redact.js";
-import type { StoredTaskRecord } from "../../../../runtime/src/task/store.js";
+import { FileTaskStore, type StoredTaskRecord } from "../../../../runtime/src/task/store.js";
+import { join } from "node:path";
 import { AgentOpsError } from "../../../../runtime/src/fs/paths.js";
 import type { GitRunner } from "../../../../runtime/src/verify/change-surface.js";
 import {
@@ -66,6 +67,8 @@ import {escapeReviewData} from "../../../../runtime/src/escape/link.js";
 import {logGateCatch} from "../../../../runtime/src/logging/local-log.js";
 import {isCovers, surfaceDelta} from "../../../../runtime/src/surface/schema.js";
 import type {ReviewSurfaceData} from "../../../../runtime/src/review/packet.js";
+import {checkQaDeliveryEvidence, qaCommonDirectory, qaDeliveryTree, qaDeliveryVersion, qaReviewData} from "../../../../runtime/src/qa/gate.js";
+import {FileQaStore} from "../../../../runtime/src/qa/store.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
 
@@ -423,6 +426,10 @@ async function preflightReview(
       });
     }
   }
+  // Independent QA runs before verification, so its sealed PASS must already name this candidate.
+  for (const record of context.records)
+    if (await checkQaDeliveryEvidence(record, {root: options.root, config: options.config, sourceFingerprint}) !== null)
+      return { ok: false, reason: "qa-required" };
   return {
     ok: true,
     summary: { status: "PASS", sourceFingerprint, commands }
@@ -488,6 +495,30 @@ const SURFACE_REASONS: Record<SurfaceCode, NonNullable<ReviewRunResult["reason"]
   LESSON_MISSING: "lesson-missing",
   ESCAPE_LESSON_INVALID: "escape-lesson-invalid",
   ESCAPE_LESSON_UNSAFE: "escape-lesson-unsafe"
+};
+
+/** Enrolled roots' QA facts for both reviewers; an unreadable store is reported as such, never as PASS. */
+async function reviewQaData(root: string, records: readonly StoredTaskRecord[], config: AgentOpsConfig,
+  candidateCommit: string, sourceFingerprint: string): Promise<unknown[]> {
+  const all = (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read().catch(() => ({tasks: records}))).tasks;
+  const out: unknown[] = [];
+  for (const record of records.filter(r => r.task.qa !== undefined)) {
+    try {
+      const tasks = qaDeliveryTree(all, record.task.id).map(r => r.task);
+      out.push(await qaReviewData(new FileQaStore(await qaCommonDirectory(root)), record,
+        qaDeliveryVersion({tasks: tasks.length === 0 ? [record.task] : tasks, config, candidateCommit, sourceFingerprint})));
+    } catch (error) {
+      out.push({taskId: record.task.id, state: "unreadable", detail: error instanceof Error ? error.message : String(error)});
+    }
+  }
+  return out;
+}
+
+export const QA_PROOF: ReviewCriterion = {
+  id: "qa-proof",
+  description: "The enrolled delivery's independent QA (task data qa field) is a current controller-sealed PASS for this final candidate: its materials " +
+    "really assert each case against product code without weakened assertions, its cases cover every criterion with risk-appropriate scenarios, " +
+    "its sessions were independent (fallback reasons recorded), nonmechanical cases hold on your own judgment, and import lineage reaches this HEAD."
 };
 
 /** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
@@ -1022,8 +1053,12 @@ export async function runReviewCommand(
   const criteria: ReviewCriterion[] = [
     ...(context?.criteria ?? GENERIC_CRITERIA),
     ...(surfacePacket === undefined || context?.criteria.some(c => c.id === SURFACE_COVERAGE.id) === true ? [] : [SURFACE_COVERAGE]),
-    ...(!context?.records.some(r => r.task.origin?.kind === "escape-of") || context.criteria.some(c => c.id === ESCAPE_LABEL.id) ? [] : [ESCAPE_LABEL])
+    ...(!context?.records.some(r => r.task.origin?.kind === "escape-of") || context.criteria.some(c => c.id === ESCAPE_LABEL.id) ? [] : [ESCAPE_LABEL]),
+    ...(!context?.records.some(r => r.task.qa !== undefined) || context.criteria.some(c => c.id === QA_PROOF.id) ? [] : [QA_PROOF])
   ];
+  const qaData = context === undefined || options.root === undefined || options.config === undefined || sourceFingerprint === undefined ||
+    options.gitRunner === undefined || !context.records.some(r => r.task.qa !== undefined) ? [] : await reviewQaData(options.root, context.records,
+    options.config, await resolveGitCommit(options.gitRunner, "HEAD"), sourceFingerprint);
   // Tree attestations bind the exact criterion list the reviewer answered.
   if (context !== undefined) context.criteria = criteria;
   if (context?.treeTasks !== undefined && criteria.length > 128) {
@@ -1068,6 +1103,7 @@ export async function runReviewCommand(
     packet = buildReviewPacket({
       ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
       ...(escapes.length === 0 ? {} : {escape: escapes}),
+      ...(qaData.length === 0 ? {} : {qa: qaData}),
       ...(contractManifest === undefined ? {} : {contractManifest, contractArtifacts}),
       request: context?.title ?? GENERIC_REQUEST,
       criteria,

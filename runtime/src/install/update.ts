@@ -47,6 +47,8 @@ export interface CreateUpdatePlanOptions {
   /** Worktree configuration override; undefined preserves existing. */
   readonly worktree?: WorktreeConfig | null;
   readonly officeEnabled?: boolean;
+  /** Explicit project QA choice; undefined preserves it. Off never edits an enrolled task's frozen gate. */
+  readonly qaEnabled?: boolean;
   /** Add or remove the `run` profile; undefined preserves it. `loop` stays either way. */
   readonly autoRun?: boolean;
   /** Codex's home, for the rules agent-ops keeps there. */
@@ -238,6 +240,7 @@ export async function createUpdatePlan(
     toolkitVersion: options.toolkitVersion ?? targetVersion,
     allowHarnessChange: true,
     ...(options.officeEnabled === undefined ? {} : { officeEnabled: options.officeEnabled }),
+    ...(options.qaEnabled === undefined ? {} : { qaEnabled: options.qaEnabled }),
     ...(options.hookRuntimePath === undefined
       ? {}
       : { hookRuntimePath: options.hookRuntimePath }),

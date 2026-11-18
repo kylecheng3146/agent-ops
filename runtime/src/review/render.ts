@@ -13,6 +13,7 @@ function safe(value: string): string {
  */
 const VERIFICATION_EVIDENCE_REASONS: ReadonlySet<string> = new Set([
   "stale-verification",
+  "qa-required",
   "missing-verification-evidence",
   "unreadable-verification-evidence",
   "verification-not-passed"
@@ -127,6 +128,9 @@ export function renderReviewResult(result: ReviewRunResult): string {
         "The source changed after this evidence was recorded, so it no longer " +
         "describes the worktree under review."
       );
+    }
+    if (result.reason === "qa-required") {
+      lines.push("Required independent QA has no sealed PASS for this exact candidate; verify runs QA on the committed candidate first.");
     }
     const verifyCommand =
       `agent-ops verify --task ${result.taskId ?? "<task-id>"}`;

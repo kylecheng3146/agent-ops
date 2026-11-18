@@ -248,7 +248,8 @@ export async function serveOffice(cwd: string, onUrl: (url: string) => void = ()
   let cached: { at: number; value: Promise<OfficeBuilding> } | null = null;
   const building = (): Promise<OfficeBuilding> => {
     if (cached === null || Date.now() - cached.at > 1000)
-      cached = { at: Date.now(), value: collectOfficeBuilding(home, officeEnabled) };
+      cached = { at: Date.now(), value: collectOfficeBuilding(home, officeEnabled, undefined, undefined,
+        async root => (await loadEffectiveConfig(root, "project")).config) };
     return cached.value;
   };
   let finish = (): void => {};

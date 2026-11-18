@@ -72,6 +72,7 @@ export function formatInstallPlan(
     metadata: [
       `Scope: ${plan.scope}`,
       `Office (Preview): ${plan.config.features.office?.enabled === true ? "enabled" : "disabled"}`,
+      ...(plan.scope === "project" ? [`Independent QA: ${plan.config.qa?.enabled === true ? "enabled for new delivery tasks (macOS only; separate Claude/Codex sessions; usage reported, not capped)" : "disabled"}`] : []),
       `Harness: ${plan.harness}`,
       `Profiles: ${plan.profiles.join(", ")}`,
       ...(plan.config.worktree === undefined
@@ -204,6 +205,7 @@ export async function runInitCommand(
     harness: args.harness,
     profiles: args.profiles,
     ...(args.office === undefined ? {} : { officeEnabled: args.office === "on" }),
+    ...(args.qa === undefined ? {} : { qaEnabled: args.qa === "on" }),
     adapters: options.adapters,
     ...(options.toolkitVersion === undefined
       ? {}

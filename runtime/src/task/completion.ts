@@ -7,6 +7,7 @@ import {evidenceMatchesContract, taskContractHash} from "./contract.js";
 import {acceptanceCoverage} from "../verify/acceptance-coverage.js";
 import type { StoredTaskRecord } from "./store.js";
 import { lessonCompletionProblem } from "../escape/lessons.js";
+import { checkQaDeliveryEvidence } from "../qa/gate.js";
 
 interface CompletionProblem {
   readonly code: string;
@@ -21,6 +22,9 @@ export async function checkTaskCompletionEvidence(
     readonly config: AgentOpsConfig;
     readonly sourceFingerprint: string;
     readonly evidenceStore: FileEvidenceStore;
+    /** The delivery's task records, for an enrolled root's QA tree; read from the checkout when omitted. */
+    readonly records?: readonly StoredTaskRecord[];
+    readonly platform?: NodeJS.Platform;
   }
 ): Promise<CompletionProblem | null> {
   // A scenario/requirement/review escape needs its lesson record (lesson, no-entry or not-run) before anything else.
@@ -28,6 +32,9 @@ export async function checkTaskCompletionEvidence(
   if (lesson !== null) return {status: "FAIL", code: lesson.code, remedy: `${lesson.code}: ${lesson.reason}`};
   const problem = await checkTaskVerificationEvidence(stored, options);
   if (problem !== null) return problem;
+  // Required independent QA: the same check on every delivery path; unenrolled tasks skip it without any read.
+  const qa = await checkQaDeliveryEvidence(stored, options);
+  if (qa !== null) return qa;
   const attestation = await findReviewAttestation(options.root, options.sourceFingerprint, stored.task.id);
   // Escape origin and its rule proof are advisory: task create/revise --escape-of report them, completion does not wait on them.
   if (attestation === null || attestation.taskId !== stored.task.id ||

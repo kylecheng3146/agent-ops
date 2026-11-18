@@ -31,5 +31,9 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function calculateConfigHash(config: AgentOpsConfig): string {
+  if (config.qa?.enabled === false) {
+    const {qa: _disabled, ...legacy} = config;
+    return sha256(canonicalJson(legacy));
+  }
   return sha256(canonicalJson(config));
 }

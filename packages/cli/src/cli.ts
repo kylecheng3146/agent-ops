@@ -57,6 +57,8 @@ Commands:
   learn      Probe, adopt and recover local criteria-advisory experience
   followup   Collect and process retained review findings and risk observations
   escapes    Report escaped bugs, gate catches, rules and lessons; reflect writes a lesson
+  qa <plan|run|show|respond|stop>
+             Independent QA for an opted-in delivery task (macOS)
   batch      Verify and review a parent task's subtasks together
   allow-stop Grant one fingerprint-bound completion-gate Stop permit (requires --session)
   agy-run    Run headless agy with a process-exit completion recheck
@@ -72,6 +74,7 @@ Options:
   --completion-gate                  Init only: enable the project-loop completion gate
   --office <on|off>                   Init/update: enable or disable Office (Preview)
   --auto-run <on|off>                 Update: add or remove the run profile (loop stays)
+  --qa <on|off>                       Init/update: project opt-in to independent QA (default off)
   --worktree <auto|off>              Init/update: configure session worktree isolation
   --check-auth                        Doctor only: probe selected review targets'
                                       authentication with one real call
@@ -174,6 +177,34 @@ twice); each lets finish pass. Commit it with the fix.
   --rerun       add the latest review findings after review rejected a lesson
   --json        print the record as JSON
 `,
+  qa: `Usage: agent-ops qa plan --task <id> --yes [--json]
+       agent-ops qa run --task <id> --yes [--base <git-ref>] [--json]
+       agent-ops qa show --task <id> [--json]
+       agent-ops qa respond --task <id> --question <id> --answer <text> [--json]
+       agent-ops qa stop --task <id> [--json]
+
+Independent QA is opt-in per project (init/update --qa on) and macOS only; an
+enabled project on another platform reports QA_UNSUPPORTED_PLATFORM and blocks
+delivery. New delivery root tasks are enrolled at creation and planned after the
+criteria advisory. Enrolled tasks cannot finish, advance, land or pass the Stop
+gate without a controller-sealed QA PASS for the exact committed candidate.
+plan    explicit (re)plan in a separate read-only session; on an active task
+        that is not enrolled it adopts QA (required from then on), marked late
+        once implementation has started. Completed tasks are never re-judged.
+run     author fresh test materials in a separate Claude/Codex session in an
+        isolated clone, import and commit them, execute every case, seal PASS.
+        verify --task runs the same step first for an enrolled ordinary task.
+show    plan, results, findings, questions and usage from private state; no
+        model, host or runner starts. Missing token/cost data is UNKNOWN.
+respond record one genuine human answer to a question QA asked. Agents must
+        relay questions, never answer them. An answer never waives a failure.
+stop    fence and stop this task's ordinary QA writer; its clone is kept.
+In an agent-ops run the supervisor owns QA: qa plan/run/stop refuse with
+QA_NATIVE_OWNED and name agent-ops run status|stop <run-id>. A human answers a
+run's QA question with qa respond, then resumes the run with run respond.
+QA_REPAIR_REQUIRED names qa:<digest>:<index> findings: fix the product, pin them
+with task pin-finding, commit and run QA again. Older CLIs may reject QA data.
+`,
   office: `Usage: agent-ops office [--json]
 
 Office (Preview) is opt-in: select it during init/update or run
@@ -229,6 +260,7 @@ Options:
   --review-target <codex|agy|claude>   Repeatable, in fallback-chain order
   --completion-gate                    Enable the project-loop completion gate
   --office <on|off>                   Office (Preview); default off, update preserves choice
+  --qa <on|off>                        Independent QA for new delivery tasks; default off (macOS only)
   --worktree <auto|off>                Configure session worktree isolation
   --dry-run                            Print the plan without writing
   --json
@@ -274,6 +306,8 @@ Options:
   --target-version <version>   Offline-capable update target
   --office <on|off>           Office (Preview); preserve choice unless supplied
   --auto-run <on|off>          Add or remove the run profile (loop stays); preserve unless supplied
+  --qa <on|off>                Independent QA for new delivery tasks; preserve unless supplied.
+                               Off never removes the gate of an already enrolled task.
   --worktree <auto|off>        Configure session worktree isolation
   --dry-run
   --json

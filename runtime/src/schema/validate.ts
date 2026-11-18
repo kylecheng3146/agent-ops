@@ -27,6 +27,7 @@ import {
 import { acceptanceError, runnerError, commitIdentity } from "./acceptance.js";
 import { parseSurface } from "../surface/schema.js";
 import { validOrigin } from "../escape/origin.js";
+import { validQaConfig, validQaPolicyBinding } from "../qa/validate.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -488,7 +489,7 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
     "securityExceptions",
     "verification",
     "worktree",
-    "learning"
+    "learning", "qa"
   ], CONFIG_SCHEMA_VERSION);
   if (isFailure(root)) {
     return root;
@@ -735,6 +736,8 @@ export function validateConfig(value: unknown): ValidationResult<AgentOpsConfig>
   if (root.learning !== undefined && !validLearningConfig(root.learning)) {
     return failure("INVALID_LEARNING_SETUP", "$.learning", "Learning registration requires bounded suite identity, confirmation flags and explicit settings.");
   }
+  if (root.qa !== undefined && !validQaConfig(root.qa))
+    return failure("INVALID_QA_CONFIG", "$.qa", "QA requires an explicit enabled boolean and no execution overrides.");
 
   return success(root as unknown as AgentOpsConfig);
 }
@@ -932,7 +935,8 @@ export function validateCriterion(
   }
   if (value.finding !== undefined) {
     const f = value.finding;
-    if (!isRecord(f) || unknownFieldFailure(f, ["pinId", "reportDigest", "findingIndex", "candidateCommit", "criterionIds"], path + ".finding") !== undefined ||
+    if (!isRecord(f) || unknownFieldFailure(f, ["pinId", "reportDigest", "findingIndex", "candidateCommit", "criterionIds", "source"], path + ".finding") !== undefined ||
+      (f.source !== undefined && f.source !== "qa") ||
       typeof f.pinId !== "string" || !HASH_PATTERN.test(f.pinId) || typeof f.reportDigest !== "string" || !HASH_PATTERN.test(f.reportDigest) ||
       !Number.isSafeInteger(f.findingIndex) || (f.findingIndex as number) < 0 || !commitIdentity(f.candidateCommit) ||
       !isStringArray(f.criterionIds) || !f.criterionIds.every(id => typeof id === "string" && id.split(":").length <= 2 && id.split(":").every(isIdentifier)) || !hasUniqueStrings(f.criterionIds))
@@ -953,12 +957,14 @@ function validDebugTag(value: unknown): boolean {
 export function validateTask(value: unknown): ValidationResult<AgentTask> {
   const root = validateRoot(
     value,
-    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug", "surface", "surfaceRequired", "origin", "originRequired"],
+    ["criteria", "id", "intent", "goal", "contractRevision", "parentTaskId", "schemaVersion", "title", "debug", "surface", "surfaceRequired", "origin", "originRequired", "qa"],
     isRecord(value) && value.schemaVersion === 1 ? 1 : TASK_SCHEMA_VERSION
   );
   if (isFailure(root)) {
     return root;
   }
+  if (root.qa !== undefined && (!validQaPolicyBinding(root.qa) || root.schemaVersion !== TASK_SCHEMA_VERSION || root.parentTaskId !== undefined))
+    return failure("INVALID_QA_BINDING", "$.qa", "Only schema 2 delivery roots carry a required immutable QA policy binding.");
   if (root.debug !== undefined && (!validDebugTag(root.debug) || root.schemaVersion !== TASK_SCHEMA_VERSION || root.goal === undefined))
     return failure("INVALID_DEBUG_TASK", "$.debug", "Debug tasks require immutable goal and bounded root intake.");
   if (root.surfaceRequired !== undefined && root.surfaceRequired !== true)

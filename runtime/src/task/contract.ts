@@ -15,7 +15,8 @@ export function taskContractHash(task: AgentTask): string {
     ...(task.surface === undefined ? {} : {surface: sha256(canonicalJson(task.surface))}),
     ...(task.surfaceRequired === undefined ? {} : {surfaceRequired: true}),
     ...(task.origin === undefined ? {} : {origin: task.origin}),
-    ...(task.originRequired === undefined ? {} : {originRequired: true}) }));
+    ...(task.originRequired === undefined ? {} : {originRequired: true}),
+    ...(task.qa === undefined ? {} : {qa: task.qa}) }));
 }
 /**
  * What verification actually ran: the criteria. Surface, origin, goal and revision

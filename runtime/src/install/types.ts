@@ -12,7 +12,9 @@ export type Capability =
   | "project-loop"
   | "auto-run"
   | "completion-gate"
-  | "optional-stop-verify";
+  | "optional-stop-verify"
+  /** Explicit project QA opt-in (config.qa.enabled): adds the independent-QA rules. */
+  | "independent-qa";
 
 export type CapabilitySupport =
   | "supported"

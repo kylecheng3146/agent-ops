@@ -62,5 +62,6 @@ export function resolveCapabilities(
   if (config.features.completionGate.enabled) {
     resolved.capabilities.push("completion-gate");
   }
+  if (config.qa?.enabled === true) resolved.capabilities.push("independent-qa");
   return resolved;
 }

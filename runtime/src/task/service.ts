@@ -37,8 +37,13 @@ import type {TaskOrigin} from "../escape/origin.js";
 import {declareEscape, resolveOrigin} from "../escape/link.js";
 import {configProposal} from "../escape/rules.js";
 import {logGateCatch} from "../logging/local-log.js";
+import {qaPolicyBinding} from "../qa/policy.js";
+import type {QaPolicyBinding} from "../qa/types.js";
+import {collectChangeSurface} from "../verify/change-surface.js";
 
 export interface ReviseTaskInput {
+  /** Explicit one-way adoption; never applied to historical deliveries. */
+  readonly adoptQa?: true;
   readonly expectedContractHash: string;
   /** Absent keeps the current criteria (a surface-only revision). */
   readonly criteria?: readonly AcceptanceCriterion[];
@@ -78,9 +83,14 @@ export interface CreateTaskInput {
   readonly requireSurface?: boolean;
   /** Optional escape-of declaration (Escape Loop, advisory). */
   readonly origin?: TaskOrigin;
+  /** A landing root inherits its run root's exact QA enrollment (null: not enrolled); omitted follows the project opt-in. */
+  readonly qaBinding?: QaPolicyBinding | null;
 }
 
 export interface TaskServiceOptions {
+  /** Supplied by the native supervisor for child checkouts without a local parent record. */
+  readonly deliveryRole?: "child";
+  readonly platform?: NodeJS.Platform;
   readonly generateId?: () => string;
   readonly now?: () => string;
   /** Required for completion; read-only task operations do not need a repository. */
@@ -211,12 +221,16 @@ export class TaskService {
   readonly #generateId: () => string;
   readonly #now: () => string;
   readonly #completion: TaskServiceOptions["completion"];
+  readonly #platform: NodeJS.Platform;
+  readonly #deliveryRole: TaskServiceOptions["deliveryRole"];
 
   constructor(store: TaskStore, options: TaskServiceOptions = {}) {
     this.#store = store;
     this.#generateId = options.generateId ?? defaultTaskId;
     this.#now = options.now ?? (() => new Date().toISOString());
     this.#completion = options.completion;
+    this.#platform = options.platform ?? process.platform;
+    this.#deliveryRole = options.deliveryRole;
   }
 
   async create(input: CreateTaskInput): Promise<StoredTaskRecord> {
@@ -275,9 +289,10 @@ export class TaskService {
     }
     if (validation.value.criteria.some(c => c.finding !== undefined))
       throw taskError("TASK_PIN_REQUIRED", "New finding identities must be validated with pin-finding against a saved failed review.");
+    const config = await this.#completion?.loadConfig();
     if (validation.value.criteria.some(c => c.acceptance !== undefined)) {
       if (this.#completion === undefined) throw taskError("TASK_BASELINE_CONTEXT_REQUIRED", "Typed acceptance requires repository context.");
-      const configured = validateTaskAgainstConfig(validation.value, await this.#completion.loadConfig());
+      const configured = validateTaskAgainstConfig(validation.value, config!);
       if (!configured.ok) throw taskError("TASK_INVALID", configured.errors[0]?.message ?? "Invalid runner binding.");
       await this.#retainBaselines(validation.value);
     }
@@ -333,6 +348,10 @@ export class TaskService {
             "A DEBUG task needs a behavioral criterion whose redCheckIds fail at the baseline and pass on the candidate.");
         validation.value.debug = {rootTaskId: task.id, facts: [...(input.debug.facts ?? [])], unknowns: [...(input.debug.unknowns ?? [])]};
       }
+      if (input.qaBinding !== undefined) {
+        if (input.qaBinding !== null && parentId === undefined) validation.value.qa = structuredClone(input.qaBinding);
+      } else if (config?.qa?.enabled === true && parentId === undefined && this.#deliveryRole !== "child")
+        validation.value.qa = qaPolicyBinding(config, now, "new", false, this.#platform);
       const inherited = validateTask(validation.value);
       if (!inherited.ok) throw taskError("TASK_INVALID", inherited.errors[0]?.message ?? "Invalid inherited task contract.");
       if (input.requireSurface === true) {
@@ -353,7 +372,7 @@ export class TaskService {
         completedAt: null,
         archivedAt: null,
         failureFingerprint: null,
-        policyConfigHash: input.policyConfigHash ?? null,
+        policyConfigHash: input.policyConfigHash ?? (validation.value.qa === undefined ? null : calculateConfigHash(config!)),
         completionBase: null
       };
       state.tasks.push(record);
@@ -404,12 +423,13 @@ export class TaskService {
     const previous = await this.status({taskId});
     if (previous.status !== "active") throw taskError("TASK_NOT_ACTIVE", "Only active tasks can revise acceptance.");
     if (taskContractHash(previous.task) !== input.expectedContractHash) throw taskError("TASK_CONTRACT_CHANGED", "Task contract changed.");
+    if (input.adoptQa === true && previous.task.qa !== undefined && input.criteria === undefined && input.surface === undefined && input.origin === undefined && input.baseline === undefined) return previous;
     // With none of them, a revision only rebinds the task to the current configuration (checked below).
-    const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined && input.baseline === undefined;
+    const rebindOnly = input.criteria === undefined && input.surface === undefined && input.origin === undefined && input.baseline === undefined && input.adoptQa === undefined;
     if (rebindOnly && this.#completion === undefined)
       throw taskError("TASK_REVISION_INVALID", "Revision requires criteria, a surface, an origin, or a combination.");
     // Re-declaring the same origin only refreshes its ledger record; the contract and its proof stand.
-    if (input.criteria === undefined && input.surface === undefined && input.origin !== undefined &&
+    if (input.adoptQa === undefined && input.criteria === undefined && input.surface === undefined && input.origin !== undefined &&
         canonicalJson(input.origin) === canonicalJson(previous.task.origin ?? null)) return previous;
     const surface = input.surface === undefined ? previous.task.surface : parseSurface(input.surface);
     // An explicit --baseline moves every typed criterion (e.g. a task opened on the wrong branch); its evidence is then void.
@@ -427,6 +447,17 @@ export class TaskService {
     const next: AgentTask = {...previous.task, schemaVersion: TASK_SCHEMA_VERSION,
       contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria, ...(surface === undefined ? {} : {surface}),
       ...(input.origin === undefined ? {} : {origin: structuredClone(input.origin)})};
+    if (input.adoptQa === true && previous.task.qa === undefined) {
+      if (this.#deliveryRole === "child" || previous.task.parentTaskId !== undefined || (previous.task.surface !== undefined && isCovers(previous.task.surface)))
+        throw taskError("QA_DELIVERY_ROOT_REQUIRED", "Children retain local verification; enroll their integrated delivery root.");
+      if (this.#completion === undefined) throw taskError("QA_CONTEXT_REQUIRED", "QA adoption needs repository configuration and source context.");
+      const git = this.#completion.gitRunner;
+      const diff = previous.createdSourceCommit === undefined ? undefined : await git.run(["diff", "--quiet", previous.createdSourceCommit, "--"]);
+      if (diff !== undefined && diff.exitCode !== 0 && diff.exitCode !== 1)
+        throw taskError("QA_SOURCE_UNKNOWN", "Could not establish whether QA planning is late.");
+      const late = diff === undefined || diff.exitCode === 1 || (await collectChangeSurface(git)).paths.length > 0;
+      next.qa = qaPolicyBinding(await this.#completion.loadConfig(), assertTimestamp(this.#now()), "adopted", late, this.#platform);
+    }
     const checked = validateTask(next);
     if (!checked.ok) throw taskError("TASK_INVALID", checked.errors[0]?.message ?? "Invalid criterion revision.");
     const records = (await this.#store.read()).tasks;
@@ -461,6 +492,11 @@ export class TaskService {
       replaceTask(state, withoutReview);
       return cloneRecord(withoutReview);
     });
+  }
+
+  /** Adoption is a contract revision, preserving the immutable goal and earlier evidence/history. */
+  async adoptQa(taskId: string, input: Pick<ReviseTaskInput, "expectedContractHash" | "reason">): Promise<StoredTaskRecord> {
+    return await this.revise(taskId, {...input, adoptQa: true});
   }
 
   /** A moved baseline must be a real commit in the candidate's history, so red-to-green still proves this change. */
@@ -781,7 +817,7 @@ export class TaskService {
     const sourceFingerprint = await fingerprint();
     const problem = await checkTaskCompletionEvidence({ ...current, evidence }, {
       root: completion.root, config, sourceFingerprint,
-      evidenceStore
+      evidenceStore, records: (await this.#store.read()).tasks, platform: this.#platform
     });
     if (problem !== null) {
       throw taskError(`TASK_COMPLETION_${problem.code}`, problem.remedy);
@@ -1116,7 +1152,8 @@ export class TaskService {
     }
     if (this.#completion === undefined) throw taskError("TASK_PIN_REQUIRED", "New pins require a saved review source.");
     const {finding: _finding, ...unbound} = criterion;
-    const resolved = await loadFindingPin(this.#completion.root, record, finding.reportDigest + ":" + finding.findingIndex, unbound, records);
+    const resolved = await loadFindingPin(this.#completion.root, record,
+      (finding.source === "qa" ? "qa:" : "") + finding.reportDigest + ":" + finding.findingIndex, unbound, records);
     if (canonicalJson(resolved.finding) !== canonicalJson(finding) || resolved.acceptance?.baselineCommit !== criterion.acceptance?.baselineCommit)
       throw taskError("TASK_PIN_REQUIRED", "Pin identity and baseline must match the saved failed report.");
   }
@@ -1135,7 +1172,7 @@ export class TaskService {
       throw taskError("TASK_CRITERION_ID_CONFLICT", "A new pin requires a new criterion ID.");
     const criteria = existing === undefined ? [...record.task.criteria, pinned] : record.task.criteria.map(c => c.id === existing.id ? pinned : c);
     const updated = await this.revise(taskId, {expectedContractHash, criteria,
-      reason: reason ?? "Pin saved review finding " + reference + " against the immutable original goal.", diagnostics: ["finding:" + reference, "pin:" + pinned.finding!.pinId]});
+      reason: reason ?? "Pin saved " + (pinned.finding!.source === "qa" ? "QA" : "review") + " finding " + reference + " against the immutable original goal.", diagnostics: ["finding:" + reference, "pin:" + pinned.finding!.pinId]});
     return {record: updated, pendingCriterion: pinned};
   }
 

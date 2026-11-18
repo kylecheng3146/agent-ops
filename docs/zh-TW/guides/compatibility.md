@@ -44,6 +44,8 @@ changelog 會將它列為已淘汰，並且只在下一個 major 版本移除。
 
 `agent-ops update` 會把已安裝的檔案更新到目前版本。較新的 1.x 版本會讀取或遷移
 較舊 1.x 版本的 config 與狀態。不支援降版：較舊的版本可能拒絕較新版本寫入的狀態。
+特別是舊版 CLI（1.3.x 及更早）可能拒絕獨立 QA 資料：config 的 `qa` 欄位、task 的
+`qa` 綁定、QA finding 釘選與收據中的 QA 證明。從未執行 `--qa on` 的專案不會寫入這些資料。
 
 ## 支援的版本
 
@@ -56,7 +58,7 @@ changelog 會將它列為已淘汰，並且只在下一個 major 版本移除。
 | 範圍 | 支援 |
 | --- | --- |
 | macOS | 全部功能，包含背景 native run（`agent-ops run`）。 |
-| Linux 與 Windows | 除了背景 native run 以外的全部功能；背景 run 會以 `RUN_BACKGROUND_UNSUPPORTED` 停止。 |
+| Linux 與 Windows | 除了背景 native run 與獨立 QA 以外的全部功能；背景 run 會以 `RUN_BACKGROUND_UNSUPPORTED` 停止，獨立 QA 會以 `QA_UNSUPPORTED_PLATFORM` 停止。 |
 | Host | 各 host 的能力依照 [harness adapter 矩陣](../spec/harness-adapters.md)；completion gate 在 agy 與 Claude Code 上執行。 |
 
 平台或 host 支援等級的變動都會列在 changelog。

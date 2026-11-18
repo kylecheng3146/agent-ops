@@ -18,6 +18,9 @@ import { readFinishedReview } from "./review-show.js";
 import {criteriaProgress} from "../../../../runtime/src/run/phase.js";
 import type {RunTaskProgress} from "../../../../runtime/src/run/service.js";
 import {prepareRunIntegration, readRunIntegrationProof, abandonPreparedRunIntegration} from "../../../../runtime/src/run/integration.js";
+import {qaDeliveryError, type QaDeliveryResult} from "../../../../runtime/src/qa/delivery.js";
+import type {QaDeliveryScope} from "../../../../runtime/src/qa/gate.js";
+import {runDeliveryQa, type DeliveryQaInput} from "../qa-delivery.js";
 
 interface StepEnvelope {
   readonly code: string;
@@ -121,6 +124,10 @@ export async function runAdvanceCommand(options: {
   readonly onPhase?: AdvancePhaseObserver;
   /** `run land`: integrate these run children instead of this session's, and leave them in place. */
   readonly children?: readonly WorktreeRecord[];
+  /** `run land` proves exactly its selected tasks on top of already-landed dependencies. */
+  readonly qaScope?: QaDeliveryScope;
+  /** The integrated delivery's independent QA step; production runs the same controller ordinary verify uses. */
+  readonly qa?: (input: DeliveryQaInput) => Promise<QaDeliveryResult | null>;
 }): Promise<CliEnvelope<unknown>> {
   const { deps, cwd } = options;
   if (options.sessionId === undefined || options.parentTaskId === undefined) {
@@ -158,7 +165,6 @@ export async function runAdvanceCommand(options: {
         throw new AgentOpsError("WORKTREE_REBASE_CONFLICT", `Target moved; rebase conflicted in ${files || "unknown files"}. Candidate remains at ${branchHead}.`);
       }
     }
-    const head = await git(deps, record.path, ["rev-parse", "HEAD"]);
     const all = (await deps.tasks(record.path).list()).filter(({ status }) => status !== "archived");
     const selected = new Set([parent.task.id]);
     for (let changed = true; changed;) {
@@ -174,6 +180,15 @@ export async function runAdvanceCommand(options: {
       throw new AgentOpsError("ADVANCE_TASK_TREE_INVALID", "The candidate has unrelated or already completed tasks; final proof must cover one active tree.");
     }
     const ordered = all.filter(({ task }) => selected.has(task.id));
+    // QA covers the integrated delivery once, before any final verification or review: importing its
+    // materials commits a new candidate, so everything after this measures the final one.
+    if (parent.task.qa !== undefined) {
+      await (options.onPhase ?? (async () => {}))("verifying");
+      const qa = await (options.qa ?? runDeliveryQa)({root: record.path, taskId: parent.task.id, base: target,
+        ...(options.qaScope === undefined ? {} : {scope: options.qaScope})});
+      if (qa !== null && qa.state !== "passed") throw qaDeliveryError(qa);
+    }
+    const head = await git(deps, record.path, ["rev-parse", "HEAD"]);
     const noChangePaths = head === target ? parent.noChangePaths : undefined;
     if (noChangePaths !== undefined) for (const task of ordered)
       await deps.tasks(record.path).recordEvidence(task.task.id, {}, undefined, noChangePaths);

@@ -129,6 +129,8 @@ export async function processFollowup(options: ProcessFollowupOptions): Promise<
   return await withPrivateFileLock(progressPath(commonDir, itemId), commonDir, async () => {
     const store = new FileFollowupStore(commonDir), item = await store.get(itemId);
     if (item.kind !== "candidate") invalid("FOLLOWUP_CLARIFICATION_REQUIRED");
+    // QA followups name a private QA report, not a delivered receipt with reviews to assess against.
+    if ("origin" in item.provenance) invalid("FOLLOWUP_QA_ORIGIN");
     let state = await readFollowupProgress(commonDir, itemId, item);
     const runs = new FileRunRepository(join(commonDir, "agent-ops", "runs"), commonDir);
     const prior = state.attempts.at(-1);
@@ -204,8 +206,10 @@ export async function reconcileFollowupRepairs(options: FollowupSource & {
         const proof = await readFollowupAssessment(options.commonDir, attempt.assessment);
         if (proof.conclusion !== "PRESENT" || proof.findingDigest !== attempt.findingDigest || proof.binding === null ||
             proof.itemId !== item.id || repairGoal(item, proof, attempt.assessment) !== attempt.goal) invalid();
-        const original = await readDeliveredReceipt({ ...options, path: item.provenance.receiptPath });
-        if (original.digest !== item.provenance.receiptDigest) invalid("FOLLOWUP_ORIGINAL_CHANGED");
+        const source = item.provenance;
+        if ("origin" in source) invalid("FOLLOWUP_QA_ORIGIN");
+        const original = await readDeliveredReceipt({ ...options, path: source.receiptPath });
+        if (original.digest !== source.receiptDigest) invalid("FOLLOWUP_ORIGINAL_CHANGED");
         const delivered = await readDeliveredReceipt({ ...options, path: run.integration.receiptPath });
         const receipt = delivered.receipt;
         if (delivered.digest !== run.integration.receiptDigest || receipt.sessionId !== run.ownerSessionId ||

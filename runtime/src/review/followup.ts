@@ -105,6 +105,7 @@ function same(left: unknown, right: unknown): boolean {
 
 async function assertOriginal(options: AssessFollowupOptions, item: FollowupItem): Promise<void> {
   const source = item.provenance;
+  if ("origin" in source) unavailable("FOLLOWUP_QA_ORIGIN");
   const delivered = await readDeliveredReceipt({ commonDir: options.commonDir, mainRoot: options.root, path: source.receiptPath,
     git: async (_cwd, args) => {
       const result = await options.gitRunner.run(args);
