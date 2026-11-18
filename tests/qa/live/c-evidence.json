@@ -1,0 +1,1383 @@
+{
+  "schemaVersion": 1,
+  "fixture": "C",
+  "kind": "sanitized-external-qa-evidence",
+  "taskId": "task-53d67b5c-a76a-47e1-880a-31f06ec53218",
+  "status": "complete",
+  "completedAt": "2026-11-18T10:36:09.354Z",
+  "baseline": "987761c4b142fb4758076cac05723cc73e72f60f",
+  "head": "45adb4929148f6ec0bb7875384ddba6b2e80dd33",
+  "version": {
+    "candidateCommit": "45adb4929148f6ec0bb7875384ddba6b2e80dd33",
+    "configHash": "eeaaa13d65f6f9a0fb1ec689f344c3cbde9af3c603f30ca7fbd22f6f05f39a19",
+    "goalHash": "3c6c104549f666b6734b783565d5b5500af3e5286c981a7aa77a64bd46532362",
+    "policyHash": "335b6f37b33901f43ff3cebe37591a80c27caff5f7f9c3a51d730560a7d9c47c",
+    "scopeHash": "652fb1a5b27379f9946caf3fbe9d14b12a6863acbfa7d43c244ec28941a358a1",
+    "sourceFingerprint": "fd78efae0ee16a48cd79854c863233a9537d3af6098fa6f5a387800b2c747c1e",
+    "taskContractHash": "420bbb0451c93e1c1755e04f37b0501c4f2446ba83cff725d8fa2924b4821ee2",
+    "taskId": "task-53d67b5c-a76a-47e1-880a-31f06ec53218",
+    "treeContractHash": "d7b94046e7e5c87fb1b6ea00d76f39a1bec8c32dce3778d524c64fa8e7a47700"
+  },
+  "qa": {
+    "state": "passed",
+    "plan": {
+      "digest": "333c61a8c294fa0e521aabcc08881c9a350c0c1574fd01cd88ad9372ca82676e",
+      "kind": "plan"
+    },
+    "report": {
+      "digest": "82c4a4782fa02d3d7180b036ef046181317bfd9de7e0bd6bd8f3a202bbe97405",
+      "kind": "report"
+    },
+    "attempt": {
+      "digest": "cfff2ff450cabe0cfe410e3409f0ffcb79c32e16cefe28a87201aa9f286c1b10",
+      "kind": "attempt"
+    },
+    "attestation": {
+      "digest": "8e1e4453a736647dc48cb421e22d75075c107ffd30f1aa0a4c88405787c78f59",
+      "kind": "attestation"
+    },
+    "plannerSession": {
+      "fallbackReason": null,
+      "host": "claude",
+      "implementationHost": "codex",
+      "implementationSessionId": "01a1e99c-f69e-7de1-b5a2-6b28b1005a71",
+      "sessionId": "f1d6dcb5-bcbe-46af-97d0-bef8131b6254",
+      "writable": false
+    },
+    "authorSession": {
+      "fallbackReason": null,
+      "host": "claude",
+      "implementationHost": "codex",
+      "implementationSessionId": "01a1e99c-f69e-7de1-b5a2-6b28b1005a71",
+      "sessionId": "8da079b7-2dae-4678-8615-20f1efeb61ab",
+      "writable": true
+    },
+    "lineage": {
+      "authoredCommit": "45adb4929148f6ec0bb7875384ddba6b2e80dd33",
+      "importedCommit": "45adb4929148f6ec0bb7875384ddba6b2e80dd33"
+    },
+    "results": [
+      {
+        "caseId": "ui-valid-seconds-initial-load",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "b3cf93b6980a26bcb6a51209361b2733848f6d50a6ba49c1109ddb80337507a7",
+            "kind": "execution"
+          },
+          {
+            "digest": "5d5c5f3a1d8f1f12de33eee4b4a3b5fc627c21f92a458fd080f1200a6ae50dc7",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "ui-valid-seconds-after-real-reload",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "8957cd47c328555fb313b705cc1eaac0fe70686ced6d2710463503d45355c9f9",
+            "kind": "execution"
+          },
+          {
+            "digest": "ae144e0f17a9c1c91439688e92cd7d5159b5a25a0e331b7608b13240f16e9741",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "ui-invalid-error-initial-load",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "12bd439d14279a63075993550286adc0ce5dc59130f91651788b40be4418c976",
+            "kind": "execution"
+          },
+          {
+            "digest": "523434ccd44f2a9d8062e9b8f848b584b42e4f83f3da225095022ae3482a9c67",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "ui-invalid-error-after-real-reload",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "2b2798caa9a0c421ad39af212392ea66d3b99a62ac62175c001f1aded08b0846",
+            "kind": "execution"
+          },
+          {
+            "digest": "960eee17e4e9c3f06bb9a4281654c8887035de5cba1d8f7e1b0ceab610bedd03",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "ui-malformed-boundary-inputs",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "53b92b96c87c5e83de9a82033d96d6ad3eb6062672d36013d6dab70989020827",
+            "kind": "execution"
+          },
+          {
+            "digest": "6ed4fa8b744398c20d090240c336d3d3aec82d9e670a6d5a5c30f0bcdc64f6b9",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "retained-developer-ui-checks",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "11565d9ba15e7f85cc5b68e453775459ff853f16aa1c3b7c6d5999022642b93d",
+            "kind": "execution"
+          },
+          {
+            "digest": "0b3c8db6a1e83bba441f9732b0a8139f9bfd437412249a953ff1e18e7e1f3241",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "parser-contract-used-by-page",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "84dc4993cf52608b6a7787c9843076b1ffff451675c3b350be08615c37f105a7",
+            "kind": "execution"
+          },
+          {
+            "digest": "d17031217c0d2a951fba111bf3c66fae66fdbca77d9091862321f91f4df5aa1e",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "page-imports-shared-parser-static",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "335b4bc5f31e19dd57442e64bb094792b972ee8c4e50bc56deccfbb49cc5e536",
+            "kind": "execution"
+          },
+          {
+            "digest": "4ae41c39e4a39f6d58dbf488fe2f5a4583c157098afd159c080897a123f8a72d",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "no-dependency-or-build-step-static",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "3bdeecc2f2966381fb20c7ae0a01c5f17363b22ef9b79e301db45d8c7f0f905e",
+            "kind": "execution"
+          },
+          {
+            "digest": "0bbdb9c12512802b6794fd96fbc88e3e22c1a479ee59e8dc4a89b279a31f6600",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "reuse-and-build-constraints-review",
+        "status": "UNKNOWN",
+        "executions": []
+      }
+    ],
+    "nonmechanicalCaseIds": [
+      "reuse-and-build-constraints-review"
+    ],
+    "materials": [],
+    "currentAttestationDecisions": [],
+    "historicalHumanDecisions": [],
+    "executions": [
+      {
+        "reference": {
+          "digest": "b3cf93b6980a26bcb6a51209361b2733848f6d50a6ba49c1109ddb80337507a7",
+          "kind": "execution"
+        },
+        "caseId": "ui-valid-seconds-initial-load",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "baseline",
+        "executionId": "dd5b92f5-ef70-41ec-a379-c42d1e7cfec9",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "3ac6dc04c9963611cf0c063aadce37143c12ec0ead4893853ec4f6e36ecbc0c8",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-3ac6dc04c9963611.json"
+          },
+          {
+            "digest": "f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4",
+            "path": ".agent-ops/tasks/acceptance/f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "5d5c5f3a1d8f1f12de33eee4b4a3b5fc627c21f92a458fd080f1200a6ae50dc7",
+          "kind": "execution"
+        },
+        "caseId": "ui-valid-seconds-initial-load",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "candidate",
+        "executionId": "e445bcb0-6bb8-4ca3-afa9-75d289f7cd9e",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "a3fbd89aa09e9e069a7b93e573b5860bd26e6acec87d48a48b4d91a1d2603ed7",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-a3fbd89aa09e9e06.json"
+          },
+          {
+            "digest": "63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2",
+            "path": ".agent-ops/tasks/acceptance/63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "8957cd47c328555fb313b705cc1eaac0fe70686ced6d2710463503d45355c9f9",
+          "kind": "execution"
+        },
+        "caseId": "ui-valid-seconds-after-real-reload",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "baseline",
+        "executionId": "dd5b92f5-ef70-41ec-a379-c42d1e7cfec9",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "3fd12495ca12e5d880dd14ee0efd28f956cc5684991e7cc86839685cee6c457d",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-3fd12495ca12e5d8.json"
+          },
+          {
+            "digest": "f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4",
+            "path": ".agent-ops/tasks/acceptance/f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "ae144e0f17a9c1c91439688e92cd7d5159b5a25a0e331b7608b13240f16e9741",
+          "kind": "execution"
+        },
+        "caseId": "ui-valid-seconds-after-real-reload",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "candidate",
+        "executionId": "e445bcb0-6bb8-4ca3-afa9-75d289f7cd9e",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "7d65c4e82c405d2b0449a035ea82b7e0dfc5c8815a30086a06972f28e9919164",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-7d65c4e82c405d2b.json"
+          },
+          {
+            "digest": "63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2",
+            "path": ".agent-ops/tasks/acceptance/63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "12bd439d14279a63075993550286adc0ce5dc59130f91651788b40be4418c976",
+          "kind": "execution"
+        },
+        "caseId": "ui-invalid-error-initial-load",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "baseline",
+        "executionId": "dd5b92f5-ef70-41ec-a379-c42d1e7cfec9",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "80dec506fea1129a1bc338835737af028d51315d7a8e9d0f3408ee6cf53b6ff8",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-80dec506fea1129a.json"
+          },
+          {
+            "digest": "f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4",
+            "path": ".agent-ops/tasks/acceptance/f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "523434ccd44f2a9d8062e9b8f848b584b42e4f83f3da225095022ae3482a9c67",
+          "kind": "execution"
+        },
+        "caseId": "ui-invalid-error-initial-load",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "candidate",
+        "executionId": "e445bcb0-6bb8-4ca3-afa9-75d289f7cd9e",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "6c4f8137d4245e8ddaee2abdd4654876ddc35b932d65e1a4f2fc39309dbeb0a6",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-6c4f8137d4245e8d.json"
+          },
+          {
+            "digest": "63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2",
+            "path": ".agent-ops/tasks/acceptance/63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "2b2798caa9a0c421ad39af212392ea66d3b99a62ac62175c001f1aded08b0846",
+          "kind": "execution"
+        },
+        "caseId": "ui-invalid-error-after-real-reload",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "baseline",
+        "executionId": "dd5b92f5-ef70-41ec-a379-c42d1e7cfec9",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "4401a8f428dd6ef33f953288d7c517ad00fba7611f4439fc688450944ef3e1cc",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-4401a8f428dd6ef3.json"
+          },
+          {
+            "digest": "f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4",
+            "path": ".agent-ops/tasks/acceptance/f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "960eee17e4e9c3f06bb9a4281654c8887035de5cba1d8f7e1b0ceab610bedd03",
+          "kind": "execution"
+        },
+        "caseId": "ui-invalid-error-after-real-reload",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "candidate",
+        "executionId": "e445bcb0-6bb8-4ca3-afa9-75d289f7cd9e",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "cf941ed201964b98f3fdfa800b7634020a960017dafd86e3dda7c9f9598fb166",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-cf941ed201964b98.json"
+          },
+          {
+            "digest": "63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2",
+            "path": ".agent-ops/tasks/acceptance/63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "53b92b96c87c5e83de9a82033d96d6ad3eb6062672d36013d6dab70989020827",
+          "kind": "execution"
+        },
+        "caseId": "ui-malformed-boundary-inputs",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "baseline",
+        "executionId": "dd5b92f5-ef70-41ec-a379-c42d1e7cfec9",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "50c0de4720be26bc03c859f67ce00f75c14c9c0c61f80eb86863d6cc84c7cde5",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-50c0de4720be26bc.json"
+          },
+          {
+            "digest": "f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4",
+            "path": ".agent-ops/tasks/acceptance/f3b238456e4e8c7c3a618b4911e9f352ea3881be629a15437e39a60f4e6c03c4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "6ed4fa8b744398c20d090240c336d3d3aec82d9e670a6d5a5c30f0bcdc64f6b9",
+          "kind": "execution"
+        },
+        "caseId": "ui-malformed-boundary-inputs",
+        "runnerId": "checks",
+        "materialDigest": "44c5221677db72ef2f1ae5a30ded0711af3b87f850ac9e250755fbcc103e40ac",
+        "phase": "candidate",
+        "executionId": "e445bcb0-6bb8-4ca3-afa9-75d289f7cd9e",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-shows-seconds-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-seconds-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-initial",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-shows-error-reload",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-ui-malformed-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "ab7c3dc88e6abb2169486eaa1062b2cc67ca57ff8f3c3fc76727d069f7663f0d",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-ab7c3dc88e6abb21.json"
+          },
+          {
+            "digest": "63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2",
+            "path": ".agent-ops/tasks/acceptance/63681ac27609e42f78795857b8fd8bee6a65d507e901acb55afc04e490cb12f2.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "11565d9ba15e7f85cc5b68e453775459ff853f16aa1c3b7c6d5999022642b93d",
+          "kind": "execution"
+        },
+        "caseId": "retained-developer-ui-checks",
+        "runnerId": "checks",
+        "materialDigest": "ddfebd10b3a2f21fbabd0030f4ece861406e5bfc9ff595900d921a39382130b0",
+        "phase": "baseline",
+        "executionId": "04ebbd1c-5e36-42f4-8012-b9bc18f223a8",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "ui-shows-seconds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "ui-shows-error",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "6c50a7c093cb6e5d66245ec627d20dce6d9638f0e7f67ce5878bf85ced6d684a",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-6c50a7c093cb6e5d.json"
+          },
+          {
+            "digest": "4af8f81965579affec01c0352b1d5e417587c76dc17ae8126654c406253cfeb1",
+            "path": ".agent-ops/tasks/acceptance/4af8f81965579affec01c0352b1d5e417587c76dc17ae8126654c406253cfeb1.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "0b3c8db6a1e83bba441f9732b0a8139f9bfd437412249a953ff1e18e7e1f3241",
+          "kind": "execution"
+        },
+        "caseId": "retained-developer-ui-checks",
+        "runnerId": "checks",
+        "materialDigest": "ddfebd10b3a2f21fbabd0030f4ece861406e5bfc9ff595900d921a39382130b0",
+        "phase": "candidate",
+        "executionId": "cb6209bd-03da-4fc4-82ca-5affe10d649c",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "ui-shows-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ui-shows-error",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "89d912a5e1c945cd57dbbe44a4e6f45abd5e8e64d4815d05883dd0a80127683c",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-89d912a5e1c945cd.json"
+          },
+          {
+            "digest": "890fb309a19c7b68dfc3e941cc830a074c2f695fa2daa2b090e3367b9ba4c4c4",
+            "path": ".agent-ops/tasks/acceptance/890fb309a19c7b68dfc3e941cc830a074c2f695fa2daa2b090e3367b9ba4c4c4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "84dc4993cf52608b6a7787c9843076b1ffff451675c3b350be08615c37f105a7",
+          "kind": "execution"
+        },
+        "caseId": "parser-contract-used-by-page",
+        "runnerId": "checks",
+        "materialDigest": "1b0cf65cf8e4a5b273373128f12ddc729b4c3dd50c7532697a9d26d52d878671",
+        "phase": "baseline",
+        "executionId": "f3c0dfe8-8095-40c2-bd70-b1eec1880aef",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-parser-contract",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "c6f79dd87932f73111aa530f16d99eb558f108d151e938033e9d2551e287a6de",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-c6f79dd87932f731.json"
+          },
+          {
+            "digest": "a9addc535e060dc164175e60922cceba588bebffee1261e9641c4e7634eb7b47",
+            "path": ".agent-ops/tasks/acceptance/a9addc535e060dc164175e60922cceba588bebffee1261e9641c4e7634eb7b47.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "d17031217c0d2a951fba111bf3c66fae66fdbca77d9091862321f91f4df5aa1e",
+          "kind": "execution"
+        },
+        "caseId": "parser-contract-used-by-page",
+        "runnerId": "checks",
+        "materialDigest": "1b0cf65cf8e4a5b273373128f12ddc729b4c3dd50c7532697a9d26d52d878671",
+        "phase": "candidate",
+        "executionId": "29dbd530-2fdd-44d9-be34-6392fb0b2934",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-parser-contract",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "7c4f486327db5d18d08cef8a2daabb1d23c9ef2cf7dbed3024e850a60c76e3d1",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-7c4f486327db5d18.json"
+          },
+          {
+            "digest": "d5be27b1bdf579e93cf35ac3dc77df2fa5999f8e64594204153a8177302e9ac3",
+            "path": ".agent-ops/tasks/acceptance/d5be27b1bdf579e93cf35ac3dc77df2fa5999f8e64594204153a8177302e9ac3.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "335b4bc5f31e19dd57442e64bb094792b972ee8c4e50bc56deccfbb49cc5e536",
+          "kind": "execution"
+        },
+        "caseId": "page-imports-shared-parser-static",
+        "runnerId": "checks",
+        "materialDigest": "ac59cc1d96b8f6f4ef0722772928746c965043dd16be068a61785dcc24106959",
+        "phase": "baseline",
+        "executionId": "24b5bcd3-5938-4505-850e-32dc64c38f6c",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-imports-parser",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-no-deps-or-build",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "c60d133c86bf44225abd130ae7e9154974661021de1338af4adb3cd0a244f9a8",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-c60d133c86bf4422.json"
+          },
+          {
+            "digest": "0fdc045d45b4e1828aa2ba57b9f16161581f3623f2506a0832c54130f3e371fe",
+            "path": ".agent-ops/tasks/acceptance/0fdc045d45b4e1828aa2ba57b9f16161581f3623f2506a0832c54130f3e371fe.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "4ae41c39e4a39f6d58dbf488fe2f5a4583c157098afd159c080897a123f8a72d",
+          "kind": "execution"
+        },
+        "caseId": "page-imports-shared-parser-static",
+        "runnerId": "checks",
+        "materialDigest": "ac59cc1d96b8f6f4ef0722772928746c965043dd16be068a61785dcc24106959",
+        "phase": "candidate",
+        "executionId": "34cbd99b-b7e9-4a99-85e9-cec64bc9105b",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-imports-parser",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-no-deps-or-build",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "40a1593d2747d16dc656ea56524a5de539101d7f6096225ac1899ee50a243e6e",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-40a1593d2747d16d.json"
+          },
+          {
+            "digest": "0a713db0a58214889b8710ca0002fcaa9b2e672e678512f75df75939407a1ced",
+            "path": ".agent-ops/tasks/acceptance/0a713db0a58214889b8710ca0002fcaa9b2e672e678512f75df75939407a1ced.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "3bdeecc2f2966381fb20c7ae0a01c5f17363b22ef9b79e301db45d8c7f0f905e",
+          "kind": "execution"
+        },
+        "caseId": "no-dependency-or-build-step-static",
+        "runnerId": "checks",
+        "materialDigest": "ac59cc1d96b8f6f4ef0722772928746c965043dd16be068a61785dcc24106959",
+        "phase": "baseline",
+        "executionId": "24b5bcd3-5938-4505-850e-32dc64c38f6c",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-imports-parser",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-no-deps-or-build",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "c57b6bc37f043ddad3e4d9b663cc1325d305ad094b0f657cae0ae461541b741f",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-c57b6bc37f043dda.json"
+          },
+          {
+            "digest": "0fdc045d45b4e1828aa2ba57b9f16161581f3623f2506a0832c54130f3e371fe",
+            "path": ".agent-ops/tasks/acceptance/0fdc045d45b4e1828aa2ba57b9f16161581f3623f2506a0832c54130f3e371fe.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "0bbdb9c12512802b6794fd96fbc88e3e22c1a479ee59e8dc4a89b279a31f6600",
+          "kind": "execution"
+        },
+        "caseId": "no-dependency-or-build-step-static",
+        "runnerId": "checks",
+        "materialDigest": "ac59cc1d96b8f6f4ef0722772928746c965043dd16be068a61785dcc24106959",
+        "phase": "candidate",
+        "executionId": "34cbd99b-b7e9-4a99-85e9-cec64bc9105b",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-ui-imports-parser",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-no-deps-or-build",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "567c228922ad80b23f73dfc3b1651cc176f82aeef4b98ac131e5fa5ed6ad74e0",
+            "path": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218-qa/checks-567c228922ad80b2.json"
+          },
+          {
+            "digest": "0a713db0a58214889b8710ca0002fcaa9b2e672e678512f75df75939407a1ced",
+            "path": ".agent-ops/tasks/acceptance/0a713db0a58214889b8710ca0002fcaa9b2e672e678512f75df75939407a1ced.json"
+          }
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "id": "ui-valid-seconds-initial-load",
+        "criterionIds": [
+          "shows-seconds"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-ui-shows-seconds-initial"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/cdp-page.mjs",
+                "role": "helper"
+              }
+            ],
+            "redCheckIds": [
+              "qa-ui-shows-seconds-initial"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "ui-valid-seconds-after-real-reload",
+        "criterionIds": [
+          "shows-seconds"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-ui-shows-seconds-reload"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/cdp-page.mjs",
+                "role": "helper"
+              }
+            ],
+            "redCheckIds": [
+              "qa-ui-shows-seconds-reload"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "ui-invalid-error-initial-load",
+        "criterionIds": [
+          "shows-error"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-ui-shows-error-initial"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/cdp-page.mjs",
+                "role": "helper"
+              }
+            ],
+            "redCheckIds": [
+              "qa-ui-shows-error-initial"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "ui-invalid-error-after-real-reload",
+        "criterionIds": [
+          "shows-error"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-ui-shows-error-reload"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/cdp-page.mjs",
+                "role": "helper"
+              }
+            ],
+            "redCheckIds": [
+              "qa-ui-shows-error-reload"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "ui-malformed-boundary-inputs",
+        "criterionIds": [
+          "shows-error"
+        ],
+        "required": false,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-ui-malformed-boundaries"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/cdp-page.mjs",
+                "role": "helper"
+              }
+            ],
+            "redCheckIds": [
+              "qa-ui-malformed-boundaries"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "retained-developer-ui-checks",
+        "criterionIds": [
+          "shows-seconds",
+          "shows-error"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "ui-shows-seconds",
+              "ui-shows-error"
+            ],
+            "materials": [
+              {
+                "path": "test/ui-page.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/browser.mjs",
+                "role": "helper"
+              }
+            ],
+            "redCheckIds": [
+              "ui-shows-seconds",
+              "ui-shows-error"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "parser-contract-used-by-page",
+        "criterionIds": [
+          "shows-seconds",
+          "shows-error"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-parser-contract"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/parser-contract.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "page-imports-shared-parser-static",
+        "criterionIds": [
+          "reuse-and-build-constraints"
+        ],
+        "required": false,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-ui-imports-parser"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-structure.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "qa-ui-imports-parser"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "no-dependency-or-build-step-static",
+        "criterionIds": [
+          "reuse-and-build-constraints"
+        ],
+        "required": false,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-no-deps-or-build"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/ui-structure.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "reuse-and-build-constraints-review",
+        "criterionIds": [
+          "reuse-and-build-constraints"
+        ],
+        "required": true,
+        "mode": "nonmechanical",
+        "bindings": []
+      }
+    ]
+  },
+  "verify": [
+    {
+      "reference": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218/node-test-d6df03fdfd16d16f.json",
+      "status": "PASS",
+      "testCount": 1,
+      "sourceFingerprint": "fd78efae0ee16a48cd79854c863233a9537d3af6098fa6f5a387800b2c747c1e"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218/node-test-75179cd816be3e77.json",
+      "status": "PASS",
+      "testCount": 1,
+      "sourceFingerprint": "fd78efae0ee16a48cd79854c863233a9537d3af6098fa6f5a387800b2c747c1e"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-53d67b5c-a76a-47e1-880a-31f06ec53218/node-test-b63d964b9b0606bc.json",
+      "status": "PASS",
+      "testCount": 1,
+      "sourceFingerprint": "fd78efae0ee16a48cd79854c863233a9537d3af6098fa6f5a387800b2c747c1e"
+    }
+  ],
+  "review": {
+    "artifactSha256": "c073156f882011a58546ec5ce29f062292d4b1c8c3d69d9c530650fce7a646e1",
+    "status": "PASS",
+    "sourceFingerprint": "fd78efae0ee16a48cd79854c863233a9537d3af6098fa6f5a387800b2c747c1e",
+    "sessionIsolation": "fresh",
+    "rounds": [
+      {
+        "target": "codex",
+        "status": "PASS",
+        "sessionId": "c1989cfa-c28b-4a0b-8d9c-d8062fbe9469"
+      },
+      {
+        "target": "claude",
+        "status": "PASS",
+        "sessionId": "f0b11269-fb62-41c3-80b2-0341ada8b3c7"
+      }
+    ],
+    "blockingFindings": 0,
+    "criteria": [
+      {
+        "criterionId": "shows-seconds",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "shows-error",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "reuse-and-build-constraints",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "surface-coverage",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-proof",
+        "status": "PASS"
+      }
+    ],
+    "adversarialCriteria": [
+      {
+        "criterionId": "shows-seconds",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "shows-error",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "reuse-and-build-constraints",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "surface-coverage",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-proof",
+        "status": "PASS"
+      }
+    ]
+  },
+  "limits": [
+    "This committed summary is provenance for retained external executions; source checks do not rerun the external QA or model sessions.",
+    "Required nonmechanical cases are reasoned judgments by both fresh reviewers, not mechanical PASS results.",
+    "Ordinary fixture mode is off; completion has no worktree finish receipt. All earlier failures, UNKNOWN results, rejected materials and refusals remain private.",
+    "Real installed Chrome and CDP Page.reload prove the retained fixture behavior. The developer environment probe is separate from independent controller evidence."
+  ],
+  "privateArchiveSha256": "00f424d264ad2c65b3fc0d807f4044031d54a9d9dee2f59cb708322057976ea1"
+}

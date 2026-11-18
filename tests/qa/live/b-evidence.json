@@ -1,0 +1,1710 @@
+{
+  "schemaVersion": 1,
+  "fixture": "B",
+  "kind": "sanitized-external-qa-evidence",
+  "taskId": "task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1",
+  "status": "complete",
+  "completedAt": "2026-11-17T21:51:50.129Z",
+  "baseline": "a3e4581d0bdc0ce18ee63191f6368f1e3d32a474",
+  "head": "219c845aaa12f95b5b5cdcafdfeff5ce4680e473",
+  "version": {
+    "candidateCommit": "219c845aaa12f95b5b5cdcafdfeff5ce4680e473",
+    "configHash": "f9224e6482c937d9a90b48d355ce0c7bb25b43ca25561480b713312a6e0b4859",
+    "goalHash": "70503f30346227fd409299fdface7a45a9ac44e6ca33140333c57c0346cea9c3",
+    "policyHash": "335b6f37b33901f43ff3cebe37591a80c27caff5f7f9c3a51d730560a7d9c47c",
+    "scopeHash": "b5f5f23927d6a82fefa316b4458317764c6e16d7da72c2d736d2b00b8e470943",
+    "sourceFingerprint": "298acb622a617760cccb8f97aa7effd738fdfa949e753271a8cf24fa6c3e116a",
+    "taskContractHash": "138269e7cac4030db0c441973e969b89fa6e3523918854766d2cb29e2cc8a036",
+    "taskId": "task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1",
+    "treeContractHash": "3275c52ef067296ca5ff052ac3cd0d09eed11c1961b3f76850ce5b348d3d3f20"
+  },
+  "qa": {
+    "state": "passed",
+    "plan": {
+      "digest": "cebae4b305ed8ef98f6480686ab394928cb9019477555ee49adcc0feff1d084a",
+      "kind": "plan"
+    },
+    "report": {
+      "digest": "8a23e67bdc1ae59cd9d462c722c1e6d0e897800ef3bdeaef7f6302dcb56c759d",
+      "kind": "report"
+    },
+    "attempt": {
+      "digest": "956273db6381bbcd0e31212792a894e3b7fb14646697f5a4131e9493b3a2da17",
+      "kind": "attempt"
+    },
+    "attestation": {
+      "digest": "a4bb5bd1f1b9c79aa4a849c13b50f71a55db5a47e1b5d1f22f589841168e21c2",
+      "kind": "attestation"
+    },
+    "plannerSession": {
+      "fallbackReason": null,
+      "host": "claude",
+      "implementationHost": "codex",
+      "implementationSessionId": "01a1e99c-f69e-7de1-b5a2-6b28b1005a71",
+      "sessionId": "e26c2658-624c-4762-8391-98d12f288b10",
+      "writable": false
+    },
+    "authorSession": {
+      "fallbackReason": null,
+      "host": "claude",
+      "implementationHost": "codex",
+      "implementationSessionId": "01a1e99c-f69e-7de1-b5a2-6b28b1005a71",
+      "sessionId": "0044a6cb-ca75-4bc7-8313-258b32030b8b",
+      "writable": true
+    },
+    "lineage": {
+      "authoredCommit": "b26c58a89f3d78a926f2a5bf576bc21d953a1b6a",
+      "importedCommit": "219c845aaa12f95b5b5cdcafdfeff5ce4680e473"
+    },
+    "results": [
+      {
+        "caseId": "bare-45-returns-po-seconds",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "05808c1d14f8c91593e107e59253d3d88585b1a281417dfa977bd50e40d944a3",
+            "kind": "execution"
+          },
+          {
+            "digest": "930bb4be63b97a3c6de42f65c5bfa703da0c687df14757f442f703c7d9adf58b",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-zero-returns-zero",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "757899a95e5eafa3a17eb46d65081a0bc5aca0f1b7682ba0237e187552209747",
+            "kind": "execution"
+          },
+          {
+            "digest": "948ad1e13eee9a921a236f0207f720d788d0daf2d7715e99b77913031560b94b",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-unit-factor-consistent",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "03dd2eedc16000db90b49840c090720d307fef3a02a4a53b01091f31a5fb4bac",
+            "kind": "execution"
+          },
+          {
+            "digest": "ae729206c9bc02aadb87463da02a5240b502dd0ea53e4f5a4850a4a761086cf6",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-canonical-magnitudes-boundary",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "1aff942dbc31cb5a7611fec308ddc756377c89e1b0c265003f65c851ecc52701",
+            "kind": "execution"
+          },
+          {
+            "digest": "e499d5af9269257a37b95b348e9d3067bc7adbab33ea9ea505a9089b743da8bd",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-and-suffixed-repeat-calls-stable",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "d414f4d1b38e65ace2f5215f09180a9715cad44f96526bc199924533f2de22cc",
+            "kind": "execution"
+          },
+          {
+            "digest": "5100e2fd3be4cc0b4b0ab30fce94410e0e778d203c519a70c905d0e5c6c43667",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "suffixed-seconds-unchanged",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "a01eda73b410089e202ed8b9be6928741b843c9300eeddc9cc839edb09294af5",
+            "kind": "execution"
+          },
+          {
+            "digest": "a3d56652831068406732430f853bf106b9f4e3243445640f15a5ba14cd1c10f0",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "malformed-suffixed-input-still-rangeerror",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "b133199004fe03881772d60b6ea2e682a9861aca83da922204a51d2634cb133d",
+            "kind": "execution"
+          },
+          {
+            "digest": "8258748855342e3a9ebe0f8428f453b6c7adc4275445d3106b27ca9fd7d99c87",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "malformed-bare-input-rejected",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "c6827de1114d605a3c33a68a17a0046a9e1118bee164ca9310a060cb65458c23",
+            "kind": "execution"
+          },
+          {
+            "digest": "0e019662f1eec315817ea10d6a770a04ab670dfffc0d5391f63ca3504621663a",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-leading-zero-and-whitespace-rejected",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "c780dcbf7dc81e61cc8ccb96f6fcd8ab2ebb39d1a61d66e730b213155df49bc6",
+            "kind": "execution"
+          },
+          {
+            "digest": "e1c645af34a7696bc16e2259c6c6b888bd31568566fbfc4316aafbb8650c5ce0",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "suffixed-grammar-edges-unchanged",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "10464ca323172d9a6ab79024097612ebca400011a2faf5df19633a8093b6acb8",
+            "kind": "execution"
+          },
+          {
+            "digest": "c21c1744bcb1d1b686bcd0d45d1c55da8717460a4ee770abc707e6c65c53a41b",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-non-ascii-digits-and-unicode-space-rejected",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "d4ad8892d4f97f7c0b5ced6874de7f6f94fa1f79df4c83926886ec9c17a070f0",
+            "kind": "execution"
+          },
+          {
+            "digest": "9f72c457d79dd48fe94716af419816b5852eb70eb736236f03c434c992e5a407",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "bare-unit-decision-provenance",
+        "status": "UNKNOWN",
+        "executions": []
+      },
+      {
+        "caseId": "developer-unit-test-updated",
+        "status": "UNKNOWN",
+        "executions": []
+      }
+    ],
+    "nonmechanicalCaseIds": [
+      "bare-unit-decision-provenance"
+    ],
+    "materials": [
+      {
+        "digest": "e2b5063ab839d985c3c113b02190e5287d130990bcaa68e6c178378a038e3ac6",
+        "path": "test/qa/bare-number-repeat.check.mjs",
+        "role": "test"
+      },
+      {
+        "digest": "7912c07dc938e6befe4fc380bb46958741b59bd2a0a3f4a331a928dcaeb55b16",
+        "path": "test/qa/bare-number-unicode.check.mjs",
+        "role": "test"
+      }
+    ],
+    "currentAttestationDecisions": [],
+    "historicalHumanDecisions": [
+      {
+        "reference": {
+          "digest": "f0e13a8f35c195fee405e48a485667c443723fdc6ddc6b41839be5a83b2976a9",
+          "kind": "decision"
+        },
+        "answer": "秒：45 → 45 秒",
+        "answeredAt": "2026-11-17T11:38:56.439Z",
+        "answeredBy": "human via agent-ops qa respond",
+        "plan": {
+          "digest": "f30832d48ff15db4ee1b273c16dd405cc676b68425101943d0dd3736a064ff99",
+          "kind": "plan"
+        },
+        "questionId": "po-bare-number-unit",
+        "schemaVersion": 1,
+        "version": {
+          "candidateCommit": "a3e4581d0bdc0ce18ee63191f6368f1e3d32a474",
+          "configHash": "f9224e6482c937d9a90b48d355ce0c7bb25b43ca25561480b713312a6e0b4859",
+          "goalHash": "70503f30346227fd409299fdface7a45a9ac44e6ca33140333c57c0346cea9c3",
+          "policyHash": "335b6f37b33901f43ff3cebe37591a80c27caff5f7f9c3a51d730560a7d9c47c",
+          "scopeHash": "b5f5f23927d6a82fefa316b4458317764c6e16d7da72c2d736d2b00b8e470943",
+          "sourceFingerprint": "32b6cdda5169a6d4b93995ed40f99e4cdc009d995f734185c24df293049b0415",
+          "taskContractHash": "dcfd7b68d70b4a7baf39d2bf901dc798fa1eca5ed34579f47cbb693edfb32bc2",
+          "taskId": "task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1",
+          "treeContractHash": "5066a816555d5f12be77cad457f5a8b745a27bd8a78c94874bd281c3ab401e35"
+        }
+      },
+      {
+        "reference": {
+          "digest": "cde7dcb04ed053ceea69faa5307f74c2b5279463144b7c1abf580ab461cefb8a",
+          "kind": "decision"
+        },
+        "answer": "全部拒絕，回報 RangeError",
+        "answeredAt": "2026-11-17T11:41:52.722Z",
+        "answeredBy": "human via agent-ops qa respond",
+        "plan": {
+          "digest": "f30832d48ff15db4ee1b273c16dd405cc676b68425101943d0dd3736a064ff99",
+          "kind": "plan"
+        },
+        "questionId": "bare-number-leading-zeros-whitespace",
+        "schemaVersion": 1,
+        "version": {
+          "candidateCommit": "a3e4581d0bdc0ce18ee63191f6368f1e3d32a474",
+          "configHash": "f9224e6482c937d9a90b48d355ce0c7bb25b43ca25561480b713312a6e0b4859",
+          "goalHash": "70503f30346227fd409299fdface7a45a9ac44e6ca33140333c57c0346cea9c3",
+          "policyHash": "335b6f37b33901f43ff3cebe37591a80c27caff5f7f9c3a51d730560a7d9c47c",
+          "scopeHash": "b5f5f23927d6a82fefa316b4458317764c6e16d7da72c2d736d2b00b8e470943",
+          "sourceFingerprint": "32b6cdda5169a6d4b93995ed40f99e4cdc009d995f734185c24df293049b0415",
+          "taskContractHash": "dcfd7b68d70b4a7baf39d2bf901dc798fa1eca5ed34579f47cbb693edfb32bc2",
+          "taskId": "task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1",
+          "treeContractHash": "5066a816555d5f12be77cad457f5a8b745a27bd8a78c94874bd281c3ab401e35"
+        }
+      }
+    ],
+    "executions": [
+      {
+        "reference": {
+          "digest": "05808c1d14f8c91593e107e59253d3d88585b1a281417dfa977bd50e40d944a3",
+          "kind": "execution"
+        },
+        "caseId": "bare-45-returns-po-seconds",
+        "runnerId": "checks",
+        "materialDigest": "0026babae3586d189ee77dd6d6247d29f4e465d4ed827bbe1a7f564846c01813",
+        "phase": "baseline",
+        "executionId": "4653bdff-fe27-4bc2-91fa-be8a65c3e5ce",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-45-matches-po-unit",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-45-accepted",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-45-whole-seconds-in-allowed-units",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "f70a91f8fb5c67681c0bbae9281c74beb4d02c647afe4dca2742f5f409bdcd6a",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-f70a91f8fb5c6768.json"
+          },
+          {
+            "digest": "9fc3a18451644e3dad5dd3894f38a760acb33eb7e20c6e0a22fc72473b0a738e",
+            "path": ".agent-ops/tasks/acceptance/9fc3a18451644e3dad5dd3894f38a760acb33eb7e20c6e0a22fc72473b0a738e.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "930bb4be63b97a3c6de42f65c5bfa703da0c687df14757f442f703c7d9adf58b",
+          "kind": "execution"
+        },
+        "caseId": "bare-45-returns-po-seconds",
+        "runnerId": "checks",
+        "materialDigest": "0026babae3586d189ee77dd6d6247d29f4e465d4ed827bbe1a7f564846c01813",
+        "phase": "candidate",
+        "executionId": "f57ff4af-54f9-4eaf-a73d-51eb240c5ec3",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-45-matches-po-unit",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-45-accepted",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-45-whole-seconds-in-allowed-units",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "f0225c51c990c74336912430c4b6170b9c2d96ee51ef6e59e959adb2a5cb8259",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-f0225c51c990c743.json"
+          },
+          {
+            "digest": "a16541173ba1fac0d76bdc963cd2e7353801e6591437b3547188faecb1ed8ff0",
+            "path": ".agent-ops/tasks/acceptance/a16541173ba1fac0d76bdc963cd2e7353801e6591437b3547188faecb1ed8ff0.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "757899a95e5eafa3a17eb46d65081a0bc5aca0f1b7682ba0237e187552209747",
+          "kind": "execution"
+        },
+        "caseId": "bare-zero-returns-zero",
+        "runnerId": "checks",
+        "materialDigest": "f245b8080d8f92b3b1473df3766d90ff3a6e919155e9bdf638ca067eeadbfea8",
+        "phase": "baseline",
+        "executionId": "3bc64875-fb36-454b-b2fb-d62657d353a6",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-zero-is-zero",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-consistent-unit-factor",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-leading-zeros-whitespace-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "a092ca80d348aa6778507edf11d96f8ee072fa88929eb57c5a44a7532c4bc3e1",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-a092ca80d348aa67.json"
+          },
+          {
+            "digest": "1928fd6f8c7be6aea2bda0fcdf76c9355f32c68792df1d0a07bf9515fcf3b9e4",
+            "path": ".agent-ops/tasks/acceptance/1928fd6f8c7be6aea2bda0fcdf76c9355f32c68792df1d0a07bf9515fcf3b9e4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "948ad1e13eee9a921a236f0207f720d788d0daf2d7715e99b77913031560b94b",
+          "kind": "execution"
+        },
+        "caseId": "bare-zero-returns-zero",
+        "runnerId": "checks",
+        "materialDigest": "f245b8080d8f92b3b1473df3766d90ff3a6e919155e9bdf638ca067eeadbfea8",
+        "phase": "candidate",
+        "executionId": "c0a05b6f-c670-4c6f-a5f3-dded6f4eeae4",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-zero-is-zero",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-consistent-unit-factor",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-leading-zeros-whitespace-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "06d936d0a6c6b8de2660468d69dc041ce114f8154bd834d1be5ae9c689f9aad2",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-06d936d0a6c6b8de.json"
+          },
+          {
+            "digest": "70c926799c5e9ffe0d2bebe70c9beafe0779edbff45ed5085bbbf5fd4ad3e7f8",
+            "path": ".agent-ops/tasks/acceptance/70c926799c5e9ffe0d2bebe70c9beafe0779edbff45ed5085bbbf5fd4ad3e7f8.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "03dd2eedc16000db90b49840c090720d307fef3a02a4a53b01091f31a5fb4bac",
+          "kind": "execution"
+        },
+        "caseId": "bare-unit-factor-consistent",
+        "runnerId": "checks",
+        "materialDigest": "f245b8080d8f92b3b1473df3766d90ff3a6e919155e9bdf638ca067eeadbfea8",
+        "phase": "baseline",
+        "executionId": "3bc64875-fb36-454b-b2fb-d62657d353a6",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-zero-is-zero",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-consistent-unit-factor",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-leading-zeros-whitespace-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "b271f6a924d4e392568e329d57e10451d1ed86040e37efd5702537166bd5be3e",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-b271f6a924d4e392.json"
+          },
+          {
+            "digest": "1928fd6f8c7be6aea2bda0fcdf76c9355f32c68792df1d0a07bf9515fcf3b9e4",
+            "path": ".agent-ops/tasks/acceptance/1928fd6f8c7be6aea2bda0fcdf76c9355f32c68792df1d0a07bf9515fcf3b9e4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "ae729206c9bc02aadb87463da02a5240b502dd0ea53e4f5a4850a4a761086cf6",
+          "kind": "execution"
+        },
+        "caseId": "bare-unit-factor-consistent",
+        "runnerId": "checks",
+        "materialDigest": "f245b8080d8f92b3b1473df3766d90ff3a6e919155e9bdf638ca067eeadbfea8",
+        "phase": "candidate",
+        "executionId": "c0a05b6f-c670-4c6f-a5f3-dded6f4eeae4",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-zero-is-zero",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-consistent-unit-factor",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-leading-zeros-whitespace-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "3c6580fbbb48b6ad193831bf89993f4071f70b5dd2b2d31f4f9f4a5963741c82",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-3c6580fbbb48b6ad.json"
+          },
+          {
+            "digest": "70c926799c5e9ffe0d2bebe70c9beafe0779edbff45ed5085bbbf5fd4ad3e7f8",
+            "path": ".agent-ops/tasks/acceptance/70c926799c5e9ffe0d2bebe70c9beafe0779edbff45ed5085bbbf5fd4ad3e7f8.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "1aff942dbc31cb5a7611fec308ddc756377c89e1b0c265003f65c851ecc52701",
+          "kind": "execution"
+        },
+        "caseId": "bare-canonical-magnitudes-boundary",
+        "runnerId": "checks",
+        "materialDigest": "3d72d6410cf3be897fdbc51d5188f95c82b4d4153adaba60007ae9a9cb7df43f",
+        "phase": "baseline",
+        "executionId": "b9967986-0c28-4b87-b5fe-27028d087b8b",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-canonical-magnitudes",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "b3b7ac03f751227930d19102fa6af82e80a59ce53fcb56993329202c0077359a",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-b3b7ac03f7512279.json"
+          },
+          {
+            "digest": "06e10d851a1b44a12d9d414391e79c47f1c53f9e3eff008079502ae2bf116430",
+            "path": ".agent-ops/tasks/acceptance/06e10d851a1b44a12d9d414391e79c47f1c53f9e3eff008079502ae2bf116430.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "e499d5af9269257a37b95b348e9d3067bc7adbab33ea9ea505a9089b743da8bd",
+          "kind": "execution"
+        },
+        "caseId": "bare-canonical-magnitudes-boundary",
+        "runnerId": "checks",
+        "materialDigest": "3d72d6410cf3be897fdbc51d5188f95c82b4d4153adaba60007ae9a9cb7df43f",
+        "phase": "candidate",
+        "executionId": "eee585a9-9032-49bd-80f4-7d6132ce14d7",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-canonical-magnitudes",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "cd71201a38d28e88d562ff66725befea09471bb57aba9e3d7a2b22e9eba334a7",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-cd71201a38d28e88.json"
+          },
+          {
+            "digest": "d4018895a3a2958ac29306f6ce2e74fe9e6e914949b2fd266279d8607ed0680a",
+            "path": ".agent-ops/tasks/acceptance/d4018895a3a2958ac29306f6ce2e74fe9e6e914949b2fd266279d8607ed0680a.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "d414f4d1b38e65ace2f5215f09180a9715cad44f96526bc199924533f2de22cc",
+          "kind": "execution"
+        },
+        "caseId": "bare-and-suffixed-repeat-calls-stable",
+        "runnerId": "checks",
+        "materialDigest": "af28b9adc7e49cc877d593dad57e093f77714a25c408186d051d03fcfe328c2d",
+        "phase": "baseline",
+        "executionId": "4c44088e-0508-4327-b820-97fabf477851",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-repeat-calls-stable",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "651736e7a349972e7f4ce61c3079ca64a26859da339e884081a1063ab0dfcbfc",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-651736e7a349972e.json"
+          },
+          {
+            "digest": "2f52ae4c6ab4afec88208c721b5ab6be483bf2f7278a087391d53de40bce3472",
+            "path": ".agent-ops/tasks/acceptance/2f52ae4c6ab4afec88208c721b5ab6be483bf2f7278a087391d53de40bce3472.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "5100e2fd3be4cc0b4b0ab30fce94410e0e778d203c519a70c905d0e5c6c43667",
+          "kind": "execution"
+        },
+        "caseId": "bare-and-suffixed-repeat-calls-stable",
+        "runnerId": "checks",
+        "materialDigest": "af28b9adc7e49cc877d593dad57e093f77714a25c408186d051d03fcfe328c2d",
+        "phase": "candidate",
+        "executionId": "d8ac6937-3ebe-42f6-a07d-565585edc0cb",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-repeat-calls-stable",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "c2908cf1c6b4fa799a1cf2dced783a0506985b59eaa72efc210855f0bd6e6b94",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-c2908cf1c6b4fa79.json"
+          },
+          {
+            "digest": "f6af8aa3882a46bf01880b87bcb45d92a4a1a14ed715cfade20c941618de8039",
+            "path": ".agent-ops/tasks/acceptance/f6af8aa3882a46bf01880b87bcb45d92a4a1a14ed715cfade20c941618de8039.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "a01eda73b410089e202ed8b9be6928741b843c9300eeddc9cc839edb09294af5",
+          "kind": "execution"
+        },
+        "caseId": "suffixed-seconds-unchanged",
+        "runnerId": "checks",
+        "materialDigest": "8420d43ec5a0617eb957ade19fe2c2f4ca4e3e31782367379ecfabb225a69baf",
+        "phase": "baseline",
+        "executionId": "b57a4083-e3cd-46e7-b04b-b245f8af9204",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-signed-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-fractional-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-nonnumeric-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-90s-returns-90",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-suffix-not-rescaled",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "empty-input-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "signed-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "fractional-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "unknown-unit-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "5911e841911da5b135832546301e07c135ec84df0346df8e708676aad2a1cf43",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-5911e841911da5b1.json"
+          },
+          {
+            "digest": "7487209033041badf4ebc8586cea15fffacf9962835e647f5ef7bc05f43b4510",
+            "path": ".agent-ops/tasks/acceptance/7487209033041badf4ebc8586cea15fffacf9962835e647f5ef7bc05f43b4510.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "a3d56652831068406732430f853bf106b9f4e3243445640f15a5ba14cd1c10f0",
+          "kind": "execution"
+        },
+        "caseId": "suffixed-seconds-unchanged",
+        "runnerId": "checks",
+        "materialDigest": "8420d43ec5a0617eb957ade19fe2c2f4ca4e3e31782367379ecfabb225a69baf",
+        "phase": "candidate",
+        "executionId": "403e452b-be10-480b-b3a6-0bc5468174a1",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-signed-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-fractional-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-nonnumeric-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-90s-returns-90",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-suffix-not-rescaled",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "empty-input-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "signed-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "fractional-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "unknown-unit-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "34c463068e81234c763cd5bad37c5b826d12d0af012b6dc63d989ee486686389",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-34c463068e81234c.json"
+          },
+          {
+            "digest": "18149ac2f63ec120c5b1cd35efdff7874d718ced3a01b9e7a39930b79570b5cd",
+            "path": ".agent-ops/tasks/acceptance/18149ac2f63ec120c5b1cd35efdff7874d718ced3a01b9e7a39930b79570b5cd.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "b133199004fe03881772d60b6ea2e682a9861aca83da922204a51d2634cb133d",
+          "kind": "execution"
+        },
+        "caseId": "malformed-suffixed-input-still-rangeerror",
+        "runnerId": "checks",
+        "materialDigest": "8420d43ec5a0617eb957ade19fe2c2f4ca4e3e31782367379ecfabb225a69baf",
+        "phase": "baseline",
+        "executionId": "b57a4083-e3cd-46e7-b04b-b245f8af9204",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-signed-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-fractional-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-nonnumeric-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-90s-returns-90",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-suffix-not-rescaled",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "empty-input-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "signed-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "fractional-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "unknown-unit-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "5d6ffa391deddc700511ca084fff0d34cea6b1c815ca59c46d9a2ce6095d6e5a",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-5d6ffa391deddc70.json"
+          },
+          {
+            "digest": "7487209033041badf4ebc8586cea15fffacf9962835e647f5ef7bc05f43b4510",
+            "path": ".agent-ops/tasks/acceptance/7487209033041badf4ebc8586cea15fffacf9962835e647f5ef7bc05f43b4510.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "8258748855342e3a9ebe0f8428f453b6c7adc4275445d3106b27ca9fd7d99c87",
+          "kind": "execution"
+        },
+        "caseId": "malformed-suffixed-input-still-rangeerror",
+        "runnerId": "checks",
+        "materialDigest": "8420d43ec5a0617eb957ade19fe2c2f4ca4e3e31782367379ecfabb225a69baf",
+        "phase": "candidate",
+        "executionId": "403e452b-be10-480b-b3a6-0bc5468174a1",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-signed-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-fractional-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-nonnumeric-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-90s-returns-90",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-suffix-not-rescaled",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "empty-input-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "signed-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "fractional-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "unknown-unit-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "d9d40c2ef899f6dab294aadb7c3445b4623c56f1b9443bf70e3fe71f8ce1d86d",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-d9d40c2ef899f6da.json"
+          },
+          {
+            "digest": "18149ac2f63ec120c5b1cd35efdff7874d718ced3a01b9e7a39930b79570b5cd",
+            "path": ".agent-ops/tasks/acceptance/18149ac2f63ec120c5b1cd35efdff7874d718ced3a01b9e7a39930b79570b5cd.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "c6827de1114d605a3c33a68a17a0046a9e1118bee164ca9310a060cb65458c23",
+          "kind": "execution"
+        },
+        "caseId": "malformed-bare-input-rejected",
+        "runnerId": "checks",
+        "materialDigest": "8420d43ec5a0617eb957ade19fe2c2f4ca4e3e31782367379ecfabb225a69baf",
+        "phase": "baseline",
+        "executionId": "b57a4083-e3cd-46e7-b04b-b245f8af9204",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-signed-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-fractional-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-nonnumeric-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-90s-returns-90",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-suffix-not-rescaled",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "empty-input-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "signed-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "fractional-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "unknown-unit-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "737fc6a35369238fd596b0cc4f6cc8b38f31d30f3b8ff00b63c5946a927eee55",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-737fc6a35369238f.json"
+          },
+          {
+            "digest": "7487209033041badf4ebc8586cea15fffacf9962835e647f5ef7bc05f43b4510",
+            "path": ".agent-ops/tasks/acceptance/7487209033041badf4ebc8586cea15fffacf9962835e647f5ef7bc05f43b4510.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "0e019662f1eec315817ea10d6a770a04ab670dfffc0d5391f63ca3504621663a",
+          "kind": "execution"
+        },
+        "caseId": "malformed-bare-input-rejected",
+        "runnerId": "checks",
+        "materialDigest": "8420d43ec5a0617eb957ade19fe2c2f4ca4e3e31782367379ecfabb225a69baf",
+        "phase": "candidate",
+        "executionId": "403e452b-be10-480b-b3a6-0bc5468174a1",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-signed-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-fractional-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-nonnumeric-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-90s-returns-90",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "seconds-suffix-not-rescaled",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "empty-input-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "signed-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "fractional-seconds-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "unknown-unit-rangeerror",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "e1f13e62b91b84c742747014b17bcc28e42ec55d855997925ae9336fd56546f4",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-e1f13e62b91b84c7.json"
+          },
+          {
+            "digest": "18149ac2f63ec120c5b1cd35efdff7874d718ced3a01b9e7a39930b79570b5cd",
+            "path": ".agent-ops/tasks/acceptance/18149ac2f63ec120c5b1cd35efdff7874d718ced3a01b9e7a39930b79570b5cd.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "c780dcbf7dc81e61cc8ccb96f6fcd8ab2ebb39d1a61d66e730b213155df49bc6",
+          "kind": "execution"
+        },
+        "caseId": "bare-leading-zero-and-whitespace-rejected",
+        "runnerId": "checks",
+        "materialDigest": "f245b8080d8f92b3b1473df3766d90ff3a6e919155e9bdf638ca067eeadbfea8",
+        "phase": "baseline",
+        "executionId": "3bc64875-fb36-454b-b2fb-d62657d353a6",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-zero-is-zero",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-consistent-unit-factor",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-leading-zeros-whitespace-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "04dea505c36d4ac37fe99f79a1ae1d8895264609f9fd2e8be3f63709c4b96ad0",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-04dea505c36d4ac3.json"
+          },
+          {
+            "digest": "1928fd6f8c7be6aea2bda0fcdf76c9355f32c68792df1d0a07bf9515fcf3b9e4",
+            "path": ".agent-ops/tasks/acceptance/1928fd6f8c7be6aea2bda0fcdf76c9355f32c68792df1d0a07bf9515fcf3b9e4.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "e1c645af34a7696bc16e2259c6c6b888bd31568566fbfc4316aafbb8650c5ce0",
+          "kind": "execution"
+        },
+        "caseId": "bare-leading-zero-and-whitespace-rejected",
+        "runnerId": "checks",
+        "materialDigest": "f245b8080d8f92b3b1473df3766d90ff3a6e919155e9bdf638ca067eeadbfea8",
+        "phase": "candidate",
+        "executionId": "c0a05b6f-c670-4c6f-a5f3-dded6f4eeae4",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-zero-is-zero",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-consistent-unit-factor",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "bare-number-leading-zeros-whitespace-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "15b8b6281966b7bb0a74fb9b1943dda94a0d8891d392a9ce6d9a6231a427e38a",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-15b8b6281966b7bb.json"
+          },
+          {
+            "digest": "70c926799c5e9ffe0d2bebe70c9beafe0779edbff45ed5085bbbf5fd4ad3e7f8",
+            "path": ".agent-ops/tasks/acceptance/70c926799c5e9ffe0d2bebe70c9beafe0779edbff45ed5085bbbf5fd4ad3e7f8.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "10464ca323172d9a6ab79024097612ebca400011a2faf5df19633a8093b6acb8",
+          "kind": "execution"
+        },
+        "caseId": "suffixed-grammar-edges-unchanged",
+        "runnerId": "checks",
+        "materialDigest": "0f4e6391c4566cd5ed0717b3b564a6bebb4bef562a9a2959e5d7776ea2e0ed31",
+        "phase": "baseline",
+        "executionId": "9df51993-5655-49b8-a300-a61720811589",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "suffixed-grammar-edges-unchanged",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "9e790813e6e0f12b9d00d6283894cd3c0230b97d47f643b9c803388dce949251",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-9e790813e6e0f12b.json"
+          },
+          {
+            "digest": "c50e14ad98dae365bf6964c488ac9e573e00844bf756c14cb84201b2082652ec",
+            "path": ".agent-ops/tasks/acceptance/c50e14ad98dae365bf6964c488ac9e573e00844bf756c14cb84201b2082652ec.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "c21c1744bcb1d1b686bcd0d45d1c55da8717460a4ee770abc707e6c65c53a41b",
+          "kind": "execution"
+        },
+        "caseId": "suffixed-grammar-edges-unchanged",
+        "runnerId": "checks",
+        "materialDigest": "0f4e6391c4566cd5ed0717b3b564a6bebb4bef562a9a2959e5d7776ea2e0ed31",
+        "phase": "candidate",
+        "executionId": "73e96e99-1c9a-45b8-9dc0-4e4cdf9505b5",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "suffixed-grammar-edges-unchanged",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "0e3dd727b6860955a6c616de36c24e11459ca58bf695796827c868debc2c52fa",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-0e3dd727b6860955.json"
+          },
+          {
+            "digest": "160659155a8a2760d28fc3a213aa2e1ca1b5492c7a08919d0a16a12effdafbbf",
+            "path": ".agent-ops/tasks/acceptance/160659155a8a2760d28fc3a213aa2e1ca1b5492c7a08919d0a16a12effdafbbf.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "d4ad8892d4f97f7c0b5ced6874de7f6f94fa1f79df4c83926886ec9c17a070f0",
+          "kind": "execution"
+        },
+        "caseId": "bare-non-ascii-digits-and-unicode-space-rejected",
+        "runnerId": "checks",
+        "materialDigest": "96ee2df585e7a4fb8467c03645ad75b140064075901b0be11378d4aea59fbc68",
+        "phase": "baseline",
+        "executionId": "e2290b45-dedb-4098-b8e7-9e2b94ac3fbf",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-non-ascii-digits-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "bc8e2cd1e0984b761f9deea02f437b383f4d87fb9e9f96e4d42dea1f257631d9",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-bc8e2cd1e0984b76.json"
+          },
+          {
+            "digest": "1d3a33a2836f36d51678b014a335d1a068782056c6adaa10e00e606cd6114fcd",
+            "path": ".agent-ops/tasks/acceptance/1d3a33a2836f36d51678b014a335d1a068782056c6adaa10e00e606cd6114fcd.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "9f72c457d79dd48fe94716af419816b5852eb70eb736236f03c434c992e5a407",
+          "kind": "execution"
+        },
+        "caseId": "bare-non-ascii-digits-and-unicode-space-rejected",
+        "runnerId": "checks",
+        "materialDigest": "96ee2df585e7a4fb8467c03645ad75b140064075901b0be11378d4aea59fbc68",
+        "phase": "candidate",
+        "executionId": "f659bf1b-08f1-4638-b69a-817ee6319679",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "bare-number-non-ascii-digits-rejected",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "afb54d8750dc1fc2c2a28199bdbee47297a37af41b1795ae42afaf56a58b5d68",
+            "path": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1-qa/checks-afb54d8750dc1fc2.json"
+          },
+          {
+            "digest": "50109badea9f5c34934220739b009e5fd520b6418fde75e3cf860f11cfa6ffa4",
+            "path": ".agent-ops/tasks/acceptance/50109badea9f5c34934220739b009e5fd520b6418fde75e3cf860f11cfa6ffa4.json"
+          }
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "id": "bare-45-returns-po-seconds",
+        "criterionIds": [
+          "bare-number"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-45-matches-po-unit",
+              "bare-number-45-accepted",
+              "bare-number-45-whole-seconds-in-allowed-units"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number-po-unit.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/bare-number.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "bare-number-45-matches-po-unit",
+              "bare-number-45-accepted",
+              "bare-number-45-whole-seconds-in-allowed-units"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-zero-returns-zero",
+        "criterionIds": [
+          "bare-number"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-zero-is-zero"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "bare-number-zero-is-zero"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-unit-factor-consistent",
+        "criterionIds": [
+          "bare-number"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-consistent-unit-factor"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "bare-number-consistent-unit-factor"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-canonical-magnitudes-boundary",
+        "criterionIds": [
+          "bare-number"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-canonical-magnitudes"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number-boundary.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "bare-number-canonical-magnitudes"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-and-suffixed-repeat-calls-stable",
+        "criterionIds": [
+          "bare-number",
+          "seconds-unchanged"
+        ],
+        "required": false,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-repeat-calls-stable"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number-repeat.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "bare-number-repeat-calls-stable"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "suffixed-seconds-unchanged",
+        "criterionIds": [
+          "seconds-unchanged"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "seconds-90s-returns-90",
+              "seconds-suffix-not-rescaled"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/seconds-unchanged.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "malformed-suffixed-input-still-rangeerror",
+        "criterionIds": [
+          "seconds-unchanged"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "empty-input-rangeerror",
+              "signed-seconds-rangeerror",
+              "fractional-seconds-rangeerror",
+              "unknown-unit-rangeerror"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/seconds-unchanged.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "malformed-bare-input-rejected",
+        "criterionIds": [
+          "seconds-unchanged",
+          "bare-number"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-signed-rejected",
+              "bare-fractional-rejected",
+              "bare-nonnumeric-rejected"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/seconds-unchanged.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-leading-zero-and-whitespace-rejected",
+        "criterionIds": [
+          "canonical-bare-number-policy"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-leading-zeros-whitespace-rejected"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "suffixed-grammar-edges-unchanged",
+        "criterionIds": [
+          "canonical-bare-number-policy",
+          "seconds-unchanged"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "suffixed-grammar-edges-unchanged"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/suffix-grammar-edges.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-non-ascii-digits-and-unicode-space-rejected",
+        "criterionIds": [
+          "canonical-bare-number-policy",
+          "bare-number"
+        ],
+        "required": false,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "bare-number-non-ascii-digits-rejected"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/bare-number-unicode.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "bare-unit-decision-provenance",
+        "criterionIds": [
+          "bare-number"
+        ],
+        "required": true,
+        "mode": "nonmechanical",
+        "bindings": []
+      },
+      {
+        "id": "developer-unit-test-updated",
+        "criterionIds": [
+          "bare-number",
+          "seconds-unchanged",
+          "canonical-bare-number-policy"
+        ],
+        "required": false,
+        "mode": "nonmechanical",
+        "bindings": []
+      }
+    ]
+  },
+  "verify": [
+    {
+      "reference": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1/node-test-56b95a2704f37c01.json",
+      "status": "PASS",
+      "testCount": 3,
+      "sourceFingerprint": "298acb622a617760cccb8f97aa7effd738fdfa949e753271a8cf24fa6c3e116a"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1/node-test-e205fb7808d77fd2.json",
+      "status": "PASS",
+      "testCount": 3,
+      "sourceFingerprint": "298acb622a617760cccb8f97aa7effd738fdfa949e753271a8cf24fa6c3e116a"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-ad5245f3-f3c7-44b0-a279-0f907ce1e4a1/node-test-63c9052985c23efb.json",
+      "status": "PASS",
+      "testCount": 3,
+      "sourceFingerprint": "298acb622a617760cccb8f97aa7effd738fdfa949e753271a8cf24fa6c3e116a"
+    }
+  ],
+  "review": {
+    "artifactSha256": "53e014adc52e3969682cec4fcd2c4854c9df77a2c733d444be4c56aee6955a46",
+    "status": "PASS",
+    "sourceFingerprint": "298acb622a617760cccb8f97aa7effd738fdfa949e753271a8cf24fa6c3e116a",
+    "sessionIsolation": "fresh",
+    "rounds": [
+      {
+        "target": "claude",
+        "status": "PASS",
+        "sessionId": "a866818e-e153-4c5c-a85b-1b2f130fb04d"
+      },
+      {
+        "target": "claude",
+        "status": "PASS",
+        "sessionId": "99981ad7-3df3-421a-ac17-9709df0b16b5"
+      }
+    ],
+    "blockingFindings": 0
+  },
+  "limits": [
+    "Historical completed B was retained unchanged; no new QA or review was run for this continuation.",
+    "Original implementation was historically attributed to Claude, but its original session provenance is unavailable; current operator metadata does not prove that original author identity.",
+    "Historical human decisions retain their original plans and versions; current attestation decisions remain empty after replan. They are not answers to a new plan.",
+    "The required human-decision provenance case and optional developer-unit inspection case were accepted as reasoned inspection by both final reviewers; neither is a mechanical PASS.",
+    "Non-string coercion guard has no developer unit coverage; two newest QA files were implicitly collected but not explicitly listed in the older surface audit.",
+    "Behavior above Number.MAX_SAFE_INTEGER is unspecified; no new product decision was invented.",
+    "Ordinary fixture mode is off; completion has no worktree finish receipt. Private originals and all failed/refused records remain retained."
+  ],
+  "privateArchiveSha256": "1019e2bce94bfc8feefaa386e6f1b2efe86b08fcae1ae7e87e6c9fbb6298ab56"
+}

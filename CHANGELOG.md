@@ -4,6 +4,29 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-18
+
+- Add independent QA for integrated task delivery on macOS: separate planning
+  and material-author sessions, trusted baseline/candidate execution, genuine
+  human-decision provenance, and original QA proof for both fresh reviewers.
+  Required mechanical UNKNOWN results block delivery; both reviewers judge
+  nonmechanical cases independently.
+- Supported project init/update defaults QA ON. Explicit `--qa off` stays OFF;
+  existing task enrollment and completed history remain unchanged. Linux,
+  Windows and user-scope defaults retain the documented v1 boundary. QA authors
+  may use explicitly registered hosts outside the formal review chain, allowing
+  two fresh agy reviews with a separate writable Claude or Codex author.
+- Bind QA results to exact committed materials and the immutable task-creation
+  baseline. Replanning receives bounded, versioned prior outcomes and human
+  decisions as untrusted context; rejected output, failures and refusals remain
+  retained. Model-free status and Office views do not spend QA sessions.
+- Native completion lifecycle events no longer count as verifier stagnation.
+  Managed updates preserve existing learning registration.
+- Add English and Traditional Chinese QA guidance and sanitized live fixture
+  evidence. QA uses additional model sessions and trusted local runner commands;
+  older CLIs may reject new QA task metadata, so read the QA guide before
+  downgrading.
+
 ## [1.3.1] - 2026-11-11
 
 - Automatic learning registration with target `agy` accepts the exact id printed

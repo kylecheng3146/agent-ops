@@ -554,6 +554,7 @@ update sets the default. It is project-only; user scope and unsupported platform
 keep their existing default. Update previews the change without another QA prompt.
 The field enrolls new delivery root tasks only: each one binds a frozen QA policy
 into its contract, so turning the project off later never removes an enrolled
-task's gate. QA reuses the `independent-review` targets as candidate hosts and the
+task's gate. QA uses targets explicitly registered across `reviewRoles` as
+candidate hosts; formal reviews use only `independent-review`. QA uses the
 trusted `verification.acceptanceRunners` to execute cases; it adds no runner,
 dependency or browser engine. See [Independent QA](qa.md).

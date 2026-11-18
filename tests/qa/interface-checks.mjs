@@ -78,6 +78,33 @@ async function sealCandidate(f, task) {
 }
 
 export const interfaceChecks = {
+  'qa-release-readiness': async () => {
+    for (const name of ['a', 'b', 'c']) {
+      const text = await source(`tests/qa/live/${name}-evidence.json`);
+      assert.ok(text, `Sanitized completed fixture ${name.toUpperCase()} evidence is committed`);
+      assert.doesNotMatch(text, /\/(?:Users|private|var|tmp)\/|aoqa-live-|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|\bsk-[A-Za-z0-9_-]{20,}/u);
+      const evidence = JSON.parse(text);
+      assert.equal(evidence.status, 'complete'); assert.equal(evidence.qa.state, 'passed');
+      assert.equal(evidence.head, evidence.version.candidateCommit);
+      assert.equal(evidence.review.status, 'PASS'); assert.equal(evidence.review.blockingFindings, 0);
+      assert.equal(evidence.review.rounds.length, 2);
+      assert.ok(evidence.review.rounds.every(r => r.status === 'PASS' && r.sessionId));
+      assert.notEqual(evidence.review.rounds[0].sessionId, evidence.review.rounds[1].sessionId);
+      assert.ok(evidence.verify.length > 0 && evidence.verify.every(v => v.status === 'PASS' && v.testCount > 0));
+      for (const c of evidence.qa.cases.filter(c => c.required && c.mode !== 'nonmechanical'))
+        assert.equal(evidence.qa.results.find(r => r.caseId === c.id)?.status, 'PASS', `${name} required mechanical ${c.id}`);
+      assert.ok(evidence.qa.executions.every(e => e.completed && e.diagnostics === 0));
+    }
+    const pkg = JSON.parse(await source('package.json')), lock = JSON.parse(await source('package-lock.json'));
+    assert.equal(pkg.version, lock.version); assert.equal(pkg.version, lock.packages[''].version);
+    assert.ok((await source('README.md')).includes(`source release is version ${pkg.version}`));
+    assert.ok((await source('CHANGELOG.md')).includes(`## [${pkg.version}]`));
+    const {contained} = await import(pathToFileURL(resolve('tests/qa/live/browser.mjs')).href);
+    const root = join(tmpdir(), 'qa-root');
+    assert.equal(contained(root, join(root, 'nested', 'page.html')), true);
+    assert.equal(contained(root, join(`${root}-sibling`, 'page.html')), false, 'A string-prefix sibling is outside the root');
+    assert.equal(contained(root, join(root, '..', 'outside')), false);
+  },
   'qa-independent-runner': async () => {
     const runner = await source('tests/qa/acceptance.mjs');
     assert.ok(runner.includes('tests/qa/independent'), 'A generic committed collector accepts new independent material');

@@ -482,6 +482,7 @@ verify → 兩輪獨立 review → finish 仍須完成；付費生產品質改�
 init/update 預設 ON。`--qa off` 寫入 `"qa": {"enabled": false}`，之後更新保留此明確選擇。
 既有原始 config 缺少欄位時仍關閉，直到 managed update 設定預設。它只用於專案範圍；
 使用者範圍與不支援的平台保留原本預設。update 會預覽變更，不另外詢問 QA。此欄位只會登記新的交付根 task：每個 task 把凍結的 QA 政策綁進契約，所以之後
-關閉專案 QA 不會移除已登記 task 的 gate。QA 以 `independent-review` 的 target 作為
-候選 host，並以受信任的 `verification.acceptanceRunners` 執行案例；不新增 runner、
+關閉專案 QA 不會移除已登記 task 的 gate。QA 以 `reviewRoles` 各角色明確登記的 target
+作為候選 host；正式 review 只使用 `independent-review`。QA 以受信任的
+`verification.acceptanceRunners` 執行案例；不新增 runner、
 相依套件或瀏覽器引擎。詳見[獨立 QA](qa.md)。
