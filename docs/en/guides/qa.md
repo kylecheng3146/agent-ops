@@ -59,6 +59,12 @@ The planner and author prefer a configured host other than the implementer's;
 a same-host fresh session is allowed and its fallback reason is recorded. Only
 Claude and Codex may author materials; agy stays a read-only reviewer.
 
+QA chooses from the CLI targets explicitly registered across `reviewRoles`;
+formal reviews still use only `independent-review`. For two fresh agy review
+rounds with a writable Claude QA author, configure `independent-review` with
+`targets: ["agy"]` and the existing `implementation` role with
+`targets: ["claude"]`. No unconfigured host is added automatically.
+
 Runners must be able to collect newly authored materials. This source repository
 provides `node tests/qa/acceptance.mjs`: it loads
 `tests/qa/independent/**/*.check.mjs` exporting a `checks` object of stable IDs and

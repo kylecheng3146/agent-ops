@@ -7,6 +7,7 @@ import { qaAuthorHost } from "../../../runtime/src/qa/author.js";
 import { runQaDelivery, type QaDeliveryResult } from "../../../runtime/src/qa/delivery.js";
 import { qaCommonDirectory, type QaDeliveryScope } from "../../../runtime/src/qa/gate.js";
 import { FileQaStore } from "../../../runtime/src/qa/store.js";
+import { configuredQaHosts } from "../../../runtime/src/qa/session.js";
 import { readCriteriaReview, type CriteriaReviewView } from "../../../runtime/src/review/criteria.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
@@ -59,7 +60,6 @@ export async function runDeliveryQa(input: DeliveryQaInput): Promise<QaDeliveryR
   if (record?.task.qa === undefined) return null;
   const config = (await loadEffectiveConfig(root, "project")).config;
   const runner = gitRunner(root);
-  const role = config.reviewRoles?.find(r => r.role === "independent-review");
   const run = await runPolicyContext(root).catch(() => null);
   const implementationHost = host(run?.state.host) ?? host(process.env.AGENT_OPS_HOST);
   const fingerprint = async () => await qaSourceFingerprint(root, input.base, input.planOnly === true);
@@ -67,7 +67,7 @@ export async function runDeliveryQa(input: DeliveryQaInput): Promise<QaDeliveryR
     trusted: await repositoryTrust(root, config, CLI_VERSION) === "TRUSTED", ...(input.scope === undefined ? {} : {scope: input.scope}),
     fingerprint, gitRunner: runner, processRunner: registeredRunProofRunner(), planningRunner: registeredRunProofRunner(),
     evidenceStore: new FileEvidenceStore(root, root), controllerId: `qa-controller-${randomUUID()}`,
-    available: [...new Set(role?.targets ?? [])], implementationHost,
+    available: configuredQaHosts(config), implementationHost,
     implementationSessionId: run?.state.ownerSessionId ?? sessionIdFromEnvironment() ??
       state.sessions.find(s => s.taskId === taskId)?.sessionId ?? "unrecorded-implementation-session",
     advisory: input.advisory !== undefined ? input.advisory : await readCriteriaReview(root, record.task).catch(() => null), host: kind => qaAuthorHost(kind),

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { lstat, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
-import type { ReviewTargetId } from "../contracts.js";
+import type { AgentOpsConfig, ReviewTargetId } from "../contracts.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { nativeProcessGroupAlive, signalNativeProcessGroup } from "../run/hosts/util.js";
 import { nativeProcessIdentity } from "../run/transport.js";
@@ -12,6 +12,11 @@ import type { QaControl, QaOwner, QaSession, QaState } from "./types.js";
 const exec = promisify(execFile);
 /** Agy keeps its read-only reviewer uses; it is never a writable QA author. */
 const WRITABLE: readonly ReviewTargetId[] = ["claude", "codex"];
+
+/** QA authors may need explicitly configured writable hosts outside the final review chain. */
+export function configuredQaHosts(config: Pick<AgentOpsConfig, "reviewRoles">): ReviewTargetId[] {
+  return [...new Set(config.reviewRoles?.flatMap(role => role.targets) ?? [])];
+}
 
 export interface QaHostChoice { readonly host: ReviewTargetId; readonly fallbackReason: string | null }
 /** Prefer a host other than the implementer's; a same-host session is allowed only with its reason recorded. */

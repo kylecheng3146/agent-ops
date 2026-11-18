@@ -46,6 +46,11 @@ PASS 是必要的交付 gate，與 verify 和兩輪全新審查並列，不取�
 planner 與 author 優先使用和實作者不同的已設定 host；也允許同一 host 的全新工作
 階段，並記錄 fallback 原因。只有 Claude 與 Codex 能撰寫素材；agy 只維持唯讀審查。
 
+QA 從 `reviewRoles` 各角色明確登記的 CLI targets 選擇 host；正式 review 仍只使用
+`independent-review`。若要兩輪全新 agy review，並由 Claude 擔任可寫入的 QA author，
+請把 `independent-review` 設為 `targets: ["agy"]`，既有的 `implementation` 角色設為
+`targets: ["claude"]`。系統不會自動加入未設定的 host。
+
 ## 指令
 
 | 指令 | 作用 |

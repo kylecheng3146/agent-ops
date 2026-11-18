@@ -246,7 +246,14 @@ export const executionChecks = {
     assert.match(objective, /bindings may reference existing candidate files/u);
     assert.match(objective, /materials lists only NEW untracked files authored in this session/u);
     assert.match(objective, /If existing files already cover the plan, return materials:\[\]/u);
-    const {claimQaControl, stopQa, selectQaHost, qaSession} = await qa('runtime/src/qa/session.js', 'claimQaControl', 'stopQa', 'selectQaHost', 'qaSession');
+    const {claimQaControl, stopQa, selectQaHost, qaSession, configuredQaHosts} = await qa('runtime/src/qa/session.js', 'claimQaControl', 'stopQa', 'selectQaHost', 'qaSession', 'configuredQaHosts');
+    const {reviewTargets, planReviewTargets} = await load('runtime/src/review/roles.js');
+    const roles = {reviewRoles: [{role: 'independent-review', targets: ['agy']}, {role: 'implementation', targets: ['claude', 'agy']}]};
+    const available = configuredQaHosts(roles);
+    assert.deepEqual(available, ['agy', 'claude'], 'QA can use explicitly configured writable hosts outside the final review chain');
+    assert.deepEqual(planReviewTargets(reviewTargets(roles, 'independent-review'), 'codex').targets, ['agy', 'agy'], 'Both formal rounds remain agy');
+    assert.equal(selectQaHost({available, implementationHost: 'codex', writable: true}).host, 'claude');
+    assert.deepEqual(configuredQaHosts({}), [], 'No installed but unconfigured host is enrolled');
     const {nativeProcessIdentity} = await load('runtime/src/run/transport.js');
     const script = join(f.outside, 'fake-native-host.mjs'); await writeFile(script, FAKE_HOST);
     const plan = await f.store.put('plan', {schemaVersion: 1, id: 'plan-1', version: f.version, originalGoal: goal, taskIds: [task.id], dependencyTaskIds: [],
