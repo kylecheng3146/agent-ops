@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {execFileSync, spawn as nodeSpawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {link, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile} from 'node:fs/promises';
+import {link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -100,6 +100,40 @@ async function until(predicate) {
 }
 
 export const executionChecks = {
+  'qa-planning-continuation': () => fixture(async f => {
+    const {runQaPlanning} = await qa('runtime/src/qa/planning.js', 'runQaPlanning');
+    const base = {store: f.store, root: f.root, version: f.version, originalGoal: goal, tasks: [task], scope: 'full', timing: 'late',
+      surfaceIds: ['surface-a'], runners, advisory: null, available: ['claude'], implementationHost: 'codex',
+      implementationSessionId: 'developer-session', controllerId: 'controller'};
+    const first = fakePlanner(planAnswer({questions: [{id: 'locale', prompt: 'Which locale?', required: true, criterionIds: ['behavior']}]}));
+    const result = await runQaPlanning({...base, runner: first.runner});
+    const request = first.requests[0], schema = JSON.parse(request.args[request.args.indexOf('--json-schema') + 1]);
+    assert.deepEqual(schema.properties.cases.items.properties.criterionIds.items.enum, ['behavior', 'compatibility'], 'Only actual criterion ids are admitted');
+    assert.deepEqual(schema.properties.cases.items.properties.surfaceIds.items.enum, ['surface-a']);
+    assert.deepEqual(schema.properties.questions.items.properties.criterionIds.items.enum, ['behavior', 'compatibility']);
+    const report = await f.store.put('report', {schemaVersion: 1, id: 'report-prior', version: f.version,
+      attempt: {kind: 'attempt', digest: 'a'.repeat(64)}, createdAt: at, results: [{caseId: 'case-happy', status: 'UNKNOWN', executions: [],
+        observations: ['Designated baseline check already PASS; candidate PASS is insufficient for behavioral proof.']}], findings: [], questions: []});
+    const decision = await f.store.put('decision', {schemaVersion: 1, version: f.version, plan: result.plan, questionId: 'locale',
+      answer: 'de-DE', answeredBy: 'human', answeredAt: at});
+    const control = await f.store.readControl(task.id);
+    await f.store.updateControl(task.id, control.revision, c => ({...c, revision: c.revision + 1, report, decisions: [decision]}));
+    const next = fakePlanner(planAnswer());
+    await runQaPlanning({...base, runner: next.runner});
+    const data = JSON.parse(next.requests[0].stdin.split('BEGIN UNTRUSTED DATA\n')[1].split('\nEND UNTRUSTED DATA')[0]);
+    assert.equal(data.history.report.reference.digest, report.digest);
+    assert.match(data.history.report.results[0].observations[0], /baseline check already PASS/u);
+    assert.equal(data.history.decisions[0].reference.digest, decision.digest);
+    assert.deepEqual([data.history.decisions[0].plan, data.history.decisions[0].answer, data.history.decisions[0].answeredAt], [result.plan, 'de-DE', at]);
+    assert.match(next.requests[0].stdin, /Historical.*not current proof/u);
+    const invalid = planAnswer({cases: [{...planCases()[0], criterionIds: ['invented'], expected: 'token=sk-test-secret-value-12345678901234567890'}, planCases()[1]]});
+    await assert.rejects(runQaPlanning({...base, runner: fakePlanner(invalid).runner}), {code: 'QA_PLAN_INVALID'});
+    const files = await readdir(join(f.store.directory, 'planning-diagnostics'));
+    const diagnostic = JSON.parse(await readFile(join(f.store.directory, 'planning-diagnostics', files.at(-1)), 'utf8'));
+    assert.equal(diagnostic.version.taskId, task.id); assert.match(diagnostic.error, /outside the scoped tasks/u);
+    assert.doesNotMatch(diagnostic.stdout, /sk-test-secret-value/u, 'Rejected raw answers are retained only after redaction');
+    assert.ok(diagnostic.stdout.length > 0); assert.equal((await f.store.readControl(task.id)).state, 'blocked');
+  }),
   'qa-independent-planning': () => fixture(async f => {
     const {runQaPlanning, QA_PLAN_SCHEMA} = await qa('runtime/src/qa/planning.js', 'runQaPlanning');
     const {selectQaHost} = await qa('runtime/src/qa/session.js', 'selectQaHost', 'qaSession');

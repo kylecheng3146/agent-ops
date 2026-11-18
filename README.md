@@ -112,8 +112,8 @@ ordinary sessions. Ordinary-session presence follows hook activity; a crashed
 or silent session expires after 30 minutes without an event. Office failures
 remain advisory and never block session work.
 
-Independent QA is opt-in per project, off by default and macOS only. With
-`agent-ops update --qa on`, each new delivery task gets an independent QA plan after
+Independent QA defaults ON for macOS project init/update. Use
+`agent-ops update --qa off` to keep it explicitly OFF, or `--qa on` to re-enable it. Each new delivery task gets an independent QA plan after
 its criteria advisory, and before delivery a separate Claude/Codex session writes
 test materials in an isolated clone; the controller imports, executes and seals
 them, and finish, advance, land and the Stop gate require that sealed PASS next to

@@ -8,6 +8,7 @@ import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { removeTemporary } from "../fs/temporary.js";
 import { redactSecrets } from "../security/redact.js";
+import { writePrivateFile } from "../security/permissions.js";
 import { acceptanceError } from "../schema/acceptance.js";
 import { SCENARIO_DIMENSIONS } from "../surface/schema.js";
 import { runVerificationCommand, type VerificationProcessRunner } from "../verify/spawn.js";
@@ -20,13 +21,14 @@ import { claimQaControl, cloneQaCheckout, qaSession, registerQaProcess, releaseQ
 import type { FileQaStore } from "./store.js";
 import type { QaCase, QaEnvironment, QaPlan, QaReference, QaState, QaUsage, QaVersion } from "./types.js";
 import { parseQaArtifact } from "./validate.js";
+import { qaHistory } from "./decisions.js";
 
 const text = {type: "string", minLength: 1, maxLength: 4096};
 const strings = {type: "array", items: text};
 const id = {type: "string", minLength: 1, maxLength: 128};
 const scenario = {type: "object", additionalProperties: false, properties: {applies: {type: "boolean"}, behavior: text, na: text}};
 /** What the read-only planner may answer. Versions, sessions and provenance are controller-owned, never model-supplied. */
-export const QA_PLAN_SCHEMA: Record<string, unknown> = {
+export const QA_PLAN_SCHEMA = {
   type: "object", additionalProperties: false, required: ["cases", "scenarios", "environment", "questions"],
   properties: {
     cases: {type: "array", minItems: 1, maxItems: 64, items: {type: "object", additionalProperties: false,
@@ -44,6 +46,16 @@ export const QA_PLAN_SCHEMA: Record<string, unknown> = {
       properties: {id, prompt: text, required: {type: "boolean"}, criterionIds: strings}}}
   }
 };
+
+function planningSchema(options: QaPlanningOptions): Record<string, unknown> {
+  const properties = QA_PLAN_SCHEMA.properties;
+  const criterionIds = {type: "array", items: {...text, enum: [...new Set(options.tasks.flatMap(t => t.criteria.map(c => c.id)))]}};
+  const surfaceIds = options.surfaceIds === undefined ? strings : {type: "array",
+    items: options.surfaceIds.length === 0 ? false : {...text, enum: [...options.surfaceIds]}};
+  return {...QA_PLAN_SCHEMA, properties: {...properties,
+    cases: {...properties.cases, items: {...properties.cases.items, properties: {...properties.cases.items.properties, criterionIds, surfaceIds}}},
+    questions: {...properties.questions, items: {...properties.questions.items, properties: {...properties.questions.items.properties, criterionIds}}}}};
+}
 
 export interface QaPlanningOptions {
   readonly store: FileQaStore;
@@ -88,7 +100,7 @@ function redacted(value: unknown): unknown {
   if (typeof value === "object" && value !== null) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redacted(v)]));
   return value;
 }
-export function qaPlanningPrompt(snapshot: Record<string, unknown>): string {
+export function qaPlanningPrompt(snapshot: Record<string, unknown>, schema: Record<string, unknown> = QA_PLAN_SCHEMA): string {
   return ["You are an independent QA planner. You did not write this change and share no conversation with its developer.",
     "The working directory is a read-only clone of the exact candidate commit. Inspect code, tests and configuration as needed; do not modify files or run anything that writes.",
     "Plan acceptance testing of the user-visible tasks in originalGoal within the scoped tasks: map every criterion to at least one case and name the surface ids it exercises.",
@@ -98,7 +110,8 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>): string {
     "Your clone holds the candidate and its history; baselineCommit in DATA, when present, is that immutable baseline (inspect it with git show <baselineCommit>:<path>). Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
     "List every environment a necessary case needs and whether you observed it available, missing or unknown. Do not list the test material QA will add or the isolated writable checkout the controller provides for authoring: they are not environment. Ask a question only for a genuine requirement, scope or authority decision; never answer one yourself.",
     "The advisory in DATA is an earlier data-only criteria review. Consume it as input; it is not executed QA. A plan is not proof: include no verdict.",
-    "Return only JSON matching this schema.", JSON.stringify(QA_PLAN_SCHEMA),
+    "Use only criterionIds and surfaceIds allowed by the schema. Historical reports and human decisions in DATA retain their exact old versions and references; they are not current proof or answers to a new plan. Inspect prior baseline observations before deciding which checks can be behavioral.",
+    "Return only JSON matching this schema.", JSON.stringify(schema),
     "BEGIN UNTRUSTED DATA", canonicalJson(redacted(snapshot)), "END UNTRUSTED DATA"].join("\n");
 }
 
@@ -168,6 +181,7 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
   });
   let usage: QaUsage = {inputTokens: null, outputTokens: null, totalTokens: null, costUsd: null};
   let directory: string | undefined, released = false;
+  let diagnostic: {stdout: string; stderr: string; failureClass: string} | undefined;
   try {
     const advisoryReferences = [];
     if (options.advisory !== null) {
@@ -178,15 +192,16 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
       tasks: options.tasks.map(t => ({id: t.id, title: t.title, intent: t.intent ?? null, criteria: t.criteria, surface: t.surface ?? null})),
       dependencyTaskIds: options.dependencyTaskIds ?? [], surfaceIds: options.surfaceIds ?? null,
       runners: options.runners.map(r => ({id: r.id, adapter: r.adapter})),
+      history: await qaHistory(options.store, held, options.version),
       ...(options.baselineCommit === undefined ? {} : {baselineCommit: options.baselineCommit}),
       advisory: options.advisory === null ? {unavailable: "No criteria advisory was available; plan from the requirements alone."}
         : {status: options.advisory.report.status, stale: options.advisory.stale, advice: options.advisory.report.advice ?? null}};
-    const prompt = qaPlanningPrompt(snapshot);
+    const schema = planningSchema(options), prompt = qaPlanningPrompt(snapshot, schema);
     if (Buffer.byteLength(prompt) > 256 * 1024) throw new AgentOpsError("QA_PLAN_INPUT_TOO_LARGE", "QA planning input exceeds 256 KiB.");
     directory = await mkdtemp(join(tmpdir(), "agent-ops-qa-plan-"));
     const repository = join(directory, "repository");
     await cloneQaCheckout(options.root, repository, options.version.candidateCommit);
-    const invocation = buildTargetInvocation({target: session.host, prompt, responseSchema: QA_PLAN_SCHEMA, repositoryRoot: repository,
+    const invocation = buildTargetInvocation({target: session.host, prompt, responseSchema: schema, repositoryRoot: repository,
       ...(options.model === undefined ? {} : {model: options.model}), ...(options.effort === undefined ? {} : {effort: options.effort})});
     if (invocation === undefined) throw new AgentOpsError("QA_HOST_UNAVAILABLE", "The QA planner has no read-only invocation.");
     const result = await runVerificationCommand({id: "qa-plan", command: invocation.command, args: [...invocation.args], cwd: ".",
@@ -194,6 +209,7 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
       env: isolatedReviewEnvironment(session.host, directory, process.env),
       ...(options.runner === undefined ? {} : {runner: options.runner}), ...(options.signal === undefined ? {} : {signal: options.signal})});
     usage = usageOf(session.host, result.stdout, result.stderr);
+    diagnostic = {stdout: redactSecrets(result.stdout).slice(0, 32768), stderr: redactSecrets(result.stderr).slice(0, 32768), failureClass: result.failureClass};
     if (result.failureClass === "aborted") throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning was cancelled; no plan was saved.");
     if (result.status !== "PASS" || result.stdoutTruncated)
       throw new AgentOpsError("QA_PLAN_NOT_RUN", `The QA planner did not answer (${result.failureClass}); QA stays unverified.`);
@@ -205,6 +221,8 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
         createdAt: now(), timing: options.timing, advisoryReferences, ...answer});
     } catch {return planError(`The QA planner returned an invalid plan; it is not used.${caseRuleError(answer, options.version.candidateCommit)}`);}
     const environment = derive(options, plan.cases, plan.environment);
+    const criteria = new Set(options.tasks.flatMap(t => t.criteria.map(c => c.id)));
+    if (plan.questions.some(q => q.criterionIds.some(id => !criteria.has(id)))) planError("A question names a criterion outside the scoped tasks.");
     const ref = await options.store.put("plan", {...plan, environment});
     const blockers = environment.filter(e => e.required && e.status !== "available").map(e => `${e.name}: ${e.status}`);
     const state = blockers.length > 0 ? "blocked" : plan.questions.some(q => q.required) ? "awaiting-input" : "plan-ready";
@@ -212,10 +230,13 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     await releaseQaControl(options.store, held, {state, plan: ref}, now());
     return {state, plan: ref, blockers, usage};
   } catch (error) {
+    if (diagnostic !== undefined) await writePrivateFile(join(options.store.directory, "planning-diagnostics", `${session.sessionId}.json`),
+      `${canonicalJson({schemaVersion: 1, version: options.version, session, usage, observedAt: now(), ...diagnostic,
+        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4096)})}\n`, options.store.commonDir).catch(() => undefined);
     if (!released) await releaseQaControl(options.store, held, {state: "blocked"}, now()).catch(() => undefined);
     throw error;
   } finally {
-    // The planner clone is read-only input; nothing in it is diagnostic of a failure.
+    // Rejected answers are saved privately before removing the read-only clone.
     if (directory !== undefined) await removeTemporary(directory);
   }
 }

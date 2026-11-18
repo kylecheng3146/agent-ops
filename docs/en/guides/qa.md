@@ -6,17 +6,18 @@ its own test materials against the integrated candidate, and has the controller
 execute them. Its sealed PASS becomes a required delivery gate next to verify and
 the two fresh reviews; it never replaces either.
 
-## Scope and opt-in
+## Scope and defaults
 
-- QA is **opt-in per project** and off by default. Turn it on with
-  `agent-ops update --qa on` (or `agent-ops init --qa on`); the plan preview
-  shows `Independent QA: enabled …` before you confirm, and the normal trust
-  grant of init/update covers the changed config. `--qa off` removes the project
-  default. `--qa` is project-only; `--scope user` refuses it.
+- QA **defaults ON for macOS project init/update**. An explicit `--qa off` writes
+  `"qa": {"enabled": false}` and later updates preserve that choice. Re-enable with
+  `agent-ops update --qa on` (or `agent-ops init --qa on`). The plan preview shows
+  `Independent QA: enabled …` before confirmation; the normal init/update trust
+  grant covers the changed config. `--qa` is project-only; `--scope user` refuses it.
+  Linux/Windows and user-scope installs keep the existing default without QA.
 - v1 is **macOS only**. An opted-in project on Linux or Windows refuses to enroll
   new tasks and blocks any enrolled delivery with `QA_UNSUPPORTED_PLATFORM`; it
   never passes silently.
-- Opt-in applies to **new delivery root tasks**: `task create` binds a frozen QA
+- Enrollment applies to **new delivery root tasks**: `task create` binds a frozen QA
   policy to the task contract. Subtasks keep their local verify; their integrated
   root is what QA tests. Existing tasks keep their contract until you adopt them
   explicitly (below). Completed deliveries are never re-judged.
@@ -57,6 +58,19 @@ the two fresh reviews; it never replaces either.
 The planner and author prefer a configured host other than the implementer's;
 a same-host fresh session is allowed and its fallback reason is recorded. Only
 Claude and Codex may author materials; agy stays a read-only reviewer.
+
+Runners must be able to collect newly authored materials. This source repository
+provides `node tests/qa/acceptance.mjs`: it loads
+`tests/qa/independent/**/*.check.mjs` exporting a `checks` object of stable IDs and
+asserting functions. Configure it as a generic acceptance runner through the
+normal config/trust preview before enabling QA here. Missing checks, duplicate
+IDs, import failures and symlinks never pass.
+
+Replanning receives bounded historical controller results and genuine human
+answers as untrusted context, with their original versions and references.
+Historical answers never answer a new plan or become current proof. Rejected
+planner output is redacted and retained privately in `planning-diagnostics/`;
+the prior plan and failures remain intact.
 
 ## Commands
 
@@ -113,8 +127,9 @@ estimated. `qa show` and `task status` spend nothing.
 
 ## Compatibility
 
-Projects without `--qa on` keep their config, task contracts, hashes and spending
-unchanged. QA data is additive: the config `qa` field, a task's `qa` binding,
+An absent field in an existing raw config remains off until managed init/update
+sets the supported project default. Explicit OFF keeps new tasks unenrolled;
+existing and completed task contracts, proof and hashes are never retroactively changed. QA data is additive: the config `qa` field, a task's `qa` binding,
 QA finding pins and receipt QA proof. An older CLI (1.3.x and earlier) may reject
 that data; do not downgrade a project with enrolled tasks. Private QA state lives
 under the Git common directory (`agent-ops/qa/`), is redacted, and never enters

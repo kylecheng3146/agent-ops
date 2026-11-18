@@ -431,6 +431,19 @@ export const deliveryChecks = {
     const version = qaDeliveryVersion({tasks: qaDeliveryTree((await f.tasks.read()).tasks, root.id).map(r => r.task), config,
       candidateCommit: f.git(['rev-parse', 'HEAD']), sourceFingerprint: await f.fingerprint()});
     const data = await qaReviewData(f.store, await f.record(root.id), version);
+    const control = await f.store.readControl(root.id);
+    const oldVersion = {...version, candidateCommit: 'a'.repeat(40), taskContractHash: 'b'.repeat(64)};
+    const historicalDecision = await f.store.put('decision', {schemaVersion: 1, version: oldVersion,
+      plan: {kind: 'plan', digest: 'c'.repeat(64)}, questionId: 'original-units', answer: 'Seconds, as originally answered.',
+      answeredBy: 'human', answeredAt: '2026-11-13T00:00:00.000Z'});
+    await f.store.updateControl(root.id, control.revision, c => ({...c, revision: c.revision + 1, decisions: [historicalDecision]}));
+    const withHistory = await qaReviewData(f.store, await f.record(root.id), version);
+    assert.deepEqual(withHistory.decisions, data.decisions, 'An older answer does not enter the current attestation');
+    assert.equal(withHistory.current, true);
+    assert.deepEqual(withHistory.history.decisions[0].reference, historicalDecision);
+    assert.equal(withHistory.history.decisions[0].contractsMatch, false);
+    assert.equal(withHistory.history.decisions[0].answeredBy, 'human');
+    assert.equal(withHistory.history.report.reference.digest, passed.report.digest);
     assert.deepEqual({current: data.current, state: data.state, host: data.plan.session.host, implementationHost: data.plan.session.implementationHost,
       cases: data.plan.cases.map(c => [c.id, c.criterionIds, c.mode, c.bindings[0]?.materials ?? []])},
       {current: true, state: 'passed', host: 'claude', implementationHost: 'codex', cases: [['case-answer-two', ['behavior'], 'behavioral', [material(root.id)]],

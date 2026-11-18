@@ -78,6 +78,51 @@ async function sealCandidate(f, task) {
 }
 
 export const interfaceChecks = {
+  'qa-independent-runner': async () => {
+    const runner = await source('tests/qa/acceptance.mjs');
+    assert.ok(runner.includes('tests/qa/independent'), 'A generic committed collector accepts new independent material');
+    const root = await mkdtemp(join(tmpdir(), 'agent-ops-qa-collector-'));
+    const material = join(root, 'tests/qa/independent');
+    const execute = ids => {
+      const env = {...process.env, AGENT_OPS_ACCEPTANCE_CHECKS: ids, AGENT_OPS_ACCEPTANCE_EXECUTION_ID: 'collector-test', AGENT_OPS_ACCEPTANCE_PHASE: 'baseline'};
+      try {return {code: 0, report: JSON.parse(execFileSync(process.execPath, ['runner.mjs'], {cwd: root, env, encoding: 'utf8'}))};}
+      catch (error) {return {code: error.status, report: JSON.parse(error.stdout)};}
+    };
+    try {
+      await mkdir(material, {recursive: true}); await writeFile(join(root, 'runner.mjs'), runner);
+      await writeFile(join(material, 'new.check.mjs'), `import assert from 'node:assert/strict'; export const checks = {'new-check': () => assert.equal(1, 1), 'red-check': () => assert.equal(1, 2)};`);
+      const pass = execute('new-check'); assert.equal(pass.code, 0); assert.equal(pass.report.results[0].status, 'PASS');
+      assert.equal(pass.report.results[0].phase, 'baseline'); assert.equal(pass.report.results[0].executionId, 'collector-test');
+      assert.equal(execute('red-check').report.results[0].failureClass, 'assertion-failed');
+      const absent = execute('missing'); assert.equal(absent.code, 1); assert.equal(absent.report.results[0].failureClass, 'missing-check');
+      await writeFile(join(material, 'duplicate.check.mjs'), `export const checks = {'new-check': () => {}};`);
+      assert.equal(execute('new-check').code, 1, 'Duplicate ids cannot hide behind one passing function');
+      await writeFile(join(material, 'duplicate.check.mjs'), `throw new Error('broken import');`);
+      assert.equal(execute('new-check').code, 1, 'Collection errors cannot pass');
+    } finally {await rm(root, {recursive: true, force: true});}
+  },
+  'qa-default-on': async () => {
+    const {createInstallPlan} = await need('runtime/src/install/plan.js', 'createInstallPlan');
+    const {commonHarnessAdapters} = await load('runtime/src/install/harness.js');
+    const {applyInstallPlan} = await load('runtime/src/install/apply.js');
+    const {createUpdatePlan} = await load('runtime/src/install/update.js');
+    const root = await mkdtemp(join(tmpdir(), 'agent-ops-qa-default-'));
+    const install = extra => createInstallPlan({root, scope: 'project', platform: 'darwin', harness: ['claude'], profiles: ['core'],
+      adapters: commonHarnessAdapters(), toolkitVersion: '1.3.1', ...extra});
+    try {
+      const fresh = await install({});
+      assert.deepEqual(fresh.config.qa, {enabled: true}, 'Supported project init defaults QA ON');
+      assert.equal((await install({platform: 'linux'})).config.qa, undefined, 'Unsupported platforms keep opt-in compatibility');
+      assert.equal((await install({scope: 'user'})).config.qa, undefined, 'User defaults cannot enroll projects');
+      const disabled = await install({qaEnabled: false});
+      assert.deepEqual(disabled.config.qa, {enabled: false}, 'An explicit OFF must survive later default-ON updates');
+      await applyInstallPlan(root, disabled);
+      const kept = await createUpdatePlan({root, adapters: commonHarnessAdapters(), targetVersion: '1.3.1', toolkitVersion: '1.3.1'});
+      assert.deepEqual(kept.installation.config.qa, {enabled: false});
+      const enabled = await createUpdatePlan({root, adapters: commonHarnessAdapters(), targetVersion: '1.3.1', toolkitVersion: '1.3.1', qaEnabled: true});
+      assert.deepEqual(enabled.installation.config.qa, {enabled: true});
+    } finally {await rm(root, {recursive: true, force: true});}
+  },
   'qa-cli-commands': () => fixture(async f => {
     const {runQaCommand} = await need('packages/cli/src/commands/qa.js', 'runQaCommand');
     const {parseArgs} = await need('packages/cli/src/args.js', 'parseArgs');
@@ -196,21 +241,20 @@ export const interfaceChecks = {
     const update = extra => createUpdatePlan({root, adapters: commonHarnessAdapters(), targetVersion: '1.3.0', toolkitVersion: '1.3.0', ...extra});
     try {
       const fresh = await install({});
-      assert.equal(fresh.config.qa, undefined, 'QA defaults OFF: no field, no spending, legacy hashes unchanged');
-      assert.doesNotMatch(rules(fresh), /Independent QA/u);
-      assert.match(formatInstallPlan(fresh), /Independent QA: disabled/u);
+      assert.deepEqual(fresh.config.qa, process.platform === 'darwin' ? {enabled: true} : undefined);
+      assert.match(formatInstallPlan(fresh), process.platform === 'darwin' ? /Independent QA: enabled/u : /Independent QA: disabled/u);
       const enabled = await install({qaEnabled: true});
       assert.deepEqual(enabled.config.qa, {enabled: true});
       assert.match(formatInstallPlan(enabled), /Independent QA: enabled for new delivery tasks \(macOS only/u);
       assert.match(rules(enabled), /independent-qa/u);
       assert.match(rules(enabled), /agent-ops qa respond --task <id> --question <id> --answer <text>/u);
       await applyInstallPlan(root, enabled);
-      // update preserves the explicit choice unless told otherwise; off removes only the project default.
+      // Update preserves the explicit choice; off changes only enrollment of future delivery roots.
       const kept = await update({});
       assert.deepEqual(kept.installation.config.qa, {enabled: true});
       assert.match(formatUpdatePlan(kept), /Independent QA: enabled/u);
       const disabled = await update({qaEnabled: false});
-      assert.equal(disabled.installation.config.qa, undefined);
+      assert.deepEqual(disabled.installation.config.qa, {enabled: false});
       assert.match(formatUpdatePlan(disabled), /Independent QA: disabled/u);
       assert.doesNotMatch(rules(disabled.installation), /Independent QA/u);
     } finally {await rm(root, {recursive: true, force: true});}
@@ -328,9 +372,9 @@ export const interfaceChecks = {
         'run stop', 'task pin-finding', 'QA_REPAIR_REQUIRED', 'QA_AWAITING_INPUT', 'QA_UNSUPPORTED_PLATFORM', 'UNKNOWN', 'verify --task'])
         assert.ok(guide.includes(part), `${name} QA guide covers ${part}`);
     }
-    for (const term of [/opt-in/iu, /separate session/iu, /isolated clone/iu, /late/iu, /older CLI/iu, /cost/iu, /no total/iu, /never a QA PASS/iu])
+    for (const term of [/defaults ON/iu, /separate session/iu, /isolated clone/iu, /late/iu, /older CLI/iu, /cost/iu, /no total/iu, /never a QA PASS/iu])
       assert.match(en, term);
-    for (const term of ['預設關閉', '獨立', '隔離', '晚', '舊版', '費用', '不是 QA PASS']) assert.ok(zh.includes(term), `zh-TW QA guide: ${term}`);
+    for (const term of ['預設開啟', '獨立', '隔離', '晚', '舊版', '費用', '不是 QA PASS']) assert.ok(zh.includes(term), `zh-TW QA guide: ${term}`);
     const readme = await source('README.md');
     assert.ok(readme.includes('docs/en/guides/qa.md') && readme.includes('--qa on'), 'README points at the QA guide');
     for (const [path, part] of [['docs/en/guides/configuration.md', '"qa"'], ['docs/zh-TW/guides/configuration.md', '"qa"'],

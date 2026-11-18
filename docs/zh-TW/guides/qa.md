@@ -6,10 +6,11 @@ PASS 是必要的交付 gate，與 verify 和兩輪全新審查並列，不取�
 
 ## 範圍與啟用
 
-- QA 由每個專案**自行選擇加入（opt-in）**，**預設關閉**。用
-  `agent-ops update --qa on`（或 `agent-ops init --qa on`）開啟；確認前，計畫預覽會
-  顯示 `Independent QA: enabled …`，config 的變更由 init/update 原本的 trust 授權涵蓋。
-  `--qa off` 移除專案預設。`--qa` 只用於專案範圍；`--scope user` 會拒絕。
+- macOS 專案的 init/update **預設開啟（ON）** QA。明確指定 `--qa off` 會寫入
+  `"qa": {"enabled": false}`，後續更新保留此選擇。用 `agent-ops update --qa on`
+  （或 `agent-ops init --qa on`）重新開啟。確認前，預覽顯示 `Independent QA: enabled …`，
+  config 變更由 init/update 原本的 trust 授權涵蓋。`--qa` 只用於專案範圍；
+  `--scope user` 會拒絕。Linux／Windows 與使用者範圍安裝保留原本不啟用 QA 的預設。
 - v1 **只支援 macOS**。已開啟 QA 的專案在 Linux 或 Windows 上會拒絕登記新 task，
   並以 `QA_UNSUPPORTED_PLATFORM` 阻擋任何已登記的交付；絕不會默默通過。
 - 開啟只套用到**新的交付根 task**：`task create` 會把凍結的 QA 政策綁進 task 契約。
@@ -92,8 +93,20 @@ provider 額度與費用。用量只記錄 host 回報的數字；未回報的�
 
 ## 相容性
 
-沒有 `--qa on` 的專案，其 config、task 契約、hash 與花費都不變。QA 資料是附加的：
+既有原始 config 沒有此欄位時，仍關閉直到 managed init/update 設定支援的平台預設。
+明確 OFF 保持新 task 不登記；既有與已完成 task 的契約、證明及 hash 不會回溯改動。QA 資料是附加的：
 config 的 `qa` 欄位、task 的 `qa` 綁定、QA finding 釘選，以及收據中的 QA 證明。
 舊版 CLI（1.3.x 及更早）可能拒絕這些資料；有已登記 task 的專案請勿降版。私有 QA
 狀態存放在 Git common directory（`agent-ops/qa/`），經過遮蔽，且不進入 source
 fingerprint。
+
+## 測試收集與續跑
+
+Runner 必須能收集新撰寫的素材。本 source repo 提供 `node tests/qa/acceptance.mjs`，
+讀取 `tests/qa/independent/**/*.check.mjs` 匯出的 `checks` 物件（穩定 ID 對應斷言函式）。
+在此開啟 QA 前，以正常 config／trust 預覽設定 generic acceptance runner。缺少 check、
+重複 ID、import 失敗與符號連結都不會通過。
+
+重新規劃會取得有上限的歷史 controller 結果與真人回答，附原版本與參照，僅作不可信資料。
+歷史回答不會回答新計畫，也不是目前證明。被拒的 planner 輸出經遮罩後保留在私有
+`planning-diagnostics/`；舊計畫與失敗紀錄不會被清除。

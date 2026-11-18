@@ -294,7 +294,7 @@ Project init/update 在所有 harness 與 profile 安裝 `.agent-ops/.gitignore`
 - Positive: `verify --task` 在已 commit 的候選版本上執行獨立 QA，匯入新的測試檔，每個案例都在 baseline 紅、候選版本綠，封存 PASS 後才執行一般 verifier。
 - Negative: 把模型宣稱完成、native goal 完成、一般測試套件 PASS、真人回答，或未登記的舊 task 當成 QA PASS。
 
-- 每個專案明確選擇加入（`init`/`update --qa on`），且只綁定新的交付根 task；關閉專案 QA 不會移除已登記 task 的 gate。進行中 task 的採用必須明確執行（`qa plan --task <id> --yes`），實作已開始時標記為晚規劃。已完成的 task 永遠不重新判定。
+- macOS 專案 init/update 預設 QA ON，保留明確的 `--qa off`，且只綁定新的交付根 task；關閉專案 QA 不會移除已登記 task 的 gate。進行中 task 的採用必須明確執行（`qa plan --task <id> --yes`），實作已開始時標記為晚規劃。已完成的 task 永遠不重新判定。
 - 子 task 保留本地 verify；獨立 QA 涵蓋整合後的交付。部分 `run land` 只證明所選 task 與其相依。
 - QA 只在隔離 clone 中撰寫測試、fixture 與 helper 素材；產品修正以 `qa:<digest>:<index>` 釘選退回開發者。缺少必要環境、native 拒絕、provider 限制與沒有變化的語意失敗都會阻擋，永遠不會變成 PASS。
 - v1 只在 macOS 執行；其他平台上的已登記交付以 `QA_UNSUPPORTED_PLATFORM` 失敗。詳見 `docs/zh-TW/guides/qa.md`。

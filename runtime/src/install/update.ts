@@ -47,7 +47,7 @@ export interface CreateUpdatePlanOptions {
   /** Worktree configuration override; undefined preserves existing. */
   readonly worktree?: WorktreeConfig | null;
   readonly officeEnabled?: boolean;
-  /** Explicit project QA choice; undefined preserves it. Off never edits an enrolled task's frozen gate. */
+  /** Explicit project QA choice; undefined preserves it, otherwise supported projects default on. Off never edits an enrolled task's frozen gate. */
   readonly qaEnabled?: boolean;
   /** Add or remove the `run` profile; undefined preserves it. `loop` stays either way. */
   readonly autoRun?: boolean;

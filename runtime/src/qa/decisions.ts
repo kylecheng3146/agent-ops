@@ -14,6 +14,25 @@ export interface QaRespondInput {
   readonly now: string;
   readonly env?: NodeJS.ProcessEnv;
 }
+
+/** Historical context keeps its original versions and references; it grants no current proof or answer authority. */
+export async function qaHistory(store: FileQaStore, control: QaControl | null, version: QaVersion): Promise<Record<string, unknown>> {
+  const sameGoal = (v: QaVersion) => v.taskId === version.taskId && v.goalHash === version.goalHash;
+  const report = control?.report == null ? null : await store.get({...control.report, kind: "report"});
+  const decisions = [];
+  for (const reference of (control?.decisions ?? []).slice(-8)) {
+    const d = await store.get({...reference, kind: "decision"});
+    if (sameGoal(d.version)) decisions.push({reference, version: d.version, contractsMatch: qaContractsMatch(d.version, version),
+      plan: d.plan, questionId: d.questionId, answer: d.answer.slice(0, 512), answerTruncated: d.answer.length > 512,
+      answeredBy: d.answeredBy, answeredAt: d.answeredAt});
+  }
+  return {authority: "Historical context only; not current proof or answers to a new plan.",
+    report: report === null || !sameGoal(report.version) ? null : {reference: control!.report, version: report.version,
+      contractsMatch: qaContractsMatch(report.version, version), attempt: report.attempt, createdAt: report.createdAt,
+      results: report.results.slice(0, 32).map(r => ({caseId: r.caseId, status: r.status,
+        executions: r.executions.slice(0, 2), observations: r.observations.slice(0, 2).map(o => o.slice(0, 200))}))},
+    limits: {reportResults: 32, decisions: 8, answerCharacters: 512, observationCharacters: 200}, decisions};
+}
 /**
  * Binds one human answer to the exact task, plan question and contract version, then resumes the
  * work that waited for it. Only questions QA actually asked can be answered; an answer is never a

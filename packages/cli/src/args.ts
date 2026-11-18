@@ -105,7 +105,7 @@ export interface ParsedArgs {
   /** Explicitly enable the agy project-loop completion gate. */
   completionGate?: boolean;
   office?: "on" | "off";
-  /** init/update: explicit project QA opt-in; absent preserves the current choice (new installs stay off). */
+  /** init/update: explicit project QA choice; absent preserves an explicit choice (macOS projects default on). */
   qa?: "on" | "off";
   /** update: add or remove the `run` profile; `loop` stays either way. */
   autoRun?: "on" | "off";

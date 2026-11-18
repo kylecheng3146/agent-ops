@@ -547,9 +547,11 @@ remains unchanged; paid production quality improvement is unmeasured.
 ## Independent QA
 
 `"qa": {"enabled": true}` opts the project in to independent QA (macOS only).
-Set it with `agent-ops init --qa on` or `agent-ops update --qa on`; `--qa off`
-removes the field, and an absent field means off. It is project-only. Update
-preserves the current choice unless `--qa` is given and never prompts for it.
+macOS project init/update defaults it ON. `agent-ops init --qa on` or
+`agent-ops update --qa on` re-enables it; `--qa off` writes `"qa": {"enabled": false}`,
+which later updates preserve. An absent raw field remains off until a managed
+update sets the default. It is project-only; user scope and unsupported platforms
+keep their existing default. Update previews the change without another QA prompt.
 The field enrolls new delivery root tasks only: each one binds a frozen QA policy
 into its contract, so turning the project off later never removes an enrolled
 task's gate. QA reuses the `independent-review` targets as candidate hosts and the

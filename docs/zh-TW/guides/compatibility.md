@@ -45,7 +45,8 @@ changelog 會將它列為已淘汰，並且只在下一個 major 版本移除。
 `agent-ops update` 會把已安裝的檔案更新到目前版本。較新的 1.x 版本會讀取或遷移
 較舊 1.x 版本的 config 與狀態。不支援降版：較舊的版本可能拒絕較新版本寫入的狀態。
 特別是舊版 CLI（1.3.x 及更早）可能拒絕獨立 QA 資料：config 的 `qa` 欄位、task 的
-`qa` 綁定、QA finding 釘選與收據中的 QA 證明。從未執行 `--qa on` 的專案不會寫入這些資料。
+`qa` 綁定、QA finding 釘選與收據中的 QA 證明。macOS 專案 init/update 預設 QA ON；
+明確的 `--qa off` 會跨更新保留。既有 task 保留原本的登記與證明。
 
 ## 支援的版本
 

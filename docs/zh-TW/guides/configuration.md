@@ -478,9 +478,10 @@ verify → 兩輪獨立 review → finish 仍須完成；付費生產品質改�
 ## 獨立 QA
 
 `"qa": {"enabled": true}` 讓專案加入獨立 QA（只支援 macOS）。用
-`agent-ops init --qa on` 或 `agent-ops update --qa on` 設定；`--qa off` 會移除此欄位，
-沒有欄位即代表關閉。它只用於專案範圍。未指定 `--qa` 時 update 保留目前選擇，也不會
-詢問。此欄位只會登記新的交付根 task：每個 task 把凍結的 QA 政策綁進契約，所以之後
+`agent-ops init --qa on` 或 `agent-ops update --qa on` 重新開啟；macOS 專案的
+init/update 預設 ON。`--qa off` 寫入 `"qa": {"enabled": false}`，之後更新保留此明確選擇。
+既有原始 config 缺少欄位時仍關閉，直到 managed update 設定預設。它只用於專案範圍；
+使用者範圍與不支援的平台保留原本預設。update 會預覽變更，不另外詢問 QA。此欄位只會登記新的交付根 task：每個 task 把凍結的 QA 政策綁進契約，所以之後
 關閉專案 QA 不會移除已登記 task 的 gate。QA 以 `independent-review` 的 target 作為
 候選 host，並以受信任的 `verification.acceptanceRunners` 執行案例；不新增 runner、
 相依套件或瀏覽器引擎。詳見[獨立 QA](qa.md)。

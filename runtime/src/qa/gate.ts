@@ -8,6 +8,7 @@ import { readPrivateFile } from "../security/permissions.js";
 import { goalHash, taskContractHash, treeContractHash } from "../task/contract.js";
 import { FileTaskStore, type StoredTaskRecord } from "../task/store.js";
 import { qaVersionMatches } from "./policy.js";
+import { qaHistory } from "./decisions.js";
 import { FileQaStore } from "./store.js";
 import type { QaArtifactKind, QaReference, QaVersion } from "./types.js";
 
@@ -171,5 +172,6 @@ export async function qaReviewData(store: FileQaStore, stored: StoredTaskRecord,
     results: report?.results.map(r => ({caseId: r.caseId, status: r.status, observations: r.observations.slice(0, 4).map(o => cut(o, 200))})) ?? [],
     findings: report?.findings.map(f => ({id: f.id, caseId: f.caseId, blocking: f.blocking, introduced: f.introduced, summary: cut(f.summary)})) ?? [],
     decisions: decisions.map(d => ({questionId: d.questionId, answer: cut(d.answer), answeredBy: d.answeredBy})),
+    history: await qaHistory(store, control, version),
     nonmechanicalCaseIds: attestation?.nonmechanicalCaseIds ?? []};
 }

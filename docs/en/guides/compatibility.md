@@ -52,7 +52,8 @@ release reads or migrates config and state from an older 1.x release.
 Downgrading is not supported: an older release may refuse state written by a
 newer one. In particular, an older CLI (1.3.x and earlier) may reject independent
 QA data: the config `qa` field, a task's `qa` binding, QA finding pins and
-receipt QA proof. Projects that never ran `--qa on` write none of it.
+receipt QA proof. macOS project init/update now defaults QA ON; explicit
+`--qa off` persists across updates. Existing tasks keep their enrollment and proof.
 
 ## Supported releases
 

@@ -96,7 +96,7 @@ export interface CreateInstallPlanOptions {
   readonly completionGateEnabled?: boolean;
   /** Explicit Office Preview choice; undefined preserves an existing choice. */
   readonly officeEnabled?: boolean;
-  /** Explicit project QA choice; undefined preserves an existing choice, and a new install stays off. */
+  /** Explicit project QA choice; undefined preserves an explicit choice; supported project installs default on. */
   readonly qaEnabled?: boolean;
   /**
    * Update may reconcile an existing managed installation when the selected
@@ -285,8 +285,7 @@ function buildConfig(
     securityExceptions: existing?.securityExceptions ?? [],
     ...(reviewRoles === undefined ? {} : { reviewRoles: [...reviewRoles] }),
     ...(effectiveWorktree === undefined ? {} : { worktree: effectiveWorktree }),
-    // Off is absence, so a project that never opted in keeps its config and hashes byte-identical.
-    ...(qaEnabled === true || (qaEnabled === undefined && existing?.qa?.enabled === true) ? { qa: { enabled: true } } : {})
+    ...(qaEnabled === undefined ? (existing?.qa === undefined ? {} : {qa: existing.qa}) : {qa: {enabled: qaEnabled}})
   };
 }
 
@@ -302,7 +301,8 @@ async function planConfig(
   completionGateEnabled = false,
   worktree?: WorktreeConfig | null,
   officeEnabled?: boolean,
-  qaEnabled?: boolean
+  qaEnabled?: boolean,
+  defaultQaEnabled?: boolean
 ): Promise<{
   operation: FileOperation;
   record: ManagedPathRecord;
@@ -386,7 +386,7 @@ async function planConfig(
     completionGateEnabled,
     worktree,
     officeEnabled,
-    qaEnabled
+    qaEnabled ?? existingConfig?.qa?.enabled ?? defaultQaEnabled
   );
   const content = `${JSON.stringify(config, null, 2)}\n`;
   return {
@@ -857,7 +857,8 @@ export async function createInstallPlan(
     completionGateEnabled,
     options.worktree,
     options.officeEnabled,
-    options.qaEnabled
+    options.qaEnabled,
+    options.scope === "project" && (options.platform ?? process.platform) === "darwin" ? true : undefined
   );
   resolved.capabilities = resolveCapabilities(config.config).capabilities;
   const existingOpencodePluginPath = existing?.manifest.artifacts.find(

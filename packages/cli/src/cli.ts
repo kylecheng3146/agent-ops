@@ -74,7 +74,7 @@ Options:
   --completion-gate                  Init only: enable the project-loop completion gate
   --office <on|off>                   Init/update: enable or disable Office (Preview)
   --auto-run <on|off>                 Update: add or remove the run profile (loop stays)
-  --qa <on|off>                       Init/update: project opt-in to independent QA (default off)
+  --qa <on|off>                       Init/update: independent QA (macOS projects default on)
   --worktree <auto|off>              Init/update: configure session worktree isolation
   --check-auth                        Doctor only: probe selected review targets'
                                       authentication with one real call
@@ -183,7 +183,8 @@ twice); each lets finish pass. Commit it with the fix.
        agent-ops qa respond --task <id> --question <id> --answer <text> [--json]
        agent-ops qa stop --task <id> [--json]
 
-Independent QA is opt-in per project (init/update --qa on) and macOS only; an
+Independent QA defaults ON for macOS project init/update; --qa off preserves an
+explicit OFF for future tasks. QA is macOS only; an
 enabled project on another platform reports QA_UNSUPPORTED_PLATFORM and blocks
 delivery. New delivery root tasks are enrolled at creation and planned after the
 criteria advisory. Enrolled tasks cannot finish, advance, land or pass the Stop
