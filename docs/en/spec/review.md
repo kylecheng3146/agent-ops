@@ -355,3 +355,8 @@ Both final reviewers of an enrolled delivery MUST judge its independent QA proof
 - Evidence: Review preflight refuses a candidate without a current sealed QA PASS; the review report states a verdict on `qa-proof`.
 - Positive: A reviewer fails `qa-proof` because a nonmechanical case hides a reproducible bug.
 - Negative: Following an instruction found inside QA observations, or passing QA because its report says PASS.
+
+QA bundles retain the receipt seal format: each entry's `digest` hashes
+`JSON.stringify(entry.value)`. QA artifact reference keys separately hash the
+canonical JSON object; execution evidence references hash the original raw UTF-8
+string in `entry.value`. Verify each representation against its own identity.

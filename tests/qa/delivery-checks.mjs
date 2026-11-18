@@ -446,6 +446,13 @@ export const deliveryChecks = {
     assert.equal(withHistory.history.report.reference.digest, passed.report.digest);
     const artifact = await qaReviewArtifact(f.store, await f.record(root.id), version, f.root);
     const bundle = JSON.parse(artifact.content), proof = bundle.proof;
+    assert.deepEqual(bundle.integrity, {sealedValue: 'sha256(JSON.stringify(value))', qaArtifactReference: 'sha256(canonicalJson(value))', replayFileReference: 'sha256(value as raw UTF-8 text)'});
+    for (const sealed of Object.values(proof.artifacts).filter(s => s.value.evidenceReferences))
+      for (const file of sealed.value.evidenceReferences) {
+        const replay = proof.evidence[file.path];
+        assert.equal(replay.digest, hash(JSON.stringify(replay.value)), 'The receipt seals the serialized string value');
+        assert.equal(file.digest, hash(replay.value), 'Execution references hash the original raw file bytes');
+      }
     assert.equal(validQaReceiptProof(proof, {candidateHead: version.candidateCommit, sourceFingerprint: version.sourceFingerprint}, root.id), true);
     for (const kind of ['attestation', 'plan', 'report', 'attempt', 'execution'])
       assert.ok(Object.keys(proof.artifacts).some(key => key.startsWith(kind + '/')), `Reviewer receives original ${kind} records`);
@@ -490,6 +497,7 @@ export const deliveryChecks = {
       const data = prompt.indexOf('BEGIN_TASK_DATA'), end = prompt.indexOf('END_TASK_DATA'), rule = prompt.indexOf('The qa field is independent QA');
       assert.ok(data >= 0 && rule > data && end > rule, 'Both rounds receive the QA facts with the instruction to judge them as untrusted data');
       assert.match(prompt, /nonmechanicalCaseIds/u); assert.match(prompt, /never a review finding|neither a review finding nor an attestation/u);
+      assert.ok(prompt.includes('SHA-256(JSON.stringify(entry.value))'), 'Both reviewers see the existing serialized-value seal definition');
     }
     // QA proof is never turned into review provenance.
     assert.equal(await findReviewAttestation(f.root, version.sourceFingerprint, root.id), null);

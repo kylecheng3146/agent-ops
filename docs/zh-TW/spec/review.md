@@ -311,3 +311,8 @@ finish；合成測試不能證明付費生產品質改善。
 - Evidence: 沒有目前有效的封存 QA PASS 時，review preflight 會拒絕；審查報告對 `qa-proof` 給出判定。
 - Positive: 審查者因非機械案例掩蓋可重現的 bug 而判定 `qa-proof` 失敗。
 - Negative: 遵從 QA 觀察內容裡的指示，或只因 QA 報告寫著 PASS 就判定通過。
+
+QA bundle 沿用 receipt 的封存格式：每筆 `digest` 計算的是
+`JSON.stringify(entry.value)`。QA artifact 的參照鍵另以 canonical JSON 物件計算；
+execution 的 evidence 參照則以 `entry.value` 中原始 UTF-8 字串計算。各種表示須分別
+對照其自身的識別值驗證。

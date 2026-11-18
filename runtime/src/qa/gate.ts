@@ -166,6 +166,7 @@ export async function qaReviewArtifact(store: FileQaStore, stored: StoredTaskRec
       historicalDecisions[`decision/${ref.digest}`] = seal(decision);
   }
   const content = JSON.stringify({schemaVersion: 1, proof, historicalDecisions,
+    integrity: {sealedValue: "sha256(JSON.stringify(value))", qaArtifactReference: "sha256(canonicalJson(value))", replayFileReference: "sha256(value as raw UTF-8 text)"},
     authority: "Only proof.attestation names current QA proof; historicalDecisions retain their original versions and are not answers to a new plan."}), digest = sha256(content);
   return {path: `.agent-ops/tasks/qa-proof/${stored.task.id}-${digest}.json`, digest, content};
 }
