@@ -196,7 +196,10 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
       ...(options.baselineCommit === undefined ? {} : {baselineCommit: options.baselineCommit}),
       advisory: options.advisory === null ? {unavailable: "No criteria advisory was available; plan from the requirements alone."}
         : {status: options.advisory.report.status, stale: options.advisory.stale, advice: options.advisory.report.advice ?? null}};
-    const schema = planningSchema(options), prompt = qaPlanningPrompt(snapshot, schema);
+    const schema = planningSchema(options);
+    if (canonicalJson(schema) !== canonicalJson(redacted(schema)))
+      throw new AgentOpsError("QA_PLAN_INPUT_INVALID", "QA planner IDs must not contain secret-shaped values.");
+    const prompt = qaPlanningPrompt(snapshot, schema);
     if (Buffer.byteLength(prompt) > 256 * 1024) throw new AgentOpsError("QA_PLAN_INPUT_TOO_LARGE", "QA planning input exceeds 256 KiB.");
     directory = await mkdtemp(join(tmpdir(), "agent-ops-qa-plan-"));
     const repository = join(directory, "repository");
@@ -209,7 +212,8 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
       env: isolatedReviewEnvironment(session.host, directory, process.env),
       ...(options.runner === undefined ? {} : {runner: options.runner}), ...(options.signal === undefined ? {} : {signal: options.signal})});
     usage = usageOf(session.host, result.stdout, result.stderr);
-    diagnostic = {stdout: redactSecrets(result.stdout).slice(0, 32768), stderr: redactSecrets(result.stderr).slice(0, 32768), failureClass: result.failureClass};
+    diagnostic = {stdout: Buffer.from(redactSecrets(result.stdout)).subarray(0, 32768).toString("utf8"),
+      stderr: Buffer.from(redactSecrets(result.stderr)).subarray(0, 32768).toString("utf8"), failureClass: result.failureClass};
     if (result.failureClass === "aborted") throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning was cancelled; no plan was saved.");
     if (result.status !== "PASS" || result.stdoutTruncated)
       throw new AgentOpsError("QA_PLAN_NOT_RUN", `The QA planner did not answer (${result.failureClass}); QA stays unverified.`);
@@ -230,10 +234,12 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     await releaseQaControl(options.store, held, {state, plan: ref}, now());
     return {state, plan: ref, blockers, usage};
   } catch (error) {
+    if (!released) await releaseQaControl(options.store, held, {state: "blocked"}, now()).catch(() => undefined);
     if (diagnostic !== undefined) await writePrivateFile(join(options.store.directory, "planning-diagnostics", `${session.sessionId}.json`),
       `${canonicalJson({schemaVersion: 1, version: options.version, session, usage, observedAt: now(), ...diagnostic,
-        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4096)})}\n`, options.store.commonDir).catch(() => undefined);
-    if (!released) await releaseQaControl(options.store, held, {state: "blocked"}, now()).catch(() => undefined);
+        error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4096)})}\n`, options.store.commonDir).catch(() => {
+        throw new AgentOpsError("QA_PLAN_DIAGNOSTIC_FAILED", "QA planning failed and its rejected output could not be saved privately.", {cause: error});
+      });
     throw error;
   } finally {
     // Rejected answers are saved privately before removing the read-only clone.

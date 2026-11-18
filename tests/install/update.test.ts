@@ -149,6 +149,7 @@ test("migrates a manifest-owned version 0 config during update", async () => {
       assert.fail("update plan must write the migrated config");
     }
     const expectedVersionThree = {
+      ...(process.platform === "darwin" ? {qa: {enabled: true}} : {}),
       schemaVersion: 3,
       profiles: ["core"],
       verification: { commands },
@@ -488,6 +489,7 @@ test("explicit target update is offline and preserves verifier config", async ()
     await applyUpdatePlan(root, plan);
     assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {
       ...configured,
+      ...(process.platform === "darwin" ? {qa: {enabled: true}} : {}),
       schemaVersion: 3,
       features: {
         stopVerification: { enabled: false },

@@ -96,7 +96,8 @@ test("plans a complete project install without writing", async () => {
       "review",
       "lifecycle-summary",
       "local-log",
-      "command-policy"
+      "command-policy",
+      ...(process.platform === "darwin" ? ["independent-qa"] : [])
     ]);
 
     const agents = writeOperation(plan, "AGENTS.md");
@@ -556,7 +557,7 @@ test("replanning preserves user-authored verifier configuration", async () => {
 
     assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")),
-      configured
+      {...configured, ...(process.platform === "darwin" ? {qa: {enabled: true}} : {})}
     );
   } finally {
     await rm(root, { recursive: true, force: true });

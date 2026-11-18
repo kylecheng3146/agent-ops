@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {execFileSync, spawn as nodeSpawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile} from 'node:fs/promises';
+import {link, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -126,6 +126,15 @@ export const executionChecks = {
     assert.equal(data.history.decisions[0].reference.digest, decision.digest);
     assert.deepEqual([data.history.decisions[0].plan, data.history.decisions[0].answer, data.history.decisions[0].answeredAt], [result.plan, 'de-DE', at]);
     assert.match(next.requests[0].stdin, /Historical.*not current proof/u);
+    const secondReport = await f.store.put('report', {...await f.store.get({...report, kind: 'report'}), id: 'report-second',
+      results: [{caseId: 'case-happy', status: 'FAIL', executions: [], observations: ['New failure must not hide the preceding baseline observation.']}]});
+    const latest = await f.store.readControl(task.id);
+    await f.store.updateControl(task.id, latest.revision, c => ({...c, revision: c.revision + 1, report: secondReport}));
+    const third = fakePlanner(planAnswer()); await runQaPlanning({...base, runner: third.runner});
+    const history = JSON.parse(third.requests[0].stdin.split('BEGIN UNTRUSTED DATA\n')[1].split('\nEND UNTRUSTED DATA')[0]).history;
+    assert.equal(history.report.reference.digest, secondReport.digest);
+    assert.equal(history.previousReports[0].reference.digest, report.digest, 'A subsequent controller report does not erase earlier failure context');
+    assert.deepEqual(history.decisions.map(d => d.reference.digest), [decision.digest], 'Repeated control revisions do not duplicate a genuine answer');
     const invalid = planAnswer({cases: [{...planCases()[0], criterionIds: ['invented'], expected: 'token=sk-test-secret-value-12345678901234567890'}, planCases()[1]]});
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(invalid).runner}), {code: 'QA_PLAN_INVALID'});
     const files = await readdir(join(f.store.directory, 'planning-diagnostics'));
@@ -133,6 +142,10 @@ export const executionChecks = {
     assert.equal(diagnostic.version.taskId, task.id); assert.match(diagnostic.error, /outside the scoped tasks/u);
     assert.doesNotMatch(diagnostic.stdout, /sk-test-secret-value/u, 'Rejected raw answers are retained only after redaction');
     assert.ok(diagnostic.stdout.length > 0); assert.equal((await f.store.readControl(task.id)).state, 'blocked');
+    await rename(join(f.store.directory, 'planning-diagnostics'), join(f.store.directory, 'retained-diagnostics'));
+    await writeFile(join(f.store.directory, 'planning-diagnostics'), 'Fixture blocks diagnostic storage without deleting earlier failures.');
+    await assert.rejects(runQaPlanning({...base, runner: fakePlanner(invalid).runner}), {code: 'QA_PLAN_DIAGNOSTIC_FAILED'});
+    assert.equal((await f.store.readControl(task.id)).owner, null, 'A failed diagnostic write does not leave a live planning owner');
   }),
   'qa-independent-planning': () => fixture(async f => {
     const {runQaPlanning, QA_PLAN_SCHEMA} = await qa('runtime/src/qa/planning.js', 'runQaPlanning');

@@ -261,7 +261,7 @@ Options:
   --review-target <codex|agy|claude>   Repeatable, in fallback-chain order
   --completion-gate                    Enable the project-loop completion gate
   --office <on|off>                   Office (Preview); default off, update preserves choice
-  --qa <on|off>                        Independent QA for new delivery tasks; default off (macOS only)
+  --qa <on|off>                        Independent QA for new delivery tasks; macOS projects default on
   --worktree <auto|off>                Configure session worktree isolation
   --dry-run                            Print the plan without writing
   --json
@@ -307,7 +307,7 @@ Options:
   --target-version <version>   Offline-capable update target
   --office <on|off>           Office (Preview); preserve choice unless supplied
   --auto-run <on|off>          Add or remove the run profile (loop stays); preserve unless supplied
-  --qa <on|off>                Independent QA for new delivery tasks; preserve unless supplied.
+  --qa <on|off>                Independent QA; macOS projects default on, explicit choices preserved.
                                Off never removes the gate of an already enrolled task.
   --worktree <auto|off>        Configure session worktree isolation
   --dry-run

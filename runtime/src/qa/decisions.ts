@@ -2,7 +2,7 @@ import { AgentOpsError } from "../fs/paths.js";
 import { qaContractsMatch } from "./proof.js";
 import { qaVersionMatches } from "./policy.js";
 import type { FileQaStore } from "./store.js";
-import type { QaControl, QaPlan, QaReport, QaState, QaUsage, QaVersion } from "./types.js";
+import type { QaControl, QaPlan, QaReference, QaReport, QaState, QaUsage, QaVersion } from "./types.js";
 
 export interface QaRespondInput {
   readonly store: FileQaStore;
@@ -18,20 +18,32 @@ export interface QaRespondInput {
 /** Historical context keeps its original versions and references; it grants no current proof or answer authority. */
 export async function qaHistory(store: FileQaStore, control: QaControl | null, version: QaVersion): Promise<Record<string, unknown>> {
   const sameGoal = (v: QaVersion) => v.taskId === version.taskId && v.goalHash === version.goalHash;
-  const report = control?.report == null ? null : await store.get({...control.report, kind: "report"});
+  const reports = [], decisionRefs = new Map<string, QaReference>();
+  const reportIds = new Set<string>();
+  let saved = control, scanned = 0;
+  for (; saved !== null && scanned < 64; scanned++) {
+    if (saved.report !== null && !reportIds.has(saved.report.digest) && reports.length < 2) {
+      reportIds.add(saved.report.digest);
+      const r = await store.get({...saved.report, kind: "report"});
+      if (sameGoal(r.version)) reports.push({reference: saved.report, version: r.version,
+        contractsMatch: qaContractsMatch(r.version, version), attempt: r.attempt, createdAt: r.createdAt,
+        results: r.results.slice(0, 16).map(result => ({caseId: result.caseId, status: result.status,
+          executions: result.executions.slice(0, 2), observations: result.observations.slice(0, 2).map(o => o.slice(0, 160))}))});
+    }
+    for (const ref of [...(saved.decisions ?? [])].reverse()) if (!decisionRefs.has(ref.digest) && decisionRefs.size < 8) decisionRefs.set(ref.digest, ref);
+    if (saved.revision <= 1 || reports.length === 2 && decisionRefs.size === 8) break;
+    saved = await store.readControlHistory(version.taskId, saved.revision - 1);
+  }
   const decisions = [];
-  for (const reference of (control?.decisions ?? []).slice(-8)) {
+  for (const reference of decisionRefs.values()) {
     const d = await store.get({...reference, kind: "decision"});
     if (sameGoal(d.version)) decisions.push({reference, version: d.version, contractsMatch: qaContractsMatch(d.version, version),
       plan: d.plan, questionId: d.questionId, answer: d.answer.slice(0, 512), answerTruncated: d.answer.length > 512,
       answeredBy: d.answeredBy, answeredAt: d.answeredAt});
   }
   return {authority: "Historical context only; not current proof or answers to a new plan.",
-    report: report === null || !sameGoal(report.version) ? null : {reference: control!.report, version: report.version,
-      contractsMatch: qaContractsMatch(report.version, version), attempt: report.attempt, createdAt: report.createdAt,
-      results: report.results.slice(0, 32).map(r => ({caseId: r.caseId, status: r.status,
-        executions: r.executions.slice(0, 2), observations: r.observations.slice(0, 2).map(o => o.slice(0, 200))}))},
-    limits: {reportResults: 32, decisions: 8, answerCharacters: 512, observationCharacters: 200}, decisions};
+    report: reports[0] ?? null, previousReports: reports.slice(1),
+    limits: {controlRevisions: 64, reports: 2, reportResults: 16, decisions: 8, answerCharacters: 512, observationCharacters: 160}, decisions};
 }
 /**
  * Binds one human answer to the exact task, plan question and contract version, then resumes the
