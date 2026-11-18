@@ -224,6 +224,11 @@ export const executionChecks = {
       {code: 'QA_PLAN_INVALID', message: /Case case-happy: Behavioral acceptance requires at least one designated red check/u}, 'A behavioral case without red checks is never weakened');
     assert.match(request.stdin, /redCheckIds at least one/u, 'Behavioral red checks are a stated rule, not a hidden rejection');
     assert.match(request.stdin, /not environment/u, 'QA-added material and the authoring checkout are not planned as environment');
+    assert.match(request.stdin, /Controller-provided execution primitives are not planner environment/u);
+    assert.match(request.stdin, /loopback bind, ephemeral ports, OS temp\/profile directories, and CDP transport/u);
+    const unknownEnvironment = await runQaPlanning({...base, runner: fakePlanner(planAnswer({environment: [
+      {name: 'external-browser', required: true, status: 'unknown', evidence: ['No installed browser observed']}]})).runner});
+    assert.equal(unknownEnvironment.state, 'blocked', 'A genuinely unknown external requirement still blocks');
     // Live: planners without the baseline twice planned a behavior it already had as behavioral, leaving the case UNKNOWN.
     const baselined = fakePlanner(planAnswer());
     await runQaPlanning({...base, baselineCommit: 'a'.repeat(40), runner: baselined.runner});

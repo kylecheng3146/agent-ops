@@ -72,6 +72,13 @@ Historical answers never answer a new plan or become current proof. Rejected
 planner output is redacted and retained privately in `planning-diagnostics/`;
 the prior plan and failures remain intact.
 
+The read-only planner checks external requirements such as an installed browser.
+Process launch, loopback ports, temporary profiles and the runner's CDP transport
+are execution preconditions: trusted tests must exercise them. Any execution
+failure remains UNKNOWN or FAIL; missing or unknown external requirements still
+block delivery. Multiple bindings to one runner each retain their exact material
+digest and their own baseline/candidate pair.
+
 ## Commands
 
 | Command | Effect |

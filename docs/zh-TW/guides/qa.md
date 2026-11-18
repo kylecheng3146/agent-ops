@@ -110,3 +110,8 @@ Runner 必須能收集新撰寫的素材。本 source repo 提供 `node tests/qa
 重新規劃會取得有上限的歷史 controller 結果與真人回答，附原版本與參照，僅作不可信資料。
 歷史回答不會回答新計畫，也不是目前證明。被拒的 planner 輸出經遮罩後保留在私有
 `planning-diagnostics/`；舊計畫與失敗紀錄不會被清除。
+
+唯讀 planner 檢查已安裝瀏覽器等外部條件。程序啟動、loopback 連接埠、暫存 profile 與
+runner 的 CDP 傳輸屬於執行前提，必須由可信測試實際驗證；失敗仍是 UNKNOWN 或 FAIL。
+缺少或未知的外部條件仍阻擋交付。同一 runner 的多個 binding 各自保留確切素材 digest
+與自己的 baseline／candidate 執行配對。

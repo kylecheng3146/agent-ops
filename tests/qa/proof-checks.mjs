@@ -235,6 +235,36 @@ export const proofChecks = {
     ready = await f.prepare({task: mechanical, cases: [answerCase, docsCase]});
     await f.execute(ready.generation, imported, {task: mechanical});
     await assert.rejects(sealQaAttestation({store: f.store, version: f.version(mechanical), tasks: [mechanical], gitRunner: f.gitRunner}), {code: 'QA_MECHANICAL_DOWNGRADE'});
+    // Live: two bindings using the same runner but different materials were mistaken for duplicate executions.
+    const secondMaterial = 'tests/qa-independent/second.test.mjs';
+    await writeFile(join(f.root, secondMaterial), CASE_TEST.replace("'stable-name':", "'stable-name-second':"));
+    f.git(['add', secondMaterial]); f.git(['commit', '-qm', 'second material']);
+    const multiple = {...nameCase, id: 'case-multiple-bindings', required: true, bindings: [
+      ...bind(['stable-name'], []), {...bind(['stable-name-second'], [])[0], materials: [{path: secondMaterial, role: 'test'}]}]};
+    ready = await f.prepare({cases: [multiple]});
+    const multi = await f.execute(ready.generation, imported);
+    assert.equal(multi.state, 'testing', 'Every exact material set has its own single baseline/candidate pair');
+    const multiReport = await f.store.get(multi.report);
+    assert.equal(multiReport.results[0].status, 'PASS');
+    const multiExecutions = await Promise.all(multiReport.results[0].executions.map(ref => f.store.get(ref)));
+    assert.equal(multiExecutions.length, 4); assert.equal(new Set(multiExecutions.map(e => e.materialDigest)).size, 2);
+    const {canonicalJson} = await load('runtime/src/config/hash.js');
+    const identities = new Map(multiple.bindings.map(b => [canonicalJson(b.materials),
+      multiExecutions.find(e => e.run.results.some(r => r.checkId === b.checkIds[0])).materialDigest]));
+    assert.equal(qaCaseVerdict(multiple, multiExecutions, identities).status, 'PASS');
+    assert.equal(qaCaseVerdict(multiple, multiExecutions.slice(1), identities).status, 'UNKNOWN', 'A missing binding phase cannot borrow another material set');
+    assert.equal(qaCaseVerdict(multiple, [...multiExecutions, multiExecutions[0]], identities).status, 'UNKNOWN', 'Duplicate executions for the same material stay ambiguous');
+    assert.equal(qaCaseVerdict(multiple, multiExecutions.map(e => ({...e, materialDigest: 'f'.repeat(64)})), identities).status, 'UNKNOWN', 'Check IDs cannot substitute another material identity');
+    await sealQaAttestation({store: f.store, version: f.version(), tasks: [f.record.task], gitRunner: f.gitRunner});
+    const launched = f.spawned.count;
+    ready = await f.prepare({cases: [multiple]});
+    const reused = await f.execute(ready.generation, imported);
+    assert.deepEqual(reused.reused, [multiple.id]); assert.equal(f.spawned.count, launched, 'Unchanged exact binding pairs reuse trusted proof without another process');
+    const mixed = {...answerCase, bindings: [...bind(['answer-two']), multiple.bindings[1]]};
+    ready = await f.prepare({cases: [mixed]});
+    const mixedResult = await f.execute(ready.generation, imported);
+    assert.equal(mixedResult.state, 'testing', 'Behavioral red checks are required per case; an additional invariant binding still needs both observed phases');
+    await sealQaAttestation({store: f.store, version: f.version(), tasks: [f.record.task], gitRunner: f.gitRunner});
   }),
   'qa-defect-closure': () => fixture(async f => {
     const {sealQaAttestation} = await qa('runtime/src/qa/proof.js', 'executeQaAttempt', 'sealQaAttestation');

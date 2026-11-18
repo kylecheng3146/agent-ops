@@ -44,13 +44,17 @@ export interface QaCaseVerdict {
  * Behavioral cases need the red checks to fail by assertion on the baseline and every check to
  * pass on the candidate; incomplete, skipped, retried or infrastructure output is UNKNOWN.
  */
-export function qaCaseVerdict(c: QaCase, executions: readonly QaExecution[]): QaCaseVerdict {
+export function qaCaseVerdict(c: QaCase, executions: readonly QaExecution[], materialDigests?: ReadonlyMap<string, string>): QaCaseVerdict {
   if (c.mode === "nonmechanical") return {status: "UNKNOWN", failedChecks: [], introduced: false,
     notes: [`Nonmechanical: ${c.nonmechanicalReason ?? "no reason"}. Both final reviewers judge it; it is not executed proof.`]};
+  if (c.bindings.length === 0 || c.mode === "behavioral" && !c.bindings.some(b => (b.redCheckIds?.length ?? 0) > 0))
+    return {status: "UNKNOWN", failedChecks: [], introduced: false, notes: ["Mechanical proof needs bindings and a behavioral case needs a designated red check."]};
   const notes: string[] = [], failedChecks: string[] = [];
   let failed = false, unknown = false, introduced = false;
   for (const binding of c.bindings) {
-    const runs = (phase: "baseline" | "candidate") => executions.filter(e => e.caseId === c.id && e.runnerId === binding.runnerId && e.run.phase === phase);
+    const digest = materialDigests?.get(canonicalJson(binding.materials));
+    const runs = (phase: "baseline" | "candidate") => executions.filter(e => e.caseId === c.id && e.runnerId === binding.runnerId &&
+      (materialDigests === undefined || digest !== undefined && e.materialDigest === digest) && e.run.phase === phase);
     const [baseline, candidate] = [runs("baseline"), runs("candidate")];
     if (baseline.length !== 1 || candidate.length !== 1) {
       unknown = true; notes.push(`${binding.runnerId}: no single trusted baseline and candidate execution.`); continue;
@@ -68,13 +72,38 @@ export function qaCaseVerdict(c: QaCase, executions: readonly QaExecution[]): Qa
     if (before.status === "UNKNOWN") {unknown = true; notes.push(`${binding.runnerId} baseline: UNKNOWN (${before.failureClass}).`);}
     else if (c.mode === "behavioral") {
       const red = binding.redCheckIds ?? [];
-      const notRed = red.length === 0 ? ["no red check"] : red.filter(id =>
+      const notRed = red.filter(id =>
         !before.results.some(r => r.checkId === id && r.status === "FAIL" && r.failureClass === "assertion-failed"));
       if (notRed.length > 0) {unknown = true; notes.push(`${binding.runnerId} baseline did not fail by assertion: ${notRed.join(", ")}.`);}
-      else notes.push(`${binding.runnerId} baseline failed by assertion: ${red.join(", ")}.`);
+      else if (red.length > 0) notes.push(`${binding.runnerId} baseline failed by assertion: ${red.join(", ")}.`);
     }
   }
   return {status: failed ? "FAIL" : unknown ? "UNKNOWN" : "PASS", failedChecks: unique(failedChecks).sort(), introduced, notes: unique(notes)};
+}
+
+/** Match replay's exact path/role/mode/content identity; check IDs alone cannot distinguish material sets. */
+async function bindingMaterialDigests(cases: readonly QaCase[], runner: GitRunner, commit: string): Promise<ReadonlyMap<string, string>> {
+  const digests = new Map<string, string>(), files = new Map<string, {mode: number; hash: string}>();
+  for (const binding of cases.flatMap(c => c.bindings)) {
+    const key = canonicalJson(binding.materials);
+    if (digests.has(key)) continue;
+    const materials = [];
+    for (const material of binding.materials) {
+      let file = files.get(material.path);
+      if (file === undefined) {
+        const tree = await runner.run(["ls-tree", "-z", commit, "--", material.path]);
+        const entry = Buffer.from(tree.stdout).toString("utf8").match(/^(100644|100755) blob ([a-f0-9]+)\t([^\0]+)\0$/u);
+        if (tree.exitCode !== 0 || entry === null || entry[3] !== material.path) return fail("QA_MATERIAL_CHANGED", "A bound QA material is not a committed regular file.");
+        const blob = await runner.run(["cat-file", "blob", entry[2]!]);
+        if (blob.exitCode !== 0 || blob.stdout.byteLength > 1024 * 1024) return fail("QA_MATERIAL_CHANGED", "A bound QA material is unavailable or exceeds its byte limit.");
+        file = {mode: entry[1] === "100755" ? 0o755 : 0o644, hash: sha256(blob.stdout)};
+        files.set(material.path, file);
+      }
+      materials.push({path: material.path, role: material.role, ...file});
+    }
+    digests.set(key, sha256(canonicalJson(materials)));
+  }
+  return digests;
 }
 
 function requiredQuestions(plan: QaPlan, report: QaReport | null): QaQuestion[] {
@@ -173,8 +202,9 @@ export async function executeQaAttempt(options: QaAttemptOptions): Promise<QaAtt
   const prior = await Promise.all(reusable.map(async ref => ({ref, execution: await store.get({...ref, kind: "execution"})})));
   const configured = new Set((options.config.verification.acceptanceRunners ?? []).map(r => r.id));
   const mechanical = plan.cases.filter(c => c.mode !== "nonmechanical");
+  const materialDigests = await bindingMaterialDigests(mechanical.filter(c => c.bindings.every(b => configured.has(b.runnerId))), options.gitRunner, version.candidateCommit);
   // A PASS or FAIL observed under unchanged conditions stands; re-running it would be a blind retry. UNKNOWN may re-execute.
-  const reused = mechanical.filter(c => qaCaseVerdict(c, prior.filter(p => p.execution.caseId === c.id).map(p => p.execution)).status !== "UNKNOWN").map(c => c.id);
+  const reused = mechanical.filter(c => qaCaseVerdict(c, prior.filter(p => p.execution.caseId === c.id).map(p => p.execution), materialDigests).status !== "UNKNOWN").map(c => c.id);
   const runnable = mechanical.filter(c => !reused.includes(c.id) && c.bindings.every(b => configured.has(b.runnerId)));
   const refs = new Map<string, QaReference[]>(reused.map(id => [id, prior.filter(p => p.execution.caseId === id).map(p => p.ref)]));
   if (runnable.length > 0) {
@@ -192,7 +222,7 @@ export async function executeQaAttempt(options: QaAttemptOptions): Promise<QaAtt
   const notesFor = (caseId: string) => author.observations.filter(o => o.caseId === caseId).flatMap(o => o.notes.map(n => bounded(`QA author note (data): ${n}`)));
   const verdicts = new Map(plan.cases.map(c => [c.id, c.mode !== "nonmechanical" && !c.bindings.every(b => configured.has(b.runnerId)) && !reused.includes(c.id)
     ? {status: "UNKNOWN" as const, failedChecks: [], introduced: false, notes: ["A bound runner is not configured and authorized; the case was not executed."]}
-    : qaCaseVerdict(c, executions.get(c.id) ?? [])]));
+    : qaCaseVerdict(c, executions.get(c.id) ?? [], materialDigests)]));
   const results: QaReport["results"] = plan.cases.map(c => {
     const verdict = verdicts.get(c.id)!;
     return {caseId: c.id, status: verdict.status, executions: refs.get(c.id) ?? [],
@@ -299,12 +329,14 @@ export async function sealQaAttestation(options: QaSealOptions): Promise<{readon
   if (executions.some(({ref, execution}) => !qaVersionMatches(execution.version, version) || !attempt.executions.some(a => a.digest === ref.digest)))
     return fail("QA_PROOF_STALE", "An execution was not observed on this exact final candidate by this attempt.");
   const blockers: {code: string; detail: string}[] = [];
+  const materialDigests = await bindingMaterialDigests(plan.cases.filter(c => report.results.some(r => r.caseId === c.id && r.executions.length > 0)),
+    options.gitRunner, version.candidateCommit);
   for (const f of report.findings.filter(f => f.blocking)) blockers.push({code: "QA_BLOCKING_FINDING", detail: `${f.id} (${f.caseId})`});
   const nonmechanical: string[] = [];
   for (const c of plan.cases) {
     const result = report.results.find(r => r.caseId === c.id);
     const verdict = qaCaseVerdict(c, executions.filter(({ref, execution}) => execution.caseId === c.id &&
-      result?.executions.some(r => r.digest === ref.digest)).map(e => e.execution));
+      result?.executions.some(r => r.digest === ref.digest)).map(e => e.execution), materialDigests);
     if (c.mode === "nonmechanical") {
       if (c.required && result?.status !== "FAIL") nonmechanical.push(c.id);
       else if (c.required) blockers.push({code: "QA_REQUIRED_CASE_UNMET", detail: c.id});
