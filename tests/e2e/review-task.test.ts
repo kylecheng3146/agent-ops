@@ -120,7 +120,7 @@ test("SIGINT and SIGTERM stop the reviewer tree without JSON or attestation", {
 }, async () => {
   const { root, result: initialized } = runBuiltCli([
     "init", "--scope", "project", "--harness", "codex",
-    "--profile", "core", "--review-target", "codex", "--yes", "--json"
+    "--profile", "core", "--review-target", "codex", "--qa", "off", "--yes", "--json"
   ]);
   let child: ReturnType<typeof spawn> | undefined;
   let reviewerPid = Number.NaN;

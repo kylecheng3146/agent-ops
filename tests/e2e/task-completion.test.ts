@@ -17,8 +17,8 @@ import { reportFor } from "../review/report-fixture.js";
 import { COMPLETION_CONFIG, passingCompletionEvidence } from "../task/completion-fixture.js";
 import { cleanupE2eRoot, runBuiltCli, SURFACE_FILE_ARGS } from "./helpers.js";
 
-test("default core CLI completion enforces evidence and review regardless of host or disabled hooks", async () => {
-  const { root, result } = runBuiltCli(["init", "--scope", "project", "--harness", "codex", "--profile", "core", "--yes", "--json"]);
+test("QA-OFF core CLI completion enforces evidence and review regardless of host or disabled hooks", async () => {
+  const { root, result } = runBuiltCli(["init", "--scope", "project", "--harness", "codex", "--profile", "core", "--qa", "off", "--yes", "--json"]);
   const home = mkdtempSync(join(tmpdir(), "agent-ops-completion-home-"));
   try {
     assert.equal(result.status, 0);

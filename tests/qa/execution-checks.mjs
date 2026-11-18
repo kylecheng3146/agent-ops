@@ -241,7 +241,11 @@ export const executionChecks = {
     assert.ok(QA_PLAN_SCHEMA.properties.cases && !('verdict' in QA_PLAN_SCHEMA.properties));
   }),
   'qa-owned-execution': () => fixture(async f => {
-    const {runQaAuthor, qaAuthorHost} = await qa('runtime/src/qa/author.js', 'runQaAuthor', 'qaAuthorHost');
+    const {runQaAuthor, qaAuthorHost, qaAuthorObjective} = await qa('runtime/src/qa/author.js', 'runQaAuthor', 'qaAuthorHost', 'qaAuthorObjective');
+    const objective = qaAuthorObjective({taskId: task.id, generation: 1, plan: {kind: 'plan', digest: 'a'.repeat(64)}, candidateCommit: f.commit});
+    assert.match(objective, /bindings may reference existing candidate files/u);
+    assert.match(objective, /materials lists only NEW untracked files authored in this session/u);
+    assert.match(objective, /If existing files already cover the plan, return materials:\[\]/u);
     const {claimQaControl, stopQa, selectQaHost, qaSession} = await qa('runtime/src/qa/session.js', 'claimQaControl', 'stopQa', 'selectQaHost', 'qaSession');
     const {nativeProcessIdentity} = await load('runtime/src/run/transport.js');
     const script = join(f.outside, 'fake-native-host.mjs'); await writeFile(script, FAKE_HOST);
