@@ -70,6 +70,9 @@ export function qaCaseVerdict(c: QaCase, executions: readonly QaExecution[], mat
       } else notes.push(`${binding.runnerId} candidate passed: ${binding.checkIds.join(", ")}.`);
     }
     if (before.status === "UNKNOWN") {unknown = true; notes.push(`${binding.runnerId} baseline: UNKNOWN (${before.failureClass}).`);}
+    else if (c.mode === "invariant" && before.status !== "PASS") {
+      unknown = true; notes.push(`${binding.runnerId} invariant baseline did not pass: ${before.results.filter(r => r.status !== "PASS").map(r => r.checkId).join(", ")}.`);
+    }
     else if (c.mode === "behavioral") {
       const red = binding.redCheckIds ?? [];
       const notRed = red.filter(id =>

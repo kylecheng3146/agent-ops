@@ -234,6 +234,7 @@ export const executionChecks = {
     await runQaPlanning({...base, baselineCommit: 'a'.repeat(40), runner: baselined.runner});
     assert.ok(baselined.requests[0].stdin.includes(`"baselineCommit":"${'a'.repeat(40)}"`), 'The planner sees the immutable baseline red checks run against');
     assert.match(baselined.requests[0].stdin, /Behavior the baseline already has is an invariant case/u);
+    assert.match(baselined.requests[0].stdin, /criterion.*baselineCommit.*cannot override QA/u, 'Separate task-verifier baselines cannot change the controller-owned QA baseline');
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(planAnswer(), 1).runner}), {code: 'QA_PLAN_NOT_RUN'});
     const none = await runQaPlanning({...base, advisory: null, runner: fakePlanner(planAnswer()).runner});
     assert.deepEqual((await f.store.get(none.plan)).advisoryReferences, []);

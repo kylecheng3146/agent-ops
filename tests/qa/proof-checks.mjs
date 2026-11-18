@@ -265,6 +265,13 @@ export const proofChecks = {
     const mixedResult = await f.execute(ready.generation, imported);
     assert.equal(mixedResult.state, 'testing', 'Behavioral red checks are required per case; an additional invariant binding still needs both observed phases');
     await sealQaAttestation({store: f.store, version: f.version(), tasks: [f.record.task], gitRunner: f.gitRunner});
+    await writeFile(join(f.root, 'feature.mjs'), feature(2).replace('legacy = () => 1', 'legacy = () => 0'));
+    f.git(['add', 'feature.mjs']); f.git(['commit', '-qm', 'candidate repairs legacy baseline failure']);
+    ready = await f.prepare({cases: [{...legacyCase, required: true}]});
+    const invalidInvariant = await f.execute(ready.generation, imported);
+    assert.equal(invalidInvariant.state, 'blocked', 'An invariant requires baseline PASS as well as candidate PASS');
+    assert.equal((await f.store.get(invalidInvariant.report)).results[0].status, 'UNKNOWN');
+    await assert.rejects(sealQaAttestation({store: f.store, version: f.version(), tasks: [f.record.task], gitRunner: f.gitRunner}), {code: 'QA_NOT_READY'});
   }),
   'qa-defect-closure': () => fixture(async f => {
     const {sealQaAttestation} = await qa('runtime/src/qa/proof.js', 'executeQaAttempt', 'sealQaAttestation');

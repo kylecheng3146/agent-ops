@@ -521,7 +521,8 @@ export const QA_PROOF: ReviewCriterion = {
     "its sessions were independent (fallback reasons recorded), nonmechanical cases hold on your own judgment, and import lineage reaches this HEAD. " +
     "The manifest qaProofs index provides the original sealed records in bundle.proof.artifacts and raw replay records in bundle.proof.evidence; " +
     "inspect those embedded records rather than expecting their inner paths as separate snapshot files. Historical decisions are separate data, not current answers. " +
-    "Verifier evidence hashes map through manifest.executionTaskContracts; full delivery and QA contracts remain separately bound."
+    "Verifier evidence hashes map through manifest.executionTaskContracts; full delivery and QA contracts remain separately bound. " +
+    "Independent QA uses manifest.qaBaselines (immutable task creation), which can differ from a criterion's separately pinned verifier baseline."
 };
 
 /** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
@@ -1102,6 +1103,7 @@ export async function runReviewCommand(
       // Compact: indentation alone pushed a 494 KiB 0.10.2 manifest past the 512 KiB bound.
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
         executionTaskContracts: Object.fromEntries(context.records.map(r => [r.task.id, executionContractHash(r.task)])),
+        ...(enrolled.length === 0 ? {} : {qaBaselines: Object.fromEntries(enrolled.map(r => [r.task.id, r.createdSourceCommit ?? null]))}),
         contractHashSemantics: "Verifier evidence uses executionTaskContracts; full binding.taskContracts and QA versions also bind intent, goal and surface.",
         ...(qaProofs.length === 0 ? {} : {qaProofs}),
         executionPolicy: options.config,

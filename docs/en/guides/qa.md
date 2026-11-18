@@ -86,6 +86,11 @@ manifest's `qaProofs`. Historical decisions remain separate from the current sea
 contracts still bind the delivery. Missing, changed or oversized proof blocks
 review rather than replacing it with a summary.
 
+Every independent QA case uses the task's immutable creation baseline, exposed as
+`qaBaselines` in the review manifest. A criterion may pin a different baseline
+for its separate task verifier; that never overrides QA's baseline. Invariants
+must pass on both baseline and candidate. Misclassification remains UNKNOWN.
+
 ## Commands
 
 | Command | Effect |

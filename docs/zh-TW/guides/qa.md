@@ -120,3 +120,7 @@ runner 的 CDP 傳輸屬於執行前提，必須由可信測試實際驗證；�
 上限與 hash 檢查的 bundle，由 review manifest 的 `qaProofs` 索引。歷史決策與目前封存
 證明分開；`executionTaskContracts` 對應 verifier evidence 的 hash，完整 task 與 QA 契約
 仍綁定交付。證據缺失、變更或超出上限會阻擋 review，不以摘要替代。
+
+所有獨立 QA case 都使用 task 建立時的固定 baseline，review manifest 以 `qaBaselines`
+揭露。criterion 可為一般 task verifier 釘選不同 baseline，但不會覆蓋 QA baseline。
+invariant 必須在 baseline 與 candidate 都通過；分類不符仍是 UNKNOWN。
