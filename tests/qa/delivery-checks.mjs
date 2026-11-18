@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync} from 'node:fs';
+import {existsSync, readFileSync} from 'node:fs';
 import {mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -417,7 +417,7 @@ export const deliveryChecks = {
   }),
 
   'qa-review-provenance': () => fixture(async f => {
-    const {qaReviewData, qaDeliveryVersion, qaDeliveryTree} = await need('runtime/src/qa/gate.js', 'qaReviewData', 'qaDeliveryVersion');
+    const {qaReviewData, qaReviewArtifact, validQaReceiptProof, qaDeliveryVersion, qaDeliveryTree} = await need('runtime/src/qa/gate.js', 'qaReviewData', 'qaReviewArtifact', 'qaDeliveryVersion');
     const {buildReviewPacket, reviewPacketData} = await load('runtime/src/review/packet.js');
     const {buildReviewPrompt, buildAdversarialPrompt} = await load('runtime/src/review/runner.js');
     const {findReviewAttestation} = await load('runtime/src/review/attestation.js');
@@ -444,6 +444,34 @@ export const deliveryChecks = {
     assert.equal(withHistory.history.decisions[0].contractsMatch, false);
     assert.equal(withHistory.history.decisions[0].answeredBy, 'human');
     assert.equal(withHistory.history.report.reference.digest, passed.report.digest);
+    const artifact = await qaReviewArtifact(f.store, await f.record(root.id), version, f.root);
+    const bundle = JSON.parse(artifact.content), proof = bundle.proof;
+    assert.equal(validQaReceiptProof(proof, {candidateHead: version.candidateCommit, sourceFingerprint: version.sourceFingerprint}, root.id), true);
+    for (const kind of ['attestation', 'plan', 'report', 'attempt', 'execution'])
+      assert.ok(Object.keys(proof.artifacts).some(key => key.startsWith(kind + '/')), `Reviewer receives original ${kind} records`);
+    assert.ok(bundle.historicalDecisions[`decision/${historicalDecision.digest}`], 'Original historical human records are inspectable without becoming current answers');
+    assert.equal(proof.artifacts[`decision/${historicalDecision.digest}`], undefined);
+    assert.deepEqual(proof.artifacts[`attestation/${passed.attestation.digest}`].value.decisions, data.decisions);
+    assert.doesNotThrow(() => buildReviewPacket({request: 'Inspect original QA proof', criteria: [review.QA_PROOF], artifactRefs: [], evidenceRequirements: [], contractArtifacts: [artifact]}));
+    assert.throws(() => buildReviewPacket({request: 'Reject tampering', criteria: [], artifactRefs: [], evidenceRequirements: [], contractArtifacts: [{...artifact, content: artifact.content + ' '}]}), /invalid/u);
+    assert.throws(() => buildReviewPacket({request: 'Reject traversal', criteria: [], artifactRefs: [], evidenceRequirements: [], contractArtifacts: [{...artifact,
+      path: artifact.path.replace('qa-proof/', 'qa-proof/../')}]}), /invalid/u);
+    const boundedPacket = artifacts => buildReviewPacket({request: 'Bounded proof only', criteria: [], artifactRefs: [], evidenceRequirements: [], contractArtifacts: artifacts});
+    assert.throws(() => boundedPacket(Array(513).fill(artifact)), /bounded/u);
+    const large = 'x'.repeat(4 * 1024 * 1024 + 1), largeHash = hash(large);
+    assert.throws(() => boundedPacket([{path: `.agent-ops/tasks/qa-proof/task-large-${largeHash}.json`, digest: largeHash, content: large}]), /too large/u);
+    assert.throws(() => boundedPacket(Array(5).fill({path: `.agent-ops/tasks/qa-proof/task-large-${largeHash}.json`, digest: largeHash, content: large})), /bounded/u);
+    const sensitive = 'sk-' + 'a'.repeat(40), sensitiveHash = hash(sensitive);
+    assert.throws(() => boundedPacket([{path: `.agent-ops/tasks/qa-proof/task-secret-${sensitiveHash}.json`, digest: sensitiveHash, content: sensitive}]), /credential/u);
+    const altered = structuredClone(proof);
+    altered.artifacts[`report/${passed.report.digest}`].value.id = 'report-tampered';
+    assert.equal(validQaReceiptProof(altered, {candidateHead: version.candidateCommit, sourceFingerprint: version.sourceFingerprint}, root.id), false);
+    const {sealQaReceiptProof} = await load('runtime/src/qa/gate.js');
+    const originalSeal = await f.store.get({...passed.attestation, kind: 'attestation'});
+    const originalExecution = await f.store.get({...originalSeal.executions[0], kind: 'execution'});
+    const unsafeExecution = await f.store.put('execution', {...originalExecution, evidenceReferences: [{path: 'feature.mjs', digest: hash(await readFile(join(f.root, 'feature.mjs')))}]});
+    const unsafeSeal = await f.store.put('attestation', {...originalSeal, executions: [unsafeExecution]});
+    await assert.rejects(sealQaReceiptProof(f.store, unsafeSeal, f.root), {code: 'QA_EXECUTION_INVALID'}, 'QA bundles cannot export arbitrary repository files as replay evidence');
     assert.deepEqual({current: data.current, state: data.state, host: data.plan.session.host, implementationHost: data.plan.session.implementationHost,
       cases: data.plan.cases.map(c => [c.id, c.criterionIds, c.mode, c.bindings[0]?.materials ?? []])},
       {current: true, state: 'passed', host: 'claude', implementationHost: 'codex', cases: [['case-answer-two', ['behavior'], 'behavioral', [material(root.id)]],
@@ -468,5 +496,30 @@ export const deliveryChecks = {
     const reviews = join(f.root, '.agent-ops/reviews');
     assert.deepEqual(existsSync(reviews) ? (await readdir(reviews)).filter(name => !name.startsWith('criteria-')) : [], [],
       'Sealing QA writes no review report or attestation');
+    // Real Git snapshots with a test-only reviewer transport; no native provider or production review is substituted.
+    const {createReviewExecutor} = await load('runtime/src/review/execute.js');
+    const {NodeVerificationProcessRunner} = await load('runtime/src/verify/spawn.js');
+    const {resolveReviewScope} = await load('runtime/src/review/scope.js');
+    const scope = await resolveReviewScope({root: f.root, runner: f.gitRunner, base: f.baseline});
+    const real = new NodeVerificationProcessRunner(), snapshots = [];
+    const bytes = value => (async function* () {yield Buffer.from(value);})();
+    const transport = {start(request) {
+      if (request.command === 'git') return real.start(request);
+      const help = ['--add-dir', '--permission-mode', '--no-session-persistence', '--safe-mode', '--disable-slash-commands', '--json-schema',
+        '--sandbox', '--mode', '--cd', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--output-schema', '--log-file'].join(' ');
+      let body = help;
+      if (!request.args.includes('--help')) {
+        assert.equal(readFileSync(join(request.cwd, artifact.path), 'utf8'), artifact.content, 'The reviewer clone contains the exact original QA bundle');
+        snapshots.push(request.cwd);
+        body = JSON.stringify({summary: 'Unit transport inspected the QA bundle', results: [{criterionId: 'qa-proof', status: 'PASS', summary: 'unit fixture',
+          evidence: [artifact.path]}], findings: [], residualRisks: [], changedFilesInspected: scope.changedFiles, supportingFilesInspected: []});
+      }
+      return {pid: null, stdout: bytes(body), stderr: bytes(''), completion: Promise.resolve({exitCode: 0, signal: null}), terminateTree: async () => {}};
+    }};
+    assert.equal(existsSync(join(f.root, artifact.path)), false, 'The input artifact is supplied to the snapshot, not a tracked source file');
+    const execute = createReviewExecutor({targets: ['codex'], cwd: f.root, runner: transport, env: {}, probeBind: async () => true, timeoutMs: 120000});
+    const inspected = await execute({readOnly: true, invocation: {harness: 'codex', model: 'configured', effort: 'configured', scope,
+      packet: buildReviewPacket({...packet, contractArtifacts: [artifact]})}});
+    assert.equal(inspected.status, 'PASS'); assert.equal(snapshots.length, 2); assert.notEqual(snapshots[0], snapshots[1]);
   })
 };

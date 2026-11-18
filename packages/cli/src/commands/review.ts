@@ -38,11 +38,11 @@ import {
   type ReviewRoleConfig
 } from "../../../../runtime/src/review/roles.js";
 import type { TaskService } from "../../../../runtime/src/task/service.js";
-import {evidenceMatchesContract, taskContractHash, treeContractHash, goalHash} from "../../../../runtime/src/task/contract.js";
+import {evidenceMatchesContract, executionContractHash, taskContractHash, treeContractHash, goalHash} from "../../../../runtime/src/task/contract.js";
 import {acceptanceCoverage, coverageDigest, type CriterionCoverage} from "../../../../runtime/src/verify/acceptance-coverage.js";
 import {resolveGitCommit} from "../../../../runtime/src/verify/change-surface.js";
 import {sha256} from "../../../../runtime/src/fs/hash.js";
-import {readPrivateFile, writePrivateFile} from "../../../../runtime/src/security/permissions.js";
+import {readPrivateFile, withPrivateFileLock, writePrivateFile} from "../../../../runtime/src/security/permissions.js";
 import {redactSecrets} from "../../../../runtime/src/security/redact.js";
 import { FileTaskStore, type StoredTaskRecord } from "../../../../runtime/src/task/store.js";
 import { join } from "node:path";
@@ -67,7 +67,7 @@ import {escapeReviewData} from "../../../../runtime/src/escape/link.js";
 import {logGateCatch} from "../../../../runtime/src/logging/local-log.js";
 import {isCovers, surfaceDelta} from "../../../../runtime/src/surface/schema.js";
 import type {ReviewSurfaceData} from "../../../../runtime/src/review/packet.js";
-import {checkQaDeliveryEvidence, qaCommonDirectory, qaDeliveryTree, qaDeliveryVersion, qaReviewData} from "../../../../runtime/src/qa/gate.js";
+import {checkQaDeliveryEvidence, qaCommonDirectory, qaDeliveryTree, qaDeliveryVersion, qaReviewArtifact, qaReviewData} from "../../../../runtime/src/qa/gate.js";
 import {FileQaStore} from "../../../../runtime/src/qa/store.js";
 import type { ParsedArgs } from "../args.js";
 import { okEnvelope, type CliEnvelope } from "../output.js";
@@ -518,7 +518,10 @@ export const QA_PROOF: ReviewCriterion = {
   id: "qa-proof",
   description: "The enrolled delivery's independent QA (task data qa field) is a current controller-sealed PASS for this final candidate: its materials " +
     "really assert each case against product code without weakened assertions, its cases cover every criterion with risk-appropriate scenarios, " +
-    "its sessions were independent (fallback reasons recorded), nonmechanical cases hold on your own judgment, and import lineage reaches this HEAD."
+    "its sessions were independent (fallback reasons recorded), nonmechanical cases hold on your own judgment, and import lineage reaches this HEAD. " +
+    "The manifest qaProofs index provides the original sealed records in bundle.proof.artifacts and raw replay records in bundle.proof.evidence; " +
+    "inspect those embedded records rather than expecting their inner paths as separate snapshot files. Historical decisions are separate data, not current answers. " +
+    "Verifier evidence hashes map through manifest.executionTaskContracts; full delivery and QA contracts remain separately bound."
 };
 
 /** Escape Loop: a declared escape-of origin gives a wrong label a criterion a blocking finding can name. */
@@ -1086,8 +1089,21 @@ export async function runReviewCommand(
           if (execution !== null) contractArtifacts.push({path: executionPath, digest: sha256(execution), content: execution});
         }
       }
+      const qaProofs = [];
+      const enrolled = context.records.filter(r => r.task.qa !== undefined);
+      const allQaRecords = enrolled.length === 0 ? [] : (await new FileTaskStore(join(options.root, ".agent-ops/tasks/state.json"), options.root).read()).tasks;
+      for (const record of enrolled) {
+        const artifact = await qaReviewArtifact(new FileQaStore(await qaCommonDirectory(options.root)), record,
+          qaDeliveryVersion({tasks: qaDeliveryTree(allQaRecords, record.task.id).map(r => r.task), config: options.config!,
+            candidateCommit: context.binding.candidateCommit!, sourceFingerprint: sourceFingerprint!}), options.root);
+        contractArtifacts.push(artifact);
+        qaProofs.push({taskId: record.task.id, path: artifact.path, digest: artifact.digest});
+      }
       // Compact: indentation alone pushed a 494 KiB 0.10.2 manifest past the 512 KiB bound.
       const content = redactSecrets(JSON.stringify({binding: context.binding, coverage: context.coverage,
+        executionTaskContracts: Object.fromEntries(context.records.map(r => [r.task.id, executionContractHash(r.task)])),
+        contractHashSemantics: "Verifier evidence uses executionTaskContracts; full binding.taskContracts and QA versions also bind intent, goal and surface.",
+        ...(qaProofs.length === 0 ? {} : {qaProofs}),
         executionPolicy: options.config,
         ...(surfacePacket === undefined ? {} : {surface: surfacePacket}),
         artifacts: contractArtifacts.map(({path, digest}) => ({path, digest})),
@@ -1098,6 +1114,15 @@ export async function runReviewCommand(
       contractManifest = {path, digest, content};
       // Validated before any manifest is written or handed to a snapshot.
       buildReviewPacket({request: context.title, criteria, artifactRefs: [], evidenceRequirements, contractManifest, contractArtifacts});
+      for (const artifact of contractArtifacts.filter(a => a.path.startsWith(".agent-ops/tasks/qa-proof/"))) {
+        const artifactRoot = options.root, artifactPath = join(artifactRoot, ...artifact.path.split("/"));
+        await withPrivateFileLock(artifactPath, artifactRoot, async () => {
+          const previous = await readPrivateFile(artifactPath, artifactRoot);
+          if (previous !== null && previous !== artifact.content)
+            throw new AgentOpsError("QA_STATE_INVALID", "An immutable QA review artifact was changed.");
+          if (previous === null) await writePrivateFile(artifactPath, artifact.content, artifactRoot);
+        });
+      }
       await writePrivateFile(options.root + "/" + path, content, options.root);
     }
     packet = buildReviewPacket({

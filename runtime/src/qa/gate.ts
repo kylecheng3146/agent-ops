@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type { AgentOpsConfig, AgentTask } from "../contracts.js";
 import { calculateConfigHash, canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
+import { AgentOpsError } from "../fs/paths.js";
 import { readPrivateFile } from "../security/permissions.js";
 import { goalHash, taskContractHash, treeContractHash } from "../task/contract.js";
 import { FileTaskStore, type StoredTaskRecord } from "../task/store.js";
@@ -121,6 +122,8 @@ export async function sealQaReceiptProof(store: FileQaStore, attestationRef: QaR
   for (const ref of attestation.executions) {
     const execution = await take("execution", ref.digest);
     for (const file of execution.evidenceReferences) {
+      if (!/^\.agent-ops\/tasks\/(?:acceptance\/[a-f0-9]{64}\.json|evidence\/[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*-[a-f0-9]{16}\.json)$/u.test(file.path))
+        throw new AgentOpsError("QA_EXECUTION_INVALID", "QA proof may include only trusted replay evidence paths.");
       const content = await readPrivateFile(join(root, ...file.path.split("/")), root);
       if (content === null || sha256(content) !== file.digest) throw new Error(`QA execution evidence ${file.path} is missing or changed.`);
       evidence[file.path] = seal(content);
@@ -144,6 +147,27 @@ export function validQaReceiptProof(proof: QaReceiptProof, receipt: {readonly ca
       attestation.version.sourceFingerprint === receipt.sourceFingerprint && plan?.scope === proof.scope &&
       proof.fullGoal === (proof.scope === "full") && attestation.report !== undefined && proof.artifacts[`report/${attestation.report.digest}`] !== undefined;
   } catch {return false;}
+}
+
+/** Reuse the sealed receipt format so a read-only reviewer can inspect the original controller records. */
+export async function qaReviewArtifact(store: FileQaStore, stored: StoredTaskRecord, version: QaVersion, root: string):
+  Promise<{readonly path: string; readonly digest: string; readonly content: string}> {
+  const control = await store.readControl(stored.task.id);
+  if (control?.state !== "passed" || control.attestation === null)
+    throw new AgentOpsError("QA_PROOF_REQUIRED", "Review needs a sealed independent QA proof.");
+  const attestation = await store.get({...control.attestation, kind: "attestation"});
+  if (!qaVersionMatches(attestation.version, version))
+    throw new AgentOpsError("QA_PROOF_STALE", "The QA proof is not current for this review.");
+  const proof = await sealQaReceiptProof(store, control.attestation, root), historicalDecisions: Record<string, SealedValue> = {};
+  for (const ref of (control.decisions ?? []).slice(-8)) {
+    if (attestation.decisions.some(d => d.digest === ref.digest)) continue;
+    const decision = await store.get({...ref, kind: "decision"});
+    if (decision.version.taskId === version.taskId && decision.version.goalHash === version.goalHash)
+      historicalDecisions[`decision/${ref.digest}`] = seal(decision);
+  }
+  const content = JSON.stringify({schemaVersion: 1, proof, historicalDecisions,
+    authority: "Only proof.attestation names current QA proof; historicalDecisions retain their original versions and are not answers to a new plan."}), digest = sha256(content);
+  return {path: `.agent-ops/tasks/qa-proof/${stored.task.id}-${digest}.json`, digest, content};
 }
 
 const cut = (value: string, max = 240) => value.length <= max ? value : `${value.slice(0, max - 1)}…`;

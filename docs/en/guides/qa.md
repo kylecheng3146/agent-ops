@@ -79,6 +79,13 @@ failure remains UNKNOWN or FAIL; missing or unknown external requirements still
 block delivery. Multiple bindings to one runner each retain their exact material
 digest and their own baseline/candidate pair.
 
+Both final reviewer clones receive the original sealed QA artifacts and their
+trusted replay evidence in bounded, hash-checked bundles indexed by the review
+manifest's `qaProofs`. Historical decisions remain separate from the current seal.
+`executionTaskContracts` maps verifier evidence hashes; the full task and QA
+contracts still bind the delivery. Missing, changed or oversized proof blocks
+review rather than replacing it with a summary.
+
 ## Commands
 
 | Command | Effect |

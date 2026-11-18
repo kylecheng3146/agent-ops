@@ -115,3 +115,8 @@ Runner 必須能收集新撰寫的素材。本 source repo 提供 `node tests/qa
 runner 的 CDP 傳輸屬於執行前提，必須由可信測試實際驗證；失敗仍是 UNKNOWN 或 FAIL。
 缺少或未知的外部條件仍阻擋交付。同一 runner 的多個 binding 各自保留確切素材 digest
 與自己的 baseline／candidate 執行配對。
+
+兩個最終 reviewer clone 都會取得原始封存 QA artifacts 與可信 replay 證據，放在有大小
+上限與 hash 檢查的 bundle，由 review manifest 的 `qaProofs` 索引。歷史決策與目前封存
+證明分開；`executionTaskContracts` 對應 verifier evidence 的 hash，完整 task 與 QA 契約
+仍綁定交付。證據缺失、變更或超出上限會阻擋 review，不以摘要替代。

@@ -822,7 +822,7 @@ async function attemptTarget(
       if (request.contractArtifacts.length > 512 || request.contractArtifacts.reduce((size, artifact) => size + Buffer.byteLength(artifact.content), 0) > 16 * 1024 * 1024)
         return skip("capability-unavailable", "contract artifacts exceed bounded scope");
       for (const artifact of request.contractArtifacts) {
-        if (!/^\.agent-ops\/tasks\/(?:acceptance\/[a-f0-9]{64}\.json|evidence\/[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*-[a-f0-9]{16}\.json)$/u.test(artifact.path) ||
+        if (!/^\.agent-ops\/tasks\/(?:qa-proof\/[a-z][a-z0-9-]{0,127}-[a-f0-9]{64}\.json|acceptance\/[a-f0-9]{64}\.json|evidence\/[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*-[a-f0-9]{16}\.json)$/u.test(artifact.path) ||
             sha256(artifact.content) !== artifact.digest || Buffer.byteLength(artifact.content) > 4 * 1024 * 1024)
           return skip("capability-unavailable", "contract artifact is invalid");
         await writePrivateFile(join(snapshotRoot, ...artifact.path.split("/")), artifact.content, snapshotRoot);
