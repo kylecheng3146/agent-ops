@@ -28,6 +28,11 @@ A's human-selected policy limits only new h/m and compound forms to exact safe
 integer seconds. Legacy pure `digits+s` Number conversion, including its existing
 rounding/Infinity behavior, and leading zeros remain compatible.
 
+A's two fresh agy reviews cover the product range after its separately
+authorized reviewer-policy commit. The completed candidate has the same full
+Git tree as the earlier candidate. QA still uses the original creation baseline,
+and the separate criterion baselines remain pinned in the evidence.
+
 `browser.mjs` is a developer environment probe using installed Chrome and the
 Node standard library. It serves a supplied fixture repository on loopback and
 uses CDP `Page.reload` in the same tab, checking that a document marker disappears.

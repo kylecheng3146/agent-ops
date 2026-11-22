@@ -1,0 +1,2476 @@
+{
+  "schemaVersion": 1,
+  "fixture": "A",
+  "kind": "sanitized-external-qa-evidence",
+  "taskId": "task-627efb3d-fda9-4513-b53d-51bcb5e7a60e",
+  "status": "complete",
+  "completedAt": "2026-11-22T11:14:09.901Z",
+  "baseline": "7816d3746004b7942373b814b617087ca526c231",
+  "head": "6fe9fc8be6d3080250e8c61314846308926a4f3e",
+  "version": {
+    "candidateCommit": "6fe9fc8be6d3080250e8c61314846308926a4f3e",
+    "configHash": "3d3cc42065f660cf621c350c7234865c734894c15ff22c37c92db1f098d03e6e",
+    "goalHash": "3e190895195900c1b3d0c57bec2d0225ba238689c0904b50172004633176d4a8",
+    "policyHash": "335b6f37b33901f43ff3cebe37591a80c27caff5f7f9c3a51d730560a7d9c47c",
+    "scopeHash": "bd638c5ed3e49051e25ed54f4c337ec0907a981892852cbcfd81e82d265a8bae",
+    "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c",
+    "taskContractHash": "a8b8c7be7d05b5623968c362849d8c95dffbae9ccc49141d6ccd1093ca47ee3d",
+    "taskId": "task-627efb3d-fda9-4513-b53d-51bcb5e7a60e",
+    "treeContractHash": "e1621eca3938310a6688d67bb5c7b41dc2338e6e846d63b92071ea5f40300be3"
+  },
+  "qa": {
+    "state": "passed",
+    "plan": {
+      "digest": "c42925dba8f158ee0687081ce41f885cd52a326d6f7c094a67aced81976f1363",
+      "kind": "plan"
+    },
+    "report": {
+      "digest": "510592fc3c725f9936fc230397a59009ab7a4d9b2a8ade5a642f7f4dfec9fa88",
+      "kind": "report"
+    },
+    "attempt": {
+      "digest": "7cdeddbdfa3c1964bb2003b9b878d80aeb81a7fcc57d1c270e2b1bd5858622a6",
+      "kind": "attempt"
+    },
+    "attestation": {
+      "digest": "154b2e2e2c6dc25530b4abfe415322f31aff56f2a8139e59b5d2348a93e62754",
+      "kind": "attestation"
+    },
+    "plannerSession": {
+      "fallbackReason": null,
+      "host": "agy",
+      "implementationHost": "codex",
+      "implementationSessionId": "01a1e99c-f69e-7de1-b5a2-6b28b1005a71",
+      "sessionId": "76afd6dd-3766-482a-a309-59cb458dc744",
+      "writable": false
+    },
+    "authorSession": {
+      "fallbackReason": null,
+      "host": "claude",
+      "implementationHost": "codex",
+      "implementationSessionId": "01a1e99c-f69e-7de1-b5a2-6b28b1005a71",
+      "sessionId": "2cdfd229-a318-4e2d-851d-1291da0cdf69",
+      "writable": true
+    },
+    "lineage": {
+      "authoredCommit": "6fe9fc8be6d3080250e8c61314846308926a4f3e",
+      "importedCommit": "6fe9fc8be6d3080250e8c61314846308926a4f3e"
+    },
+    "results": [
+      {
+        "caseId": "compound-units-criterion-examples",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "76388ec4369330914fe69e08dab34d084c9449a6a3304dba0c0ec9e3de1c0861",
+            "kind": "execution"
+          },
+          {
+            "digest": "6d9862a66fb3c1104edcbab378755585493ab3d5ef1a6508f5e816a3f7e6c2c5",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "compound-units-recovery-after-unsafe-input",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "3980c023dee7b309759a6c26970b91317b3bec7d794d037ec2b2e7c35d3aa5ac",
+            "kind": "execution"
+          },
+          {
+            "digest": "fdb135bf1cd89cff1506ec524f65a7a9f7683c0c7f808be4ff7d9203561419e0",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "qa-pin-ordered-compounds",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "b4ac687b2ab683972dd1f19b1dcdcb02074d3a1f0e80083b0c3118431a9f9be7",
+            "kind": "execution"
+          },
+          {
+            "digest": "e5a3ecfaa0db5a089506ca64684167e142da9fc93f71025193b4691311a86820",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "qa-pin-zero-boundaries",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "93ed8024cba1cb03d364acdbb0a2868ff3a99c634555ff41d810fd6f8782f813",
+            "kind": "execution"
+          },
+          {
+            "digest": "5be3d9a9146019e22c9ea21101b51562726534ede8ae8d3dc33b13eeac60c5c4",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "plain-seconds-still-accepted",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "e461eb4e9e73e01634c85d646a0432f7bedb8e458e9b00471738cf626a67d272",
+            "kind": "execution"
+          },
+          {
+            "digest": "749098e6a68fa2144a0820ba43386ed0b14a2350ece03e66ef25d0cbb2d6d34b",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "reject-non-string-without-coercion",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "e3ff2865dd5666d58d136d9cf8ee1a93d0da9d894fe79000cd2240c86c5cbf53",
+            "kind": "execution"
+          },
+          {
+            "digest": "12be30abd3334ace132bcbd2c986fd6d59d778afcda01cd74e750fa4958ae8a7",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "reject-malformed-grammar",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "d0f71d4fdfe2351e2e5030b0fb67ae764ec943b62137c68efc19856154cf23f7",
+            "kind": "execution"
+          },
+          {
+            "digest": "a08997daab5e21459511ec706c0fd6c79e8d1d73d0450aecddc30797d9a124a1",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "reject-lowercase-unknown-units",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "bfa956de17f69265cc32c5133f6fd8e3d95c91066aafdc8115c490a8955773b7",
+            "kind": "execution"
+          },
+          {
+            "digest": "613cef39f479d508593a01f47fcd5867cb6e8423ea07f0a058a2fd8fe5171f39",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "reject-whitespace",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "f902fe25710109bfc619ac62f2cf018e301b4948c7c9e8ccf082199a045a054a",
+            "kind": "execution"
+          },
+          {
+            "digest": "84076bbd96fb3e44686543f54c97cd56f2f05991ea53807814a88ffbf2aeb7cd",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "safe-range-exact-boundaries",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "7cc0fe5b4e3a3ee649f331780d90ee111cbd15efe2ec74e2260b3ab1fa0e62ba",
+            "kind": "execution"
+          },
+          {
+            "digest": "60198367949cf9bfffe558be1ce644ddd387e6ba4f89e4572c68a90a11150411",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "safe-range-unsafe-new-forms-throw",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "946538381b6e54f17a2384b50658165429457ab98e2af8195c99dbbd111f6be1",
+            "kind": "execution"
+          },
+          {
+            "digest": "945c3dce1a80ef81a8e07882e7e6afee16d6d3b0f40d582abb991ddda835194b",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "safe-compound-range-retained-unsafe-totals",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "e9a0e265fb3548932cf2670b2504dd8e78b318a886dc821d8494411a20832dd6",
+            "kind": "execution"
+          },
+          {
+            "digest": "382f1e2b0b5dfe7e24ef3796b2d026d3d448bc371762689f03ac7931afb543c0",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "legacy-pure-seconds-compatibility",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "61132ac00524c5979d947411c536198144a2b8ccbc00619e51d0b696fce2d460",
+            "kind": "execution"
+          },
+          {
+            "digest": "a7a600623a8945449f55c129d0600dd06deec0509e7c9f06baefce1463131f4f",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "readme-numeric-contract-tokens",
+        "status": "PASS",
+        "executions": [
+          {
+            "digest": "21b1e6902fd0e9bd04fa6b19214897617aa8ef0b6e533ba141e399252e316760",
+            "kind": "execution"
+          },
+          {
+            "digest": "46b096f4d60761c0477c56c42d602363e428d58cb825d43dafa60ed440fcf86d",
+            "kind": "execution"
+          }
+        ]
+      },
+      {
+        "caseId": "readme-policy-reviewer-reading",
+        "status": "UNKNOWN",
+        "executions": []
+      }
+    ],
+    "nonmechanicalCaseIds": [
+      "readme-policy-reviewer-reading"
+    ],
+    "materials": [],
+    "currentAttestationDecisions": [],
+    "historicalHumanDecisions": [],
+    "executions": [
+      {
+        "reference": {
+          "digest": "76388ec4369330914fe69e08dab34d084c9449a6a3304dba0c0ec9e3de1c0861",
+          "kind": "execution"
+        },
+        "caseId": "compound-units-criterion-examples",
+        "runnerId": "checks",
+        "materialDigest": "94f047d61503fc0f7f7df5c0c7b3fd197d3c4dc7dc9815495a01858b71aa301b",
+        "phase": "baseline",
+        "executionId": "a4da99a3-6a97-460f-aaec-3072796d4780",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "compound-units-criterion-examples",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "compound-units-repeat-calls-stable",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "fa0f43821508394b9f544ae75950951c105e1a55d0ef3932c1f84103a9d1576e",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-fa0f43821508394b.json"
+          },
+          {
+            "digest": "93693c3ecb67174c5b41dd19948d9f2a8c9f81056f4a69ecf4428b75d7a42687",
+            "path": ".agent-ops/tasks/acceptance/93693c3ecb67174c5b41dd19948d9f2a8c9f81056f4a69ecf4428b75d7a42687.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "6d9862a66fb3c1104edcbab378755585493ab3d5ef1a6508f5e816a3f7e6c2c5",
+          "kind": "execution"
+        },
+        "caseId": "compound-units-criterion-examples",
+        "runnerId": "checks",
+        "materialDigest": "94f047d61503fc0f7f7df5c0c7b3fd197d3c4dc7dc9815495a01858b71aa301b",
+        "phase": "candidate",
+        "executionId": "ebb3d134-16c8-4deb-a543-3c8d7e7efca6",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "compound-units-criterion-examples",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "compound-units-repeat-calls-stable",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "2dc8a4cbd82e821946e17bfde80267f592478a202ec500feaf713b0661baffae",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-2dc8a4cbd82e8219.json"
+          },
+          {
+            "digest": "50a16985eea443cf04b6f6dc8131498684840678fb1b4168a50efee3a224c70e",
+            "path": ".agent-ops/tasks/acceptance/50a16985eea443cf04b6f6dc8131498684840678fb1b4168a50efee3a224c70e.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "3980c023dee7b309759a6c26970b91317b3bec7d794d037ec2b2e7c35d3aa5ac",
+          "kind": "execution"
+        },
+        "caseId": "compound-units-recovery-after-unsafe-input",
+        "runnerId": "checks",
+        "materialDigest": "4b2f5a0af40c7a55cdf80414fc2a92b7355f9574416055fa1203b0bbf4cffa62",
+        "phase": "baseline",
+        "executionId": "3a529baf-4ea6-4457-bcdb-19d41a0df74b",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-compound-recovery-after-unsafe",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "73a43ded223ca3fd1d0546ab39881d3caa378d4b323a4d14a6e3d689abf8e55f",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-73a43ded223ca3fd.json"
+          },
+          {
+            "digest": "9d2b086dfda6eaa56dab03bdf1a9b6a108d21b13891bfdfbf2137d50e428a50f",
+            "path": ".agent-ops/tasks/acceptance/9d2b086dfda6eaa56dab03bdf1a9b6a108d21b13891bfdfbf2137d50e428a50f.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "fdb135bf1cd89cff1506ec524f65a7a9f7683c0c7f808be4ff7d9203561419e0",
+          "kind": "execution"
+        },
+        "caseId": "compound-units-recovery-after-unsafe-input",
+        "runnerId": "checks",
+        "materialDigest": "4b2f5a0af40c7a55cdf80414fc2a92b7355f9574416055fa1203b0bbf4cffa62",
+        "phase": "candidate",
+        "executionId": "6576325c-ce28-4f23-bc94-a108eaac9f77",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-compound-recovery-after-unsafe",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "063bc53e977247607a03cee67614b4f32acd38fa6c188f1009e98d2abf87c95d",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-063bc53e97724760.json"
+          },
+          {
+            "digest": "d175e6730e5b614c691359cc3d1544a8c36a46c68d0b2b7e15c745c0736cc9a8",
+            "path": ".agent-ops/tasks/acceptance/d175e6730e5b614c691359cc3d1544a8c36a46c68d0b2b7e15c745c0736cc9a8.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "b4ac687b2ab683972dd1f19b1dcdcb02074d3a1f0e80083b0c3118431a9f9be7",
+          "kind": "execution"
+        },
+        "caseId": "qa-pin-ordered-compounds",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "baseline",
+        "executionId": "168ad755-57b3-4aac-83aa-dd1090bdd4cf",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "2ca30ea94dd83d1f530e4f4faef55fdaadbb525fbd00400b89c3f5905ec9bb94",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-2ca30ea94dd83d1f.json"
+          },
+          {
+            "digest": "ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af",
+            "path": ".agent-ops/tasks/acceptance/ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "e5a3ecfaa0db5a089506ca64684167e142da9fc93f71025193b4691311a86820",
+          "kind": "execution"
+        },
+        "caseId": "qa-pin-ordered-compounds",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "candidate",
+        "executionId": "8ff20618-6533-41dd-8433-8b7289226b0a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "cd92787873812066ab6356643c995de6cb7e299f9f14af0151f18dcf52abda2b",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-cd92787873812066.json"
+          },
+          {
+            "digest": "e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32",
+            "path": ".agent-ops/tasks/acceptance/e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "93ed8024cba1cb03d364acdbb0a2868ff3a99c634555ff41d810fd6f8782f813",
+          "kind": "execution"
+        },
+        "caseId": "qa-pin-zero-boundaries",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "baseline",
+        "executionId": "168ad755-57b3-4aac-83aa-dd1090bdd4cf",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "8273bd5ec5f94be8fbd2871b3b0c2b8c1f1272764041d33100f16a5161324c4a",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-8273bd5ec5f94be8.json"
+          },
+          {
+            "digest": "ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af",
+            "path": ".agent-ops/tasks/acceptance/ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "5be3d9a9146019e22c9ea21101b51562726534ede8ae8d3dc33b13eeac60c5c4",
+          "kind": "execution"
+        },
+        "caseId": "qa-pin-zero-boundaries",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "candidate",
+        "executionId": "8ff20618-6533-41dd-8433-8b7289226b0a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "6fb7e9b70747f9364e06abff11f9bad63b1f685da0ee091182f639127966432b",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-6fb7e9b70747f936.json"
+          },
+          {
+            "digest": "e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32",
+            "path": ".agent-ops/tasks/acceptance/e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "e461eb4e9e73e01634c85d646a0432f7bedb8e458e9b00471738cf626a67d272",
+          "kind": "execution"
+        },
+        "caseId": "plain-seconds-still-accepted",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "baseline",
+        "executionId": "168ad755-57b3-4aac-83aa-dd1090bdd4cf",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "75024e61821888e74358995ec921273a4a2bcebdccf542df39c8b4abd520c5d0",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-75024e61821888e7.json"
+          },
+          {
+            "digest": "ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af",
+            "path": ".agent-ops/tasks/acceptance/ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "749098e6a68fa2144a0820ba43386ed0b14a2350ece03e66ef25d0cbb2d6d34b",
+          "kind": "execution"
+        },
+        "caseId": "plain-seconds-still-accepted",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "candidate",
+        "executionId": "8ff20618-6533-41dd-8433-8b7289226b0a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "45d341c7de4313aaf99d5429959e61d0fdbf19dce405bb16ff0b25b283bdea07",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-45d341c7de4313aa.json"
+          },
+          {
+            "digest": "e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32",
+            "path": ".agent-ops/tasks/acceptance/e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "e3ff2865dd5666d58d136d9cf8ee1a93d0da9d894fe79000cd2240c86c5cbf53",
+          "kind": "execution"
+        },
+        "caseId": "reject-non-string-without-coercion",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "baseline",
+        "executionId": "168ad755-57b3-4aac-83aa-dd1090bdd4cf",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "e9c0004fcf2082c4defe404f0a8f46b37d5ec31a05d7d510efcd5db5dbeedb3b",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-e9c0004fcf2082c4.json"
+          },
+          {
+            "digest": "ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af",
+            "path": ".agent-ops/tasks/acceptance/ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "12be30abd3334ace132bcbd2c986fd6d59d778afcda01cd74e750fa4958ae8a7",
+          "kind": "execution"
+        },
+        "caseId": "reject-non-string-without-coercion",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "candidate",
+        "executionId": "8ff20618-6533-41dd-8433-8b7289226b0a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "6a8185285e8f208d70d7ec2d87e57f057f154ebe6bf062cf4113d8e7f5960f64",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-6a8185285e8f208d.json"
+          },
+          {
+            "digest": "e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32",
+            "path": ".agent-ops/tasks/acceptance/e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "d0f71d4fdfe2351e2e5030b0fb67ae764ec943b62137c68efc19856154cf23f7",
+          "kind": "execution"
+        },
+        "caseId": "reject-malformed-grammar",
+        "runnerId": "checks",
+        "materialDigest": "adbfadc2043e801f50cd6890350098119ea07a7eea34eab9a4613b76b769dc3a",
+        "phase": "baseline",
+        "executionId": "68a40918-43f9-4538-be7d-9dcc35c7b4b1",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-malformed-component-grammar",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-invalid-criterion-examples",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-malformed-grammar",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "c9ddac489cdcbc3a10352d8ede37099837403f00a55c6c63f8d1327d259ce89e",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-c9ddac489cdcbc3a.json"
+          },
+          {
+            "digest": "f562c96af345a15d3b2f987cf1599931c62d2039381f86b4a1c25496159ee254",
+            "path": ".agent-ops/tasks/acceptance/f562c96af345a15d3b2f987cf1599931c62d2039381f86b4a1c25496159ee254.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "a08997daab5e21459511ec706c0fd6c79e8d1d73d0450aecddc30797d9a124a1",
+          "kind": "execution"
+        },
+        "caseId": "reject-malformed-grammar",
+        "runnerId": "checks",
+        "materialDigest": "adbfadc2043e801f50cd6890350098119ea07a7eea34eab9a4613b76b769dc3a",
+        "phase": "candidate",
+        "executionId": "a7f618a3-a50a-45a6-9589-85fc0a4331eb",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-malformed-component-grammar",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-invalid-criterion-examples",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-malformed-grammar",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "093d2708bc65b5b17bf1ce5062188d660a9ecf75ed96d5f9ad4c815591759d49",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-093d2708bc65b5b1.json"
+          },
+          {
+            "digest": "3d387205ad138a6726b2ab3bf3db2a48709dc50fb58589cb51ad622361f0597e",
+            "path": ".agent-ops/tasks/acceptance/3d387205ad138a6726b2ab3bf3db2a48709dc50fb58589cb51ad622361f0597e.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "bfa956de17f69265cc32c5133f6fd8e3d95c91066aafdc8115c490a8955773b7",
+          "kind": "execution"
+        },
+        "caseId": "reject-lowercase-unknown-units",
+        "runnerId": "checks",
+        "materialDigest": "7250f81f50120384c2c9ba930f8d790a11a73b1fb1dc0598266ca15c1d929c0b",
+        "phase": "baseline",
+        "executionId": "799e6378-71b6-4141-970f-45fa2a62c3e4",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-reject-lowercase-unknown-units",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "30de641330a206c4f47761223d67237bfa75a9e719e7de6ab7b28c7a4ce20256",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-30de641330a206c4.json"
+          },
+          {
+            "digest": "7b295e84b33be2689a2095c830cad2b837c1abd8e41a2795a3199572fdabe51a",
+            "path": ".agent-ops/tasks/acceptance/7b295e84b33be2689a2095c830cad2b837c1abd8e41a2795a3199572fdabe51a.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "613cef39f479d508593a01f47fcd5867cb6e8423ea07f0a058a2fd8fe5171f39",
+          "kind": "execution"
+        },
+        "caseId": "reject-lowercase-unknown-units",
+        "runnerId": "checks",
+        "materialDigest": "7250f81f50120384c2c9ba930f8d790a11a73b1fb1dc0598266ca15c1d929c0b",
+        "phase": "candidate",
+        "executionId": "a9d82ddd-04b8-4568-8105-28f82640025a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-reject-lowercase-unknown-units",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "a364abe9295760246f5fa90715ab1a722e26c03f5345e82a7cd9a6b5bd1eaa27",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-a364abe929576024.json"
+          },
+          {
+            "digest": "7cbebbea58708617aab9ba5efc5b8d50199ee10fee243c540fe0d02a0726a00a",
+            "path": ".agent-ops/tasks/acceptance/7cbebbea58708617aab9ba5efc5b8d50199ee10fee243c540fe0d02a0726a00a.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "f902fe25710109bfc619ac62f2cf018e301b4948c7c9e8ccf082199a045a054a",
+          "kind": "execution"
+        },
+        "caseId": "reject-whitespace",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "baseline",
+        "executionId": "168ad755-57b3-4aac-83aa-dd1090bdd4cf",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "eaedd8342f07e4379956d4a06968394d04701f193f8987239a3dd880fa190839",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-eaedd8342f07e437.json"
+          },
+          {
+            "digest": "ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af",
+            "path": ".agent-ops/tasks/acceptance/ae78e06691e21ae741dded63e798f8b113d6a61f0ee4da3945424e94cc4a67af.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "84076bbd96fb3e44686543f54c97cd56f2f05991ea53807814a88ffbf2aeb7cd",
+          "kind": "execution"
+        },
+        "caseId": "reject-whitespace",
+        "runnerId": "checks",
+        "materialDigest": "8362322dcf7fc0938295bc1544b6cad55b9478d8760c2c9781d5bd8d62aa9d6c",
+        "phase": "candidate",
+        "executionId": "8ff20618-6533-41dd-8433-8b7289226b0a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "acceptance-ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-zero-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-plain-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-terminal-line-terminators",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-coercible-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "acceptance-ordinary-non-strings",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "ordered-compounds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "zero-and-component-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "plain-seconds-compatibility",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-all-whitespace",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "reject-non-string-without-coercion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "0a7a8d0f20e5260a0d18bab514861ba538d37c6ac40e8ca2dad822e68830e5ce",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-0a7a8d0f20e5260a.json"
+          },
+          {
+            "digest": "e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32",
+            "path": ".agent-ops/tasks/acceptance/e3380a307a8221858fa252dbcc2e6d27fd88b691525257062fe2df0daa48ff32.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "7cc0fe5b4e3a3ee649f331780d90ee111cbd15efe2ec74e2260b3ab1fa0e62ba",
+          "kind": "execution"
+        },
+        "caseId": "safe-range-exact-boundaries",
+        "runnerId": "checks",
+        "materialDigest": "71aafa8ce8b53fa09bc5374baf1409e444d2fc8fe1162c8a89b43ac6e2ee62eb",
+        "phase": "baseline",
+        "executionId": "eee47d86-b4a2-457c-8457-157a8ca1c07a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-criterion-safe-cutoffs",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-criterion-unsafe-cutoffs",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-unsafe-new-forms-throw",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-safe-new-forms-exact-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "85eed2328cd2578cf43611dbac559d05dd9e5087b3ebfd8bbcd1e38b5c8a9d6c",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-85eed2328cd2578c.json"
+          },
+          {
+            "digest": "8323a109865d6ae7be5a047a1bbc6494ac68b48f6ea49f643b90aa501af34e09",
+            "path": ".agent-ops/tasks/acceptance/8323a109865d6ae7be5a047a1bbc6494ac68b48f6ea49f643b90aa501af34e09.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "60198367949cf9bfffe558be1ce644ddd387e6ba4f89e4572c68a90a11150411",
+          "kind": "execution"
+        },
+        "caseId": "safe-range-exact-boundaries",
+        "runnerId": "checks",
+        "materialDigest": "71aafa8ce8b53fa09bc5374baf1409e444d2fc8fe1162c8a89b43ac6e2ee62eb",
+        "phase": "candidate",
+        "executionId": "736c8313-b870-458c-a417-9498d65b2e17",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-criterion-safe-cutoffs",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-criterion-unsafe-cutoffs",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-unsafe-new-forms-throw",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-safe-new-forms-exact-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "37a4cf5998a195d202ab600f9422151ee1b7b4c5fc090c533ea6ef5bae38b733",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-37a4cf5998a195d2.json"
+          },
+          {
+            "digest": "1d3cd5589651500316b94197bd462b0cdbbc9c38b06b7fae2ada22b2969132a8",
+            "path": ".agent-ops/tasks/acceptance/1d3cd5589651500316b94197bd462b0cdbbc9c38b06b7fae2ada22b2969132a8.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "946538381b6e54f17a2384b50658165429457ab98e2af8195c99dbbd111f6be1",
+          "kind": "execution"
+        },
+        "caseId": "safe-range-unsafe-new-forms-throw",
+        "runnerId": "checks",
+        "materialDigest": "71aafa8ce8b53fa09bc5374baf1409e444d2fc8fe1162c8a89b43ac6e2ee62eb",
+        "phase": "baseline",
+        "executionId": "eee47d86-b4a2-457c-8457-157a8ca1c07a",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-criterion-safe-cutoffs",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-criterion-unsafe-cutoffs",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-unsafe-new-forms-throw",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-safe-new-forms-exact-boundaries",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "24125ab7eb566b0e659aa5348a76056b1c88d49317fc177857ddb0605c6dc9e4",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-24125ab7eb566b0e.json"
+          },
+          {
+            "digest": "8323a109865d6ae7be5a047a1bbc6494ac68b48f6ea49f643b90aa501af34e09",
+            "path": ".agent-ops/tasks/acceptance/8323a109865d6ae7be5a047a1bbc6494ac68b48f6ea49f643b90aa501af34e09.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "945c3dce1a80ef81a8e07882e7e6afee16d6d3b0f40d582abb991ddda835194b",
+          "kind": "execution"
+        },
+        "caseId": "safe-range-unsafe-new-forms-throw",
+        "runnerId": "checks",
+        "materialDigest": "71aafa8ce8b53fa09bc5374baf1409e444d2fc8fe1162c8a89b43ac6e2ee62eb",
+        "phase": "candidate",
+        "executionId": "736c8313-b870-458c-a417-9498d65b2e17",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-criterion-safe-cutoffs",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-criterion-unsafe-cutoffs",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-unsafe-new-forms-throw",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-safe-new-forms-exact-boundaries",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "ef62947364aaabc7fc0a28ec27f4b20b1ed684d6152d6f4d8a7d1e708569fa59",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-ef62947364aaabc7.json"
+          },
+          {
+            "digest": "1d3cd5589651500316b94197bd462b0cdbbc9c38b06b7fae2ada22b2969132a8",
+            "path": ".agent-ops/tasks/acceptance/1d3cd5589651500316b94197bd462b0cdbbc9c38b06b7fae2ada22b2969132a8.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "e9a0e265fb3548932cf2670b2504dd8e78b318a886dc821d8494411a20832dd6",
+          "kind": "execution"
+        },
+        "caseId": "safe-compound-range-retained-unsafe-totals",
+        "runnerId": "checks",
+        "materialDigest": "eafd2eb1bcdcca47359fb910ad7429d1562e496c6037c119cec2476dec6fd1be",
+        "phase": "baseline",
+        "executionId": "dedac2eb-49bd-41a1-abb0-232bf9f5895c",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "new-compound-unsafe-totals",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "48c3c4628d9f8fb0e537a9746eeee15f85fa0e4784dc10c979d2b1146734483d",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-48c3c4628d9f8fb0.json"
+          },
+          {
+            "digest": "f7a02d899642c6fcafb8e258ce75bd3db173cdc1fa45e81792cc7bc5374cf681",
+            "path": ".agent-ops/tasks/acceptance/f7a02d899642c6fcafb8e258ce75bd3db173cdc1fa45e81792cc7bc5374cf681.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "382f1e2b0b5dfe7e24ef3796b2d026d3d448bc371762689f03ac7931afb543c0",
+          "kind": "execution"
+        },
+        "caseId": "safe-compound-range-retained-unsafe-totals",
+        "runnerId": "checks",
+        "materialDigest": "eafd2eb1bcdcca47359fb910ad7429d1562e496c6037c119cec2476dec6fd1be",
+        "phase": "candidate",
+        "executionId": "2fb8dd48-86cf-4da1-a9f3-2f68a4a7f154",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "new-compound-unsafe-totals",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "e6eb8196e11956b365c32c53311d2398e135c116626487019088e39b30f3ce98",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-e6eb8196e11956b3.json"
+          },
+          {
+            "digest": "72e51531676ff071410163946a9aa4f35d250581b8dad3770f9bbe3055cdabae",
+            "path": ".agent-ops/tasks/acceptance/72e51531676ff071410163946a9aa4f35d250581b8dad3770f9bbe3055cdabae.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "61132ac00524c5979d947411c536198144a2b8ccbc00619e51d0b696fce2d460",
+          "kind": "execution"
+        },
+        "caseId": "legacy-pure-seconds-compatibility",
+        "runnerId": "checks",
+        "materialDigest": "3921cd025644ccf1913eaa24e2053160f77982c02bf415937a1ca996fbf126d6",
+        "phase": "baseline",
+        "executionId": "6bea6762-ba7b-429d-b7ee-76ac79989689",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-criterion-legacy-pure-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-legacy-pure-seconds-number-conversion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "1d40bf0f8183b385146036a170ea89b9e4c29f27d5a57494741a3f4eb4a8c4c7",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-1d40bf0f8183b385.json"
+          },
+          {
+            "digest": "a5cd31298fb691a7c46efc4087e3ef338856cf0bdd9ad5799a4ee042f6f79ad0",
+            "path": ".agent-ops/tasks/acceptance/a5cd31298fb691a7c46efc4087e3ef338856cf0bdd9ad5799a4ee042f6f79ad0.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "a7a600623a8945449f55c129d0600dd06deec0509e7c9f06baefce1463131f4f",
+          "kind": "execution"
+        },
+        "caseId": "legacy-pure-seconds-compatibility",
+        "runnerId": "checks",
+        "materialDigest": "3921cd025644ccf1913eaa24e2053160f77982c02bf415937a1ca996fbf126d6",
+        "phase": "candidate",
+        "executionId": "9863930c-e1e9-4e67-bc68-f32d5cd6e57f",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-criterion-legacy-pure-seconds",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-legacy-pure-seconds-number-conversion",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "50eedc28243889f77f2d6e87196a6cfc781a524e30163346c459c90bf4d34e58",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-50eedc28243889f7.json"
+          },
+          {
+            "digest": "48d49bc4993dff561b359ddceaecb19ff51bc0b583a985425512d8c36cdb840d",
+            "path": ".agent-ops/tasks/acceptance/48d49bc4993dff561b359ddceaecb19ff51bc0b583a985425512d8c36cdb840d.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "21b1e6902fd0e9bd04fa6b19214897617aa8ef0b6e533ba141e399252e316760",
+          "kind": "execution"
+        },
+        "caseId": "readme-numeric-contract-tokens",
+        "runnerId": "checks",
+        "materialDigest": "73a4af0e72dab2d011add770dd8de259ff09503ec1a0b961dd3b4f50103e4770",
+        "phase": "baseline",
+        "executionId": "1512d336-aa96-4eaa-a869-f2032b3b9965",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-readme-numeric-contract-tokens",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          },
+          {
+            "id": "qa-readme-compat-policy-pins",
+            "status": "FAIL",
+            "failureClass": "assertion-failed",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "4cffe81fa00f64c5d3c619046776cffd048ce866e9d74bb5140dfdccc1f3a707",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-4cffe81fa00f64c5.json"
+          },
+          {
+            "digest": "1ed1b13dacf52ec9db7ef674d182e29ce330433df0db9b20254120d7a7feb703",
+            "path": ".agent-ops/tasks/acceptance/1ed1b13dacf52ec9db7ef674d182e29ce330433df0db9b20254120d7a7feb703.json"
+          }
+        ]
+      },
+      {
+        "reference": {
+          "digest": "46b096f4d60761c0477c56c42d602363e428d58cb825d43dafa60ed440fcf86d",
+          "kind": "execution"
+        },
+        "caseId": "readme-numeric-contract-tokens",
+        "runnerId": "checks",
+        "materialDigest": "73a4af0e72dab2d011add770dd8de259ff09503ec1a0b961dd3b4f50103e4770",
+        "phase": "candidate",
+        "executionId": "3e459df7-d9a6-4441-b3d6-cce9f28a2284",
+        "completed": true,
+        "diagnostics": 0,
+        "checks": [
+          {
+            "id": "qa-readme-numeric-contract-tokens",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          },
+          {
+            "id": "qa-readme-compat-policy-pins",
+            "status": "PASS",
+            "failureClass": "none",
+            "attempts": 1
+          }
+        ],
+        "evidence": [
+          {
+            "digest": "7c1e612ef6e4f977d2fe5bfb4e64f48eec2d60c222c17ec3b8176815be60b3ac",
+            "path": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e-qa/checks-7c1e612ef6e4f977.json"
+          },
+          {
+            "digest": "4df1f5448fc19e595efc1ce63422f4d4a5d5150d24292863282582e8b6739943",
+            "path": ".agent-ops/tasks/acceptance/4df1f5448fc19e595efc1ce63422f4d4a5d5150d24292863282582e8b6739943.json"
+          }
+        ]
+      }
+    ],
+    "cases": [
+      {
+        "id": "compound-units-criterion-examples",
+        "criterionIds": [
+          "compound-units"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "compound-units-criterion-examples",
+              "compound-units-repeat-calls-stable"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-compound-units.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "compound-units-criterion-examples",
+              "compound-units-repeat-calls-stable"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "compound-units-recovery-after-unsafe-input",
+        "criterionIds": [
+          "compound-units",
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-compound-recovery-after-unsafe"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-compound-recovery.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "qa-compound-recovery-after-unsafe"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "qa-pin-ordered-compounds",
+        "criterionIds": [
+          "qa-pin-ordered-compounds",
+          "compound-units"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "ordered-compounds",
+              "acceptance-ordered-compounds"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-acceptance.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "ordered-compounds",
+              "acceptance-ordered-compounds"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "qa-pin-zero-boundaries",
+        "criterionIds": [
+          "qa-pin-zero-boundaries",
+          "compound-units"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "zero-and-component-boundaries",
+              "acceptance-zero-component-boundaries"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-acceptance.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "zero-and-component-boundaries",
+              "acceptance-zero-component-boundaries"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "plain-seconds-still-accepted",
+        "criterionIds": [
+          "compound-units",
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "plain-seconds-compatibility",
+              "acceptance-plain-seconds"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-acceptance.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "reject-non-string-without-coercion",
+        "criterionIds": [
+          "reject-invalid"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "reject-non-string-without-coercion",
+              "acceptance-coercible-non-strings",
+              "acceptance-ordinary-non-strings"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-acceptance.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "reject-non-string-without-coercion",
+              "acceptance-coercible-non-strings"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "reject-malformed-grammar",
+        "criterionIds": [
+          "reject-invalid"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "reject-malformed-grammar",
+              "acceptance-malformed-component-grammar",
+              "reject-invalid-criterion-examples"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-acceptance.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-reject-invalid.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "reject-lowercase-unknown-units",
+        "criterionIds": [
+          "reject-invalid"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-reject-lowercase-unknown-units"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-unknown-units.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "reject-whitespace",
+        "criterionIds": [
+          "reject-invalid"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "reject-all-whitespace",
+              "acceptance-ordinary-whitespace",
+              "acceptance-terminal-line-terminators"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-acceptance.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "safe-range-exact-boundaries",
+        "criterionIds": [
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-safe-new-forms-exact-boundaries",
+              "qa-criterion-safe-cutoffs"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-safe-range.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-criterion-safe-pins.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "qa-safe-new-forms-exact-boundaries",
+              "qa-criterion-safe-cutoffs"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "safe-range-unsafe-new-forms-throw",
+        "criterionIds": [
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-unsafe-new-forms-throw",
+              "qa-criterion-unsafe-cutoffs"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-safe-range.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-criterion-safe-pins.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "safe-compound-range-retained-unsafe-totals",
+        "criterionIds": [
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "new-compound-unsafe-totals"
+            ],
+            "materials": [
+              {
+                "path": "test/compound-range.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "legacy-pure-seconds-compatibility",
+        "criterionIds": [
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "invariant",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-legacy-pure-seconds-number-conversion",
+              "qa-criterion-legacy-pure-seconds"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-legacy-seconds.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-criterion-safe-pins.check.mjs",
+                "role": "test"
+              }
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "readme-numeric-contract-tokens",
+        "criterionIds": [
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "behavioral",
+        "bindings": [
+          {
+            "checkIds": [
+              "qa-readme-numeric-contract-tokens",
+              "qa-readme-compat-policy-pins"
+            ],
+            "materials": [
+              {
+                "path": "test/qa/duration-readme-contract.check.mjs",
+                "role": "test"
+              },
+              {
+                "path": "test/qa/duration-readme-policy.check.mjs",
+                "role": "test"
+              }
+            ],
+            "redCheckIds": [
+              "qa-readme-numeric-contract-tokens",
+              "qa-readme-compat-policy-pins"
+            ],
+            "runnerId": "checks"
+          }
+        ]
+      },
+      {
+        "id": "readme-policy-reviewer-reading",
+        "criterionIds": [
+          "safe-new-compounds"
+        ],
+        "required": true,
+        "mode": "nonmechanical",
+        "bindings": []
+      }
+    ]
+  },
+  "verify": [
+    {
+      "reference": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e/node-test-6e4d999709864b96.json",
+      "status": "PASS",
+      "testCount": 12,
+      "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e/node-test-6b704c017f22b029.json",
+      "status": "PASS",
+      "testCount": 12,
+      "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e/node-test-ebb617878d4138d8.json",
+      "status": "PASS",
+      "testCount": 12,
+      "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e/node-test-604f63abfe1d2e29.json",
+      "status": "PASS",
+      "testCount": 12,
+      "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c"
+    },
+    {
+      "reference": ".agent-ops/tasks/evidence/task-627efb3d-fda9-4513-b53d-51bcb5e7a60e/node-test-68331ba32715c142.json",
+      "status": "PASS",
+      "testCount": 12,
+      "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c"
+    }
+  ],
+  "review": {
+    "artifactSha256": "ee36fa57c8c8db3a08f5ad4b3f0e6e2ec7e65c4767c4d83e85e2b6467c086c74",
+    "status": "PASS",
+    "sourceFingerprint": "54f761f1696cbf3908c0913b06dcef1a0fa23ca249eaa168b12da03ca2723f1c",
+    "sessionIsolation": "fresh",
+    "rounds": [
+      {
+        "target": "agy",
+        "status": "PASS",
+        "sessionId": "9ae91102-35d4-4f6a-91eb-4e50d1581b05"
+      },
+      {
+        "target": "agy",
+        "status": "PASS",
+        "sessionId": "24676963-d927-431e-8d11-6ecbb85832aa"
+      }
+    ],
+    "blockingFindings": 0,
+    "criteria": [
+      {
+        "criterionId": "compound-units",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "reject-invalid",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-pin-ordered-compounds",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-pin-zero-boundaries",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "safe-new-compounds",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "surface-coverage",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-proof",
+        "status": "PASS"
+      }
+    ],
+    "adversarialCriteria": [
+      {
+        "criterionId": "compound-units",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "reject-invalid",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-pin-ordered-compounds",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-pin-zero-boundaries",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "safe-new-compounds",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "surface-coverage",
+        "status": "PASS"
+      },
+      {
+        "criterionId": "qa-proof",
+        "status": "PASS"
+      }
+    ]
+  },
+  "limits": [
+    "This committed summary is provenance for retained external executions; source checks do not rerun the external QA or model sessions.",
+    "Required nonmechanical cases are reasoned judgments by both fresh reviewers, not mechanical PASS results.",
+    "Ordinary fixture mode is off; completion has no worktree finish receipt. All earlier failures, UNKNOWN results, rejected materials and refusals remain private.",
+    "The two formal reviews cover the complete product range from the separately authorized reviewer-policy baseline. The final Git tree matches the original candidate and the QA creation and criterion baselines retain their original commits.",
+    "The direct human decision is retained in the task revision: only new h/m or compound totals above Number.MAX_SAFE_INTEGER throw RangeError; legacy pure seconds rounding/Infinity and leading zeros remain compatible. It was not backfilled as an answer to an old sealed QA plan.",
+    "The original fixture collector can exit zero for a missing requested check; controller aggregation still rejects missing checks. This pre-existing limitation remains recorded."
+  ],
+  "reviewBase": "ddc2155a6c788deb459b2a6a8c202bfcf5a132fc",
+  "preservedOriginalCandidate": "199bcc19ba4dbc812a8880d0835a252251e9490d",
+  "candidateTree": "9a1287b50ae70ecbf665b8991f6df5ff85b820d7",
+  "criterionBaselines": {
+    "compound-units": "7816d3746004b7942373b814b617087ca526c231",
+    "reject-invalid": "7816d3746004b7942373b814b617087ca526c231",
+    "qa-pin-ordered-compounds": "8cf7e8f257b3604d6e45acf7bbe3c08f07974e32",
+    "qa-pin-zero-boundaries": "8cf7e8f257b3604d6e45acf7bbe3c08f07974e32",
+    "safe-new-compounds": "b8c24ae2be065731e9c597bf84c7dabcc481a1d4"
+  },
+  "humanDecisionProvenance": {
+    "kind": "direct-human-task-revision",
+    "at": "2026-11-18T03:52:53.122Z",
+    "reason": "Direct human answer: 只限制新增的 h/m／複合格式：總秒數超過 Number.MAX_SAFE_INTEGER 就拋 RangeError；原有純秒格式與前置零行為保持相容（建議）。 Original optional question leading-zeros-and-unsafe-integers belongs to sealed plan9d392aed; preserve its immutable history, record this new user decision through the current task criteria and revision before product edits.",
+    "previousHash": "1d5f56cefe7af3ed671823dd7e30eb6af5425747994289a6354f47360f82b53d",
+    "currentHash": "6cc2d839be362a14c74b8e4d53be7a052a59261efd16f404d06287ecd5ce83da"
+  },
+  "privateArchiveSha256": "27b528b94546c398a9964c6c650f911ae816d790dda2a9bdf8a91e543a25bfb9"
+}
