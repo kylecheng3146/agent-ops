@@ -111,6 +111,7 @@ export interface ReviewAdversarialOutcome {
 export type ReviewUnavailableReason =
   | "missing-cli"
   | "login-required"
+  | "permission-denied"
   | "network-unreachable"
   | "probe-failed"
   | "no-task-context"

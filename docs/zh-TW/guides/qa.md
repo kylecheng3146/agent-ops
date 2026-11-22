@@ -76,6 +76,10 @@ Office 在房間詳細資料與 QA 狀態看板上以「獨立 QA」顯示同樣
 - **`QA_AWAITING_INPUT`**：QA 需要產品決定。agent 只轉述問題；只有真人能用
   `qa respond` 回答。agent 絕不能自行編寫答案，回答也永遠不能豁免失敗或缺少的
   機械證據。
+- **`QA_NATIVE_DENIED`**：native host 拒絕規劃或撰寫動作。規劃會保留拒絕、清除目前
+  plan 指標並關閉自動續跑；舊的不可變 plan 與歷史仍保留。須先釐清授權，再明確執行新的
+  `qa plan` 或 `qa run`。沒有 native 拒絕的空規劃回應是 `QA_PLAN_NOT_RUN`，不會誤報為
+  無效 plan 資料。
 - **受阻**：缺少必要環境（`environment:<name>`）、native 拒絕或 provider 限制，或
   同一語意失敗連續兩輪沒有進展。請修正原因；QA 不會安裝工具，也不會更改 trust 或設定。
 - **絕不**為了讓 QA 通過而修改、弱化或刪除 QA 素材、斷言或需求。

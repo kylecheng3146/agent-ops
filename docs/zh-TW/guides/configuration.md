@@ -81,14 +81,13 @@ Agy 的 prompt 會直接作為 `--print` 的值；裸用 `-p` 會誤吞下一個
 agent-ops 刻意不傳會繞過權限邊界的 `--dangerously-skip-permissions`，也不傳會
 使 plan mode 失效的 `--disable-slash-commands`。
 
-Agy 可能在唯一一輪 `--print` 中沒有回答就結束：print mode 沒有人可以確認工具呼叫，
-會拒絕該次呼叫並停止，`response` 為空且沒有 `structured_output`。被拒的工具列在
-信封的 `denied_actions`，並寫進診斷訊息。agent-ops 會先在同一個對話續問一次
+Agy 可能在唯一一輪 `--print` 中沒有回答就結束。若原生信封包含 `denied_actions`，
+review 會以 `permission-denied` 停止、保留拒絕，不自動 resume、重試或 fallback；
+即使同時附有有效報告也一樣。只有沒有原生拒絕的空回應，才會在同一個對話續問一次
 （`--conversation`，要求不用工具直接回答），失敗才退回一個全新的 session。lost turn 的
-`agy.log` 與 `stdout.json` 會保留在 `.agent-ops/reviews/lost-turns/<sessionId>/`
-（僅本機、被 git 忽略、不會自動清理）。若被拒的是你自己 agy 設定的 MCP 工具，
-對 agy 停用該 server（`agy mcp disable <name>`）即可移除觸發原因；agent-ops 不會
-更動你的 agy 設定。
+`stdout.json` 與可取得的 log 會保留在 `.agent-ops/reviews/lost-turns/<sessionId>/`
+（僅本機、被 git 忽略、不會自動清理）。原生拒絕須先由使用者釐清授權，再執行新的
+review；agent-ops 不會更動你的 agy 設定或權限。
 
 Host 缺少 network 或 loopback 權限時，會在啟動任何 reviewer 前回傳
 `REVIEW_NOT_RUN`。Managed 規則要求可信任的外部 host runner 在第一次呼叫時

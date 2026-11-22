@@ -126,6 +126,11 @@ window; the private records stay.
 - **`QA_AWAITING_INPUT`**: QA needs a product decision. An agent relays the
   question; only a person answers with `qa respond`. Agents must never compose
   an answer, and an answer never waives a failure or missing mechanical evidence.
+- **`QA_NATIVE_DENIED`**: the native host refused a planning or authoring action.
+  Planning retains the refusal, clears the current plan pointer and disables
+  automatic continuation; older immutable plans and history remain. Resolve
+  the authority before an explicit new `qa plan` or `qa run`. An empty planner
+  turn without a native refusal is `QA_PLAN_NOT_RUN`, not invalid plan data.
 - **Blocked**: missing required environment (`environment:<name>`), a native
   denial or provider limit, or the same semantic failure twice in a row without
   progress. Fix the cause; QA does not install tools or change trust or settings.

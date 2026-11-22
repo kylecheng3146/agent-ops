@@ -659,7 +659,7 @@ async function keepLostTurn(
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "stdout.json"), stdout);
     if (log !== undefined) {
-      await copyFile(log, join(directory, "agy.log"));
+      await copyFile(log, join(directory, "agy.log")).catch(() => {});
     }
     if (nudge !== undefined) {
       await writeFile(join(directory, "nudge-stdout.json"), nudge.stdout);
@@ -915,6 +915,12 @@ async function attemptTarget(
     // Read before any branch: a round that then fails still cost what it spent.
     usage = extractUsage(target, spawned.stdout, spawned.stderr);
     throwIfInterrupted(target, options, spawned.failureClass);
+    const nativeDenied = deniedToolsOf(target, spawned.stdout);
+    if (nativeDenied.length > 0) {
+      const kept = await keepLostTurn(request.repositoryRoot, sessionId, agyLog, spawned.stdout);
+      return skip("permission-denied", `the native host denied tools (${redactSecrets(nativeDenied.join(", ")).slice(0, 512)}); no automatic recovery` +
+        (kept === undefined ? "" : `; kept ${kept}`));
+    }
     if (spawned.failureClass === "timeout") {
       return skip("timeout", "the reviewer exceeded its timeout");
     }
@@ -976,7 +982,6 @@ async function attemptTarget(
         ? ` (fields: ${Object.keys(payload).sort().join(", ")})`
         : "";
       const lostTurn = payload === undefined && answeredNothing(target, spawned.stdout);
-      const denied = lostTurn ? deniedToolsOf(target, spawned.stdout) : [];
       const conversationId = lostTurn ? conversationIdOf(target, spawned.stdout) : undefined;
       let nudged: { readonly log: string; readonly stdout: string } | undefined;
       let recovered: ReviewReport | undefined;
@@ -992,7 +997,7 @@ async function attemptTarget(
         });
         if (nudge !== undefined) {
           options.onProgress?.(
-            `${target}: turn ended without answering${denied.length > 0 ? ` (denied ${denied.join(", ")})` : ""} → resuming the conversation once`
+            `${target}: turn ended without answering → resuming the conversation once`
           );
           const nudgeWatch = watchForStall(nudgeLog, options.signal, stallIdleMs);
           const nudgeFinished = watchForFinishedTurn(nudgeLog, exitGraceMs);
@@ -1030,6 +1035,12 @@ async function attemptTarget(
           usage = sumUsage(usage, extractUsage(target, second.stdout, second.stderr));
           throwIfInterrupted(target, options, second.failureClass);
           nudged = { log: nudgeLog, stdout: second.stdout };
+          const nudgeDenied = deniedToolsOf(target, second.stdout);
+          if (nudgeDenied.length > 0) {
+            const kept = await keepLostTurn(request.repositoryRoot, sessionId, agyLog, spawned.stdout, nudged);
+            return skip("permission-denied", `the native host denied tools (${redactSecrets(nudgeDenied.join(", ")).slice(0, 512)}); no automatic recovery` +
+              (kept === undefined ? "" : `; kept ${kept}`));
+          }
           if (!nudgeWatch.stalled() && second.failureClass === "none" &&
               !second.stdoutTruncated) {
             // A resumed agy turn states its answer in `response` and carries no
@@ -1064,7 +1075,6 @@ async function attemptTarget(
           reason,
           lostTurn
             ? "the reviewer ended its turn without answering (empty response, no structured output" +
-              (denied.length > 0 ? `; denied ${denied.join(", ")}` : "") +
               ")" +
               (kept === undefined ? "" : `; kept ${kept}`)
             : errors.length > 0

@@ -67,7 +67,7 @@ function fakePlanner(answer, exitCode = 0) {
     requests.push({...request, cloned: existsSync(join(request.cwd, 'source.txt')),
       remotes: execFileSync('git', ['remote'], {cwd: request.cwd, encoding: 'utf8'}).trim(), head: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: request.cwd, encoding: 'utf8'}).trim()});
     // Codex prints the bare final message; Claude and agy wrap it in a structured envelope.
-    const body = JSON.stringify(request.command === 'codex' ? answer : {structured_output: answer, usage: {input_tokens: 5, output_tokens: 3}});
+    const body = typeof answer === 'string' ? answer : JSON.stringify(request.command === 'codex' ? answer : {structured_output: answer, usage: {input_tokens: 5, output_tokens: 3}});
     return {pid: null, stdout: (async function* () {yield Buffer.from(body);})(), stderr: (async function* () {})(),
       completion: Promise.resolve({exitCode, signal: null}), terminateTree: async () => {}};
   }}};
@@ -142,6 +142,20 @@ export const executionChecks = {
     assert.equal(diagnostic.version.taskId, task.id); assert.match(diagnostic.error, /outside the scoped tasks/u);
     assert.doesNotMatch(diagnostic.stdout, /sk-test-secret-value/u, 'Rejected raw answers are retained only after redaction');
     assert.ok(diagnostic.stdout.length > 0); assert.equal((await f.store.readControl(task.id)).state, 'blocked');
+    for (const structured_output of [undefined, planAnswer()]) {
+      const beforeDenial = await f.store.readControl(task.id);
+      const denied = fakePlanner(JSON.stringify({status: 'SUCCESS', response: '', denied_actions: [{action: 'command', display_name: 'Bash'}], structured_output}));
+      await assert.rejects(runQaPlanning({...base, available: ['agy'], explicit: true, runner: denied.runner}), {code: 'QA_NATIVE_DENIED'});
+      const blocked = await f.store.readControl(task.id);
+      assert.deepEqual({state: blocked.state, continuation: blocked.continuation, plan: blocked.plan, owner: blocked.owner},
+        {state: 'blocked', continuation: false, plan: null, owner: null});
+      if (beforeDenial.plan !== null) await assert.doesNotReject(f.store.get(beforeDenial.plan), 'The old immutable plan remains retained');
+      const automatic = fakePlanner(planAnswer());
+      await assert.rejects(runQaPlanning({...base, available: ['agy'], runner: automatic.runner}), {code: 'QA_CONTINUATION_DISABLED'});
+      assert.equal(automatic.requests.length, 0, 'An automatic retry never starts a host after native denial');
+    }
+    const empty = fakePlanner(JSON.stringify({status: 'SUCCESS', response: ''}));
+    await assert.rejects(runQaPlanning({...base, available: ['agy'], explicit: true, runner: empty.runner}), {code: 'QA_PLAN_NOT_RUN'});
     await rename(join(f.store.directory, 'planning-diagnostics'), join(f.store.directory, 'retained-diagnostics'));
     await writeFile(join(f.store.directory, 'planning-diagnostics'), 'Fixture blocks diagnostic storage without deleting earlier failures.');
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(invalid).runner}), {code: 'QA_PLAN_DIAGNOSTIC_FAILED'});
@@ -193,6 +207,14 @@ export const executionChecks = {
     const same = fakePlanner(planAnswer());
     const fallback = await f.store.get((await runQaPlanning({...base, available: ['codex'], runner: same.runner})).plan);
     assert.equal(fallback.session.host, 'codex'); assert.match(fallback.session.fallbackReason, /fresh separate codex session/u);
+    const agy = fakePlanner(planAnswer());
+    await runQaPlanning({...base, available: ['agy'], runner: agy.runner});
+    const agyRequest = agy.requests[0], agyPrompt = agyRequest.args[agyRequest.args.indexOf('-p') + 1];
+    assert.ok(agyPrompt.startsWith(`Repository root: ${agyRequest.cwd}\n`));
+    assert.match(agyPrompt, /use only git status, git diff, git log, or git show/u);
+    assert.match(agyPrompt, /file-reading tools instead of ls, find, cat, rg, or git ls-tree/u);
+    assert.ok(agyRequest.args.includes('--sandbox') && agyRequest.args.includes('plan'));
+    assert.ok(!agyRequest.args.includes('--dangerously-skip-permissions') && !agyRequest.args.includes('--settings'), 'Prompt guidance adds no permission grant');
     assert.match(selectQaHost({implementationHost: null, available: ['agy'], writable: false}).fallbackReason, /unknown/u);
     // Necessary but absent environment, unauthorized runners and genuine questions are blockers, not silent passes.
     const missing = await runQaPlanning({...base, runner: fakePlanner(planAnswer({environment: [{name: 'browser', required: true, status: 'missing', evidence: ['No authorized browser tool']}]})).runner});

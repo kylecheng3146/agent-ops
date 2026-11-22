@@ -1063,13 +1063,32 @@ const lostTurnInConversation = JSON.stringify({
   status: "SUCCESS",
   response: "",
   num_turns: 1,
-  usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 },
-  denied_actions: [{ action: "mcp", display_name: "CallMcpTool" }]
+  usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 }
 });
 
 const passingWithUsage = JSON.stringify({
   ...(JSON.parse(passing()) as Record<string, unknown>),
   usage: { input_tokens: 50, output_tokens: 5, total_tokens: 55 }
+});
+
+test("a native agy denial stops either round or a nudge without recovery", async () => {
+  const empty = JSON.stringify({conversation_id: "empty-turn", status: "SUCCESS", response: ""});
+  for (const prefix of [[], [{stdout: passing()}], [{stdout: empty}]]) {
+    for (const answer of [{response: ""}, JSON.parse(passing()) as Record<string, unknown>]) {
+      const denied = JSON.stringify({...answer, conversation_id: "denied-turn", status: "SUCCESS",
+        denied_actions: [{action: "command", display_name: "Bash"}]});
+      const cwd = mkdtempSync(join(tmpdir(), "agent-ops-denied-"));
+      const {result, attempts, progress} = await run(["agy"], [...prefix, {stdout: denied}, {stdout: passing()}], {cwd});
+      assert.equal(result.status, "NOT_RUN");
+      assert.equal(result.status === "NOT_RUN" ? result.reason : undefined, "permission-denied");
+      assert.equal(attempts.length, prefix.length + 1, "No retry, resumed denied conversation or second round follows a denial");
+      assert.match(result.attempts?.at(-1)?.diagnostic ?? "", /native.*denied.*Bash/iu);
+      assert.ok(!progress.some(line => line.includes("retrying once")));
+      const session = result.attempts?.at(-1)?.sessionId ?? "";
+      const file = prefix[0]?.stdout === empty ? "nudge-stdout.json" : "stdout.json";
+      assert.equal(readFileSync(join(cwd, ".agent-ops/reviews/lost-turns", session, file), "utf8"), denied, "The refusal remains retained");
+    }
+  }
 });
 
 test("a lost agy turn is resumed in its own conversation before any fresh retry", async () => {
@@ -1092,7 +1111,7 @@ test("a lost agy turn is resumed in its own conversation before any fresh retry"
   }
   assert.equal(nudge?.cwd, lost?.cwd);
   assert.ok(!(lost?.args ?? []).includes("--conversation"));
-  assert.ok(progress.some((line) => /denied CallMcpTool.* → resuming the conversation once/.test(line)));
+  assert.ok(progress.some((line) => /without answering → resuming the conversation once/.test(line)));
 });
 
 test("the resumed turn's cost is added to the attempt", async () => {
@@ -1122,7 +1141,7 @@ test("a nudge that answers nothing falls back to one fresh retry without a secon
   assert.equal(attempts.length, 4);
   assert.ok(!(attempts[3]?.args ?? []).includes("--conversation"));
   const diagnostic = result.attempts?.[1]?.diagnostic ?? "";
-  assert.match(diagnostic, /denied CallMcpTool/);
+  assert.match(diagnostic, /ended its turn without answering/);
 });
 
 // A resumed agy turn answers in `response`; it carries no structured_output.

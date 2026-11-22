@@ -14,7 +14,7 @@ import { SCENARIO_DIMENSIONS } from "../surface/schema.js";
 import { runVerificationCommand, type VerificationProcessRunner } from "../verify/spawn.js";
 import type { CriteriaReviewView } from "../review/criteria.js";
 import { isolatedReviewEnvironment } from "../review/execute.js";
-import { extractReviewObject } from "../review/extract.js";
+import { answeredNothing, deniedToolsOf, extractReviewObject } from "../review/extract.js";
 import { buildTargetInvocation } from "../review/invocation.js";
 import { extractUsage } from "../review/usage.js";
 import { claimQaControl, cloneQaCheckout, qaSession, registerQaProcess, releaseQaControl, selectQaHost, type QaProcessProbe } from "./session.js";
@@ -201,10 +201,16 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     const schema = planningSchema(options);
     if (canonicalJson(schema) !== canonicalJson(redacted(schema)))
       throw new AgentOpsError("QA_PLAN_INPUT_INVALID", "QA planner IDs must not contain secret-shaped values.");
-    const prompt = qaPlanningPrompt(snapshot, schema);
-    if (Buffer.byteLength(prompt) > 256 * 1024) throw new AgentOpsError("QA_PLAN_INPUT_TOO_LARGE", "QA planning input exceeds 256 KiB.");
+    let prompt = qaPlanningPrompt(snapshot, schema);
     directory = await mkdtemp(join(tmpdir(), "agent-ops-qa-plan-"));
     const repository = join(directory, "repository");
+    if (session.host === "agy") prompt = [
+      `Repository root: ${repository}`,
+      "Run every repository-relative inspection in that directory. For terminal commands, use only git status, git diff, git log, or git show; read specific files with file-reading tools instead of ls, find, cat, rg, or git ls-tree.",
+      "Return the requested QA plan JSON, not an implementation plan. Do not create or edit files or ask the user to proceed.",
+      prompt
+    ].join("\n");
+    if (Buffer.byteLength(prompt) > 256 * 1024) throw new AgentOpsError("QA_PLAN_INPUT_TOO_LARGE", "QA planning input exceeds 256 KiB.");
     await cloneQaCheckout(options.root, repository, options.version.candidateCommit);
     const invocation = buildTargetInvocation({target: session.host, prompt, responseSchema: schema, repositoryRoot: repository,
       ...(options.model === undefined ? {} : {model: options.model}), ...(options.effort === undefined ? {} : {effort: options.effort})});
@@ -217,8 +223,12 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     diagnostic = {stdout: Buffer.from(redactSecrets(result.stdout)).subarray(0, 32768).toString("utf8"),
       stderr: Buffer.from(redactSecrets(result.stderr)).subarray(0, 32768).toString("utf8"), failureClass: result.failureClass};
     if (result.failureClass === "aborted") throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning was cancelled; no plan was saved.");
+    const denied = deniedToolsOf(session.host, result.stdout);
+    if (denied.length > 0) throw new AgentOpsError("QA_NATIVE_DENIED",
+      `The native host denied QA planning tools (${redactSecrets(denied.join(", ")).slice(0, 512)}); automatic continuation is disabled.`);
     if (result.status !== "PASS" || result.stdoutTruncated)
       throw new AgentOpsError("QA_PLAN_NOT_RUN", `The QA planner did not answer (${result.failureClass}); QA stays unverified.`);
+    if (answeredNothing(session.host, result.stdout)) throw new AgentOpsError("QA_PLAN_NOT_RUN", "The QA planner ended its turn without answering; QA stays unverified.");
     const answer = normalizePlanAnswer(extractReviewObject(session.host, result.stdout));
     let plan: QaPlan;
     try {
@@ -236,7 +246,8 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     await releaseQaControl(options.store, held, {state, plan: ref}, now());
     return {state, plan: ref, blockers, usage};
   } catch (error) {
-    if (!released) await releaseQaControl(options.store, held, {state: "blocked"}, now()).catch(() => undefined);
+    if (!released) await releaseQaControl(options.store, held, {state: "blocked",
+      ...(error instanceof AgentOpsError && error.code === "QA_NATIVE_DENIED" ? {continuation: false, plan: null} : {})}, now()).catch(() => undefined);
     if (diagnostic !== undefined) await writePrivateFile(join(options.store.directory, "planning-diagnostics", `${session.sessionId}.json`),
       `${canonicalJson({schemaVersion: 1, version: options.version, session, usage, observedAt: now(), ...diagnostic,
         error: redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4096)})}\n`, options.store.commonDir).catch(() => {
