@@ -4,7 +4,7 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-18
+## [1.4.0] - 2026-11-22
 
 - Add independent QA for integrated task delivery on macOS: separate planning
   and material-author sessions, trusted baseline/candidate execution, genuine
@@ -19,7 +19,9 @@ All notable changes to the project are documented here.
 - Bind QA results to exact committed materials and the immutable task-creation
   baseline. Replanning receives bounded, versioned prior outcomes and human
   decisions as untrusted context; rejected output, failures and refusals remain
-  retained. Model-free status and Office views do not spend QA sessions.
+  retained. Native permission denials stop automatic planning and review
+  recovery; an empty response cannot hide a refusal. Model-free status and
+  Office views do not spend QA sessions.
 - Native completion lifecycle events no longer count as verifier stagnation.
   Managed updates preserve existing learning registration.
 - Add English and Traditional Chinese QA guidance and sanitized live fixture
