@@ -4,6 +4,12 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- The QA author can write and stop in its isolated clone: in worktree auto
+  mode every write there was denied `WORKTREE_REQUIRED`, and a Stop after
+  writing materials hit the completion gate. Both gates now skip only when
+  `AGENT_OPS_QA_TASK_ID` is set and the controller's
+  `.agent-ops/qa-author-input.json` exists at the clone's top level.
+
 ## [1.4.0] - 2026-11-22
 
 - Add independent QA for integrated task delivery on macOS: separate planning

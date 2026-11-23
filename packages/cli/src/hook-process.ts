@@ -38,6 +38,7 @@ import {
   type WorktreeDependencies
 } from "../../../runtime/src/parallel/service.js";
 import { CompletionGateService } from "../../../runtime/src/hooks/completion-gate.js";
+import { QA_INPUT_PATH } from "../../../runtime/src/qa/author.js";
 import { TaskService } from "../../../runtime/src/task/service.js";
 import { FileTaskStore } from "../../../runtime/src/task/store.js";
 import { FileEvidenceStore } from "../../../runtime/src/verify/evidence.js";
@@ -375,6 +376,22 @@ function shouldBuildStopVerification(
  * The gate of one checkout. A session redirected into a worktree is judged by
  * that worktree's gate, built the same way from the worktree's own config.
  */
+/**
+ * The QA author's disposable clone: the controller started this host with
+ * AGENT_OPS_QA_TASK_ID and wrote its input file at the clone's top level. The
+ * controller validates and imports what QA writes there, so the delivery
+ * checkout's worktree guard and completion gate do not apply. The variable
+ * alone is not enough: tests the QA author runs inherit it and must still see
+ * both gates.
+ */
+async function insideQaAuthorCheckout(gitRunner: GitRunner): Promise<boolean> {
+  if (process.env.AGENT_OPS_QA_TASK_ID === undefined) return false;
+  const top = await gitRunner.run(["rev-parse", "--show-toplevel"]);
+  if (top.exitCode !== 0) return false;
+  const input = join(Buffer.from(top.stdout).toString("utf8").trim(), ...QA_INPUT_PATH.split("/"));
+  return (await lstat(input).catch(() => null))?.isFile() === true;
+}
+
 function completionGateFor(
   root: string,
   config: AgentOpsConfig,
@@ -615,9 +632,10 @@ export async function runHookProcess(
     // and the gate also answers PreToolUse — where it turns a self-issued
     // `allow-stop` into a question for the user. Narrowing this to Stop takes
     // the escape hatch's approval step away.
+    const qaAuthor = await insideQaAuthorCheckout(gitRunner);
     const completionGate =
       (harnessId === "agy" || harnessId === "claude") &&
-      config.features.completionGate.enabled
+      config.features.completionGate.enabled && !qaAuthor
         ? dependencies.completionGate ?? {
             handle: async (normalized) => {
               if (normalized.event === "stop" && normalized.terminationReason === "model_stop" && normalized.fullyIdle === true && normalized.sessionId !== undefined) {
@@ -648,7 +666,7 @@ export async function runHookProcess(
             }
           }
         : undefined;
-    const worktreeGuard = config.worktree?.mode === "auto"
+    const worktreeGuard = config.worktree?.mode === "auto" && !qaAuthor
       ? async (write: FileWriteHookEvent): Promise<HookResult> => {
           const mainRoot = await resolveMainRoot(gitRunner);
           return mainRoot === null
