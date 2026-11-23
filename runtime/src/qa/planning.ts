@@ -123,12 +123,14 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>, schema: Reco
  */
 function normalizePlanAnswer(answer: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (answer === undefined) return answer;
+  if (Object.keys(answer).some(key => !Object.hasOwn(QA_PLAN_SCHEMA.properties, key)))
+    planError("The QA planner returned fields outside its response schema; the plan is not used.");
   const object = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
   const scenarios = object(answer.scenarios) ? Object.fromEntries(Object.entries(answer.scenarios).map(([k, s]) =>
     [k, object(s) && s.applies === false && Object.keys(s).length === 2 && "na" in s ? {na: s.na} : s])) : answer.scenarios;
   const cases = Array.isArray(answer.cases) ? answer.cases.map(c => object(c) && c.mode === "invariant" && Array.isArray(c.bindings) &&
     c.bindings.some(b => object(b) && Array.isArray(b.redCheckIds) && b.redCheckIds.length > 0) ? {...c, mode: "behavioral"} : c) : answer.cases;
-  return {...answer, scenarios, cases};
+  return {cases, scenarios, environment: answer.environment, questions: answer.questions};
 }
 /** The first case rule a rejected plan breaks, so the operator sees why it was not used. */
 function caseRuleError(answer: Record<string, unknown> | undefined, baselineCommit: string): string {

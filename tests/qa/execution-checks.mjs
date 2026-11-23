@@ -234,6 +234,28 @@ export const executionChecks = {
       const after = await f.store.readControl(task.id);
       assert.deepEqual({state: after.state, plan: after.plan, attestation: after.attestation}, {state: 'blocked', plan: control.plan, attestation: null});
     }
+    // Codex has no transport-level response schema. The controller must reject its extra fields itself.
+    const diagnosticsDirectory = join(f.store.directory, 'planning-diagnostics');
+    const existingDiagnostics = new Set(await readdir(diagnosticsDirectory));
+    const controllerFields = Object.keys(plan).filter(key => !Object.hasOwn(QA_PLAN_SCHEMA.properties, key));
+    for (const key of controllerFields) {
+      const response = fakePlanner(planAnswer({[key]: plan[key]}));
+      await assert.rejects(runQaPlanning({...base, scope: 'partial', dependencyTaskIds: ['task-dependency'],
+        available: ['codex'], runner: response.runner}), {code: 'QA_PLAN_INVALID'}, `Planner must not supply ${key}`);
+      const after = await f.store.readControl(task.id);
+      assert.deepEqual({state: after.state, plan: after.plan, attestation: after.attestation},
+        {state: 'blocked', plan: control.plan, attestation: null});
+    }
+    const rejectedFields = new Set();
+    for (const name of await readdir(diagnosticsDirectory)) {
+      if (existingDiagnostics.has(name)) continue;
+      const diagnostic = JSON.parse(await readFile(join(diagnosticsDirectory, name), 'utf8'));
+      assert.equal(diagnostic.session.host, 'codex');
+      for (const key of Object.keys(JSON.parse(diagnostic.stdout))) {
+        if (!Object.hasOwn(QA_PLAN_SCHEMA.properties, key)) rejectedFields.add(key);
+      }
+    }
+    assert.deepEqual(rejectedFields, new Set(controllerFields));
     // Live codex planners answered {applies:false, na}, which the schema admits; it is stored as {na}, and the prompt states the validator's rules.
     const planned = runQaPlanning({...base, runner: fakePlanner(planAnswer({scenarios: {...scenarios, redo: {applies: false, na: 'No replay'}}})).runner});
     await assert.doesNotReject(planned, 'A not-applicable scenario with applies false is a valid plan');
