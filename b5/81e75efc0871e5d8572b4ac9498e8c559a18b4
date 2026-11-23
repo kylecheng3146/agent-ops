@@ -1,0 +1,11 @@
+worktree: session-67a607d2 (agent-ops/session-67a607d2)
+session: 67a607d2-3301-4dc6-a66b-1f6e9de595fb
+agent-ops task task-4797005a-139c-4305-9bee-031943c9241c: Fix QA planner runner visibility and release 1.4.1
+intent: QA planner DATA lists runners with only id and adapter (runtime/src/qa/planning.ts), so it cannot learn that independent-qa runs tests/qa/acceptance.mjs, which collects only tests/qa/independent/**/*.check.mjs; it guessed tests/qa/release-1-4-1.test.ts and both checks stayed unexecuted. Add command, args and cwd to each runner entry and tell the planner to read the runner entry before choosing material paths and check ids. Then release 1.4.1: package.json, package-lock.json and the README status line name 1.4.1, and CHANGELOG moves both fixes under a dated 1.4.1 heading. Tagging v1.4.1 and running release.yml follow worktree finish on main.
+criteria:
+- planner-runner-entry: QA planning DATA lists each runner's id, adapter, command, args and cwd, and the planner prompt directs it to read the runner entry before choosing material paths and check ids.
+- planning-unchanged: Existing QA planning checks (continuation, independent planning) still pass: schema, history and validation are unchanged.
+- version-consistent: package.json, package-lock.json (root and packages[""]), README status line and a dated CHANGELOG heading below Unreleased all name 1.4.1; tests/release/version-consistency.test.ts passes.
+- release-notes: The CHANGELOG 1.4.1 section contains the QA author clone gate fix and the QA planner runner-visibility fix, ## [Unreleased] remains and is empty, and no unrelated file content changes.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/14d31426877e1901cc00f6fb5d2e8e4d3c16e24fdc4dc60dee9a7de765688f0d-b581e75efc0871e5d8572b4ac9498e8c559a18b4.json
+receipt-sha256: 6df4b56316ebfb2f89eb05ce6685c42e10041546111d923cdeb4f7287a6184a5
