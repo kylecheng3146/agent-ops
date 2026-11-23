@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-23
+
 - The QA author can write and stop in its isolated clone: in worktree auto
   mode every write there was denied `WORKTREE_REQUIRED`, and a Stop after
   writing materials hit the completion gate. Both gates now skip only when
