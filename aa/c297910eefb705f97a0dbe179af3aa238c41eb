@@ -1,0 +1,9 @@
+worktree: session-67a607d2 (agent-ops/session-67a607d2)
+session: 67a607d2-3301-4dc6-a66b-1f6e9de595fb
+agent-ops task task-845ae866-74f6-440e-9923-8d5d9abb0588: QA author clone skips delivery-checkout gates
+intent: In packages/cli/src/hook-process.ts, do not build the worktree write guard or the completion gate when the hook runs inside the QA author's disposable clone, identified by AGENT_OPS_QA_TASK_ID plus a regular .agent-ops/qa-author-input.json at the git top level. Env alone or file alone keeps both gates.
+criteria:
+- qa-clone-gates: In the QA author's detached clone (AGENT_OPS_QA_TASK_ID set and .agent-ops/qa-author-input.json present) a Write is not denied with WORKTREE_* and a Stop after writing materials is not blocked with COMPLETION_GATE_*.
+- qa-identity-required: With only AGENT_OPS_QA_TASK_ID or only .agent-ops/qa-author-input.json in a detached clone, a Write is still denied WORKTREE_REQUIRED and a Stop after a git-visible change is still blocked COMPLETION_GATE_TASK_REQUIRED.
+receipt: /Users/wixtar-kyle/Projects/agent-ops/.git/agent-ops/receipts/14d31426877e1901cc00f6fb5d2e8e4d3c16e24fdc4dc60dee9a7de765688f0d-aac297910eefb705f97a0dbe179af3aa238c41eb.json
+receipt-sha256: 9c296c7e8319108e8aec1edbeed2597f9c4b03240e9c707ff27c150177405be7
