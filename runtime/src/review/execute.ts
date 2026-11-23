@@ -835,8 +835,10 @@ async function attemptTarget(
             prompt: [
               `Repository root: ${snapshotRoot}`,
               "Run every repository-relative inspection in that directory.",
-              "For terminal commands, use only git status, git diff, git log, or git show; " +
-                "read specific files with file-reading tools instead of ls, find, cat, or rg.",
+              "Use only git status, git diff, git log, git show or the surface queries below. Run " +
+                "each surface query in a separate tool call with one literal command: git grep -F -l -e '<query>'. " +
+                "No shell loops, variables, substitutions, pipes, redirects or chained commands. " +
+                "Read specific files with file-reading tools instead of ls, find, cat or rg.",
               // agy's only read-only mode is plan mode, and plan mode's default
               // job is to author an implementation plan and then ask the caller
               // whether to proceed. Under `--print` that question ends the one
