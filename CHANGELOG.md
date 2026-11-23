@@ -11,6 +11,10 @@ All notable changes to the project are documented here.
   writing materials hit the completion gate. Both gates now skip only when
   `AGENT_OPS_QA_TASK_ID` is set and the controller's
   `.agent-ops/qa-author-input.json` exists at the clone's top level.
+- QA planning now sees each acceptance runner's command, args and cwd and is
+  told to read the runner entry before choosing material paths. Without them
+  the planner guessed paths the runner never collects, and every check stayed
+  unexecuted.
 
 ## [1.4.0] - 2026-11-22
 

@@ -100,6 +100,18 @@ async function until(predicate) {
 }
 
 export const executionChecks = {
+  'qa-planner-sees-runner-entry': () => fixture(async f => {
+    const {runQaPlanning} = await qa('runtime/src/qa/planning.js', 'runQaPlanning');
+    const planner = fakePlanner(planAnswer());
+    await runQaPlanning({store: f.store, root: f.root, version: f.version, originalGoal: goal, tasks: [task], scope: 'full', timing: 'late',
+      surfaceIds: ['surface-a'], runners, advisory: null, available: ['claude'], implementationHost: 'codex',
+      implementationSessionId: 'developer-session', controllerId: 'controller', runner: planner.runner});
+    const stdin = planner.requests[0].stdin;
+    const data = JSON.parse(stdin.split('BEGIN UNTRUSTED DATA\n')[1].split('\nEND UNTRUSTED DATA')[0]);
+    assert.deepEqual(data.runners, [{id: 'qa-runner', adapter: 'generic', command: 'node', args: ['{materials}'], cwd: '.'}],
+      'The planner must see what each runner executes to place material where it is collected');
+    assert.match(stdin, /entry/u, 'The planner is told to read the runner entry before choosing material paths');
+  }),
   'qa-planning-continuation': () => fixture(async f => {
     const {runQaPlanning} = await qa('runtime/src/qa/planning.js', 'runQaPlanning');
     const base = {store: f.store, root: f.root, version: f.version, originalGoal: goal, tasks: [task], scope: 'full', timing: 'late',

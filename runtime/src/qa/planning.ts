@@ -105,7 +105,7 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>, schema: Reco
     "The working directory is a read-only clone of the exact candidate commit. Inspect code, tests and configuration as needed; do not modify files or run anything that writes.",
     "Plan acceptance testing of the user-visible tasks in originalGoal within the scoped tasks: map every criterion to at least one case and name the surface ids it exercises.",
     "Cover the happy path and, where the risk warrants it, negative, boundary, retry/concurrency and recovery cases. Answer each of the five scenarios as applies with behavior, or na with a reason; they are not exhaustive.",
-    "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
+    "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. DATA.runners shows what each runner executes: read its entry in the clone first and place material only at paths it collects, with check ids exactly as it reports them. Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
     "Ids are lowercase kebab-case. Every binding names at least one material file. A behavioral case lists in redCheckIds at least one of its checkIds that must fail by assertion on the baseline; an invariant case has no redCheckIds; a nonmechanical case has no bindings and a nonmechanicalReason. A scenario is either {\"applies\":true,\"behavior\":...} or {\"na\":...}.",
     "Your clone holds the candidate and its history; baselineCommit in DATA, when present, is that immutable baseline (inspect it with git show <baselineCommit>:<path>). Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
     "When DATA.baselineCommit is supplied, the controller uses it for EVERY QA case. An individual criterion acceptance.baselineCommit belongs to separate task verification and cannot override QA's baseline. Do not copy that criterion's redCheckIds blindly: inspect the QA baseline for each exact assertion. An invariant needs PASS on both sides; a baseline assertion failure needs a behavioral case with a genuinely red designated check. The task verifier separately proves its own pinned baseline.",
@@ -195,7 +195,7 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     const snapshot = {originalGoal: options.originalGoal, scope: options.scope, timing: options.timing,
       tasks: options.tasks.map(t => ({id: t.id, title: t.title, intent: t.intent ?? null, criteria: t.criteria, surface: t.surface ?? null})),
       dependencyTaskIds: options.dependencyTaskIds ?? [], surfaceIds: options.surfaceIds ?? null,
-      runners: options.runners.map(r => ({id: r.id, adapter: r.adapter})),
+      runners: options.runners.map(r => ({id: r.id, adapter: r.adapter, command: r.command, args: r.args, cwd: r.cwd})),
       history: await qaHistory(options.store, held, options.version),
       ...(options.baselineCommit === undefined ? {} : {baselineCommit: options.baselineCommit}),
       advisory: options.advisory === null ? {unavailable: "No criteria advisory was available; plan from the requirements alone."}
