@@ -822,6 +822,8 @@ test("agy also challenges a PASS from inside its disposable clone", async () => 
   assert.ok(attempts[1]?.args[1]?.includes(`Repository root: ${attempts[1].cwd}`));
   assert.match(attempts[1]?.args[1] ?? "", /each surface query in a separate tool call with one literal command: git grep -F -l -e/u);
   assert.match(attempts[1]?.args[1] ?? "", /No shell loops, variables, substitutions, pipes, redirects or chained commands/u);
+  assert.match(attempts[1]?.args[1] ?? "", /Target at most 16 KiB of JSON by shortening summaries and evidence entries/u);
+  assert.match(attempts[1]?.args[1] ?? "", /Keep every required inspected path, criterion verdict and blocking finding/u);
 });
 
 test("every reviewer target runs from its disposable clone", async () => {

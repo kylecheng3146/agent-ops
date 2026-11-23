@@ -848,6 +848,9 @@ async function attemptTarget(
                 "an implementation plan. Do not create or edit any file. Do not ask " +
                 "the user anything. Reply with the JSON object the schema requires " +
                 "and nothing else.",
+              "Target at most 16 KiB of JSON by shortening summaries and evidence entries. " +
+                "Keep every required inspected path, criterion verdict and blocking finding. " +
+                "Refer to source locations without copying diffs, tool output or the earlier report.",
               request.prompt
             ].join("\n")
           }
