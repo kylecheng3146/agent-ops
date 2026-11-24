@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { materialPath } from "../schema/acceptance.js";
+import type { FileQaStore } from "./store.js";
 import type { QaAuthorResponse, QaMaterial, QaMaterialLineage } from "./types.js";
 
 const exec = promisify(execFile);
@@ -97,8 +98,69 @@ export interface QaImportResult {
   readonly materialDigest: string;
 }
 /**
- * Copies inspected bytes from the QA checkout into the delivery checkout and commits exactly those paths.
- * The new commit is the final candidate: proof observed at the authored commit must be re-executed there.
+ * Copies inspected bytes from the QA checkout into the private QA store under the Git common directory.
+ * Nothing is committed: the implementation commit stays the final candidate and the materials are bound by digest.
+ */
+export async function storeQaMaterials(options: {readonly checkout: string; readonly target: string;
+  readonly inspected: QaInspectedMaterials; readonly store: FileQaStore}): Promise<QaImportResult> {
+  const {checkout, target, inspected} = options;
+  const head = (await git(target, ["rev-parse", "HEAD"])).toString().trim();
+  if (head !== inspected.authoredCommit)
+    throw new AgentOpsError("QA_CANDIDATE_MOVED", "The delivery moved after QA authored its materials; this QA result is stale.", {recoveryPaths: [checkout, target]});
+  const materials = inspected.materials.map(({path, role, digest}) => ({path, role, digest}));
+  for (const material of materials) {
+    const reason = qaMaterialPathReason(material.path) ?? await realFile(checkout, material.path);
+    const content = reason === null ? await readFile(join(checkout, ...material.path.split("/"))) : null;
+    if (content === null || sha256(content) !== material.digest)
+      throw new QaMaterialError([{path: material.path, reason: reason ?? "changed after inspection"}], [checkout, target]);
+    await options.store.putMaterial(content);
+  }
+  return {lineage: materials.length === 0 ? {authoredCommit: head, importedCommit: head} : {authoredCommit: head, importedCommit: head, stored: true},
+    materials, materialDigest: inspected.materialDigest};
+}
+
+/**
+ * Writes stored materials as new untracked files into the delivery checkout and returns their removal.
+ * A path that already exists there (tracked or not) is refused, so a tracked file is never overwritten or deleted.
+ */
+export async function placeQaMaterials(root: string, store: FileQaStore, materials: readonly QaMaterial[]): Promise<() => Promise<void>> {
+  const bytes = new Map<string, Buffer>();
+  for (const material of materials) {
+    const content = await store.readMaterial(material.digest);
+    if (content === null) throw new AgentOpsError("QA_MATERIAL_CHANGED", `Stored QA material ${material.path} is missing or no longer matches its digest.`);
+    const reason = qaMaterialPathReason(material.path) ??
+      (await lstat(join(root, ...material.path.split("/"))).then(() => "already exists in the delivery checkout", () => null));
+    if (reason !== null) throw new QaMaterialError([{path: material.path, reason}], [root]);
+    bytes.set(material.path, content);
+  }
+  const files: string[] = [], directories: string[] = [];
+  const remove = async () => {
+    for (const path of files) await rm(path, {force: true});
+    for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined);
+  };
+  try {
+    for (const [path, content] of bytes) {
+      const segments = path.split("/");
+      for (let i = 1; i < segments.length; i++) {
+        const parent = join(root, ...segments.slice(0, i));
+        const status = await lstat(parent).catch(() => null);
+        if (status === null) {await mkdir(parent); directories.push(parent);}
+        else if (!status.isDirectory()) throw new QaMaterialError([{path, reason: "symlinked or non-directory parent in the delivery checkout"}], [root]);
+      }
+      const file = join(root, ...segments);
+      await writeFile(file, content, {flag: "wx", mode: 0o644});
+      files.push(file);
+    }
+  } catch (error) {
+    await remove();
+    throw error;
+  }
+  return remove;
+}
+
+/**
+ * Legacy: copies inspected bytes into the delivery checkout and commits exactly those paths. New QA stores
+ * materials privately instead (storeQaMaterials); this remains for attempts that imported committed materials.
  */
 export async function importQaMaterials(options: {readonly checkout: string; readonly target: string;
   readonly inspected: QaInspectedMaterials; readonly taskId: string}): Promise<QaImportResult> {

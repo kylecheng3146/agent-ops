@@ -180,8 +180,8 @@ export async function runAdvanceCommand(options: {
       throw new AgentOpsError("ADVANCE_TASK_TREE_INVALID", "The candidate has unrelated or already completed tasks; final proof must cover one active tree.");
     }
     const ordered = all.filter(({ task }) => selected.has(task.id));
-    // QA covers the integrated delivery once, before any final verification or review: importing its
-    // materials commits a new candidate, so everything after this measures the final one.
+    // QA covers the integrated delivery once, before any final verification or review. Its materials are
+    // never committed, so HEAD stays the integrated candidate everything after this measures.
     if (parent.task.qa !== undefined) {
       await (options.onPhase ?? (async () => {}))("verifying");
       const qa = await (options.qa ?? runDeliveryQa)({root: record.path, taskId: parent.task.id, base: target,

@@ -203,18 +203,18 @@ export const deliveryChecks = {
     assert.equal(f.planner.calls, 1, 'Planning reuses a current plan');
     const replanned = await f.orchestrate(root.id, {planOnly: true, timing: 'early', explicit: true, replan: {reason: 'Defective case'}});
     assert.deepEqual({state: replanned.state, sessions: replanned.sessions, planner: f.planner.calls}, {state: 'plan-ready', sessions: 1, planner: 2});
-    // Integrated delivery: fresh author, import commit, execution on the final candidate, then a controller seal.
+    // Integrated delivery: fresh author, privately stored materials, execution on the implementation candidate, then a controller seal.
     const developed = await f.commit(2);
     const passed = await f.orchestrate(root.id);
     assert.equal(passed.state, 'passed', passed.blockers.join('; '));
-    assert.deepEqual({sessions: passed.sessions, imported: passed.imported, planner: f.planner.calls}, {sessions: 1, imported: true, planner: 2});
-    assert.notEqual(passed.candidateCommit, developed, 'Importing QA material makes a new final candidate');
+    assert.deepEqual({sessions: passed.sessions, imported: passed.imported, planner: f.planner.calls}, {sessions: 1, imported: false, planner: 2});
+    assert.equal(passed.candidateCommit, developed, 'QA materials are never committed: the implementation stays the final candidate');
     assert.equal(f.calls.at(-1).input.env.AGENT_OPS_QA_TASK_ID, root.id);
     assert.notEqual(f.calls.at(-1).input.cwd, f.root, 'The QA author never writes the delivery checkout');
     const spawned = f.spawned.count;
     const again = await f.orchestrate(root.id);
     assert.deepEqual({state: again.state, sessions: again.sessions, spawned: f.spawned.count}, {state: 'passed', sessions: 0, spawned}, 'Unchanged conditions reuse the seal');
-    // Repair: a regression returns to the developer with an exact pin; committed materials re-run without a new QA session.
+    // Repair: a regression returns to the developer with an exact pin; stored materials re-run without a new QA session.
     await f.commit(3);
     const broken = await f.orchestrate(root.id);
     assert.deepEqual({state: broken.state, sessions: broken.sessions}, {state: 'awaiting-repair', sessions: 0});
@@ -291,9 +291,7 @@ export const deliveryChecks = {
     // After a sealed QA PASS the gate moves on: verification and both fresh reviews stay mandatory.
     const passed = await f.orchestrate(root.id);
     assert.equal(passed.state, 'passed', passed.blockers.join('; '));
-    assert.equal((await check())?.code, 'EVIDENCE_REQUIRED', 'The QA import made a new candidate that verification must measure again');
-    await f.verify(root.id);
-    assert.equal((await check())?.code, 'REVIEW_REQUIRED', 'QA never substitutes for the two fresh reviews');
+    assert.equal((await check())?.code, 'REVIEW_REQUIRED', 'QA commits nothing, so verification stays fresh and the two fresh reviews remain');
     // An enrolled gate survives the project default turning QA off.
     const off = {...config, qa: {enabled: false}};
     assert.equal((await checkQaDeliveryEvidence(await f.record(root.id), {root: f.root, config: off, sourceFingerprint: await f.fingerprint(), platform: 'darwin'}))?.code, 'QA_REQUIRED');
@@ -483,8 +481,8 @@ export const deliveryChecks = {
       cases: data.plan.cases.map(c => [c.id, c.criterionIds, c.mode, c.bindings[0]?.materials ?? []])},
       {current: true, state: 'passed', host: 'claude', implementationHost: 'codex', cases: [['case-answer-two', ['behavior'], 'behavioral', [material(root.id)]],
         ['case-guide', ['compatibility'], 'nonmechanical', []]]});
-    assert.ok(data.attempt.lineage.importedCommit !== data.attempt.lineage.authoredCommit && data.attempt.lineage.importedCommit === version.candidateCommit,
-      'Reviewers see the import lineage reaching this exact candidate');
+    assert.deepEqual(data.attempt.lineage, {authoredCommit: version.candidateCommit, importedCommit: version.candidateCommit, stored: true},
+      'Reviewers see stored (never committed) materials bound to this exact candidate');
     assert.deepEqual(data.attempt.materials.map(m => m.path), [material(root.id)]);
     assert.deepEqual(data.nonmechanicalCaseIds, ['case-guide'], 'Reviewers must judge the reasoned case themselves');
     assert.deepEqual(data.results.map(r => [r.caseId, r.status]), [['case-answer-two', 'PASS'], ['case-guide', 'UNKNOWN']]);

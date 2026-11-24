@@ -125,7 +125,7 @@ export async function runQaCommand(options: QaCommandOptions): Promise<CliEnvelo
         : args.base === undefined ? {} : {base: args.base})});
     if (result === null) throw new AgentOpsError("QA_NOT_ENROLLED", `${deliveryId} is not enrolled; QA is not required.`);
     const after = await qaStatus(store, (await new FileTaskStore(join(root, ".agent-ops", "tasks", "state.json"), root).read()).tasks, taskId, current);
-    const text = `${renderQaStatus(after, taskId)}\nQA sessions started: ${result.sessions}${result.imported ? "; QA materials were committed" : ""}.` +
+    const text = `${renderQaStatus(after, taskId)}\nQA sessions started: ${result.sessions}.` +
       (action !== "plan" ? "" : args.replan === true ? `\nReplan reason: ${args.reason}` : result.sessions === 0 ? "\nThe current QA plan was reused; replace it with --replan --reason <text>." : "");
     if (action === "run" && result.state !== "passed") {
       const error = qaDeliveryError(result);

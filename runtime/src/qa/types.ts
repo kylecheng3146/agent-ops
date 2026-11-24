@@ -94,6 +94,11 @@ export interface QaMaterialLineage {
    * name the current candidate, and this names the earlier import commit. Material digests are re-checked at the candidate.
    */
   readonly materialsFrom?: string;
+  /**
+   * The materials were never committed: their bytes live in the private QA store by digest and are placed untracked
+   * only while executing. importedCommit is the implementation candidate; authoredCommit the commit QA authored against.
+   */
+  readonly stored?: true;
 }
 /** What a writable QA author reports. DATA only: never a verdict, and never trusted for paths or versions. */
 export interface QaAuthorResponse {

@@ -72,6 +72,24 @@ export class FileQaStore {
     if (sha256(encode(value)) !== ref.digest) invalid("QA artifact digest does not match its saved identity.");
     return parseQaArtifact(ref.kind, value);
   }
+  materialPath(digest: string): string {
+    if (!/^[a-f0-9]{64}$/u.test(digest)) invalid("Invalid QA material identity.");
+    return join(this.directory, "materials", digest);
+  }
+  /** QA material bytes, never committed: base64 in a private file named by the digest of the bytes. */
+  async putMaterial(bytes: Uint8Array): Promise<string> {
+    const digest = sha256(bytes);
+    if (await this.readMaterial(digest) === null)
+      await writePrivateFile(this.materialPath(digest), Buffer.from(bytes).toString("base64"), this.commonDir);
+    return digest;
+  }
+  /** Null when the material is missing or its bytes no longer match the digest it is stored under. */
+  async readMaterial(digest: string): Promise<Buffer | null> {
+    const source = await readPrivateFile(this.materialPath(digest), this.commonDir);
+    if (source === null) return null;
+    const bytes = Buffer.from(source, "base64");
+    return sha256(bytes) === digest ? bytes : null;
+  }
   async readControl(taskId: string): Promise<QaControl | null> {
     const value = await this.#read(this.controlPath(taskId));
     if (value === null) return null;

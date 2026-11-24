@@ -5,13 +5,14 @@ import { canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { collectQaFollowups } from "../followup/intake.js";
-import { readPrivateFile } from "../security/permissions.js";
+import { readPrivateFile, withPrivateFileLock } from "../security/permissions.js";
 import { qaTaskContractHash, qaTreeContractHash } from "../task/contract.js";
 import { replayAcceptance } from "../verify/acceptance-replay.js";
 import { aggregateAcceptanceRun, makeAcceptanceRun, type AcceptanceRun } from "../verify/acceptance-protocol.js";
 import { resolveGitCommit, type GitRunner } from "../verify/change-surface.js";
 import type { FileEvidenceStore } from "../verify/evidence.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
+import { placeQaMaterials } from "./materials.js";
 import { legacyQaVersion, qaEnvironmentBlocks, qaVersionMatches } from "./policy.js";
 import type { FileQaStore } from "./store.js";
 import type { QaAttempt, QaAuthorResponse, QaCase, QaDecision, QaExecution, QaFinding, QaMaterial, QaMaterialLineage, QaPlan,
@@ -86,8 +87,10 @@ export function qaCaseVerdict(c: QaCase, executions: readonly QaExecution[], mat
 }
 
 /** Match replay's exact path/role/mode/content identity; check IDs alone cannot distinguish material sets. */
-async function bindingMaterialDigests(cases: readonly QaCase[], runner: GitRunner, commit: string): Promise<ReadonlyMap<string, string>> {
-  const digests = new Map<string, string>(), files = new Map<string, {mode: number; hash: string}>();
+async function bindingMaterialDigests(cases: readonly QaCase[], runner: GitRunner, commit: string,
+  stored: readonly QaMaterial[] = []): Promise<ReadonlyMap<string, string>> {
+  // Stored materials are placed with mode 0644 from bytes whose hash is their digest.
+  const digests = new Map<string, string>(), files = new Map(stored.map(m => [m.path, {mode: 0o644, hash: m.digest}]));
   for (const binding of cases.flatMap(c => c.bindings)) {
     const key = canonicalJson(binding.materials);
     if (digests.has(key)) continue;
@@ -110,6 +113,24 @@ async function bindingMaterialDigests(cases: readonly QaCase[], runner: GitRunne
   return digests;
 }
 
+/**
+ * The first QA material whose bytes no longer match its digest: stored ones in the private store, legacy
+ * imported ones in `commit` (skipped without a git runner, since a commit's content cannot change).
+ */
+export async function changedQaMaterial(store: FileQaStore, attempt: Pick<QaAttempt, "materials" | "lineage">,
+  gitRunner: GitRunner | null, commit: string): Promise<string | null> {
+  for (const material of attempt.materials) {
+    if (attempt.lineage?.stored === true) {
+      if (await store.readMaterial(material.digest) === null) return material.path;
+    } else if (gitRunner !== null) {
+      const blob = await gitRunner.run(["show", `${commit}:${material.path}`]);
+      if (blob.exitCode !== 0 || sha256(Buffer.from(blob.stdout)) !== material.digest) return material.path;
+    }
+  }
+  return null;
+}
+const storedMaterials = (attempt: Pick<QaAttempt, "materials" | "lineage">) => attempt.lineage?.stored === true ? attempt.materials : [];
+
 function requiredQuestions(plan: QaPlan, report: QaReport | null): QaQuestion[] {
   return [...plan.questions, ...(report?.questions ?? [])].filter(q => q.required);
 }
@@ -123,7 +144,7 @@ function answered(found: readonly {decision: QaDecision}[], plan: QaReference, v
 
 export interface QaAttemptOptions {
   readonly store: FileQaStore;
-  /** The delivery checkout: a clean committed final candidate after material import. */
+  /** The delivery checkout: a clean committed final candidate; stored materials are placed in it only while executing. */
   readonly root: string;
   readonly version: QaVersion;
   /** Immutable task baseline: behavioral cases must fail there by assertion. */
@@ -134,7 +155,7 @@ export interface QaAttemptOptions {
   readonly gitRunner: GitRunner;
   readonly processRunner: VerificationProcessRunner;
   readonly evidenceStore: FileEvidenceStore;
-  /** The confirmed-dead author's accepted contribution, already imported into this exact candidate. */
+  /** The confirmed-dead author's accepted contribution: stored privately, or (legacy) imported into this exact candidate. */
   readonly author: {
     readonly session: QaSession;
     readonly generation: number;
@@ -193,12 +214,9 @@ export async function executeQaAttempt(options: QaAttemptOptions): Promise<QaAtt
   const plan = await store.get({...control.plan, kind: "plan"});
   if (!qaContractsMatch(plan.version, version)) return fail("QA_PLAN_STALE", "The QA plan describes another goal, contract, scope, policy or config; plan again.");
   if (await resolveGitCommit(options.gitRunner, "HEAD") !== version.candidateCommit || author.lineage.importedCommit !== version.candidateCommit)
-    return fail("QA_CANDIDATE_MOVED", "QA executes only the exact imported final candidate.");
-  for (const material of author.materials) {
-    const blob = await options.gitRunner.run(["show", `${version.candidateCommit}:${material.path}`]);
-    if (blob.exitCode !== 0 || sha256(Buffer.from(blob.stdout)) !== material.digest)
-      return fail("QA_MATERIAL_CHANGED", `QA material ${material.path} differs in the final candidate.`);
-  }
+    return fail("QA_CANDIDATE_MOVED", "QA executes only the exact final candidate.");
+  const changed = await changedQaMaterial(store, author, options.gitRunner, version.candidateCommit);
+  if (changed !== null) return fail("QA_MATERIAL_CHANGED", `QA material ${changed} no longer matches its digest.`);
   // Reuse requires the exact same plan, version (commit, source, contracts, config, policy) and materials.
   const previous = control.attempt === null ? null : await store.get({...control.attempt, kind: "attempt"});
   const reusable = previous !== null && previous.plan.digest === control.plan.digest && qaVersionMatches(previous.version, version) &&
@@ -206,7 +224,9 @@ export async function executeQaAttempt(options: QaAttemptOptions): Promise<QaAtt
   const prior = await Promise.all(reusable.map(async ref => ({ref, execution: await store.get({...ref, kind: "execution"})})));
   const configured = new Set((options.config.verification.acceptanceRunners ?? []).map(r => r.id));
   const mechanical = plan.cases.filter(c => c.mode !== "nonmechanical");
-  const materialDigests = await bindingMaterialDigests(mechanical.filter(c => c.bindings.every(b => configured.has(b.runnerId))), options.gitRunner, version.candidateCommit);
+  const stored = storedMaterials(author);
+  const materialDigests = await bindingMaterialDigests(mechanical.filter(c => c.bindings.every(b => configured.has(b.runnerId))), options.gitRunner,
+    version.candidateCommit, stored);
   // A PASS or FAIL observed under unchanged conditions stands; re-running it would be a blind retry. UNKNOWN may re-execute.
   const reused = mechanical.filter(c => qaCaseVerdict(c, prior.filter(p => p.execution.caseId === c.id).map(p => p.execution), materialDigests).status !== "UNKNOWN").map(c => c.id);
   const runnable = mechanical.filter(c => !reused.includes(c.id) && c.bindings.every(b => configured.has(b.runnerId)));
@@ -215,9 +235,15 @@ export async function executeQaAttempt(options: QaAttemptOptions): Promise<QaAtt
     // Cases become criteria of a QA-only task id, so their evidence never mixes with the delivery task's own.
     const criteria: AcceptanceCriterion[] = runnable.map(c => ({id: c.id, description: c.expected, verifierIds: [],
       acceptance: {mode: c.mode as "behavioral" | "invariant", baselineCommit: options.baselineCommit, bindings: c.bindings.map(b => structuredClone(b))}}));
-    const rows = await replayAcceptance({root: options.root, task: {schemaVersion: 2, id: `${taskId}-qa`, title: "Independent QA cases", criteria},
+    const replay = () => replayAcceptance({root: options.root, task: {schemaVersion: 2, id: `${taskId}-qa`, title: "Independent QA cases", criteria},
       config: options.config, gitRunner: options.gitRunner, processRunner: options.processRunner, evidenceStore: options.evidenceStore,
-      sourceFingerprint: version.sourceFingerprint, trusted: options.trusted, scope: "project", ...(options.signal === undefined ? {} : {signal: options.signal})});
+      sourceFingerprint: version.sourceFingerprint, trusted: options.trusted, scope: "project", ...(options.signal === undefined ? {} : {signal: options.signal}),
+      ...(stored.length === 0 ? {} : {untrackedMaterials: stored.map(m => m.path)})});
+    // Stored materials exist in the checkout only under this controller lock, while executing; removed even on failure.
+    const rows = stored.length === 0 ? await replay() : await withPrivateFileLock(join(store.directory, "control", `${taskId}.materials`), store.commonDir, async () => {
+      const remove = await placeQaMaterials(options.root, store, stored);
+      try {return await replay();} finally {await remove();}
+    });
     for (const row of rows) refs.set(row.criterionId, [...refs.get(row.criterionId) ?? [], await savedExecution(options, row.criterionId, row.runnerId, row)]);
   }
   const executions = new Map<string, QaExecution[]>();
@@ -285,7 +311,13 @@ export async function currentQaAttestation(store: FileQaStore, version: QaVersio
   const control = await store.readControl(version.taskId);
   if (control?.state !== "passed" || control.attestation === null) return null;
   const attestation = await store.get({...control.attestation, kind: "attestation"});
-  return qaVersionMatches(attestation.version, version) ? control.attestation : null;
+  if (!qaVersionMatches(attestation.version, version)) return null;
+  // The seal binds the candidate plus the material digest: an edited stored material is no longer proof. Without its
+  // saved report or attempt nothing names stored materials, so only the version binds (receipts and review still need them).
+  const missing = (error: unknown) => {if (error instanceof AgentOpsError && error.code === "QA_ARTIFACT_MISSING") return null; throw error;};
+  const report = await store.get({...attestation.report, kind: "report"}).catch(missing);
+  const attempt = report === null ? null : await store.get({...report.attempt, kind: "attempt"}).catch(missing);
+  return attempt === null || await changedQaMaterial(store, attempt, null, version.candidateCommit) === null ? control.attestation : null;
 }
 
 export interface QaSealOptions {
@@ -323,18 +355,15 @@ export async function sealQaAttestation(options: QaSealOptions): Promise<{readon
     return fail("QA_PROOF_STALE", "The scoped task tree no longer matches the QA version.");
   if (await resolveGitCommit(options.gitRunner, "HEAD") !== version.candidateCommit) return fail("QA_CANDIDATE_MOVED", "The delivery moved after QA executed.");
   if (attempt.lineage === undefined) return fail("QA_LINEAGE_REQUIRED", "The attempt does not name its material import lineage.");
-  for (const material of attempt.materials) {
-    const blob = await options.gitRunner.run(["show", `${version.candidateCommit}:${material.path}`]);
-    if (blob.exitCode !== 0 || sha256(Buffer.from(blob.stdout)) !== material.digest)
-      return fail("QA_MATERIAL_CHANGED", `QA material ${material.path} differs in the final candidate.`);
-  }
+  const changed = await changedQaMaterial(store, attempt, options.gitRunner, version.candidateCommit);
+  if (changed !== null) return fail("QA_MATERIAL_CHANGED", `QA material ${changed} no longer matches its digest.`);
   const refs = unique(report.results.flatMap(r => r.executions.map(e => e.digest))).map(digest => ({kind: "execution" as const, digest}));
   const executions = await Promise.all(refs.map(async ref => ({ref, execution: await store.get(ref)})));
   if (executions.some(({ref, execution}) => !qaVersionMatches(execution.version, version) || !attempt.executions.some(a => a.digest === ref.digest)))
     return fail("QA_PROOF_STALE", "An execution was not observed on this exact final candidate by this attempt.");
   const blockers: {code: string; detail: string}[] = [];
   const materialDigests = await bindingMaterialDigests(plan.cases.filter(c => report.results.some(r => r.caseId === c.id && r.executions.length > 0)),
-    options.gitRunner, version.candidateCommit);
+    options.gitRunner, version.candidateCommit, storedMaterials(attempt));
   for (const f of report.findings.filter(f => f.blocking)) blockers.push({code: "QA_BLOCKING_FINDING", detail: `${f.id} (${f.caseId})`});
   const nonmechanical: string[] = [];
   for (const c of plan.cases) {

@@ -10,6 +10,7 @@ import { goalHash, qaTaskContractHash, qaTreeContractHash, taskContractHash, tre
 import { FileTaskStore, type StoredTaskRecord } from "../task/store.js";
 import { qaVersionMatches, withLegacyQaVersion } from "./policy.js";
 import { qaHistory } from "./decisions.js";
+import { currentQaAttestation } from "./proof.js";
 import { FileQaStore } from "./store.js";
 import type { QaArtifactKind, QaReference, QaVersion } from "./types.js";
 
@@ -89,8 +90,7 @@ export async function checkQaDeliveryEvidence(stored: StoredTaskRecord, options:
     const store = new FileQaStore(await qaCommonDirectory(options.root));
     const control = await store.readControl(stored.task.id);
     if (control?.owner != null) return fail("QA_WRITER_LIVE", `A QA session still owns ${stored.task.id}; let it finish or run agent-ops qa stop --task ${stored.task.id}.`);
-    if (control?.state === "passed" && control.attestation !== null &&
-      qaVersionMatches((await store.get({...control.attestation, kind: "attestation"})).version, version)) return null;
+    if (await currentQaAttestation(store, version) !== null) return null;
     return fail("QA_REQUIRED", `Required independent QA has no sealed PASS for this exact candidate (QA ${control?.state ?? "not started"}). ${rerun}`);
   } catch (error) {
     return fail("QA_REQUIRED", `QA evidence is unreadable (${error instanceof Error ? error.message : String(error)}). ${rerun}`);

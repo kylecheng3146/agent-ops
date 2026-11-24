@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentOpsConfig, ReviewTargetId } from "../contracts.js";
 import { canonicalJson } from "../config/hash.js";
-import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { removeTemporary } from "../fs/temporary.js";
 import type { CriteriaReviewView } from "../review/criteria.js";
@@ -15,10 +14,10 @@ import type { FileEvidenceStore } from "../verify/evidence.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
 import { resumeQaAuthor, runQaAuthor, type QaAuthorResult } from "./author.js";
 import { FULL_QA_SCOPE, qaDeliveryTree, qaDeliveryVersion, type QaDeliveryScope } from "./gate.js";
-import { importQaMaterials } from "./materials.js";
+import { storeQaMaterials } from "./materials.js";
 import { runQaPlanning } from "./planning.js";
 import { qaEnvironmentBlocks, requireQaPlatform } from "./policy.js";
-import { currentQaAttestation, executeQaAttempt, qaContractsMatch, qaUsageSum, sealQaAttestation } from "./proof.js";
+import { changedQaMaterial, currentQaAttestation, executeQaAttempt, qaContractsMatch, qaUsageSum, sealQaAttestation } from "./proof.js";
 import { claimQaControl, releaseQaControl, stopQa, type QaProcessProbe } from "./session.js";
 import type { FileQaStore } from "./store.js";
 import type { QaAuthorResponse, QaControl, QaPlan, QaReference, QaState, QaUsage } from "./types.js";
@@ -64,7 +63,7 @@ export interface QaDeliveryOptions {
    */
   readonly surfaceCheck?: () => Promise<void>;
   /**
-   * false: only zero-spend QA — reuse a current seal or re-execute existing committed materials. A
+   * false: only zero-spend QA — reuse a current seal or re-execute existing stored or committed materials. A
    * delivery that needs a planner or author session returns blocked with `qa:session-required`.
    */
   readonly spend?: boolean;
@@ -79,7 +78,7 @@ export interface QaDeliveryResult {
   readonly report: QaReference | null;
   readonly attestation: QaReference | null;
   readonly candidateCommit: string;
-  /** QA materials were committed into the delivery checkout, so HEAD moved. */
+  /** Always false: QA materials are stored privately and never committed, so HEAD never moves. Kept for output compatibility. */
   readonly imported: boolean;
   readonly requestedEdits: QaAuthorResponse["requestedEdits"];
   /** Planner and author sessions this call started; reuse spends none. */
@@ -92,7 +91,7 @@ const UNKNOWN_USAGE: QaUsage = {inputTokens: null, outputTokens: null, totalToke
 /**
  * The one QA step for an integrated delivery, shared by ordinary verify/advance and the native
  * supervisor's finalize and land: plan if needed, author fresh material in an isolated session,
- * import and commit it, execute every case on the final candidate, then seal. Every waiting,
+ * store it privately (never committed), execute every case on the implementation candidate, then seal. Every waiting,
  * repair or blocked state returns its blockers; nothing here waives a failure.
  */
 export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliveryResult> {
@@ -106,17 +105,18 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   const tasks = tree.map(r => r.task), scope = options.scope ?? FULL_QA_SCOPE;
   const version = async () => qaDeliveryVersion({tasks, config: options.config,
     candidateCommit: await resolveGitCommit(options.gitRunner, "HEAD"), sourceFingerprint: await options.fingerprint()});
-  let current = await version(), sessions = 0, usage = UNKNOWN_USAGE, imported = false;
+  const current = await version();
+  let sessions = 0, usage = UNKNOWN_USAGE;
   let requestedEdits: QaAuthorResponse["requestedEdits"] = [];
   const result = async (state: QaState, blockers: readonly string[] = [], pins: readonly string[] = []): Promise<QaDeliveryResult> => {
     const control = await store.readControl(taskId);
     return {taskId, state, blockers, pins, plan: control?.plan ?? null, report: control?.report ?? null,
-      attestation: state === "passed" ? control?.attestation ?? null : null, candidateCommit: current.candidateCommit, imported,
+      attestation: state === "passed" ? control?.attestation ?? null : null, candidateCommit: current.candidateCommit, imported: false,
       requestedEdits, sessions, usage};
   };
   // Unchanged conditions: the sealed verdict stands and no model is called.
   if (!options.planOnly && await currentQaAttestation(store, current) !== null) return await result("passed");
-  // QA authors from, imports into and executes an exact commit; uncommitted work would be proof of nothing.
+  // QA authors from and executes an exact commit; uncommitted work would be proof of nothing.
   if (!options.planOnly && (await collectChangeSurface(options.gitRunner)).paths.length > 0)
     throw new AgentOpsError("QA_CANDIDATE_UNCOMMITTED", `Commit the delivery before independent QA for ${taskId}; QA tests an exact committed candidate.`);
   if (!options.planOnly) await options.surfaceCheck?.();
@@ -158,13 +158,10 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   const baselineCommit = root.createdSourceCommit;
   if (baselineCommit === undefined) throw new AgentOpsError("QA_BASELINE_REQUIRED", `${taskId} has no immutable creation baseline for red checks.`);
   const head = current.candidateCommit;
-  // The previous author's committed materials still describe this plan: re-execute them on this candidate, no new session.
+  // The previous author's stored (or legacy committed) materials still describe this plan: re-execute them, no new session.
   const previous = control.attempt === null ? null : await store.get({...control.attempt, kind: "attempt"});
-  let reusable = previous !== null && previous.plan.digest === planRef.digest && previous.lineage !== undefined;
-  for (const material of reusable ? previous!.materials : []) {
-    const blob = await options.gitRunner.run(["show", `${head}:${material.path}`]);
-    if (blob.exitCode !== 0 || sha256(Buffer.from(blob.stdout)) !== material.digest) reusable = false;
-  }
+  const reusable = previous !== null && previous.plan.digest === planRef.digest && previous.lineage !== undefined &&
+    await changedQaMaterial(store, previous, options.gitRunner, head) === null;
   let author: Parameters<typeof executeQaAttempt>[0]["author"];
   if (reusable) {
     const held = await claimQaControl(store, {taskId, controllerId: options.controllerId, session: previous!.session, state: "testing",
@@ -172,8 +169,9 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
     const released = await releaseQaControl(store, held, {state: "testing"}, now());
     author = {session: previous!.session, generation: released.generation, startedAt: now(), usage: UNKNOWN_USAGE, materials: previous!.materials,
       materialDigest: previous!.materialDigest, observations: [], questions: [],
-      // The same candidate keeps its import lineage; a later one names the earlier import its materials came from.
-      lineage: previous!.lineage!.importedCommit === head ? previous!.lineage! : previous!.materials.length === 0 ? {authoredCommit: head, importedCommit: head}
+      // The same candidate keeps its lineage; stored materials name the new candidate, a legacy import the earlier import commit.
+      lineage: previous!.lineage!.importedCommit === head ? previous!.lineage! : previous!.lineage!.stored === true
+        ? {...previous!.lineage!, importedCommit: head} : previous!.materials.length === 0 ? {authoredCommit: head, importedCommit: head}
         : {authoredCommit: head, importedCommit: head, materialsFrom: previous!.lineage!.materialsFrom ?? previous!.lineage!.importedCommit}};
   } else {
     if (options.spend === false) return await sessionRequired();
@@ -194,11 +192,9 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
         ...(options.signal === undefined ? {} : {signal: options.signal}), now, ...(options.probe === undefined ? {} : {probe: options.probe})});
     }
     sessions++; usage = qaUsageSum(usage, authored.usage); requestedEdits = authored.inspected.requestedEdits;
-    const material = await importQaMaterials({checkout: authored.checkout, target: options.root, inspected: authored.inspected, taskId});
-    imported = material.lineage.importedCommit !== material.lineage.authoredCommit;
-    // Imported bytes are committed and verified; the isolated clone is no longer diagnostic.
+    const material = await storeQaMaterials({checkout: authored.checkout, target: options.root, inspected: authored.inspected, store});
+    // Stored bytes are digest-checked; the isolated clone is no longer diagnostic.
     if (parent !== undefined) await removeTemporary(parent);
-    current = await version();
     author = {session: authored.session, generation: authored.control.generation, startedAt, usage: authored.usage, materials: material.materials,
       materialDigest: material.materialDigest, lineage: material.lineage, observations: authored.response.observations, questions: authored.response.questions};
   }

@@ -28,6 +28,8 @@ export interface AcceptanceReplayOptions {
   readonly trusted: boolean;
   readonly scope: "project" | "user";
   readonly signal?: AbortSignal;
+  /** Stored QA materials placed untracked in root for this replay only: exempt from the clean check and read from root. */
+  readonly untrackedMaterials?: readonly string[];
 }
 export interface AcceptanceReplayResult {
   readonly criterionId: string;
@@ -98,7 +100,8 @@ function collected(runner: AcceptanceRunner, output: SpawnResult, checkout: stri
 /** Clean disposable clones are verification checkouts, never managed writer worktrees. */
 export async function replayAcceptance(options: AcceptanceReplayOptions): Promise<AcceptanceReplayResult[]> {
   if (!options.trusted) throw new AgentOpsError("VERIFICATION_UNTRUSTED", "Acceptance runners require the repository's current trust binding.");
-  if ((await collectChangeSurface(options.gitRunner)).paths.length > 0)
+  const untracked = new Set(options.untrackedMaterials ?? []);
+  if ((await collectChangeSurface(options.gitRunner)).paths.some(path => !untracked.has(path)))
     throw new AgentOpsError("ACCEPTANCE_COMMITTED_SOURCE_REQUIRED", "Formal acceptance replay requires a clean committed candidate.");
   const candidate = await resolveGitCommit(options.gitRunner, "HEAD");
   const groups = new Map<string, {baseline: string; runner: AcceptanceRunner; binding: AcceptanceBinding; criteria: AgentTask["criteria"]}>();
@@ -117,6 +120,13 @@ export async function replayAcceptance(options: AcceptanceReplayOptions): Promis
   for (const group of groups.values()) {
     const materials = [] as Array<{path: string; role: string; bytes: Uint8Array; mode: number}>;
     for (const material of group.binding.materials) {
+      if (untracked.has(material.path)) {
+        const path = join(options.root, ...material.path.split("/")), status = await lstat(path);
+        if (!status.isFile() || status.size > 1024 * 1024)
+          throw new AgentOpsError("ACCEPTANCE_UNSAFE_MATERIAL", "A placed QA material must be a bounded regular file.");
+        materials.push({...material, bytes: await readFile(path), mode: 0o644});
+        continue;
+      }
       const metadata = await options.gitRunner.run(["ls-tree", "-z", candidate, "--", material.path]);
       const entry = Buffer.from(metadata.stdout).toString("utf8").match(/^(100644|100755) blob ([a-f0-9]+)\t([^\0]+)\0$/u);
       if (metadata.exitCode !== 0 || entry === null || entry[3] !== material.path)

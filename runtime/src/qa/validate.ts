@@ -109,8 +109,11 @@ function artifact(kind: QaArtifactKind, v: unknown): boolean {
     case "attempt":
       return exact(v, [...base, "id", "generation", "plan", "session", "startedAt", "finishedAt", "materials", "materialDigest", "executions", "usage"], ["lineage"]) &&
         // Lineage names the final candidate: imported material always moves it past the authored commit.
-        (v.lineage === undefined || (shape(v.lineage, ["authoredCommit", "importedCommit"], ["materialsFrom"]) && commitIdentity(v.lineage.authoredCommit) &&
-          v.lineage.importedCommit === version.candidateCommit && Array.isArray(v.materials) && (v.lineage.materialsFrom === undefined
+        (v.lineage === undefined || (shape(v.lineage, ["authoredCommit", "importedCommit"], ["materialsFrom", "stored"]) && commitIdentity(v.lineage.authoredCommit) &&
+          v.lineage.importedCommit === version.candidateCommit && Array.isArray(v.materials) && (v.lineage.stored !== undefined
+            // Stored materials never move the candidate; they are executed from the private store by digest.
+            ? v.lineage.stored === true && v.lineage.materialsFrom === undefined && v.materials.length > 0
+            : v.lineage.materialsFrom === undefined
             ? (v.materials.length === 0) === (v.lineage.authoredCommit === v.lineage.importedCommit)
             // A re-execution imported nothing: it names the candidate twice and the earlier import its materials came from.
             : commitIdentity(v.lineage.materialsFrom) && v.lineage.materialsFrom !== v.lineage.importedCommit &&
