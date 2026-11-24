@@ -160,6 +160,25 @@ export const materialStoreChecks = {
       'Stored materials re-execute without a new author session');
     assert.ok(f.during.length > executed, 'The stored materials were executed again');
     assert.equal(status(f), '');
+    // Placement, execution and removal are serialized under the controller lock: while another holder owns it,
+    // QA neither places nor executes materials; once released, it runs and cleans up.
+    const {withPrivateFileLock} = await load('runtime/src/security/permissions.js');
+    let release, entered;
+    const holding = new Promise(r => {entered = r;});
+    const held = withPrivateFileLock(join(f.store.directory, 'control', `${f.task.id}.materials`), f.store.commonDir,
+      async () => {entered(); await new Promise(r => {release = r;});});
+    await holding;
+    await f.commit(2, 'locked note');
+    const beforeLock = f.during.length;
+    const waiting = f.orchestrate(f.task.id);
+    await new Promise(r => setTimeout(r, 1500));
+    assert.deepEqual({executed: f.during.length, status: status(f)}, {executed: beforeLock, status: ''},
+      'No material is placed or executed while the controller lock is held elsewhere');
+    release(); await held;
+    const unlocked = await waiting;
+    assert.deepEqual({state: unlocked.state, sessions: unlocked.sessions}, {state: 'passed', sessions: 0});
+    assert.ok(f.during.length > beforeLock, 'Materials execute once the lock is released');
+    assert.equal(status(f), '');
     // A failing execution removes the placed materials too.
     await f.commit(3);
     const broken = await f.orchestrate(f.task.id);
