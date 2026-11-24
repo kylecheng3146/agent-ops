@@ -284,7 +284,11 @@ export const executionChecks = {
     assert.match(request.stdin, /loopback bind, ephemeral ports, OS temp\/profile directories, and CDP transport/u);
     const unknownEnvironment = await runQaPlanning({...base, runner: fakePlanner(planAnswer({environment: [
       {name: 'external-browser', required: true, status: 'unknown', evidence: ['No installed browser observed']}]})).runner});
-    assert.equal(unknownEnvironment.state, 'blocked', 'A genuinely unknown external requirement still blocks');
+    // Live: a read-only planner could not probe a Swift toolchain or a desktop session and QA stayed blocked forever.
+    assert.equal(unknownEnvironment.state, 'plan-ready', 'An unprobed (unknown) requirement is advisory; execution proves it');
+    assert.deepEqual(unknownEnvironment.blockers, []);
+    assert.match(request.stdin, /missing only for an absence you observed/u);
+    assert.match(request.stdin, /An absent runner is not environment/u);
     // Live: planners without the baseline twice planned a behavior it already had as behavioral, leaving the case UNKNOWN.
     const baselined = fakePlanner(planAnswer());
     await runQaPlanning({...base, baselineCommit: 'a'.repeat(40), runner: baselined.runner});

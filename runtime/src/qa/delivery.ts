@@ -17,7 +17,7 @@ import { resumeQaAuthor, runQaAuthor, type QaAuthorResult } from "./author.js";
 import { FULL_QA_SCOPE, qaDeliveryTree, qaDeliveryVersion, type QaDeliveryScope } from "./gate.js";
 import { importQaMaterials } from "./materials.js";
 import { runQaPlanning } from "./planning.js";
-import { requireQaPlatform } from "./policy.js";
+import { qaEnvironmentBlocks, requireQaPlatform } from "./policy.js";
 import { currentQaAttestation, executeQaAttempt, qaContractsMatch, qaUsageSum, sealQaAttestation } from "./proof.js";
 import { claimQaControl, releaseQaControl, stopQa, type QaProcessProbe } from "./session.js";
 import type { FileQaStore } from "./store.js";
@@ -56,6 +56,16 @@ export interface QaDeliveryOptions {
   readonly now?: () => string;
   readonly probe?: QaProcessProbe;
   readonly log?: (line: string) => void;
+  /**
+   * Runs before any planner or author session when QA would spend (not sealed-current, not plan-only);
+   * throwing stops QA first, so an unclassified surface is fixed before paid sessions, not after.
+   */
+  readonly surfaceCheck?: () => Promise<void>;
+  /**
+   * false: only zero-spend QA — reuse a current seal or re-execute existing committed materials. A
+   * delivery that needs a planner or author session returns blocked with `qa:session-required`.
+   */
+  readonly spend?: boolean;
 }
 export interface QaDeliveryResult {
   readonly taskId: string;
@@ -107,6 +117,7 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   // QA authors from, imports into and executes an exact commit; uncommitted work would be proof of nothing.
   if (!options.planOnly && (await collectChangeSurface(options.gitRunner)).paths.length > 0)
     throw new AgentOpsError("QA_CANDIDATE_UNCOMMITTED", `Commit the delivery before independent QA for ${taskId}; QA tests an exact committed candidate.`);
+  if (!options.planOnly) await options.surfaceCheck?.();
   let control = await store.readControl(taskId);
   if (control !== null && !control.continuation && options.explicit !== true)
     throw new AgentOpsError("QA_CONTINUATION_DISABLED", `QA for ${taskId} was stopped; only an explicit QA command may continue it.`);
@@ -114,8 +125,10 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   const ids = tasks.map(t => t.id);
   const planCurrent = plan !== null && qaContractsMatch(plan.version, current) && canonicalJson(plan.taskIds) === canonicalJson(ids) &&
     plan.scope === scope.scope && canonicalJson([...plan.dependencyTaskIds].sort()) === canonicalJson([...scope.dependencyTaskIds].sort());
+  const sessionRequired = async () => await result("blocked", ["qa:session-required"]);
   // An explicit qa plan reruns even a current plan: a defective plan must be replaceable.
   if (!planCurrent || options.planOnly === true && options.explicit === true) {
+    if (options.spend === false) return await sessionRequired();
     log(`QA planning for ${taskId}: one independent read-only planner session.`);
     const surface = root.task.surface;
     const planned = await runQaPlanning({store, root: options.root, version: current,
@@ -137,7 +150,7 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   control = control!;
   const planRef = control.plan!;
   if (control.state === "awaiting-input") return await result("awaiting-input", await openQuestions(store, control));
-  const environment = plan!.environment.filter(e => e.required && e.status !== "available").map(e => `environment:${e.name}`);
+  const environment = plan!.environment.filter(qaEnvironmentBlocks).map(e => `environment:${e.name}`);
   if (environment.length > 0) return await result("blocked", environment);
   const baselineCommit = root.createdSourceCommit;
   if (baselineCommit === undefined) throw new AgentOpsError("QA_BASELINE_REQUIRED", `${taskId} has no immutable creation baseline for red checks.`);
@@ -160,6 +173,7 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
       lineage: previous!.lineage!.importedCommit === head ? previous!.lineage! : previous!.materials.length === 0 ? {authoredCommit: head, importedCommit: head}
         : {authoredCommit: head, importedCommit: head, materialsFrom: previous!.lineage!.materialsFrom ?? previous!.lineage!.importedCommit}};
   } else {
+    if (options.spend === false) return await sessionRequired();
     const startedAt = now();
     let authored: QaAuthorResult;
     let parent: string | undefined;

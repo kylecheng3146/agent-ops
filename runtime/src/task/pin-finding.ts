@@ -10,7 +10,7 @@ import {reviewReportDigest, REVIEW_ATTESTATION_DIRECTORY, REVIEW_REPORT_ARTIFACT
 import {validateReviewReport} from "../review/report.js";
 import {validateCriterion} from "../schema/validate.js";
 import {commitIdentity} from "../schema/acceptance.js";
-import {goalHash, taskContractHash} from "./contract.js";
+import {goalHash, qaTaskContractHash, taskContractHash} from "./contract.js";
 import type {StoredTaskRecord} from "./store.js";
 import {qaVersionMatches} from "../qa/policy.js";
 import {FileQaStore} from "../qa/store.js";
@@ -75,7 +75,9 @@ export async function loadFindingPin(root: string, record: StoredTaskRecord, ref
   if (!checked.ok) throw new AgentOpsError("TASK_PIN_CRITERION_INVALID", "Pin requires a valid acceptance criterion.");
   const qa = reference.match(/^qa:([a-f0-9]{64}):(0|[1-9][0-9]{0,2})$/u);
   if (qa !== null) return await loadQaFindingPin(root, record, qa[1]!, Number(qa[2]),
-    input, new Set([taskContractHash(record.task), ...(record.revisions ?? []).flatMap(r => [r.previousHash, r.currentHash])]));
+    // QA versions bind the QA contract hash; reports sealed before 1.4.2 bound the full one.
+    input, new Set([taskContractHash(record.task), qaTaskContractHash(record.task),
+      ...(record.revisions ?? []).flatMap(r => [r.previousHash, r.currentHash, qaTaskContractHash(r.previousTask)])]));
   const match = reference.match(/^([a-f0-9]{64}):(0|[1-9][0-9]{0,2})$/u);
   if (match === null) throw new AgentOpsError("TASK_FINDING_REFERENCE_INVALID", "Finding reference must be report digest:finding index.");
   const digest = match[1]!;

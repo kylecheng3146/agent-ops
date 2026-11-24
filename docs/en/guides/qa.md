@@ -45,10 +45,30 @@ the two fresh reviews; it never replaces either.
    cases must fail by assertion at the baseline and pass on the candidate.
    Nonmechanical cases (for example prose accuracy) are reasoned inspection that
    both final reviewers examine; they are never executed proof.
+   Before starting any planner or author session for an implemented delivery,
+   `verify --task`, `qa run` and `task advance` run the review-time surface gate:
+   if review would stop (for example `SURFACE_UNCLASSIFIED`), QA stops first with
+   `QA_SURFACE_NOT_READY` and the paths to classify, and no session is spent.
+   Plan-only QA after the criteria advisory and an already sealed, current QA skip
+   this check. Discovery does not derive queries from files the QA controller
+   imported in the reviewed range while their bytes still match the recorded QA
+   material digests, so tokens in QA tests never make product files unclassified.
 4. **Seal.** Only the controller seals a PASS, bound to the candidate commit,
-   source fingerprint, goal, task and tree contracts, scope, config and QA policy.
-   Any later change makes it stale; an unchanged candidate reuses it with no
-   model call.
+   source fingerprint, goal, QA task and tree contracts, scope, config and QA policy.
+   The QA contracts cover the goal, title, intent, criteria and only the surface's
+   included `{id, path}` set (or a child's `covers`): reclassifying the surface
+   (exclusions, dismissals, UNKNOWN rows, scenarios, behavior text) keeps the seal
+   current, while a new or moved included surface makes it stale. Any other later
+   change makes it stale; an unchanged candidate reuses it with no model call,
+   and a moved candidate re-executes the existing materials without a new session.
+   The configuration binds QA only through `verification.acceptanceRunners` and the
+   `qa` field, so editing review roles, verification commands or other settings
+   keeps the seal and plan. A QA sealed or planned by 1.4.1 or earlier stays current
+   after upgrading while its inputs are unchanged.
+   `review` and `batch` first run this zero-spend QA (seal reuse or re-execution);
+   when a planner or author session would be needed they report it
+   (`qa:session-required`) instead of starting one, and review stops at
+   `qa-required` until `agent-ops qa run --task <id> --yes`.
 5. **Deliver.** `task complete`, the Stop completion gate, `worktree finish`,
    `task advance`, run finalize and `run land` all require that sealed PASS; both
    reviewers check QA validity, coverage, provenance and fallback reasons under
@@ -81,8 +101,11 @@ the prior plan and failures remain intact.
 The read-only planner checks external requirements such as an installed browser.
 Process launch, loopback ports, temporary profiles and the runner's CDP transport
 are execution preconditions: trusted tests must exercise them. Any execution
-failure remains UNKNOWN or FAIL; missing or unknown external requirements still
-block delivery. Multiple bindings to one runner each retain their exact material
+failure remains UNKNOWN or FAIL. A required environment the planner observed
+missing blocks delivery. One it could not probe from read-only planning (an
+installed toolchain, a desktop GUI session) is recorded as unknown and does not
+block: execution proves mechanical cases, and nonmechanical cases never execute.
+Multiple bindings to one runner each retain their exact material
 digest and their own baseline/candidate pair.
 
 Both final reviewer clones receive the original sealed QA artifacts and their
@@ -131,7 +154,8 @@ window; the private records stay.
   automatic continuation; older immutable plans and history remain. Resolve
   the authority before an explicit new `qa plan` or `qa run`. An empty planner
   turn without a native refusal is `QA_PLAN_NOT_RUN`, not invalid plan data.
-- **Blocked**: missing required environment (`environment:<name>`), a native
+- **Blocked**: required environment observed missing (`environment:<name>`;
+  unknown does not block), a native
   denial or provider limit, or the same semantic failure twice in a row without
   progress. Fix the cause; QA does not install tools or change trust or settings.
 - **Never** edit, weaken or delete QA materials, assertions or requirements to

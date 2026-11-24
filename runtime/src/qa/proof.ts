@@ -6,13 +6,13 @@ import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { collectQaFollowups } from "../followup/intake.js";
 import { readPrivateFile } from "../security/permissions.js";
-import { taskContractHash, treeContractHash } from "../task/contract.js";
+import { qaTaskContractHash, qaTreeContractHash } from "../task/contract.js";
 import { replayAcceptance } from "../verify/acceptance-replay.js";
 import { aggregateAcceptanceRun, makeAcceptanceRun, type AcceptanceRun } from "../verify/acceptance-protocol.js";
 import { resolveGitCommit, type GitRunner } from "../verify/change-surface.js";
 import type { FileEvidenceStore } from "../verify/evidence.js";
 import type { VerificationProcessRunner } from "../verify/spawn.js";
-import { qaVersionMatches } from "./policy.js";
+import { legacyQaVersion, qaEnvironmentBlocks, qaVersionMatches } from "./policy.js";
 import type { FileQaStore } from "./store.js";
 import type { QaAttempt, QaAuthorResponse, QaCase, QaDecision, QaExecution, QaFinding, QaMaterial, QaMaterialLineage, QaPlan,
   QaQuestion, QaReference, QaReport, QaSession, QaState, QaUsage, QaVersion } from "./types.js";
@@ -20,7 +20,8 @@ import type { QaAttempt, QaAuthorResponse, QaCase, QaDecision, QaExecution, QaFi
 const CONTRACT_KEYS = ["taskId", "goalHash", "taskContractHash", "treeContractHash", "scopeHash", "policyHash", "configHash"] as const;
 /** Goal, task, tree, scope, policy and config; the candidate commit and source may move with repairs and imports. */
 export function qaContractsMatch(saved: QaVersion, current: QaVersion): boolean {
-  return CONTRACT_KEYS.every(key => saved[key] === current[key]);
+  const legacy = legacyQaVersion(current);
+  return CONTRACT_KEYS.every(key => saved[key] === current[key]) || (legacy !== undefined && CONTRACT_KEYS.every(key => saved[key] === legacy[key]));
 }
 const fail = (code: string, message: string): never => {throw new AgentOpsError(code, message);};
 const bounded = (value: string, max = 4000) => value.length <= max ? value : `${value.slice(0, max - 1)}…`;
@@ -254,7 +255,7 @@ export async function executeQaAttempt(options: QaAttemptOptions): Promise<QaAtt
   const reportRef = await store.put("report", report);
   const blocking = findings.filter(f => f.blocking);
   const unmet = plan.cases.filter(c => c.required && c.mode !== "nonmechanical" && verdicts.get(c.id)!.status === "UNKNOWN").map(c => c.id);
-  const environment = plan.environment.filter(e => e.required && e.status !== "available").map(e => e.name);
+  const environment = plan.environment.filter(qaEnvironmentBlocks).map(e => e.name);
   const found = await decisions(store, control.decisions);
   const planRef = control.plan;
   const open = requiredQuestions(plan, report).filter(q => !answered(found, planRef, version, q.id)).map(q => q.id);
@@ -317,7 +318,7 @@ export async function sealQaAttestation(options: QaSealOptions): Promise<{readon
     return fail("QA_PROOF_STALE", "QA observations describe another candidate, source, contract, policy or config; re-execute.");
   if (!qaContractsMatch(plan.version, version)) return fail("QA_PLAN_STALE", "The QA plan describes another goal, contract, scope, policy or config.");
   const [root] = options.tasks;
-  if (root?.id !== version.taskId || taskContractHash(root) !== version.taskContractHash || treeContractHash(options.tasks) !== version.treeContractHash ||
+  if (root?.id !== version.taskId || qaTaskContractHash(root) !== version.taskContractHash || qaTreeContractHash(options.tasks) !== version.treeContractHash ||
     canonicalJson(options.tasks.map(t => t.id)) !== canonicalJson(plan.taskIds))
     return fail("QA_PROOF_STALE", "The scoped task tree no longer matches the QA version.");
   if (await resolveGitCommit(options.gitRunner, "HEAD") !== version.candidateCommit) return fail("QA_CANDIDATE_MOVED", "The delivery moved after QA executed.");
@@ -352,7 +353,7 @@ export async function sealQaAttestation(options: QaSealOptions): Promise<{readon
     if (criterion.acceptance !== undefined && criterion.acceptance.mode !== "review-only" &&
       !plan.cases.some(c => c.required && c.mode !== "nonmechanical" && c.criterionIds.includes(criterion.id)))
       blockers.push({code: "QA_MECHANICAL_DOWNGRADE", detail: criterion.id});
-  for (const e of plan.environment.filter(e => e.required && e.status !== "available")) blockers.push({code: "QA_ENVIRONMENT_MISSING", detail: e.name});
+  for (const e of plan.environment.filter(qaEnvironmentBlocks)) blockers.push({code: "QA_ENVIRONMENT_MISSING", detail: e.name});
   const found = await decisions(store, control.decisions);
   for (const q of requiredQuestions(plan, report)) if (!answered(found, control.plan, version, q.id)) blockers.push({code: "QA_DECISION_REQUIRED", detail: q.id});
   if (blockers.length > 0) throw new AgentOpsError(blockers[0]!.code, `QA cannot pass: ${blockers.map(b => `${b.code} ${b.detail}`).join("; ")}.`);

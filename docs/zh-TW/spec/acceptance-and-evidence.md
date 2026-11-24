@@ -78,7 +78,10 @@ English source version: 2026-11-04. Revalidate: when the English specification c
   `user_`、`menu.`）；新增與刪除行的複合識別字（snake_case、camelCase 或含數字，
   因此一般文字單字不會成為查詢）與字串常值（至少 6 字元）。未帶 `--base` 時，
   變更範圍內未追蹤的一般檔案視為全部新增行（含 NUL 位元組的檔案、symlink 與已消失的
-  檔案會略過）。每類衍生查詢上限 400 個；各來源被捨棄的數量一定會回報、絕不默默略過：
+  檔案會略過）。審查範圍內由獨立 QA 匯入 commit（`test(qa): import independent QA
+  materials for <task>`）新增的檔案，只要內容仍符合該 task QA attempt 紀錄的素材
+  digest，就不會產生衍生查詢；它們仍屬於 diff，記錄的查詢也仍搜尋全部。匯入後被
+  修改過的素材，會像一般變更一樣被搜尋。每類衍生查詢上限 400 個；各來源被捨棄的數量一定會回報、絕不默默略過：
   verify 會列印、review packet 會帶上，並告知第二輪 reviewer。衍生查詢在 diff 以外命中
   超過 10 個檔案時視為太通用而略過；略過的查詢依命中數由少到多交給第二輪 reviewer。diff 與 surface 清單之外的任何命中都會擋下 review。
 - 衍生查詢（diff 字詞、template 片段或 hunk header 函式名）的命中若只是巧合，可在

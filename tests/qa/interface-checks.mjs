@@ -379,9 +379,13 @@ export const interfaceChecks = {
     f.git(['checkout', '--', 'feature.mjs']);
     assert.deepEqual(await outcomes(), ['PASS', 'PASS', 'PASS']);
     const saved = await readFile(configPath, 'utf8');
-    await writeFile(configPath, JSON.stringify({...config, verification: {commands: [{...config.verification.commands[0], args: ['other.mjs']}]}}));
+    // Only config that changes how QA executes binds it: verification commands do not, acceptance runners do.
+    await writeFile(configPath, JSON.stringify({...config, verification: {...config.verification, commands: [{...config.verification.commands[0], args: ['other.mjs']}]}}));
     assert.equal(f.git(['status', '--porcelain']), '', 'Config lives outside tracked source, so HEAD and source are unchanged');
-    assert.deepEqual(await outcomes(), ['STALE', 'STALE', 'STALE'], 'Changed config at the same HEAD is never PASS');
+    assert.deepEqual(await outcomes(), ['PASS', 'PASS', 'PASS'], 'Config QA does not execute keeps the seal');
+    await writeFile(configPath, JSON.stringify({...config, verification: {...config.verification, acceptanceRunners: [
+      {id: 'independent-qa', command: 'node', args: ['other.mjs'], cwd: '.', adapter: 'generic'}]}}));
+    assert.deepEqual(await outcomes(), ['STALE', 'STALE', 'STALE'], 'Changed QA runner config at the same HEAD is never PASS');
     await writeFile(configPath, saved);
     assert.deepEqual(await outcomes(), ['PASS', 'PASS', 'PASS']);
     // A finished delivery keeps the proof it finished with, even after the checkout moves on.

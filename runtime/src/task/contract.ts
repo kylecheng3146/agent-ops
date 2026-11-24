@@ -33,3 +33,20 @@ export function treeContractHash(tasks: readonly AgentTask[]): string {
   return sha256(canonicalJson(tasks.map(task => ({id: task.id, hash: taskContractHash(task)}))
     .sort((a, b) => a.id.localeCompare(b.id))));
 }
+/**
+ * What independent QA tested: the task contract minus surface classification. Excluded, dismissed and
+ * UNKNOWN rows, scenarios, behavior text, origin and the revision counter change review, not the tests,
+ * so reclassifying the surface keeps a sealed QA. The included {id, path} set (or a child's covers) still
+ * binds: a new product surface needs a new plan.
+ */
+export function qaTaskContractHash(task: AgentTask): string {
+  const surface = task.surface === undefined ? null : "covers" in task.surface ? {covers: [...task.surface.covers].sort()}
+    : {included: task.surface.included.map(row => ({id: row.id, path: row.path})).sort((a, b) => a.id.localeCompare(b.id))};
+  return sha256(canonicalJson({domain: "agent-ops-qa-contract-v1", goalHash: goalHash(task), title: task.title,
+    intent: task.intent ?? null, criteria: task.criteria.map(criterionContractHash), surface,
+    ...(task.debug === undefined ? {} : {debug: task.debug}), ...(task.qa === undefined ? {} : {qa: task.qa})}));
+}
+export function qaTreeContractHash(tasks: readonly AgentTask[]): string {
+  return sha256(canonicalJson(tasks.map(task => ({id: task.id, hash: qaTaskContractHash(task)}))
+    .sort((a, b) => a.id.localeCompare(b.id))));
+}

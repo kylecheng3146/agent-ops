@@ -119,7 +119,12 @@ Every new task MUST record a surface audit of where else its change lands before
   camelCase or containing digits, so prose words are not queries) and string
   literals from added and removed lines (at least 6 characters). Without
   `--base`, an untracked regular file in the change scope counts as added
-  lines (files with a NUL byte, symlinks and vanished files are skipped). Each
+  lines (files with a NUL byte, symlinks and vanished files are skipped). Files
+  added by an independent-QA import commit in the reviewed range
+  (`test(qa): import independent QA materials for <task>`) seed no derived
+  queries while their bytes still match a material digest recorded in that
+  task's QA attempts; they stay in the diff, and recorded queries still search
+  everything. A material edited after import is searched like any change. Each
   derived kind is capped at 400 queries; the dropped count per source is
   reported, never silent: verify prints it, the review packet carries it and
   the second reviewer is told. A derived

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
@@ -10,6 +10,8 @@ import { loadRules, ruleFires, ruleHits } from "../escape/rules.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { appendLocalLog, type EscapeLessonLogEvent, type EscapeRuleLogEvent } from "../logging/local-log.js";
 import { localStatePaths, readPrivateFile, writePrivateFile } from "../security/permissions.js";
+import { FileQaStore } from "../qa/store.js";
+import type { QaReference } from "../qa/types.js";
 import { globMatcher, isCovers, missingScenarios, parseSurface, SURFACE_AXES, type SurfaceAudit, type SurfaceScenario, type TaskSurface } from "./schema.js";
 
 export type SurfaceCode = "SURFACE_MISSING" | "SURFACE_UNCLASSIFIED" | "SURFACE_QUERY_TOO_BROAD" |
@@ -86,6 +88,56 @@ function git(root: string, args: readonly string[], timeoutMs: number): Promise<
 }
 
 const zList = (value: Buffer) => value.toString("utf8").split("\0").filter(Boolean);
+
+const QA_IMPORT_SUBJECT = /^test\(qa\): import independent QA materials for (task-[A-Za-z0-9-]{1,128})$/u;
+
+/**
+ * Files the QA controller imported in base..HEAD and nobody edited since: tests, not product, so their
+ * tokens are no surface signal. Each import commit names its task; a file counts only when its current
+ * bytes equal a material digest recorded in that task's QA attempts. Any doubt keeps the file searched.
+ */
+async function qaImportedMaterials(root: string, base: string, changed: ReadonlySet<string>, timeoutMs: number): Promise<string[]> {
+  const log = await git(root, ["log", "--format=%H%x1f%s%x1e", `${base}..HEAD`], timeoutMs);
+  if (log.code !== 0) return [];
+  const imports = log.stdout.toString("utf8").split("\x1e").map(row => row.trim().split("\x1f"))
+    .flatMap(([commit, subject]) => {const task = QA_IMPORT_SUBJECT.exec(subject ?? "")?.[1]; return commit && task ? [{commit, task}] : [];});
+  if (imports.length === 0) return [];
+  const common = await git(root, ["rev-parse", "--git-common-dir"], timeoutMs);
+  if (common.code !== 0) return [];
+  const store = new FileQaStore(resolve(root, common.stdout.toString("utf8").trim()));
+  const digests = new Map<string, Set<string>>();
+  const recorded = async (task: string): Promise<Set<string>> => {
+    const key = (path: string, digest: string) => `${path}\0${digest}`;
+    const found = new Set<string>();
+    try {
+      const control = await store.readControl(task);
+      const attempts = new Map<string, QaReference>();
+      if (control?.attempt != null) attempts.set(control.attempt.digest, control.attempt);
+      for (let revision = 1; revision <= (control?.revision ?? 0); revision++) {
+        const attempt = (await store.readControlHistory(task, revision).catch(() => null))?.attempt;
+        if (attempt != null) attempts.set(attempt.digest, attempt);
+      }
+      for (const ref of attempts.values())
+        for (const material of (await store.get({...ref, kind: "attempt"})).materials) found.add(key(material.path, material.digest));
+    } catch { /* unreadable QA state: search everything */ }
+    return found;
+  };
+  const skipped = new Set<string>();
+  for (const {commit, task} of imports) {
+    const added = await git(root, ["diff-tree", "--no-commit-id", "--name-only", "--diff-filter=A", "-r", "-z", commit], timeoutMs);
+    if (added.code !== 0) continue;
+    if (!digests.has(task)) digests.set(task, await recorded(task));
+    for (const path of zList(added.stdout).filter(path => changed.has(path))) {
+      let content: Buffer;
+      try {
+        if (!(await lstat(join(root, path))).isFile()) continue;
+        content = await readFile(join(root, path));
+      } catch { continue; }
+      if (digests.get(task)!.has(`${path}\0${sha256(content)}`)) skipped.add(path);
+    }
+  }
+  return [...skipped].sort();
+}
 
 // Language keywords long enough to pass the length floor carry no surface signal.
 const STOP = new Set(["return", "import", "export", "default", "function", "extends", "implements", "interface", "public",
@@ -247,8 +299,11 @@ export async function runSurfaceGate(input: SurfaceGateInput): Promise<SurfaceGa
   const headResult = await git(input.root, ["rev-parse", "HEAD"], SURFACE_LIMITS.queryTimeoutMs);
   if (headResult.code !== 0) return failed({command: "git rev-parse"});
   const head = headResult.stdout.toString("utf8").trim();
-  const diffResult = await git(input.root, ["diff", "-U0", "--no-color", "--no-ext-diff", input.base ?? "HEAD", "--"],
-    SURFACE_LIMITS.queryTimeoutMs);
+  // QA-imported tests stay in the change set (their own hits are in the diff) but seed no derived queries.
+  const qaMaterials = input.base === undefined ? []
+    : await qaImportedMaterials(input.root, input.base, changed, Math.min(SURFACE_LIMITS.queryTimeoutMs, Math.max(1, remaining())));
+  const diffResult = await git(input.root, ["diff", "-U0", "--no-color", "--no-ext-diff", input.base ?? "HEAD", "--",
+    ...(qaMaterials.length === 0 ? [] : [".", ...qaMaterials.map(path => `:(exclude,literal)${path}`)])], SURFACE_LIMITS.queryTimeoutMs);
   if (diffResult.code !== 0) return failed({command: "git diff"});
   let diff = diffResult.stdout.toString("utf8");
   // Worktree mode: an untracked file in the change scope is all added lines, which git diff never shows.

@@ -35,9 +35,25 @@ PASS 是必要的交付 gate，與 verify 和兩輪全新審查並列，不取�
    專案已設定且受信任的 acceptance runner 執行每個案例：行為型案例必須在 baseline
    因斷言失敗、在候選版本通過。非機械案例（例如文件內容正確性）屬於有理由的檢查，
    由兩位最終審查者確認，永遠不是執行證明。
+   已實作的交付在開始任何 planner 或 author 工作階段之前，`verify --task`、`qa run`
+   與 `task advance` 會先跑 review 時的 surface gate：如果 review 會停下（例如
+   `SURFACE_UNCLASSIFIED`），QA 會先以 `QA_SURFACE_NOT_READY` 停下並列出要分類的
+   路徑，不花任何工作階段。criteria advisory 之後只做規劃的 QA，以及已封存且仍有效
+   的 QA，不跑這個檢查。discovery 不會從審查範圍內由 QA controller 匯入、且內容仍
+   符合紀錄中 QA 素材 digest 的檔案推導查詢，所以 QA 測試裡的 token 不會讓產品檔案
+   變成未分類。
 4. **封存。** 只有 controller 能封存 PASS，並綁定候選 commit、source fingerprint、
-   目標、task 與 tree 契約、範圍、config 與 QA 政策。任何後續變更都會讓它過期；
-   候選版本不變時直接重用，不呼叫模型。
+   目標、QA task 與 tree 契約、範圍、config 與 QA 政策。QA 契約涵蓋目標、標題、
+   intent、驗收條件，以及 surface 中只有 included 的 `{id, path}` 集合（子 task 則是
+   `covers`）：重新分類 surface（排除、dismissed、UNKNOWN、scenarios、behavior 文字）
+   不會讓封存過期；新增或移動 included surface 則會。其他任何後續變更都會讓它過期；
+   候選版本不變時直接重用，不呼叫模型；候選版本移動時，只重新執行既有素材，不開新的
+   工作階段。config 只透過 `verification.acceptanceRunners` 與 `qa` 欄位綁定 QA，
+   修改審查角色、驗證指令或其他設定都不會讓封存與計畫失效。1.4.1 以前封存或規劃的
+   QA，在輸入不變時升級後仍然有效。`review` 與 `batch` 會先跑這個不花費的 QA（重用
+   封存或重新執行）；需要 planner 或 author 工作階段時只回報（`qa:session-required`），
+   不會自行啟動，review 會停在 `qa-required`，直到執行
+   `agent-ops qa run --task <id> --yes`。
 5. **交付。** `task complete`、Stop completion gate、`worktree finish`、
    `task advance`、run finalize 與 `run land` 都要求這份封存 PASS；兩位審查者在
    `qa-proof` 準則下檢查 QA 的有效性、涵蓋範圍、來源與 fallback 原因，finish 收據
@@ -80,7 +96,7 @@ Office 在房間詳細資料與 QA 狀態看板上以「獨立 QA」顯示同樣
   plan 指標並關閉自動續跑；舊的不可變 plan 與歷史仍保留。須先釐清授權，再明確執行新的
   `qa plan` 或 `qa run`。沒有 native 拒絕的空規劃回應是 `QA_PLAN_NOT_RUN`，不會誤報為
   無效 plan 資料。
-- **受阻**：缺少必要環境（`environment:<name>`）、native 拒絕或 provider 限制，或
+- **受阻**：觀察到缺少的必要環境（`environment:<name>`；unknown 不阻擋）、native 拒絕或 provider 限制，或
   同一語意失敗連續兩輪沒有進展。請修正原因；QA 不會安裝工具，也不會更改 trust 或設定。
 - **絕不**為了讓 QA 通過而修改、弱化或刪除 QA 素材、斷言或需求。
 
@@ -122,7 +138,9 @@ Runner 必須能收集新撰寫的素材。本 source repo 提供 `node tests/qa
 
 唯讀 planner 檢查已安裝瀏覽器等外部條件。程序啟動、loopback 連接埠、暫存 profile 與
 runner 的 CDP 傳輸屬於執行前提，必須由可信測試實際驗證；失敗仍是 UNKNOWN 或 FAIL。
-缺少或未知的外部條件仍阻擋交付。同一 runner 的多個 binding 各自保留確切素材 digest
+planner 觀察到缺少的必要環境會阻擋交付；唯讀規劃無法探測的環境（已安裝的 toolchain、
+桌面 GUI session）記為 unknown，不阻擋：mechanical case 由執行證明，nonmechanical case
+從不執行。同一 runner 的多個 binding 各自保留確切素材 digest
 與自己的 baseline／candidate 執行配對。
 
 兩個最終 reviewer clone 都會取得原始封存 QA artifacts 與可信 replay 證據，放在有大小

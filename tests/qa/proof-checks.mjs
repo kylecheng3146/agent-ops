@@ -78,7 +78,8 @@ async function fixture(check) {
     };
     const {TaskService} = await load('runtime/src/task/service.js');
     const {FileTaskStore} = await load('runtime/src/task/store.js');
-    const {taskContractHash, treeContractHash, goalHash} = await load('runtime/src/task/contract.js');
+    // QA versions bind the QA contract hashes (surface reclassification does not void a seal).
+    const {qaTaskContractHash, qaTreeContractHash, goalHash} = await load('runtime/src/task/contract.js');
     const {calculateConfigHash} = await load('runtime/src/config/hash.js');
     const {FileQaStore} = await load('runtime/src/qa/store.js');
     const {FileEvidenceStore} = await load('runtime/src/verify/evidence.js');
@@ -95,7 +96,7 @@ async function fixture(check) {
     const base = new NodeVerificationProcessRunner();
     const processRunner = {start(request) {spawned.count++; return base.start(request);}};
     const version = (task = record.task, candidateCommit = git(['rev-parse', 'HEAD']).trim(), patch = {}) => ({taskId: task.id, goalHash: goalHash(task),
-      taskContractHash: taskContractHash(task), treeContractHash: treeContractHash([task]), scopeHash: 'c'.repeat(64), policyHash: 'a'.repeat(64),
+      taskContractHash: qaTaskContractHash(task), treeContractHash: qaTreeContractHash([task]), scopeHash: 'c'.repeat(64), policyHash: 'a'.repeat(64),
       configHash: calculateConfigHash(config), candidateCommit, sourceFingerprint: hash(candidateCommit), ...patch});
     /** The real isolated-checkout import path: QA adds one new material file, imported as a new final candidate. */
     const importMaterial = async () => {
@@ -196,7 +197,9 @@ export const proofChecks = {
     }
     f.setMode(undefined);
     // Real red -> green: baseline fails by assertion, final committed candidate passes, through configured trusted replay.
-    ready = await f.prepare({cases: [answerCase, docsCase]});
+    // An unprobed (unknown) required environment is advisory: execution proves it, so it neither blocks the attempt nor the seal.
+    ready = await f.prepare({cases: [answerCase, docsCase],
+      environment: [{name: 'desktop-session', required: true, status: 'unknown', evidence: ['Read-only planning cannot probe it']}]});
     const result = await f.execute(ready.generation, imported);
     assert.equal(result.state, 'testing'); assert.deepEqual(result.blockers, []);
     const report = await f.store.get(result.report);

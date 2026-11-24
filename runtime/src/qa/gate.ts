@@ -6,9 +6,9 @@ import { calculateConfigHash, canonicalJson } from "../config/hash.js";
 import { sha256 } from "../fs/hash.js";
 import { AgentOpsError } from "../fs/paths.js";
 import { readPrivateFile } from "../security/permissions.js";
-import { goalHash, taskContractHash, treeContractHash } from "../task/contract.js";
+import { goalHash, qaTaskContractHash, qaTreeContractHash, taskContractHash, treeContractHash } from "../task/contract.js";
 import { FileTaskStore, type StoredTaskRecord } from "../task/store.js";
-import { qaVersionMatches } from "./policy.js";
+import { qaVersionMatches, withLegacyQaVersion } from "./policy.js";
 import { qaHistory } from "./decisions.js";
 import { FileQaStore } from "./store.js";
 import type { QaArtifactKind, QaReference, QaVersion } from "./types.js";
@@ -42,9 +42,15 @@ export function qaScopeHash(taskIds: readonly string[]): string {
 export function qaDeliveryVersion(input: {readonly tasks: readonly AgentTask[]; readonly config: AgentOpsConfig;
   readonly candidateCommit: string; readonly sourceFingerprint: string}): QaVersion {
   const root = input.tasks[0]!;
-  return {taskId: root.id, goalHash: goalHash(root), taskContractHash: taskContractHash(root), treeContractHash: treeContractHash(input.tasks),
-    scopeHash: qaScopeHash(input.tasks.map(t => t.id)), policyHash: root.qa!.policyHash, configHash: calculateConfigHash(input.config),
-    candidateCommit: input.candidateCommit, sourceFingerprint: input.sourceFingerprint};
+  const shared = {taskId: root.id, goalHash: goalHash(root), scopeHash: qaScopeHash(input.tasks.map(t => t.id)), policyHash: root.qa!.policyHash};
+  const tail = {candidateCommit: input.candidateCommit, sourceFingerprint: input.sourceFingerprint};
+  return withLegacyQaVersion(
+    {...shared, taskContractHash: qaTaskContractHash(root), treeContractHash: qaTreeContractHash(input.tasks), configHash: qaConfigHash(input.config), ...tail},
+    {...shared, taskContractHash: taskContractHash(root), treeContractHash: treeContractHash(input.tasks), configHash: calculateConfigHash(input.config), ...tail});
+}
+/** Only config that changes how QA cases execute binds QA: the acceptance runners and the qa field itself. */
+export function qaConfigHash(config: AgentOpsConfig): string {
+  return sha256(canonicalJson({domain: "agent-ops-qa-config-v1", acceptanceRunners: config.verification.acceptanceRunners ?? [], qa: config.qa ?? null}));
 }
 async function git(root: string, args: readonly string[]): Promise<string> {
   return (await exec("git", [...args], {cwd: root, maxBuffer: 1024 * 1024})).stdout.trim();

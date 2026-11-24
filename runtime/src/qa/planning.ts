@@ -18,6 +18,7 @@ import { answeredNothing, deniedToolsOf, extractReviewObject } from "../review/e
 import { buildTargetInvocation } from "../review/invocation.js";
 import { extractUsage } from "../review/usage.js";
 import { claimQaControl, cloneQaCheckout, qaSession, registerQaProcess, releaseQaControl, selectQaHost, type QaProcessProbe } from "./session.js";
+import { qaEnvironmentBlocks } from "./policy.js";
 import type { FileQaStore } from "./store.js";
 import type { QaCase, QaEnvironment, QaPlan, QaReference, QaState, QaUsage, QaVersion } from "./types.js";
 import { parseQaArtifact } from "./validate.js";
@@ -110,7 +111,8 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>, schema: Reco
     "Your clone holds the candidate and its history; baselineCommit in DATA, when present, is that immutable baseline (inspect it with git show <baselineCommit>:<path>). Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
     "When DATA.baselineCommit is supplied, the controller uses it for EVERY QA case. An individual criterion acceptance.baselineCommit belongs to separate task verification and cannot override QA's baseline. Do not copy that criterion's redCheckIds blindly: inspect the QA baseline for each exact assertion. An invariant needs PASS on both sides; a baseline assertion failure needs a behavioral case with a genuinely red designated check. The task verifier separately proves its own pinned baseline.",
     "List every environment a necessary case needs and whether you observed it available, missing or unknown. Do not list the test material QA will add or the isolated writable checkout the controller provides for authoring: they are not environment. Ask a question only for a genuine requirement, scope or authority decision; never answer one yourself.",
-    "Controller-provided execution primitives are not planner environment: the disposable acceptance checkout, subprocess/process launch, loopback bind, ephemeral ports, OS temp/profile directories, and CDP transport used by a bound runner are case preconditions/material requirements. Bind these to the authorized runner/material and let trusted controller execution prove them as PASS or UNKNOWN; do not demand a writable probe in read-only planning. Keep genuine external requirements (including an unobserved or missing installed browser) as required environment blockers.",
+    "Mark an environment missing only for an absence you observed; what read-only planning cannot probe (an installed toolchain, a desktop GUI session) is unknown, which is recorded and does not block because execution proves it. An absent runner is not environment: a case with no runner to bind is nonmechanical. Environment that only nonmechanical cases need is required false, since QA never executes them.",
+    "Controller-provided execution primitives are not planner environment: the disposable acceptance checkout, subprocess/process launch, loopback bind, ephemeral ports, OS temp/profile directories, and CDP transport used by a bound runner are case preconditions/material requirements. Bind these to the authorized runner/material and let trusted controller execution prove them as PASS or UNKNOWN; do not demand a writable probe in read-only planning. List genuine external requirements (such as an installed browser) as required environment: missing when you observed it absent, unknown when you could not probe it.",
     "The advisory in DATA is an earlier data-only criteria review. Consume it as input; it is not executed QA. A plan is not proof: include no verdict.",
     "Use only criterionIds and surfaceIds allowed by the schema. Historical reports and human decisions in DATA retain their exact old versions and references; they are not current proof or answers to a new plan. Inspect prior baseline observations before deciding which checks can be behavioral.",
     "Return only JSON matching this schema.", JSON.stringify(schema),
@@ -219,7 +221,8 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     if (invocation === undefined) throw new AgentOpsError("QA_HOST_UNAVAILABLE", "The QA planner has no read-only invocation.");
     const result = await runVerificationCommand({id: "qa-plan", command: invocation.command, args: [...invocation.args], cwd: ".",
       required: false, evidence: {kind: "exit-code"}}, {cwd: repository, timeoutMs: null, stdin: invocation.stdin, replaceEnv: true,
-      env: isolatedReviewEnvironment(session.host, directory, process.env),
+      // A plan lists every case binding, and agy prints its transcript before the final JSON: the 64 KiB spawn default truncates it.
+      outputLimitBytes: 1024 * 1024, env: isolatedReviewEnvironment(session.host, directory, process.env),
       ...(options.runner === undefined ? {} : {runner: options.runner}), ...(options.signal === undefined ? {} : {signal: options.signal})});
     usage = usageOf(session.host, result.stdout, result.stderr);
     diagnostic = {stdout: Buffer.from(redactSecrets(result.stdout)).subarray(0, 32768).toString("utf8"),
@@ -242,7 +245,7 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     const criteria = new Set(options.tasks.flatMap(t => t.criteria.map(c => c.id)));
     if (plan.questions.some(q => q.criterionIds.some(id => !criteria.has(id)))) planError("A question names a criterion outside the scoped tasks.");
     const ref = await options.store.put("plan", {...plan, environment});
-    const blockers = environment.filter(e => e.required && e.status !== "available").map(e => `${e.name}: ${e.status}`);
+    const blockers = environment.filter(qaEnvironmentBlocks).map(e => `${e.name}: ${e.status}`);
     const state = blockers.length > 0 ? "blocked" : plan.questions.some(q => q.required) ? "awaiting-input" : "plan-ready";
     released = true;
     await releaseQaControl(options.store, held, {state, plan: ref}, now());

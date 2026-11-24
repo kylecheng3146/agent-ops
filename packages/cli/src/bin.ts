@@ -104,6 +104,21 @@ import { hintWriter, withWaitHint } from "./wait-hint.js";
 import { defaultBase } from "./default-base.js";
 import { runAdvanceCommand } from "./commands/advance.js";
 import { qaSourceFingerprint, runDeliveryQa } from "./qa-delivery.js";
+
+/**
+ * Before review checks for a QA PASS: reuse a current seal or re-execute existing QA materials on this
+ * candidate, never starting a paid planner or author session. Anything else is left for review to report.
+ */
+async function zeroSpendQa(root: string, taskId: string, base: string | undefined): Promise<void> {
+  try {
+    const qa = await runDeliveryQa({root, taskId, spend: false, ...(base === undefined ? {} : {base})});
+    if (qa !== null && qa.state !== "passed")
+      process.stderr.write(`agent-ops: QA for ${taskId} is ${qa.state} (${qa.blockers.join("; ") || "no PASS"}); ` +
+        `review needs a QA PASS: agent-ops qa run --task ${taskId} --yes\n`);
+  } catch (error) {
+    process.stderr.write(`agent-ops: zero-spend QA for ${taskId} did not run: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
 import { qaDeliveryError } from "../../../runtime/src/qa/delivery.js";
 import { runQaCommand } from "./commands/qa.js";
 import { qaCommonDirectory } from "../../../runtime/src/qa/gate.js";
@@ -882,6 +897,7 @@ process.exitCode = await runCli(
             process.once("SIGINT", onSigint);
             process.once("SIGTERM", onSigterm);
             try {
+              if (args.taskId !== undefined) await zeroSpendQa(root, args.taskId, args.base);
               return await withWaitHint(await officeCommonDir(root), "review", async () => await runReviewCommand(
                 await buildReviewOptions(args, controller.signal)
               ), hintWriter(args.json));
@@ -947,6 +963,7 @@ process.exitCode = await runCli(
                   return report.status === "PASS" ? "PASS" : "FAIL";
                 },
                 review: async (taskId, base, signal) => {
+                  await zeroSpendQa(root, taskId, base);
                   const reviewed = await runReviewCommand(await buildReviewOptions(
                     taskArgs(taskId, base),
                     signal,
