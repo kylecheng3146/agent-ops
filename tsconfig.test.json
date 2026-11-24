@@ -9,5 +9,9 @@
     "packages/**/*.ts",
     "runtime/**/*.ts",
     "tests/**/*.ts"
+  ],
+  "exclude": [
+    // These release-specific assertions are replayed from the v1.4.1 tag.
+    "tests/qa/release-1-4-1.test.ts"
   ]
 }
