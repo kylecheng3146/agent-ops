@@ -4,6 +4,16 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-24
+
+- Reuse independent QA plans and proofs after surface reclassification or
+  unrelated config changes. Review and batch can re-execute existing materials
+  without starting new planner or author sessions.
+- Check surface readiness before starting new QA sessions. Required environment
+  observed missing still blocks QA, while unknown environment is recorded for
+  execution to verify.
+- Increase the QA planner output limit to retain plans after long transcripts.
+
 ## [1.4.1] - 2026-11-23
 
 - The QA author can write and stop in its isolated clone: in worktree auto
