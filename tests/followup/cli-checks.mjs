@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {chmod, copyFile, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, copyFile, mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -22,7 +22,10 @@ async function cliModule() {
     const api = await load('packages/cli/src/commands/followup.js');
     // tsc emits code only; subprocesses in fixture checkouts need the packaged schema asset too.
     await mkdir(fileURLToPath(moduleUrl('schemas')), {recursive: true});
-    await copyFile(new URL('../../schemas/review-report.schema.json', import.meta.url), fileURLToPath(moduleUrl('schemas/review-report.schema.json')));
+    // Parallel startup shards share this build: stage then rename so a concurrent reader never sees a truncated file.
+    const schema = fileURLToPath(moduleUrl('schemas/review-report.schema.json')), staged = `${schema}.${process.pid}-${Date.now()}.tmp`;
+    await copyFile(new URL('../../schemas/review-report.schema.json', import.meta.url), staged);
+    await rename(staged, schema);
     return api;
   }
   catch (error) {
