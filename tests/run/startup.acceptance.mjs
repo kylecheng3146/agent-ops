@@ -84,8 +84,6 @@ const checks = {
   ...executionChecks,
   ...proofChecks,
   ...deliveryChecks,
-  ...planLifecycleChecks,
-  ...materialStoreChecks,
   ...interfaceChecks,
   ...qaAuthorHookChecks,
   ...operationalChecks,
@@ -169,7 +167,10 @@ const checks = {
     const bound = await bindRunPolicy(repository, state.runId, {config, runtimeHash: 'a'.repeat(64),
       baseTrustBinding: {canonicalPath: root, remoteIdentity: 'local:fixture', configHash: calculateConfigHash(config), runtimeHash: 'b'.repeat(64)}});
     await assert.rejects(readRunPolicy(bound, 'c'.repeat(64)), {code: 'RUN_RUNTIME_CHANGED'});
-  })
+  }),
+  // New check modules append here, at the end, so existing checks keep their i % n shard.
+  ...planLifecycleChecks,
+  ...materialStoreChecks
 };
 
 const executionId = process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-startup';
