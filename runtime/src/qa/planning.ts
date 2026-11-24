@@ -60,7 +60,7 @@ function planningSchema(options: QaPlanningOptions): Record<string, unknown> {
 
 export interface QaPlanningOptions {
   readonly store: FileQaStore;
-  /** The delivery checkout; only its committed candidate is cloned for the planner. */
+  /** The delivery checkout; the planner gets a clone of its baselineCommit (else the committed candidate). */
   readonly root: string;
   readonly version: QaVersion;
   readonly originalGoal: string;
@@ -103,12 +103,12 @@ function redacted(value: unknown): unknown {
 }
 export function qaPlanningPrompt(snapshot: Record<string, unknown>, schema: Record<string, unknown> = QA_PLAN_SCHEMA): string {
   return ["You are an independent QA planner. You did not write this change and share no conversation with its developer.",
-    "The working directory is a read-only clone of the exact candidate commit. Inspect code, tests and configuration as needed; do not modify files or run anything that writes.",
+    "The working directory is a read-only clone at DATA.baselineCommit when present: the task's creation baseline, before any implementation, so you plan from the requirements and never from the developer's code. Without DATA.baselineCommit it is the committed candidate. Inspect code, tests and configuration as needed; do not modify files or run anything that writes.",
     "Plan acceptance testing of the user-visible tasks in originalGoal within the scoped tasks: map every criterion to at least one case and name the surface ids it exercises.",
     "Cover the happy path and, where the risk warrants it, negative, boundary, retry/concurrency and recovery cases. Answer each of the five scenarios as applies with behavior, or na with a reason; they are not exhaustive.",
     "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. DATA.runners shows what each runner executes: read its entry in the clone first and place material only at paths it collects, with check ids exactly as it reports them. Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
     "Ids are lowercase kebab-case. Every binding names at least one material file. A behavioral case lists in redCheckIds at least one of its checkIds that must fail by assertion on the baseline; an invariant case has no redCheckIds; a nonmechanical case has no bindings and a nonmechanicalReason. A scenario is either {\"applies\":true,\"behavior\":...} or {\"na\":...}.",
-    "Your clone holds the candidate and its history; baselineCommit in DATA, when present, is that immutable baseline (inspect it with git show <baselineCommit>:<path>). Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
+    "baselineCommit in DATA, when present, is the immutable baseline your clone is checked out at. Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
     "When DATA.baselineCommit is supplied, the controller uses it for EVERY QA case. An individual criterion acceptance.baselineCommit belongs to separate task verification and cannot override QA's baseline. Do not copy that criterion's redCheckIds blindly: inspect the QA baseline for each exact assertion. An invariant needs PASS on both sides; a baseline assertion failure needs a behavioral case with a genuinely red designated check. The task verifier separately proves its own pinned baseline.",
     "List every environment a necessary case needs and whether you observed it available, missing or unknown. Do not list the test material QA will add or the isolated writable checkout the controller provides for authoring: they are not environment. Ask a question only for a genuine requirement, scope or authority decision; never answer one yourself.",
     "Mark an environment missing only for an absence you observed; what read-only planning cannot probe (an installed toolchain, a desktop GUI session) is unknown, which is recorded and does not block because execution proves it. An absent runner is not environment: a case with no runner to bind is nonmechanical. Environment that only nonmechanical cases need is required false, since QA never executes them.",
@@ -168,7 +168,7 @@ function usageOf(target: ReviewTargetId, stdout: string, stderr: string): QaUsag
 }
 
 /**
- * Independent read-only planning after the data-only criteria advisory. The result is a stored plan
+ * Independent read-only planning at the first QA run, consuming the data-only criteria advisory. The result is a stored plan
  * and a control state; it never becomes an attestation, so it cannot be mistaken for executed proof.
  */
 export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlanningResult> {
@@ -215,7 +215,8 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
       prompt
     ].join("\n");
     if (Buffer.byteLength(prompt) > 256 * 1024) throw new AgentOpsError("QA_PLAN_INPUT_TOO_LARGE", "QA planning input exceeds 256 KiB.");
-    await cloneQaCheckout(options.root, repository, options.version.candidateCommit);
+    // Independence: the planner sees the requirements and the pre-implementation baseline, not the developer's candidate.
+    await cloneQaCheckout(options.root, repository, options.baselineCommit ?? options.version.candidateCommit);
     const invocation = buildTargetInvocation({target: session.host, prompt, responseSchema: schema, repositoryRoot: repository,
       ...(options.model === undefined ? {} : {model: options.model}), ...(options.effort === undefined ? {} : {effort: options.effort})});
     if (invocation === undefined) throw new AgentOpsError("QA_HOST_UNAVAILABLE", "The QA planner has no read-only invocation.");

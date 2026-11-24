@@ -178,7 +178,7 @@ export const deliveryChecks = {
     const {stopQa, claimQaControl} = await load('runtime/src/qa/session.js');
     const root = await enrolledRoot(f);
     assert.ok(root.qa?.required, 'A new delivery root of an opted-in project is enrolled');
-    // Production chain: the advisory step of ordinary creation and of the native run's criteria step is followed by QA planning.
+    // Production chain: the advisory step of ordinary creation and of the native run's criteria step starts no QA planner.
     const {reviewCreatedCriteria} = await need('packages/cli/src/criteria-review.js', 'reviewCreatedCriteria');
     const plain = await f.service(({...config, qa: {enabled: false}})).create({title: 'Legacy', criteria: criteria('legacy')});
     const home = process.env.AGENT_OPS_HOME, write = process.stderr.write;
@@ -189,19 +189,19 @@ export const deliveryChecks = {
       await reviewCreatedCriteria(f.root, root);
       await reviewCreatedCriteria(f.root, plain.task);
     } finally {process.stderr.write = write; if (home === undefined) delete process.env.AGENT_OPS_HOME; else process.env.AGENT_OPS_HOME = home;}
-    assert.match(printed, new RegExp(`Independent QA plan for ${root.id}: NOT_RUN \\(${darwin ? 'QA_HOST_UNAVAILABLE' : 'QA_UNSUPPORTED_PLATFORM'}\\)`),
-      'An enrolled root plans right after its advisory; a missing QA host or unsupported platform is reported, never a silent pass');
-    assert.doesNotMatch(printed, new RegExp(`QA plan for ${plain.task.id}`), 'Unenrolled tasks spend nothing on QA');
+    assert.doesNotMatch(printed, /QA plan for/u, 'QA plans at the first verify/qa run, never right after the advisory');
+    assert.equal(await f.store.readControl(root.id), null, 'No QA plan or control exists after the advisory');
     assert.equal(await checkQaDeliveryEvidence(plain, {root: f.root, config, sourceFingerprint: 'f'.repeat(64)}), null);
     // The same controller plans before implementation (early) and never authors while planning.
     f.planner.answer = planFor(root.id, 'behavior', 'answer-two');
     const planned = await f.orchestrate(root.id, {planOnly: true, timing: 'early'});
     assert.deepEqual({state: planned.state, sessions: planned.sessions, authors: f.calls.length}, {state: 'plan-ready', sessions: 1, authors: 0});
     assert.equal((await f.store.get(planned.plan)).timing, 'early');
-    // Live: an explicit qa plan on a current plan did nothing, so a defective plan could never be rerun; automatic planning still reuses it.
+    // A current plan is reused, even by an explicit qa plan; a defective plan is replaced only with a stated replan.
     await f.orchestrate(root.id, {planOnly: true, timing: 'early'});
-    assert.equal(f.planner.calls, 1, 'Automatic planning reuses a current plan');
-    const replanned = await f.orchestrate(root.id, {planOnly: true, timing: 'early', explicit: true});
+    await f.orchestrate(root.id, {planOnly: true, timing: 'early', explicit: true});
+    assert.equal(f.planner.calls, 1, 'Planning reuses a current plan');
+    const replanned = await f.orchestrate(root.id, {planOnly: true, timing: 'early', explicit: true, replan: {reason: 'Defective case'}});
     assert.deepEqual({state: replanned.state, sessions: replanned.sessions, planner: f.planner.calls}, {state: 'plan-ready', sessions: 1, planner: 2});
     // Integrated delivery: fresh author, import commit, execution on the final candidate, then a controller seal.
     const developed = await f.commit(2);

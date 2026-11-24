@@ -11,7 +11,6 @@ import {FileTaskStore} from "../../../runtime/src/task/store.js";
 import {resolveCheckouts} from "../../../runtime/src/parallel/service.js";
 import {loadEffectiveConfig, runPolicyContext} from "./context.js";
 import {worktreeDependencies} from "./parallel-deps.js";
-import {runDeliveryQa} from "./qa-delivery.js";
 
 async function parentScope(root: string, task: AgentTask): Promise<AgentTask | undefined> {
   const read = async (path: string, id: string): Promise<AgentTask> =>
@@ -63,27 +62,9 @@ export async function reviewCreatedCriteria(root: string, task: AgentTask, rerun
     if (currentView?.report.attemptId === result.report.attemptId) result = {...result, stale: currentView.stale};
     if (controller.signal.aborted) throw new AgentOpsError("CRITERIA_REVIEW_CANCELLED", "Criteria review cancelled; stop before implementation.");
     process.stderr.write(renderCriteriaReview(result) + "\n");
-    if (latest?.task.qa !== undefined) await planDeliveryQa(root, latest.task.id, result, trigger, controller.signal);
+    // No QA plan here: the advisory revise that usually follows voided it. QA plans once at the first verify --task / qa run.
     return result;
   } finally {process.removeListener("SIGINT", int); process.removeListener("SIGTERM", term);}
-}
-
-/**
- * An enrolled delivery root's independent QA plan follows its advisory before implementation, on both
- * ordinary task creation and the native run's criteria step. The plan consumes the advisory as data;
- * a planner that cannot run leaves QA unverified, and every delivery gate still requires a QA PASS.
- */
-async function planDeliveryQa(root: string, taskId: string, advisory: CriteriaReviewView, trigger: CriteriaReviewTrigger | undefined,
-  signal: AbortSignal): Promise<void> {
-  try {
-    const planned = await runDeliveryQa({root, taskId, planOnly: true, timing: trigger === undefined || trigger === "create" ? "early" : "late",
-      advisory, signal});
-    if (planned !== null) process.stderr.write(`Independent QA plan for ${taskId}: ${planned.state}${planned.blockers.length === 0 ? "" : ` (${planned.blockers.join("; ")})`}.\n`);
-  } catch (error) {
-    if (signal.aborted) throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning cancelled; stop before implementation.");
-    process.stderr.write(`Independent QA plan for ${taskId}: NOT_RUN (${error instanceof AgentOpsError ? error.code : "QA_PLAN_FAILED"}): ` +
-      `${error instanceof Error ? error.message : String(error)} Delivery still requires a sealed QA PASS.\n`);
-  }
 }
 
 /** A revise that changed what the advice judged reruns it once; otherwise it reports the current advisory. */

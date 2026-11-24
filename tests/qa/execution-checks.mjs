@@ -291,8 +291,9 @@ export const executionChecks = {
     assert.match(request.stdin, /An absent runner is not environment/u);
     // Live: planners without the baseline twice planned a behavior it already had as behavioral, leaving the case UNKNOWN.
     const baselined = fakePlanner(planAnswer());
-    await runQaPlanning({...base, baselineCommit: 'a'.repeat(40), runner: baselined.runner});
-    assert.ok(baselined.requests[0].stdin.includes(`"baselineCommit":"${'a'.repeat(40)}"`), 'The planner sees the immutable baseline red checks run against');
+    // The planner clone is checked out at the baseline, so it must be a real commit.
+    await runQaPlanning({...base, baselineCommit: f.commit, runner: baselined.runner});
+    assert.ok(baselined.requests[0].stdin.includes(`"baselineCommit":"${f.commit}"`), 'The planner sees the immutable baseline red checks run against');
     assert.match(baselined.requests[0].stdin, /Behavior the baseline already has is an invariant case/u);
     assert.match(baselined.requests[0].stdin, /criterion.*baselineCommit.*cannot override QA/u, 'Separate task-verifier baselines cannot change the controller-owned QA baseline');
     await assert.rejects(runQaPlanning({...base, runner: fakePlanner(planAnswer(), 1).runner}), {code: 'QA_PLAN_NOT_RUN'});

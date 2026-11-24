@@ -37,6 +37,7 @@ import {proofChecks} from '../qa/proof-checks.mjs';
 import {deliveryChecks} from '../qa/delivery-checks.mjs';
 import {interfaceChecks} from '../qa/interface-checks.mjs';
 import {qaAuthorHookChecks} from '../qa/author-hook-checks.mjs';
+import {planLifecycleChecks} from '../qa/plan-lifecycle-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -82,6 +83,7 @@ const checks = {
   ...executionChecks,
   ...proofChecks,
   ...deliveryChecks,
+  ...planLifecycleChecks,
   ...interfaceChecks,
   ...qaAuthorHookChecks,
   ...operationalChecks,

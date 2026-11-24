@@ -35,6 +35,8 @@ export interface DeliveryQaInput {
   readonly planOnly?: boolean;
   readonly timing?: "early" | "late";
   readonly explicit?: boolean;
+  /** qa plan --replan --reason: replace a current plan. */
+  readonly replan?: {readonly reason: string};
   readonly advisory?: CriteriaReviewView | null;
   readonly signal?: AbortSignal;
   /** false: reuse or re-execute only; never start a planner or author session. */
@@ -99,7 +101,8 @@ export async function runDeliveryQa(input: DeliveryQaInput): Promise<QaDeliveryR
       state.sessions.find(s => s.taskId === taskId)?.sessionId ?? "unrecorded-implementation-session",
     advisory: input.advisory !== undefined ? input.advisory : await readCriteriaReview(root, record.task).catch(() => null), host: kind => qaAuthorHost(kind),
     ...(input.timing === undefined ? {} : {timing: input.timing}), ...(input.planOnly === undefined ? {} : {planOnly: input.planOnly}),
-    ...(input.explicit === undefined ? {} : {explicit: input.explicit}), ...(input.signal === undefined ? {} : {signal: input.signal}),
+    ...(input.explicit === undefined ? {} : {explicit: input.explicit}), ...(input.replan === undefined ? {} : {replan: input.replan}),
+    ...(input.signal === undefined ? {} : {signal: input.signal}),
     ...(input.spend === undefined ? {} : {spend: input.spend}),
     surfaceCheck: async () => await qaSurfaceCheck({root, taskId, records: state.tasks, config, ...(input.base === undefined ? {} : {base: input.base})}),
     log: line => process.stderr.write(`${line}\n`)});

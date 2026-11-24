@@ -134,6 +134,8 @@ export interface ParsedArgs {
   expectedContract?: string;
   expectedTreeContract?: string;
   reason?: string;
+  /** qa plan: replace a current plan; requires reason. */
+  replan?: boolean;
   baseline?: string;
   findingReference?: string;
   evidence?: string[];
@@ -1306,7 +1308,8 @@ function parseQaArgs(argv: readonly string[]): ParsedArgs {
     seen.add(token);
     if (token === "--json") {args.json = true; continue;}
     if (token === "--yes") {args.yes = true; continue;}
-    if (!["--task", "--base", "--question", "--answer"].includes(token))
+    if (token === "--replan") {args.replan = true; continue;}
+    if (!["--task", "--base", "--question", "--answer", "--reason"].includes(token))
       throw new CliArgumentError("CLI_UNKNOWN_OPTION", `Unknown qa option: ${token}`, token);
     const value = readOptionValue(argv, i++, token);
     if (value.trim() === "" || value.includes("\0")) invalidValue(token, value);
@@ -1317,8 +1320,14 @@ function parseQaArgs(argv: readonly string[]): ParsedArgs {
     if (token === "--base") args.base = value;
     if (token === "--question") args.questionId = value;
     if (token === "--answer") args.answer = value;
+    if (token === "--reason") args.reason = value;
   }
   if (args.taskId === undefined) throw new CliArgumentError("CLI_MISSING_VALUE", `qa ${action} requires --task <id>.`, "--task");
+  if ((args.replan === true || args.reason !== undefined) && action !== "plan")
+    throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", "--replan and --reason may be used only with qa plan.", args.replan === true ? "--replan" : "--reason");
+  // Replacing a current plan spends a planner session, so the cause is stated up front.
+  if ((args.replan === true) !== (args.reason !== undefined))
+    throw new CliArgumentError("CLI_MISSING_VALUE", "qa plan --replan requires --reason <text>, and --reason requires --replan.", "--reason");
   if ((action === "plan" || action === "run") !== args.yes)
     throw new CliArgumentError("CLI_OPTION_NOT_ALLOWED", action === "plan" || action === "run"
       ? `qa ${action} requires --yes to authorize independent QA model sessions.`

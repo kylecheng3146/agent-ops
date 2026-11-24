@@ -47,9 +47,11 @@ export interface QaDeliveryOptions {
   readonly checkouts?: string;
   /** Timing of a plan this call has to make; a supplement to an earlier early plan stays early. */
   readonly timing?: "early" | "late";
-  /** Production task creation: plan before implementation, never execute. */
+  /** agent-ops qa plan: plan (or reuse a current plan), never execute. */
   readonly planOnly?: boolean;
   readonly explicit?: boolean;
+  /** Replace even a current plan (qa plan --replan); the reason is logged so a replan is never silent. */
+  readonly replan?: {readonly reason: string};
   readonly planningRunner?: VerificationProcessRunner;
   readonly platform?: NodeJS.Platform;
   readonly signal?: AbortSignal;
@@ -126,10 +128,11 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
   const planCurrent = plan !== null && qaContractsMatch(plan.version, current) && canonicalJson(plan.taskIds) === canonicalJson(ids) &&
     plan.scope === scope.scope && canonicalJson([...plan.dependencyTaskIds].sort()) === canonicalJson([...scope.dependencyTaskIds].sort());
   const sessionRequired = async () => await result("blocked", ["qa:session-required"]);
-  // An explicit qa plan reruns even a current plan: a defective plan must be replaceable.
-  if (!planCurrent || options.planOnly === true && options.explicit === true) {
+  // A current plan is reused, even by an explicit qa plan; only a stated replan replaces it.
+  if (!planCurrent || options.replan !== undefined) {
     if (options.spend === false) return await sessionRequired();
-    log(`QA planning for ${taskId}: one independent read-only planner session.`);
+    log(planCurrent ? `QA replanning for ${taskId} (reason: ${options.replan!.reason}): one independent read-only planner session.`
+      : `QA planning for ${taskId}: one independent read-only planner session.`);
     const surface = root.task.surface;
     const planned = await runQaPlanning({store, root: options.root, version: current,
       originalGoal: root.task.goal ?? root.task.intent ?? root.task.title, tasks, dependencyTaskIds: scope.dependencyTaskIds, scope: scope.scope,
