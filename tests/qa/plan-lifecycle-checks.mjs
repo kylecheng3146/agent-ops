@@ -105,6 +105,8 @@ export const planLifecycleChecks = {
       reason: 'Advisory: state the exact value'});
     const afterRevise = await advisoryOutput(f, () => reviewCreatedCriteria(f.root, revised.task, true, 'revise'));
     assert.doesNotMatch(created + afterRevise, /QA plan/u, 'task create and revise start no QA planner after the advisory');
+    assert.match(created, /Criteria advisory/u, 'The criteria advisory itself still runs and reports on create');
+    assert.match(afterRevise, /Criteria advisory/u, 'The criteria advisory itself still runs and reports on revise');
     assert.equal(await f.store.readControl(task.id), null, 'No QA plan or control is written at create/revise');
     assert.equal(f.planner.calls, 0);
     // First QA run after implementation: exactly one planner session, cloned at the creation baseline, not the candidate.
