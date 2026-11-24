@@ -174,8 +174,16 @@ const requestedChecks = (process.env.AGENT_OPS_ACCEPTANCE_CHECKS ?? '').split(',
 const selectedChecks = requestedChecks.length > 0
   ? Object.entries(checks).filter(([id]) => requestedChecks.includes(id))
   : Object.entries(checks);
+// Opt-in i/n sharding after the check filter, so npm test can run the checks in parallel processes.
+const shard = process.env.AGENT_OPS_ACCEPTANCE_SHARD ?? '';
+const shardMatch = /^(\d+)\/(\d+)$/u.exec(shard);
+const [shardIndex, shardCount] = shard === '' ? [0, 1] : shardMatch ? [Number(shardMatch[1]), Number(shardMatch[2])] : [NaN, NaN];
+if (!(shardCount >= 1 && shardIndex < shardCount)) {
+  process.stderr.write(`Invalid AGENT_OPS_ACCEPTANCE_SHARD ${JSON.stringify(shard)}: expected i/n with 0 <= i < n.\n`);
+  process.exit(2);
+}
 const results = [];
-for (const [checkId, check] of selectedChecks) {
+for (const [checkId, check] of selectedChecks.filter((_, i) => i % shardCount === shardIndex)) {
   process.stderr.write(`startup: ${checkId}\n`);
   let status = 'PASS', failureClass = 'none', detail = 'Real Git/process assertions completed';
   try {await check();} catch (e) {status = 'FAIL'; failureClass = e.code === 'ERR_ASSERTION' ? 'assertion-failed' : 'infrastructure-error'; detail = String(e.stack ?? e).replace(/[\r\n]/gu, ' ').slice(0,4000);}
