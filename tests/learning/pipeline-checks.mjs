@@ -557,7 +557,8 @@ process.stdout.write(JSON.stringify(value));});
         moduleUrl('packages/cli/src/learning-deps.js'), moduleUrl('packages/cli/src/parallel-deps.js'), x.f.root], {env});
       const job = JSON.parse(launched.stdout); assert.ok(job, 'Production scheduler starts an explicitly registered fixture');
       let result;
-      for (let i = 0; i < 150; i++) {
+      // Seven spawned fake-model calls reached only 6 within 15 s under the 8-shard suite load; allow 60 s.
+      for (let i = 0; i < 600; i++) {
         result = (await x.controller.read()).jobs.find(j => j.id === job.id);
         if (!['launching', 'running'].includes(result.status)) break;
         await new Promise(resolve => setTimeout(resolve, 100));
