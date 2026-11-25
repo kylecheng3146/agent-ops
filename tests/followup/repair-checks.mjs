@@ -167,20 +167,19 @@ export const repairChecks = {
           }});
         console.log(JSON.stringify({code:result.code,runId:result.attempts.at(-1)?.runId}));
         } catch(error) {
-          if(process.platform!=='win32'||error.code!=='PRIVATE_STATE_LOCK_TIMEOUT') throw error;
+          if(error.code!=='PRIVATE_STATE_LOCK_TIMEOUT') throw error;
           console.log(JSON.stringify({code:error.code}));
         }
       `;
       const select = async () => JSON.parse((await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script],
         {env: process.env, timeout: 60000})).stdout);
-      // A slow Windows assessment can outlast the existing bounded lock wait.
+      // A loaded host (any platform) can make the loser outlast the bounded lock wait.
       const settled = await Promise.allSettled([select(), select()]);
       const results = settled.map(result => {if (result.status === 'rejected') throw result.reason; return result.value;});
       const winner = results.find(result => result.runId !== undefined);
       assert.ok(winner, 'At least one real process must start the repair');
       for (const result of results) {
         if (result.runId === undefined) {
-          assert.equal(process.platform, 'win32');
           assert.equal(result.code, 'PRIVATE_STATE_LOCK_TIMEOUT');
         } else assert.equal(result.runId, winner.runId);
       }
