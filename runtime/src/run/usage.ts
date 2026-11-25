@@ -15,8 +15,15 @@ function appendUsage(current: RunState, incoming: UsageHighWater): RunState {
   const usage = recordUsage(current.usage ?? [], incoming);
   const total = (key: "totalTokens" | "costUsd") => usage.some(u => u[key] !== null)
     ? usage.reduce((sum, u) => sum + (u[key] ?? 0), 0) : null;
+  // Claude reports total_cost_usd cumulatively per native session, so each result restates it: count each session's maximum once.
+  const sessionCost = new Map<string, number>();
+  for (const u of usage) if (u.costUsd !== null) {
+    const key = u.source === "claude" ? u.epoch.split(":").slice(0, 2).join(":") : `${u.source}\0${u.epoch}`;
+    sessionCost.set(key, Math.max(sessionCost.get(key) ?? 0, u.costUsd));
+  }
+  const usd = sessionCost.size === 0 ? null : [...sessionCost.values()].reduce((a, b) => a + b, 0);
   return {...current, usage, budget: {...current.budget, usage: {...current.budget.usage,
-    tokens: total("totalTokens"), usd: total("costUsd"), completeness: "partial", source: "native-and-review-epoch-ledger",
+    tokens: total("totalTokens"), usd, completeness: "partial", source: "native-and-review-epoch-ledger",
     highWaterMark: total("totalTokens") ?? 0}}};
 }
 

@@ -45,6 +45,22 @@ export const runResilienceChecks = {
     const {nativeProviderLimit, recordProviderWait, resumeProviderWait} = await load('runtime/src/run/provider-wait.js');
     assert.equal(nativeProviderLimit({error: {codexErrorInfo: {code: 'usage_limit_reached'}}}).reason, 'usage_limit_reached');
     assert.equal(nativeProviderLimit({message: 'usage_limit_reached resets tomorrow'}), null, 'Model prose cannot schedule execution');
+    // Claude stream-json shapes: the wrapped API error and the rejected rate_limit_event that carries the reset.
+    const resetsAt = Math.ceil(now / 1000) + 600;
+    assert.equal(nativeProviderLimit({type: 'assistant', is_api_error_message: true, api_error_status: 429, api_error: 'usage_limit_reached',
+      message: {content: [{type: 'text', text: "You've hit your 5-hour limit"}]}}).reason, 'usage_limit_reached');
+    const rejected = {type: 'rate_limit_event', rate_limit_info: {status: 'rejected', resetsAt, rateLimitType: 'five_hour'}};
+    assert.deepEqual(nativeProviderLimit(rejected), {reason: 'rate_limit_rejected', resetAt: new Date(resetsAt * 1000).toISOString()});
+    assert.equal(nativeProviderLimit({type: 'rate_limit_event', rate_limit_info: {status: 'allowed', resetsAt}}), null, 'An allowed rate limit is not a limit');
+    assert.equal(nativeProviderLimit({type: 'assistant', message: {content: [{type: 'text', text: "You've hit your 5-hour limit"}]}}), null);
+    await fixture(async f => {
+      await recordProviderWait(f.repository, {...f.event, payload: rejected});
+      const saved = await f.repository.read(f.state.runId);
+      assert.equal(saved.status, 'budget-limited');
+      assert.equal(saved.providerWait.resetAt, new Date(resetsAt * 1000).toISOString(), 'The rejected event schedules the wait at its reset');
+      assert.ok(saved.events.some(e => e.code === 'RUN_PROVIDER_QUOTA_WAIT'));
+      assert.ok(!saved.events.some(e => e.code === 'RUN_REPAIR_SENT'), 'A provider limit sends no repair');
+    });
     await recordProviderWait(repository, event);
     const waiting = await repository.read(state.runId);
     assert.equal(waiting.status, 'budget-limited'); assert.equal(waiting.disableRestart, false);

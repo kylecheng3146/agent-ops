@@ -9,6 +9,30 @@ import {recordNativeRunUsage, recordReviewRunUsage, recordSavedReviewRunUsage} f
 import type {ReviewReportArtifact} from "../../runtime/src/review/attestation.js";
 import type {NativeGoalEvent} from "../../runtime/src/run/hosts/types.js";
 
+test("claude cumulative session cost counts once per native session while tokens keep summing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-usage-"));
+  try {
+    const repository = new FileRunRepository(join(root, "runs"), root);
+    const state = createRunState({root, commonDir: root, targetBranch: "main", goal: "Count cost once.", host: "claude", ownerSessionId: "owner"});
+    const worker = {workerId: "worker", taskId: "task", host: "claude" as const, ownerSessionId: "owner",
+      nativeSessionId: "session-a", nativeJobId: null, worktree: root, processId: null, processIdentity: null,
+      generation: 1, status: "running" as const, leaseExpiresAt: null, heartbeatAt: null, stopIntent: null, nativeGoalState: "active" as const, lastFailure: null};
+    await repository.create({...state, workers: [worker]});
+    let n = 0;
+    const result = (cost: number, tokens: number): NativeGoalEvent => ({runId: state.runId, workerId: "worker", generation: 1,
+      contractHash: state.goalHash, host: "claude", type: "completed", at: "2026-11-25T00:00:00Z", nativeStatus: "active", proof: false,
+      payload: {type: "result", uuid: `result-${++n}`, total_cost_usd: cost, usage: {input_tokens: tokens, output_tokens: 0}}});
+    for (const [cost, tokens] of [[0.30, 100], [0.81, 50], [0.81, 0], [0.81, 0]] as const) await recordNativeRunUsage(repository, result(cost, tokens));
+    let saved = (await repository.read(state.runId))!;
+    assert.equal(saved.budget.usage.usd, 0.81, "A cumulative session cost is counted at its maximum, once");
+    assert.equal(saved.budget.usage.tokens, 150, "Per-result tokens still add up");
+    await repository.mutate(state.runId, current => ({...current, workers: current.workers.map(w => ({...w, nativeSessionId: "session-b"}))}));
+    await recordNativeRunUsage(repository, result(0.20, 10));
+    saved = (await repository.read(state.runId))!;
+    assert.ok(Math.abs(saved.budget.usage.usd! - 1.01) < 1e-9, "Different native sessions add up");
+  } finally {await rm(root, {recursive: true, force: true});}
+});
+
 test("native usage deduplicates thread totals, preserves resumed sessions and rejects stale writers", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-usage-"));
   try {

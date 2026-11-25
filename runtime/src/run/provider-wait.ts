@@ -15,8 +15,10 @@ export function nativeProviderLimit(value: unknown): {reason: string; resetAt: s
   for (let i = 0; i < nodes.length && i < 16; i++)
     for (const key of ["error", "codexErrorInfo", "apiErrorParams", "rate_limit_info", "quotaLimits", "rateLimits", "primary", "secondary", "turn", "goal"])
       if (record(nodes[i][key]) && nodes.length < 16) nodes.push(nodes[i][key] as Record<string, unknown>);
-  const code = nodes.flatMap(n => [n.apiError, n.code, n.codexErrorInfo, n.type, n.status]).find(v => typeof v === "string" &&
-    /^(?:usage_limit_reached|rate_limit_exceeded|rate_limit_error|quota_exceeded|usageLimitExceeded|usageLimited)$/iu.test(v));
+  // Claude stream-json wraps API errors as api_error/api_error_status and announces a hit limit as a rejected rate_limit_event.
+  const code = nodes.flatMap(n => [n.apiError, n.api_error, n.code, n.codexErrorInfo, n.type, n.status]).find(v => typeof v === "string" &&
+    /^(?:usage_limit_reached|rate_limit_exceeded|rate_limit_error|quota_exceeded|usageLimitExceeded|usageLimited)$/iu.test(v)) ??
+    (record(value.rate_limit_info) && value.rate_limit_info.status === "rejected" ? "rate_limit_rejected" : undefined);
   if (typeof code !== "string") return null;
   const times = nodes.flatMap(n => [n.resetsAt, n.resetAt]).map(v => typeof v === "number" && Number.isFinite(v)
     ? (v < 1e12 ? v * 1000 : v) : typeof v === "string" ? Date.parse(v) : NaN).filter(t => Number.isFinite(t) && t > 0 && t < 8.64e15);
