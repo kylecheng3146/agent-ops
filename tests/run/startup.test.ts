@@ -32,6 +32,20 @@ function report(shard: {code: number | null; signal?: string | null; stdout: str
   }
 }
 
+test("a crashed startup shard is named by label, exit, signal and its last stderr lines", () => {
+  // 25 stderr lines: the tail keeps the last 20, so the first lines drop and the last "startup: <checkId>" stays.
+  const stderr = Array.from({length: 24}, (_, i) => `startup: check-${i}`).concat("boom").join("\n");
+  for (const shard of [{code: 1, signal: null}, {code: null, signal: "SIGKILL"}]) {
+    assert.throws(() => report({...shard, stdout: "", stderr}, "shard 6"), (e: Error) => {
+      assert.match(e.message, /^shard 6 printed no JSON report/u);
+      assert.ok(e.message.includes(`exit ${shard.code}, signal ${shard.signal ?? "none"}`), e.message);
+      assert.ok(e.message.includes("startup: check-23\nboom"), e.message);
+      assert.ok(!e.message.includes("startup: check-4\n"), "only the last 20 stderr lines are kept");
+      return true;
+    });
+  }
+});
+
 test("run startup ignores live runtime artifacts and preserves source and runtime gates", async () => {
   // One serial process took over 11 minutes; shards run the same checks in parallel processes.
   const shards = await Promise.all(Array.from({length: SHARDS}, (_, i) => runStartup({AGENT_OPS_ACCEPTANCE_SHARD: `${i}/${SHARDS}`})));
