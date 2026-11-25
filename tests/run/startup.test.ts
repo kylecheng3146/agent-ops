@@ -7,8 +7,8 @@ import test from "node:test";
 interface Report {completed: boolean; results: {checkId: string; status: string}[]}
 const SHARDS = 8;
 
-// The runner exits 1 on any FAIL; keep its stdout so the failing checks are named.
-async function runStartup(extra: Record<string, string>): Promise<{code: number; stdout: string}> {
+// The runner exits 1 on any FAIL; keep its stdout so the failing checks are named, and its stderr so a crash names its check.
+async function runStartup(extra: Record<string, string>): Promise<{code: number | null; stdout: string; stderr: string; signal?: string | null}> {
   const env: NodeJS.ProcessEnv = {...process.env, AGENT_OPS_DEBUG_TEST_BUILD: resolve(".tmp/test-dist")};
   delete env.AGENT_OPS_ACCEPTANCE_CHECKS; delete env.AGENT_OPS_ACCEPTANCE_SHARD;
   return await promisify(execFile)(process.execPath, ["tests/run/startup.acceptance.mjs"], {
@@ -17,19 +17,27 @@ async function runStartup(extra: Record<string, string>): Promise<{code: number;
     // Windows CI ran past 20 minutes on Node 22 once the learning checks were added;
     // a loaded macOS machine ran past 15. Stay under the 30-minute node-test verifier cap.
     timeout: process.platform === "win32" ? 2_400_000 : 1_500_000, maxBuffer: 4 * 1024 * 1024
-  }).then(r => ({code: 0, stdout: r.stdout}), (e: {code?: unknown; stdout?: string}) => {
-    if (typeof e.code !== "number") throw e;
-    return {code: e.code, stdout: e.stdout ?? ""};
+  }).then(r => ({code: 0, stdout: r.stdout, stderr: r.stderr}), (e: {code?: unknown; signal?: string | null; stdout?: string; stderr?: string}) => {
+    // A signal-killed shard has code null; keep it so report() names the crash instead of throwing here.
+    if (typeof e.code !== "number" && !e.signal) throw e;
+    return {code: typeof e.code === "number" ? e.code : null, signal: e.signal ?? null, stdout: e.stdout ?? "", stderr: e.stderr ?? ""};
   });
 }
-const report = (stdout: string): Report => JSON.parse(stdout.trim()) as Report;
+// A shard whose stdout is not the JSON report crashed: name its exit, signal and last stderr lines (the last "startup: <checkId>").
+function report(shard: {code: number | null; signal?: string | null; stdout: string; stderr: string}, label = "startup runner"): Report {
+  try {return JSON.parse(shard.stdout.trim()) as Report;}
+  catch (e) {
+    const tail = shard.stderr.trimEnd().split(/\r?\n/u).slice(-20).join("\n");
+    assert.fail(`${label} printed no JSON report (exit ${shard.code}, signal ${shard.signal ?? "none"}: ${(e as Error).message}); stderr tail:\n${tail}`);
+  }
+}
 
 test("run startup ignores live runtime artifacts and preserves source and runtime gates", async () => {
   // One serial process took over 11 minutes; shards run the same checks in parallel processes.
   const shards = await Promise.all(Array.from({length: SHARDS}, (_, i) => runStartup({AGENT_OPS_ACCEPTANCE_SHARD: `${i}/${SHARDS}`})));
   const ids: string[] = [];
   for (const [i, shard] of shards.entries()) {
-    const r = report(shard.stdout);
+    const r = report(shard, `shard ${i}`);
     assert.equal(r.completed, true, `shard ${i} completed`);
     assert.deepEqual(r.results.filter(x => x.status !== "PASS"), [], `shard ${i} has no failing check`);
     ids.push(...r.results.map(x => x.checkId));
@@ -43,7 +51,7 @@ test("startup runner shards after the check filter and rejects malformed shards"
   const ids = async (extra: Record<string, string>) => {
     const r = await runStartup({...only, ...extra});
     assert.equal(r.code, 0);
-    const parsed = report(r.stdout);
+    const parsed = report(r);
     assert.equal(parsed.completed, true);
     return parsed.results.map(x => x.checkId);
   };
