@@ -1,5 +1,5 @@
 // Independent QA: configuration guides document the Codex-only catalog id pin; CHANGELOG records it and the 900 s
-// learning call deadline under [Unreleased] without a version bump. Run by tests/qa/acceptance.mjs from the checkout root.
+// learning call deadline (first under [Unreleased], released in 1.4.3). Run by tests/qa/acceptance.mjs from the checkout root.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -31,18 +31,9 @@ export const checks = {
       assert.ok(sentences.some(s => /effort/iu.test(s) && s.includes('-high') && g.negation.test(s)),
         `${g.path} says an effort word such as -high is not accepted as a catalog name`);
     }
-    const lines = (await read('CHANGELOG.md')).split('\n'), start = lines.indexOf('## [Unreleased]');
-    assert.ok(start >= 0, 'CHANGELOG keeps ## [Unreleased]');
-    const end = lines.findIndex((line, i) => i > start && line.startsWith('## ['));
-    const unreleased = lines.slice(start + 1, end < 0 ? undefined : end).join(' ').replace(/\s+/gu, ' ');
-    assert.ok(unreleased.includes('gpt-6.2-sol'), '[Unreleased] records the Codex catalog id pin');
-    assert.ok(unreleased.includes('900 s'), '[Unreleased] records the 900 s learning call deadline');
-  },
-  'no-version-bump-invariant': async () => {
-    assert.equal(JSON.parse(await read('package.json')).version, '1.4.2', 'package.json stays at 1.4.2');
-    const lines = (await read('CHANGELOG.md')).split('\n'), start = lines.indexOf('## [Unreleased]');
-    assert.ok(start >= 0, 'CHANGELOG keeps ## [Unreleased]');
-    const next = lines.find((line, i) => i > start && line.startsWith('## ['));
-    assert.ok(next?.startsWith('## [1.4.2]'), `The newest release heading stays 1.4.2, got ${next}`);
+    // ponytail: whole-file match; the entries moved from [Unreleased] to [1.4.3] at release.
+    const changelog = (await read('CHANGELOG.md')).replace(/\s+/gu, ' ');
+    assert.ok(changelog.includes('gpt-6.2-sol'), 'CHANGELOG records the Codex catalog id pin');
+    assert.ok(changelog.includes('900 s'), 'CHANGELOG records the 900 s learning call deadline');
   }
 };

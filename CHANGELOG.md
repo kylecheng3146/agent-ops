@@ -4,6 +4,8 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-11-25
+
 - Automatic learning accepts an exact Codex catalog id (`gpt-<version>-<name>`,
   such as `gpt-6.2-sol`) as a fixed model under target `codex`. Codex lists no
   dated snapshots, so every Codex registration waited `MODEL_NOT_FIXED`. Bare
@@ -12,6 +14,24 @@ All notable changes to the project are documented here.
 - A learning experiment call now has 900 s instead of 300 s. One call answers
   every suite case at once, and agy needs about 150 s per case, so six cases
   were cut off at 300 s and recorded `TARGET_FAILED`.
+- `agent-ops qa show` explains why QA is blocked or re-planned: which version
+  keys moved since the plan or seal, the planner host and its fallback reason,
+  and the last author stop or planner diagnostics file. QA blocker lines point
+  to it.
+- Task create and revise no longer start a QA planner. The first `verify --task`
+  or `qa run` plans; `qa plan` reuses a current plan without a model call, and
+  replacing it needs `--replan --reason <text>`.
+- QA materials are stored privately under `.git/agent-ops/qa/materials/` and
+  placed untracked only while they run, so a QA PASS no longer creates an
+  import commit and verification evidence stays fresh.
+- A QA planner or author that hits a provider limit retries once on each
+  remaining eligible configured host. With no host left QA stops blocked with
+  `QA_PROVIDER_LIMIT` and every known reset. Each QA session is logged as a
+  `qa-session` event.
+- Runs recognize Claude stream-json provider limits (`api_error` and a rejected
+  `rate_limit_event`) and wait for the reset instead of looping repairs, and a
+  run counts each Claude session's cost once instead of summing cumulative
+  totals.
 
 ## [1.4.2] - 2026-11-24
 
