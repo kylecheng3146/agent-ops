@@ -84,8 +84,16 @@ export interface CriteriaReviewLogEvent {
   invocations: number; recommendations: number; report: string; usage: Readonly<Record<string, number>>;
 }
 
+/** One independent QA planner or author session: what it cost, how it ended and what caused it. */
+export interface QaSessionLogEvent {
+  type: "qa-session"; taskId: string; role: "planner" | "author"; host: "agy" | "claude" | "codex"; durationMs: number;
+  usage: Readonly<Record<string, number>> | "unknown"; outcome: "succeeded" | "provider-limit" | "denied" | "cancelled" | "failed";
+  trigger: readonly string[];
+}
+
 export type LocalLogEvent =
   | CriteriaReviewLogEvent
+  | QaSessionLogEvent
   | CommandResultLogEvent
   | EscapeRuleLogEvent
   | EscapeLessonLogEvent
@@ -159,6 +167,18 @@ function sanitizeEvent(value: unknown): LocalLogEvent {
         !["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "costUsd"].includes(key) ||
         typeof n !== "number" || !Number.isFinite(n) || n < 0)) return invalidEvent();
     return {...value, report: redactSecrets(value.report)} as unknown as CriteriaReviewLogEvent;
+  }
+  if (value.type === "qa-session") {
+    if (!hasExactKeys(value, ["type", "taskId", "role", "host", "durationMs", "usage", "outcome", "trigger"]) ||
+      typeof value.taskId !== "string" || !ID_PATTERN.test(value.taskId) || !["planner", "author"].includes(String(value.role)) ||
+      !["agy", "claude", "codex"].includes(String(value.host)) || !Number.isSafeInteger(value.durationMs) || (value.durationMs as number) < 0 ||
+      !["succeeded", "provider-limit", "denied", "cancelled", "failed"].includes(String(value.outcome)) ||
+      !Array.isArray(value.trigger) || value.trigger.length === 0 || value.trigger.length > 16 ||
+      value.trigger.some(t => typeof t !== "string" || !/^[a-z][A-Za-z0-9:_-]{0,127}$/u.test(t)) ||
+      (value.usage !== "unknown" && (!isRecord(value.usage) || Object.entries(value.usage).some(([key, n]) =>
+        !["inputTokens", "outputTokens", "totalTokens", "costUsd"].includes(key) || typeof n !== "number" || !Number.isFinite(n) || n < 0)))) return invalidEvent();
+    return {type: "qa-session", taskId: value.taskId, role: value.role, host: value.host, durationMs: value.durationMs, usage: value.usage,
+      outcome: value.outcome, trigger: [...value.trigger]} as unknown as QaSessionLogEvent;
   }
   if (value.type === "diagnostic") {
     if (
@@ -422,6 +442,14 @@ export async function logGateCatch(code: string, taskId: string, home = process.
   try {
     const state = localStatePaths(home);
     await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "gate-catch", code, taskId}, {anchorDirectory: state.anchorDirectory});
+  } catch { /* advisory only */ }
+}
+
+/** Advisory and fail-open like logGateCatch: a logging fault never changes a QA result. */
+export async function logQaSession(event: Omit<QaSessionLogEvent, "type">, home = process.env.AGENT_OPS_HOME ?? homedir()): Promise<void> {
+  try {
+    const state = localStatePaths(home);
+    await appendLocalLog(join(state.logDirectory, "events.ndjson"), {type: "qa-session", ...event}, {anchorDirectory: state.anchorDirectory});
   } catch { /* advisory only */ }
 }
 

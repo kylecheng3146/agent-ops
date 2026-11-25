@@ -7,7 +7,7 @@ import { AgentOpsError } from "../fs/paths.js";
 import { nativeProcessGroupAlive, signalNativeProcessGroup } from "../run/hosts/util.js";
 import { nativeProcessIdentity } from "../run/transport.js";
 import type { FileQaStore } from "./store.js";
-import type { QaControl, QaOwner, QaSession, QaState } from "./types.js";
+import type { QaControl, QaOwner, QaSession, QaState, QaUsage } from "./types.js";
 
 const exec = promisify(execFile);
 /** Agy keeps its read-only reviewer uses; it is never a writable QA author. */
@@ -19,18 +19,59 @@ export function configuredQaHosts(config: Pick<AgentOpsConfig, "reviewRoles">): 
 }
 
 export interface QaHostChoice { readonly host: ReviewTargetId; readonly fallbackReason: string | null }
-/** Prefer a host other than the implementer's; a same-host session is allowed only with its reason recorded. */
+/** One session hit a provider limit; resetAt is the provider's reported reset, null when unknown. */
+export class QaProviderLimitError extends AgentOpsError {
+  constructor(message: string, readonly resetAt: string | null, options?: {recoveryPaths?: readonly string[]}) {
+    super("QA_PROVIDER_LIMIT", message, options);
+  }
+}
+/** A host whose session in this QA step hit a provider limit; QA never waits for its reset. */
+export interface QaLimitedHost { readonly host: ReviewTargetId; readonly resetAt: string | null }
+const resets = (limited: readonly QaLimitedHost[]) =>
+  limited.map(l => `${l.host} ${l.resetAt === null ? "with an unknown reset" : `until ${l.resetAt}`}`).join(", ");
+/**
+ * Prefer a host other than the implementer's; a same-host session is allowed only with its reason recorded.
+ * Provider-limited hosts are skipped in configured order; with none left QA stops blocked and reports the resets.
+ */
 export function selectQaHost(request: {readonly implementationHost: ReviewTargetId | null;
-  readonly available: readonly ReviewTargetId[]; readonly writable: boolean}): QaHostChoice {
-  const eligible = request.available.filter(host => !request.writable || WRITABLE.includes(host));
+  readonly available: readonly ReviewTargetId[]; readonly writable: boolean;
+  readonly limited?: readonly QaLimitedHost[]; readonly recoveryPaths?: readonly string[]}): QaHostChoice {
+  const limited = request.limited ?? [];
+  const eligible = request.available.filter(host => (!request.writable || WRITABLE.includes(host)) && !limited.some(l => l.host === host));
+  if (eligible.length === 0 && limited.length > 0) throw new AgentOpsError("QA_PROVIDER_LIMIT",
+    `Every eligible ${request.writable ? "writable Claude/Codex " : ""}QA ${request.writable ? "author" : "planner"} host hit a provider limit (${resets(limited)}); ` +
+    "QA stays blocked, never waits for a reset and is never PASS.", request.recoveryPaths === undefined ? undefined : {recoveryPaths: [...request.recoveryPaths]});
   const other = eligible.find(host => host !== request.implementationHost);
-  if (request.implementationHost !== null && other !== undefined) return {host: other, fallbackReason: null};
-  const host = eligible[0];
+  const host = request.implementationHost !== null && other !== undefined ? other : eligible[0];
   if (host === undefined) throw new AgentOpsError("QA_HOST_UNAVAILABLE",
     `No configured ${request.writable ? "writable Claude/Codex " : ""}QA host is available; QA stays unverified.`);
-  return {host, fallbackReason: request.implementationHost === null
+  const independence = host !== request.implementationHost && request.implementationHost !== null ? null : request.implementationHost === null
     ? "The implementation host is unknown, so host independence is unproven; this is a fresh separate session only."
-    : `No other configured ${request.writable ? "writable " : ""}QA host is available; using a fresh separate ${host} session.`};
+    : `No other configured ${request.writable ? "writable " : ""}QA host is available; using a fresh separate ${host} session.`;
+  if (limited.length === 0) return {host, fallbackReason: independence};
+  return {host, fallbackReason: `Provider limit on ${resets(limited)}; failed over to ${host} in configured order.${independence === null ? "" : ` ${independence}`}`};
+}
+
+/** What one planner or author session reports to the local events log; never proof. */
+export interface QaSessionReport {
+  readonly taskId: string;
+  readonly role: "planner" | "author";
+  readonly host: ReviewTargetId;
+  readonly durationMs: number;
+  readonly usage: QaUsage;
+  readonly outcome: "succeeded" | "provider-limit" | "denied" | "cancelled" | "failed";
+  /** Version keys or command that caused the session, e.g. plan:missing, version:taskContractHash, failover:provider-limit. */
+  readonly trigger: readonly string[];
+}
+export type QaSessionSink = (report: QaSessionReport) => Promise<void> | void;
+export function qaSessionOutcome(error: unknown): QaSessionReport["outcome"] {
+  if (!(error instanceof AgentOpsError)) return "failed";
+  return error.code === "QA_PROVIDER_LIMIT" ? "provider-limit" : error.code === "QA_NATIVE_DENIED" ? "denied"
+    : error.code.endsWith("_CANCELLED") ? "cancelled" : "failed";
+}
+/** The sink is advisory: its failure never changes a QA result. */
+export async function reportQaSession(sink: QaSessionSink | undefined, report: QaSessionReport): Promise<void> {
+  try {await sink?.(report);} catch { /* advisory only */ }
 }
 export function qaSession(choice: QaHostChoice, input: {readonly sessionId: string; readonly implementationSessionId: string;
   readonly implementationHost: ReviewTargetId | null; readonly writable: boolean}): QaSession {

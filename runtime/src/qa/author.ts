@@ -11,8 +11,8 @@ import { nativeProviderLimit } from "../run/provider-wait.js";
 import type { NativeHostKind } from "../run/types.js";
 import { extractUsage } from "../review/usage.js";
 import { inspectQaMaterials, type QaInspectedMaterials } from "./materials.js";
-import { claimQaControl, cloneQaCheckout, qaOwnerStatus, qaSession, registerQaProcess, releaseQaControl, selectQaHost,
-  type QaProcessProbe } from "./session.js";
+import { claimQaControl, cloneQaCheckout, qaOwnerStatus, qaSession, qaSessionOutcome, registerQaProcess, releaseQaControl, reportQaSession,
+  selectQaHost, QaProviderLimitError, type QaHostChoice, type QaLimitedHost, type QaProcessProbe, type QaSessionReport, type QaSessionSink } from "./session.js";
 import type { FileQaStore } from "./store.js";
 import type { QaAuthorResponse, QaControl, QaNativeSession, QaReference, QaSession, QaUsage, QaVersion } from "./types.js";
 import { parseQaAuthorResponse } from "./validate.js";
@@ -63,6 +63,10 @@ export interface QaAuthorOptions {
   readonly signal?: AbortSignal;
   readonly now?: () => string;
   readonly probe?: QaProcessProbe;
+  /** Receives one report per author session, including a provider-limited attempt and its failover. */
+  readonly onSession?: QaSessionSink;
+  /** What caused this authoring (version keys or command); reported with each session. */
+  readonly trigger?: readonly string[];
 }
 export interface QaAuthorResult {
   readonly control: QaControl;
@@ -100,7 +104,8 @@ export function classifyQaHostEvent(event: NativeGoalEvent, resumedAt: string | 
 }
 
 interface QaDrive {
-  readonly options: Pick<QaAuthorOptions, "store" | "version" | "plan" | "signal" | "probe">;
+  readonly options: Pick<QaAuthorOptions, "store" | "version" | "plan" | "signal" | "probe" | "onSession">;
+  readonly trigger: readonly string[];
   readonly kind: NativeHostKind;
   readonly host: NativeGoalHost;
   readonly session: QaSession;
@@ -137,9 +142,16 @@ async function drive(d: QaDrive): Promise<QaAuthorResult> {
   let handle: NativeGoalHandle | undefined;
   let usage: QaUsage = {inputTokens: null, outputTokens: null, totalTokens: null, costUsd: null};
   let paused: QaNativeSession["reason"] | null = null, resetAt: string | null = null;
+  let startedAt: number | null = null;
+  // Exactly one report per author session that was actually opened; a refusal before it reports nothing.
+  const report = async (outcome: QaSessionReport["outcome"]) => {
+    if (startedAt !== null) await reportQaSession(options.onSession, {taskId, role: "author", host: session.host,
+      durationMs: Math.max(0, Date.now() - startedAt), usage, outcome, trigger: d.trigger});
+  };
   const context = {runId: `qa-${taskId}`, workerId: `qa-${session.sessionId}`, generation: held.generation, contractHash: options.version.taskContractHash};
   try {
     await writeAuthorInput(options, checkout, recovery);
+    startedAt = Date.now();
     handle = await d.open({...context, cwd: checkout, sessionId: kind === "claude" ? session.sessionId : randomUUID(),
       ...(d.resumedAt === null ? {} : {manualResumeAt: d.resumedAt}),
       env: {AGENT_OPS_HOST: kind, AGENT_OPS_SESSION_ID: session.sessionId, AGENT_OPS_QA_TASK_ID: taskId, AGENT_OPS_QA_GENERATION: String(held.generation),
@@ -179,7 +191,7 @@ async function drive(d: QaDrive): Promise<QaAuthorResult> {
       held = await releaseQaControl(options.store, held, {state: "blocked", native, ...(paused === "denied" ? {continuation: false} : {})}, now());
       throw paused === "denied"
         ? new AgentOpsError("QA_NATIVE_DENIED", "The native host or organization denied a QA action; only an explicit user command may resume it.", recovery)
-        : new AgentOpsError("QA_PROVIDER_LIMIT", `The QA provider limit was reached${resetAt === null ? "" : ` until ${resetAt}`}; the paused session can resume.`, recovery);
+        : new QaProviderLimitError(`The QA provider limit was reached on ${session.host}${resetAt === null ? " with an unknown reset" : ` until ${resetAt}`}; the paused session can resume.`, resetAt, recovery);
     }
     if (outcome !== "completed") throw new AgentOpsError("QA_AUTHOR_FAILED", `The QA author ${outcome} before completing; nothing is imported.`, recovery);
     const response = parseQaAuthorResponse(await readResponse(checkout));
@@ -187,8 +199,10 @@ async function drive(d: QaDrive): Promise<QaAuthorResult> {
       throw new AgentOpsError("QA_STALE_WRITER", "The QA response belongs to another generation or plan.", recovery);
     const inspected = await inspectQaMaterials(checkout, options.version.candidateCommit, response);
     const control = await releaseQaControl(options.store, held, {state: "testing"}, now());
+    await report("succeeded");
     return {control, session, response, inspected, usage, checkout};
   } catch (error) {
+    await report(qaSessionOutcome(error));
     if (handle !== undefined) await host.stop(handle, context).catch(() => undefined);
     const dead = held.owner === null || held.owner.processId === null ? handle === undefined
       : await qaOwnerStatus(held.owner, options.probe) === "dead";
@@ -202,27 +216,46 @@ async function drive(d: QaDrive): Promise<QaAuthorResult> {
 
 /**
  * Fresh writable QA authoring with owned lifecycle. The native session reuses the run transport's
- * process-group primitives without a nested run or RunState; QA control is the only lease.
+ * process-group primitives without a nested run or RunState; QA control is the only lease. A provider-limited
+ * author fails over once to each remaining Claude/Codex host in configured order, each in a new sibling checkout;
+ * with none left QA stays blocked with the resets reported and the last paused session saved.
  */
 export async function runQaAuthor(options: QaAuthorOptions): Promise<QaAuthorResult> {
+  const limited: QaLimitedHost[] = [];
+  let last: string | undefined;
+  for (;;) {
+    const checkout = limited.length === 0 ? options.checkout : `${options.checkout}-${limited.length + 1}`;
+    const choice = selectQaHost({implementationHost: options.implementationHost, available: options.available, writable: true, limited,
+      ...(last === undefined ? {} : {recoveryPaths: [last]})});
+    try {
+      return await authorOnce(options, choice, checkout,
+        [...(options.trigger ?? ["attempt:missing"]), ...(limited.length === 0 ? [] : ["failover:provider-limit"])]);
+    } catch (error) {
+      if (!(error instanceof QaProviderLimitError)) throw error;
+      limited.push({host: choice.host, resetAt: error.resetAt});
+      last = checkout;
+    }
+  }
+}
+
+async function authorOnce(options: QaAuthorOptions, choice: QaHostChoice, checkout: string, trigger: readonly string[]): Promise<QaAuthorResult> {
   const now = options.now ?? (() => new Date().toISOString());
   const taskId = options.version.taskId;
-  const choice = selectQaHost({implementationHost: options.implementationHost, available: options.available, writable: true});
   const kind = choice.host as NativeHostKind;
   const session = qaSession(choice, {sessionId: randomUUID(), implementationSessionId: options.implementationSessionId,
     implementationHost: options.implementationHost, writable: true});
   const held = await claimQaControl(options.store, {taskId, controllerId: options.controllerId, session, state: "testing",
     explicit: options.explicit, now: now(), ...(options.probe === undefined ? {} : {probe: options.probe})});
   const host = options.host(kind);
-  try {await cloneQaCheckout(options.root, options.checkout, options.version.candidateCommit);}
+  try {await cloneQaCheckout(options.root, checkout, options.version.candidateCommit);}
   catch (error) {
     await releaseQaControl(options.store, held, {state: "blocked"}, now()).catch(() => undefined);
     throw error;
   }
-  return await drive({options, kind, host, session, held, checkout: options.checkout, now, open: input => host.start(input), resumedAt: null});
+  return await drive({options, trigger, kind, host, session, held, checkout, now, open: input => host.start(input), resumedAt: null});
 }
 
-export interface QaResumeOptions extends Pick<QaAuthorOptions, "store" | "version" | "plan" | "controllerId" | "host" | "signal" | "now" | "probe"> {
+export interface QaResumeOptions extends Pick<QaAuthorOptions, "store" | "version" | "plan" | "controllerId" | "host" | "signal" | "now" | "probe" | "onSession"> {
   /** A user command; automatic continuation waits for a known provider reset and never follows a denial. */
   readonly explicit?: boolean;
 }
@@ -240,6 +273,6 @@ export async function resumeQaAuthor(options: QaResumeOptions): Promise<QaAuthor
   const held = await claimQaControl(options.store, {taskId, controllerId: options.controllerId, session: native.session, state: "testing",
     explicit: options.explicit, now: now(), ...(options.probe === undefined ? {} : {probe: options.probe})});
   const kind = native.session.host as NativeHostKind, host = options.host(kind), resumedAt = now();
-  return await drive({options, kind, host, session: native.session, held, checkout: native.checkout, now,
+  return await drive({options, trigger: [`resume:${native.reason}`], kind, host, session: native.session, held, checkout: native.checkout, now,
     open: input => host.resume(input, native.nativeSessionId), resumedAt});
 }

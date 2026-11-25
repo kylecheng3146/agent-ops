@@ -39,6 +39,7 @@ import {interfaceChecks} from '../qa/interface-checks.mjs';
 import {qaAuthorHookChecks} from '../qa/author-hook-checks.mjs';
 import {planLifecycleChecks} from '../qa/plan-lifecycle-checks.mjs';
 import {materialStoreChecks} from '../qa/material-store-checks.mjs';
+import {hostFailoverChecks} from '../qa/host-failover-checks.mjs';
 
 const build = resolve(process.env.AGENT_OPS_DEBUG_TEST_BUILD ?? 'dist');
 const mod = path => import(pathToFileURL(join(build, path)).href);
@@ -170,7 +171,8 @@ const checks = {
   }),
   // New check modules append here, at the end, so existing checks keep their i % n shard.
   ...planLifecycleChecks,
-  ...materialStoreChecks
+  ...materialStoreChecks,
+  ...hostFailoverChecks
 };
 
 const executionId = process.env.AGENT_OPS_ACCEPTANCE_EXECUTION_ID ?? 'local-startup';

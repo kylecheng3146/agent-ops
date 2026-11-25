@@ -339,7 +339,7 @@ export function firstComplaint(...streams: readonly string[]): string | undefine
   return undefined;
 }
 
-function rejectedCallReason(output: string): ReviewUnavailableReason {
+export function rejectedCallReason(output: string): ReviewUnavailableReason {
   if (/\b(?:quota|rate limit|usage limit|too many requests)\b/iu.test(output)) {
     return "quota-exhausted";
   }

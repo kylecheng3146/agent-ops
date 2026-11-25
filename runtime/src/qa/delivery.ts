@@ -18,9 +18,9 @@ import { storeQaMaterials } from "./materials.js";
 import { runQaPlanning } from "./planning.js";
 import { qaEnvironmentBlocks, requireQaPlatform } from "./policy.js";
 import { changedQaMaterial, currentQaAttestation, executeQaAttempt, qaContractsMatch, qaUsageSum, sealQaAttestation } from "./proof.js";
-import { claimQaControl, releaseQaControl, stopQa, type QaProcessProbe } from "./session.js";
+import { claimQaControl, releaseQaControl, stopQa, type QaProcessProbe, type QaSessionSink } from "./session.js";
 import type { FileQaStore } from "./store.js";
-import type { QaAuthorResponse, QaControl, QaPlan, QaReference, QaState, QaUsage } from "./types.js";
+import type { QaAuthorResponse, QaControl, QaPlan, QaReference, QaState, QaUsage, QaVersion } from "./types.js";
 
 export interface QaDeliveryOptions {
   readonly store: FileQaStore;
@@ -67,6 +67,8 @@ export interface QaDeliveryOptions {
    * delivery that needs a planner or author session returns blocked with `qa:session-required`.
    */
   readonly spend?: boolean;
+  /** One report per planner/author session, e.g. appended to the local events log; advisory, never proof. */
+  readonly onSession?: QaSessionSink;
 }
 export interface QaDeliveryResult {
   readonly taskId: string;
@@ -87,6 +89,15 @@ export interface QaDeliveryResult {
 }
 
 const UNKNOWN_USAGE: QaUsage = {inputTokens: null, outputTokens: null, totalTokens: null, costUsd: null};
+const PLAN_KEYS = ["goalHash", "taskContractHash", "treeContractHash", "scopeHash", "policyHash", "configHash"] as const;
+/** Which version keys (or command) made this planning necessary, for the qa-session log. */
+function planTrigger(plan: QaPlan | null, current: QaVersion, options: Pick<QaDeliveryOptions, "planOnly" | "replan">, planCurrent: boolean): string[] {
+  const command = options.planOnly ? ["command:qa-plan"] : [];
+  if (plan === null) return [...command, "plan:missing"];
+  if (planCurrent) return [...command, "command:replan"];
+  const keys = PLAN_KEYS.filter(key => plan.version[key] !== current[key]).map(key => `version:${key}`);
+  return [...command, ...(keys.length === 0 ? ["plan:scope"] : keys)];
+}
 
 /**
  * The one QA step for an integrated delivery, shared by ordinary verify/advance and the native
@@ -143,7 +154,8 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
       available: options.available, implementationHost: options.implementationHost, implementationSessionId: options.implementationSessionId,
       controllerId: options.controllerId, ...(options.explicit === undefined ? {} : {explicit: options.explicit}),
       ...(options.planningRunner === undefined ? {} : {runner: options.planningRunner}), ...(options.signal === undefined ? {} : {signal: options.signal}),
-      now, ...(options.probe === undefined ? {} : {probe: options.probe})});
+      now, ...(options.probe === undefined ? {} : {probe: options.probe}),
+      ...(options.onSession === undefined ? {} : {onSession: options.onSession}), trigger: planTrigger(plan, current, options, planCurrent)});
     sessions++; usage = planned.usage;
     control = await store.readControl(taskId);
     if (planned.state !== "plan-ready") return await result(planned.state, planned.state === "awaiting-input" ? await openQuestions(store, control!) : planned.blockers);
@@ -181,6 +193,7 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
     if (control.native !== undefined && control.state === "blocked") {
       log(`QA author for ${taskId}: resuming the paused native session.`);
       authored = await resumeQaAuthor({store, version: current, plan: planRef, controllerId: options.controllerId, host: options.host,
+        ...(options.onSession === undefined ? {} : {onSession: options.onSession}),
         ...(options.explicit === undefined ? {} : {explicit: options.explicit}), ...(options.signal === undefined ? {} : {signal: options.signal}),
         now, ...(options.probe === undefined ? {} : {probe: options.probe})});
     } else {
@@ -189,7 +202,9 @@ export async function runQaDelivery(options: QaDeliveryOptions): Promise<QaDeliv
       authored = await runQaAuthor({store, root: options.root, version: current, plan: planRef, checkout: join(parent, "checkout"),
         available: options.available, implementationHost: options.implementationHost, implementationSessionId: options.implementationSessionId,
         controllerId: options.controllerId, host: options.host, ...(options.explicit === undefined ? {} : {explicit: options.explicit}),
-        ...(options.signal === undefined ? {} : {signal: options.signal}), now, ...(options.probe === undefined ? {} : {probe: options.probe})});
+        ...(options.signal === undefined ? {} : {signal: options.signal}), now, ...(options.probe === undefined ? {} : {probe: options.probe}),
+        ...(options.onSession === undefined ? {} : {onSession: options.onSession}),
+        trigger: previous === null ? ["attempt:missing"] : previous.plan.digest !== planRef.digest ? ["plan:changed"] : ["material:changed"]});
     }
     sessions++; usage = qaUsageSum(usage, authored.usage); requestedEdits = authored.inspected.requestedEdits;
     const material = await storeQaMaterials({checkout: authored.checkout, target: options.root, inspected: authored.inspected, store});

@@ -8,7 +8,8 @@ import { qaAuthorHost } from "../../../runtime/src/qa/author.js";
 import { runQaDelivery, type QaDeliveryResult } from "../../../runtime/src/qa/delivery.js";
 import { qaCommonDirectory, type QaDeliveryScope } from "../../../runtime/src/qa/gate.js";
 import { FileQaStore } from "../../../runtime/src/qa/store.js";
-import { configuredQaHosts } from "../../../runtime/src/qa/session.js";
+import { configuredQaHosts, type QaSessionReport } from "../../../runtime/src/qa/session.js";
+import { logQaSession } from "../../../runtime/src/logging/local-log.js";
 import { readCriteriaReview, type CriteriaReviewView } from "../../../runtime/src/review/criteria.js";
 import { resolveReviewScope } from "../../../runtime/src/review/scope.js";
 import { runSurfaceGate, surfaceAdvisory } from "../../../runtime/src/surface/discovery.js";
@@ -78,6 +79,13 @@ export async function qaSurfaceCheck(input: {readonly root: string; readonly tas
     ...surfaceAdvisory(gate).slice(1)].join("\n"));
 }
 
+/** Appends one qa-session event to the local events.ndjson; null token/cost fields are omitted, none known is "unknown". */
+export async function qaSessionLog(report: QaSessionReport, home?: string): Promise<void> {
+  const usage = Object.fromEntries(Object.entries(report.usage).filter((e): e is [string, number] => typeof e[1] === "number"));
+  await logQaSession({taskId: report.taskId, role: report.role, host: report.host, durationMs: report.durationMs,
+    usage: Object.keys(usage).length === 0 ? "unknown" : usage, outcome: report.outcome, trigger: [...report.trigger]}, home);
+}
+
 /**
  * Production QA for one integrated delivery, at a CLI or run boundary (TaskService stays model-free).
  * Returns null for an unenrolled task without loading config or spending anything.
@@ -104,6 +112,7 @@ export async function runDeliveryQa(input: DeliveryQaInput): Promise<QaDeliveryR
     ...(input.explicit === undefined ? {} : {explicit: input.explicit}), ...(input.replan === undefined ? {} : {replan: input.replan}),
     ...(input.signal === undefined ? {} : {signal: input.signal}),
     ...(input.spend === undefined ? {} : {spend: input.spend}),
+    onSession: report => qaSessionLog(report),
     surfaceCheck: async () => await qaSurfaceCheck({root, taskId, records: state.tasks, config, ...(input.base === undefined ? {} : {base: input.base})}),
     log: line => process.stderr.write(`${line}\n`)});
 }

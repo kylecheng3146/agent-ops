@@ -15,6 +15,26 @@ import {
 } from "../../runtime/src/logging/local-log.js";
 import { AgentOpsError } from "../../runtime/src/fs/paths.js";
 
+test("accepts the qa-session event shape and rejects extra or malformed fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-ops-log-qa-"));
+  try {
+    const path = join(root, "events.ndjson");
+    const event = {type: "qa-session", taskId: "task-1", role: "author", host: "codex", durationMs: 12, usage: "unknown",
+      outcome: "provider-limit", trigger: ["attempt:missing", "failover:provider-limit"]} as const;
+    await appendLocalLog(path, event, {anchorDirectory: root, now: "2026-11-25T00:00:00Z"});
+    await appendLocalLog(path, {...event, role: "planner", outcome: "succeeded", usage: {inputTokens: 5, outputTokens: 3}}, {anchorDirectory: root, now: "2026-11-25T00:00:00Z"});
+    const lines = (await readFile(path, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    assert.deepEqual(lines.map(l => [l.role, l.outcome, l.usage]), [["author", "provider-limit", "unknown"], ["planner", "succeeded", {inputTokens: 5, outputTokens: 3}]]);
+    for (const bad of [{...event, prompt: "must not persist"}, {...event, role: "developer"}, {...event, trigger: []},
+      {...event, durationMs: -1}, {...event, usage: {inputTokens: -1}}]) {
+      await assert.rejects(appendLocalLog(path, bad as unknown as LocalLogEvent, {anchorDirectory: root}),
+        (error: unknown) => error instanceof AgentOpsError && error.code === "LOG_EVENT_INVALID");
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("writes only allowlisted redacted event fields with private permissions", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-ops-log-"));
   try {

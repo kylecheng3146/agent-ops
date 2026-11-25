@@ -17,7 +17,10 @@ import { isolatedReviewEnvironment } from "../review/execute.js";
 import { answeredNothing, deniedToolsOf, extractReviewObject } from "../review/extract.js";
 import { buildTargetInvocation } from "../review/invocation.js";
 import { extractUsage } from "../review/usage.js";
-import { claimQaControl, cloneQaCheckout, qaSession, registerQaProcess, releaseQaControl, selectQaHost, type QaProcessProbe } from "./session.js";
+import { nativeProviderLimit } from "../run/provider-wait.js";
+import { rejectedCallReason } from "../review/execute.js";
+import { claimQaControl, cloneQaCheckout, qaSession, qaSessionOutcome, registerQaProcess, releaseQaControl, reportQaSession, selectQaHost,
+  QaProviderLimitError, type QaHostChoice, type QaLimitedHost, type QaProcessProbe, type QaSessionReport, type QaSessionSink } from "./session.js";
 import { qaEnvironmentBlocks } from "./policy.js";
 import type { FileQaStore } from "./store.js";
 import type { QaCase, QaEnvironment, QaPlan, QaReference, QaState, QaUsage, QaVersion } from "./types.js";
@@ -87,6 +90,10 @@ export interface QaPlanningOptions {
   readonly signal?: AbortSignal;
   readonly now?: () => string;
   readonly probe?: QaProcessProbe;
+  /** Receives one report per planner session, including a provider-limited attempt and its failover. */
+  readonly onSession?: QaSessionSink;
+  /** What caused this planning (version keys or command); reported with each session. */
+  readonly trigger?: readonly string[];
 }
 export interface QaPlanningResult {
   readonly state: Extract<QaState, "plan-ready" | "awaiting-input" | "blocked">;
@@ -167,15 +174,51 @@ function usageOf(target: ReviewTargetId, stdout: string, stderr: string): QaUsag
   return {inputTokens: u?.inputTokens ?? null, outputTokens: u?.outputTokens ?? null, totalTokens: u?.totalTokens ?? null, costUsd: u?.costUsd ?? null};
 }
 
+/** A structured provider error in any JSON line, else the review classification of a failed call's output; prose in a PASS never counts. */
+function plannerProviderLimit(stdout: string, stderr: string, passed: boolean): QaLimitedHost["resetAt"] | undefined {
+  for (const line of `${stdout}\n${stderr}`.split("\n")) {
+    if (!line.trimStart().startsWith("{")) continue;
+    try {
+      const limit = nativeProviderLimit(JSON.parse(line));
+      if (limit !== null) return limit.resetAt;
+    } catch { /* not JSON */ }
+  }
+  return !passed && rejectedCallReason(`${stdout}\n${stderr}`) === "quota-exhausted" ? null : undefined;
+}
+
 /**
  * Independent read-only planning at the first QA run, consuming the data-only criteria advisory. The result is a stored plan
- * and a control state; it never becomes an attestation, so it cannot be mistaken for executed proof.
+ * and a control state; it never becomes an attestation, so it cannot be mistaken for executed proof. A provider-limited
+ * planner fails over once to each remaining configured review host; with none left QA stays blocked with the resets reported.
  */
 export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlanningResult> {
+  if (options.tasks[0]?.id !== options.version.taskId) throw new AgentOpsError("QA_PLAN_INVALID", "The plan must bind the delivery root it versions.");
+  const limited: QaLimitedHost[] = [];
+  for (;;) {
+    const choice = selectQaHost({implementationHost: options.implementationHost, available: options.available, writable: false, limited});
+    const trace: PlannerTrace = {startedAt: null, usage: {inputTokens: null, outputTokens: null, totalTokens: null, costUsd: null}};
+    // Exactly one report per planner session that was actually started; a refusal before the session reports nothing.
+    const report = async (outcome: QaSessionReport["outcome"]) => {
+      if (trace.startedAt !== null) await reportQaSession(options.onSession, {taskId: options.version.taskId, role: "planner", host: choice.host,
+        durationMs: Math.max(0, Date.now() - trace.startedAt), usage: trace.usage, outcome,
+        trigger: [...(options.trigger ?? ["plan:missing"]), ...(limited.length === 0 ? [] : ["failover:provider-limit"])]});
+    };
+    try {
+      const result = await planOnce(options, choice, trace);
+      await report("succeeded");
+      return result;
+    } catch (error) {
+      await report(qaSessionOutcome(error));
+      if (!(error instanceof QaProviderLimitError)) throw error;
+      limited.push({host: choice.host, resetAt: error.resetAt});
+    }
+  }
+}
+
+interface PlannerTrace {startedAt: number | null; usage: QaUsage}
+async function planOnce(options: QaPlanningOptions, choice: QaHostChoice, trace: PlannerTrace): Promise<QaPlanningResult> {
   const now = options.now ?? (() => new Date().toISOString());
   const taskId = options.version.taskId;
-  if (options.tasks[0]?.id !== taskId) throw new AgentOpsError("QA_PLAN_INVALID", "The plan must bind the delivery root it versions.");
-  const choice = selectQaHost({implementationHost: options.implementationHost, available: options.available, writable: false});
   const session = qaSession(choice, {sessionId: randomUUID(), implementationSessionId: options.implementationSessionId,
     implementationHost: options.implementationHost, writable: false});
   const claimed = await claimQaControl(options.store, {taskId, controllerId: options.controllerId, session, state: "planning",
@@ -220,15 +263,20 @@ export async function runQaPlanning(options: QaPlanningOptions): Promise<QaPlann
     const invocation = buildTargetInvocation({target: session.host, prompt, responseSchema: schema, repositoryRoot: repository,
       ...(options.model === undefined ? {} : {model: options.model}), ...(options.effort === undefined ? {} : {effort: options.effort})});
     if (invocation === undefined) throw new AgentOpsError("QA_HOST_UNAVAILABLE", "The QA planner has no read-only invocation.");
+    trace.startedAt = Date.now();
     const result = await runVerificationCommand({id: "qa-plan", command: invocation.command, args: [...invocation.args], cwd: ".",
       required: false, evidence: {kind: "exit-code"}}, {cwd: repository, timeoutMs: null, stdin: invocation.stdin, replaceEnv: true,
       // A plan lists every case binding, and agy prints its transcript before the final JSON: the 64 KiB spawn default truncates it.
       outputLimitBytes: 1024 * 1024, env: isolatedReviewEnvironment(session.host, directory, process.env),
       ...(options.runner === undefined ? {} : {runner: options.runner}), ...(options.signal === undefined ? {} : {signal: options.signal})});
     usage = usageOf(session.host, result.stdout, result.stderr);
+    trace.usage = usage;
     diagnostic = {stdout: Buffer.from(redactSecrets(result.stdout)).subarray(0, 32768).toString("utf8"),
       stderr: Buffer.from(redactSecrets(result.stderr)).subarray(0, 32768).toString("utf8"), failureClass: result.failureClass};
     if (result.failureClass === "aborted") throw new AgentOpsError("QA_PLAN_CANCELLED", "QA planning was cancelled; no plan was saved.");
+    const resetAt = plannerProviderLimit(result.stdout, result.stderr, result.status === "PASS");
+    if (resetAt !== undefined) throw new QaProviderLimitError(
+      `The QA planner on ${session.host} hit a provider limit${resetAt === null ? " with an unknown reset" : ` until ${resetAt}`}.`, resetAt);
     const denied = deniedToolsOf(session.host, result.stdout);
     if (denied.length > 0) throw new AgentOpsError("QA_NATIVE_DENIED",
       `The native host denied QA planning tools (${redactSecrets(denied.join(", ")).slice(0, 512)}); automatic continuation is disabled.`);
