@@ -207,6 +207,15 @@ export const materialStoreChecks = {
     assert.equal(envelope.data?.result?.state, 'passed', JSON.stringify(envelope.errors ?? []));
     assert.doesNotMatch(envelope.data.text, /committed/u, 'qa run output does not say QA materials were committed');
     assert.equal(status(f), '');
+    // Only placed QA materials are exempt from the clean-candidate check: an unrelated untracked file still fails it.
+    const {replayAcceptance} = await load('runtime/src/verify/acceptance-replay.js');
+    const {NodeVerificationProcessRunner} = await load('runtime/src/verify/spawn.js');
+    const gitRunner = {run: async args => ({exitCode: 0, stdout: execFileSync('git', args, {cwd: f.root, stdio: ['ignore', 'pipe', 'pipe']})})};
+    const sourceFingerprint = await f.fingerprint();
+    await writeFile(join(f.root, 'stray.txt'), 'unrelated\n');
+    await assert.rejects(replayAcceptance({root: f.root, task: (await f.record()).task, config, gitRunner, processRunner: new NodeVerificationProcessRunner(),
+      evidenceStore: new FileEvidenceStore(f.root, f.root), sourceFingerprint, trusted: true, scope: 'project',
+      untrackedMaterials: [path]}), {code: 'ACCEPTANCE_COMMITTED_SOURCE_REQUIRED'}, 'An unrelated untracked file still fails the clean check');
   }),
 
   'qa-seal-binds-material-digest': () => fixture(async f => {
