@@ -71,22 +71,34 @@ function checkoutGit(root: string): GitRunner {
  * Whether the saved version still names this checkout: the delivery gate's own qaDeliveryVersion/qaVersionMatches over
  * HEAD, the source fingerprint, config and contracts. Git and hashing only: no model or runner. Unreadable is never PASS.
  */
-async function matchesCurrent(saved: QaVersion, current: QaCurrent, root: StoredTaskRecord, tasks: readonly AgentTask[]): Promise<boolean> {
+async function* currentVersions(current: QaCurrent, root: StoredTaskRecord, tasks: readonly AgentTask[]): AsyncGenerator<QaVersion> {
   const runner = current.gitRunner ?? checkoutGit(current.root);
   let config: AgentOpsConfig, candidateCommit: string;
   try {[config, candidateCommit] = await Promise.all([current.loadConfig(), resolveGitCommit(runner, "HEAD")]);}
-  catch {return false;}
+  catch {return;}
   // The fingerprint depends on the base verify used; try the same bases task completion and coverage use.
   const bases = [...new Set([current.base, root.reviewBase, root.completionBase ?? undefined, root.createdSourceCommit, undefined])];
   for (const base of bases) {
+    let sourceFingerprint: string;
     try {
       const scope = await resolveReviewScope({root: current.root, runner, ...(base === undefined ? {} : {base}),
         ...(root.noChangePaths === undefined ? {} : {noChangePaths: root.noChangePaths})});
-      const sourceFingerprint = await calculateSourceFingerprint(current.root, scope, runner);
-      if (qaVersionMatches(saved, qaDeliveryVersion({tasks, config, candidateCommit, sourceFingerprint}))) return true;
-    } catch {/* A dirty tree, missing base or unreadable source cannot match this base. */}
+      sourceFingerprint = await calculateSourceFingerprint(current.root, scope, runner);
+    } catch {continue;/* A dirty tree, missing base or unreadable source cannot match this base. */}
+    yield qaDeliveryVersion({tasks, config, candidateCommit, sourceFingerprint});
   }
+}
+async function matchesCurrent(saved: QaVersion, current: QaCurrent, root: StoredTaskRecord, tasks: readonly AgentTask[]): Promise<boolean> {
+  for await (const version of currentVersions(current, root, tasks)) if (qaVersionMatches(saved, version)) return true;
   return false;
+}
+/** The checkout's current delivery version for qa show's explanation (first readable base); git and hashing only. */
+export async function qaCurrentVersion(records: readonly StoredTaskRecord[], taskId: string, current: QaCurrent): Promise<QaVersion | undefined> {
+  const root = qaDeliveryRoot(records, taskId);
+  if (root === null) return undefined;
+  const tree = qaDeliveryTree(records, root.task.id).map(r => r.task);
+  for await (const version of currentVersions(current, root, tree.length === 0 ? [root.task] : tree)) return version;
+  return undefined;
 }
 
 export async function qaStatus(store: FileQaStore, records: readonly StoredTaskRecord[], taskId: string, current: QaCurrent | null,
@@ -128,5 +140,5 @@ export function renderQaStatus(status: QaStatus, taskId: string): string {
     status.historical ? "historical" : null, status.writer === undefined ? (status.live ? "writer live" : null) : `writer ${status.writer}`].filter((n): n is string => n !== null);
   return `Independent QA: ${status.state} · ${status.outcome}${notes.length === 0 ? "" : ` (${notes.join(", ")})`}; ` +
     `blocking findings ${status.findings}; open questions ${status.questions}` +
-    (status.blockers.length === 0 ? "" : `; blockers ${status.blockers.join(", ")}`);
+    (status.blockers.length === 0 ? "" : `; blockers ${status.blockers.join(", ")} (why: agent-ops qa show --task ${status.rootTaskId})`);
 }

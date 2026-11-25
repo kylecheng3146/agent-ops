@@ -7,7 +7,7 @@ import { respondQa, showQa } from "../../../../runtime/src/qa/decisions.js";
 import { qaDeliveryError, type QaDeliveryResult } from "../../../../runtime/src/qa/delivery.js";
 import { qaCommonDirectory, qaDeliveryTree, qaDeliveryVersion } from "../../../../runtime/src/qa/gate.js";
 import { stopQa, type QaProcessProbe } from "../../../../runtime/src/qa/session.js";
-import { qaStatus, renderQaStatus, type QaStatus } from "../../../../runtime/src/qa/status.js";
+import { qaCurrentVersion, qaStatus, renderQaStatus, type QaStatus } from "../../../../runtime/src/qa/status.js";
 import { FileQaStore } from "../../../../runtime/src/qa/store.js";
 import { FileRunRepository } from "../../../../runtime/src/run/service.js";
 import { taskContractHash } from "../../../../runtime/src/task/contract.js";
@@ -72,11 +72,19 @@ export async function runQaCommand(options: QaCommandOptions): Promise<CliEnvelo
     const data = (extra: Partial<QaCommandData> = {}, text = renderQaStatus(status, taskId)): QaCommandData =>
       ({action, taskId, status, ...extra, text});
     if (action === "show") {
-      const show = status.rootTaskId === null ? undefined : await showQa(store, status.rootTaskId);
+      // The current version lets show name which keys moved since the plan/seal; an unreadable checkout just omits that.
+      const version = await qaCurrentVersion(records, taskId, current).catch(() => undefined);
+      const show = status.rootTaskId === null ? undefined : await showQa(store, status.rootTaskId, version);
+      const why = show === undefined ? "" : [
+        show.explain.planChanged === null ? null : `\nPlan vs current: ${show.explain.planChanged.length === 0 ? "current" : `changed ${show.explain.planChanged.join(", ")}`}`,
+        show.explain.sealChanged === null ? null : `\nSeal vs current: ${show.explain.sealChanged.length === 0 ? "current" : `changed ${show.explain.sealChanged.join(", ")}`}`,
+        show.plan === null ? null : `\nPlanner host: ${show.plan.host}${show.plan.fallbackReason === null ? "" : ` (${show.plan.fallbackReason})`}`,
+        show.explain.lastFailure === null ? null : `\nLast failure: ${show.explain.lastFailure.source} ${show.explain.lastFailure.reason}` +
+          (show.explain.lastFailure.diagnostics === null ? "" : `; diagnostics ${show.explain.lastFailure.diagnostics}`)].filter(l => l !== null).join("");
       return okEnvelope("QA_SHOWN", data(show === undefined ? {} : {show}, renderQaStatus(status, taskId) + (show === undefined ? "" :
         `\nResults: PASS ${show.results.PASS}, FAIL ${show.results.FAIL}, UNKNOWN ${show.results.UNKNOWN}` +
         `\nUsage (host-reported only): input ${show.usage.inputTokens}, output ${show.usage.outputTokens}, total ${show.usage.totalTokens}, cost ${show.usage.costUsd}` +
-        show.questions.filter(q => !q.answered).map(q => `\n? ${q.id}${q.required ? " (required)" : ""}: ${q.prompt}`).join(""))));
+        why + show.questions.filter(q => !q.answered).map(q => `\n? ${q.id}${q.required ? " (required)" : ""}: ${q.prompt}`).join(""))));
     }
     const runId = await owningRun(commonDir, [taskId, deliveryId]);
     if (action === "respond") {

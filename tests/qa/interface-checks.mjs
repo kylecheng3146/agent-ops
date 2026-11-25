@@ -204,6 +204,27 @@ export const interfaceChecks = {
     const waiting = await runQaCommand(options({action: 'show', taskId: enrolled.task.id}));
     assert.deepEqual(waiting.data.status.blockers, ['environment:browser', 'question:q-locale']);
     assert.match(waiting.data.text, /Which locale is required\?/u);
+    // show explains itself: version keys moved since the plan, the planner host and the last planner failure + diagnostics.
+    // No committed change yet: there is no reviewable current version, so show names no keys rather than guessing.
+    assert.equal(waiting.data.show.explain.planChanged, null);
+    assert.match(waiting.data.text, new RegExp(`Planner host: ${planner.host}`, 'u'));
+    assert.match(waiting.data.text, /\(why: agent-ops qa show --task /u, 'blockers point at qa show');
+    const diagnostics = join(f.store.directory, 'planning-diagnostics');
+    await mkdir(diagnostics, {recursive: true});
+    await writeFile(join(diagnostics, 'old-session.json'), JSON.stringify({version, failureClass: 'timeout', observedAt: '2026-01-01T00:00:00Z'}));
+    await writeFile(join(diagnostics, 'new-session.json'), JSON.stringify({version, failureClass: 'nonzero-exit', observedAt: '2026-01-02T00:00:00Z'}));
+    await writeFile(join(diagnostics, 'other-task.json'), JSON.stringify({version: {...version, taskId: 'task-other'}, failureClass: 'quota-exhausted', observedAt: '2026-01-03T00:00:00Z'}));
+    await writeFile(join(f.root, 'feature.mjs'), 'export const answer = () => 5;\n'); f.git(['commit', '-qam', 'move the candidate']);
+    const moved = await runQaCommand(options({action: 'show', taskId: enrolled.task.id}));
+    assert.ok(moved.data.show.explain.planChanged.includes('candidateCommit'), JSON.stringify(moved.data.show.explain));
+    assert.match(moved.data.text, /Plan vs current: changed [a-zA-Z, ]*candidateCommit/u);
+    assert.deepEqual(moved.data.show.explain.lastFailure, {source: 'planner', reason: 'nonzero-exit', diagnostics: join(diagnostics, 'new-session.json'), at: '2026-01-02T00:00:00Z'});
+    assert.ok(moved.data.text.includes(`Last failure: planner nonzero-exit; diagnostics ${join(diagnostics, 'new-session.json')}`), moved.data.text);
+    const {managedRules, harnessDescriptor} = await need('runtime/src/install/harness.js', 'managedRules', 'harnessDescriptor');
+    for (const id of ['claude', 'codex']) {
+      const rules = managedRules(harnessDescriptor(id), {scope: 'project', profiles: ['core'], capabilities: ['rules', 'task', 'independent-qa']}).replace(/\s+/gu, ' ');
+      assert.ok(rules.includes('says why QA is blocked or re-planned') && rules.includes('instead of reading the agent-ops dist sources'), `${id} managed rule points at qa show`);
+    }
     const relayed = await runQaCommand(options({action: 'respond', taskId: enrolled.task.id, questionId: 'q-locale', answer: 'de-DE'}, {inRun: true}));
     assert.equal(relayed.code, 'QA_ANSWER_NOT_HUMAN');
     const answered = await runQaCommand(options({action: 'respond', taskId: enrolled.task.id, questionId: 'q-locale', answer: 'de-DE'}));

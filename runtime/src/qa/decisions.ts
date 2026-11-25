@@ -1,4 +1,6 @@
 import { AgentOpsError } from "../fs/paths.js";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { qaContractsMatch } from "./proof.js";
 import { qaVersionMatches } from "./policy.js";
 import type { FileQaStore } from "./store.js";
@@ -97,13 +99,40 @@ export interface QaShow {
   readonly attestation: string | null;
   /** Reported by the host only; anything not reported is UNKNOWN, never estimated. */
   readonly usage: {readonly [K in keyof QaUsage]: number | "UNKNOWN"};
+  /** Why QA is where it is: version keys that moved since the plan/seal (null without a current version) and the last failure. */
+  readonly explain: {
+    readonly planChanged: readonly string[] | null;
+    readonly sealChanged: readonly string[] | null;
+    readonly lastFailure: {readonly source: "native" | "planner"; readonly reason: string; readonly diagnostics: string | null; readonly at: string | null} | null;
+  };
+}
+const VERSION_KEYS = ["taskId", "goalHash", "taskContractHash", "treeContractHash", "scopeHash", "policyHash", "configHash",
+  "candidateCommit", "sourceFingerprint"] as const;
+const changedKeys = (saved: QaVersion | null | undefined, current: QaVersion | undefined): string[] | null =>
+  saved == null || current === undefined ? null : VERSION_KEYS.filter(k => saved[k] !== current[k]);
+/** The newest saved planner failure for this task: planning writes one private diagnostics file per failed session. */
+async function lastPlannerFailure(store: FileQaStore, taskId: string): Promise<{reason: string; diagnostics: string; at: string | null} | null> {
+  const directory = join(store.directory, "planning-diagnostics");
+  let names: string[];
+  try {names = await readdir(directory);} catch {return null;}
+  let found: {reason: string; diagnostics: string; at: string | null} | null = null;
+  for (const name of names.filter(n => n.endsWith(".json"))) {
+    try {
+      const saved = JSON.parse(await readFile(join(directory, name), "utf8")) as {version?: {taskId?: string}; failureClass?: string; observedAt?: string};
+      if (saved.version?.taskId !== taskId) continue;
+      if (found === null || (saved.observedAt ?? "") > (found.at ?? "")) found = {reason: saved.failureClass ?? "unknown",
+        diagnostics: join(directory, name), at: saved.observedAt ?? null};
+    } catch {/* An unreadable diagnostic explains nothing. */}
+  }
+  return found;
 }
 /** Reads saved private QA state only: no model, host, runner or write is ever started here. */
 export async function showQa(store: FileQaStore, taskId: string, version?: QaVersion): Promise<QaShow> {
   const control = await store.readControl(taskId);
   const unknown = {inputTokens: "UNKNOWN", outputTokens: "UNKNOWN", totalTokens: "UNKNOWN", costUsd: "UNKNOWN"} as const;
   if (control === null) return {taskId, state: "not-started", stale: null, generation: 0, continuation: false, writer: null, plan: null,
-    results: {PASS: 0, FAIL: 0, UNKNOWN: 0}, findings: [], questions: [], native: null, attestation: null, usage: unknown};
+    results: {PASS: 0, FAIL: 0, UNKNOWN: 0}, findings: [], questions: [], native: null, attestation: null, usage: unknown,
+    explain: {planChanged: null, sealChanged: null, lastFailure: null}};
   const plan = control.plan === null ? null : await store.get({...control.plan, kind: "plan"});
   const report: QaReport | null = control.report === null ? null : await store.get({...control.report, kind: "report"});
   const attempt = control.attempt === null ? null : await store.get({...control.attempt, kind: "attempt"});
@@ -112,6 +141,10 @@ export async function showQa(store: FileQaStore, taskId: string, version?: QaVer
   const proof = attestation?.version ?? report?.version ?? null;
   const results = {PASS: 0, FAIL: 0, UNKNOWN: 0};
   for (const r of report?.results ?? []) results[r.status]++;
+  const planner = await lastPlannerFailure(store, taskId);
+  const lastFailure = control.native !== undefined && control.native !== null
+    ? {source: "native" as const, reason: control.native.reason, diagnostics: null, at: control.native.observedAt ?? null}
+    : planner === null ? null : {source: "planner" as const, ...planner};
   return {taskId, state: control.state, stale: version === undefined || proof === null ? null : !qaVersionMatches(proof, version),
     generation: control.generation, continuation: control.continuation,
     writer: control.owner === null ? null : {host: control.owner.session.host, sessionId: control.owner.session.sessionId, processId: control.owner.processId},
@@ -122,5 +155,6 @@ export async function showQa(store: FileQaStore, taskId: string, version?: QaVer
       answered: decisions.some(d => d.questionId === q.id && d.plan.digest === control.plan?.digest)})),
     native: control.native === undefined ? null : {reason: control.native.reason, resetAt: control.native.resetAt},
     attestation: control.attestation?.digest ?? null,
-    usage: Object.fromEntries((Object.keys(unknown) as (keyof QaUsage)[]).map(k => [k, attempt?.usage[k] ?? "UNKNOWN"])) as QaShow["usage"]};
+    usage: Object.fromEntries((Object.keys(unknown) as (keyof QaUsage)[]).map(k => [k, attempt?.usage[k] ?? "UNKNOWN"])) as QaShow["usage"],
+    explain: {planChanged: changedKeys(plan?.version, version), sealChanged: changedKeys(proof, version), lastFailure}};
 }
