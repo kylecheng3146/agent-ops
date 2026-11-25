@@ -269,7 +269,8 @@ async function fixtureCli(f, configured) {
 }
 async function settledAutomation(controller) {
   let state;
-  for (let i = 0; i < 100; i++) {
+  // The worker is a spawned CLI process; under the 8-shard suite load it took over 5 s, so allow 30 s.
+  for (let i = 0; i < 600; i++) {
     state = await controller.read();
     if (!state.jobs.some(j => ['launching', 'running'].includes(j.status))) return state;
     await new Promise(resolve => setTimeout(resolve, 50));
