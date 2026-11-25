@@ -147,7 +147,13 @@ export const adviceChecks = {
       for (const model of ['latest', 'default', 'model-1-latest', 'opus', 'gpt-4o', 'gpt-5.4', 'gpt-5.4-high']) assert.equal((await resolve({...configured, learning: {...registration, settings: {...registration.settings, model}}})).reason, 'MODEL_NOT_FIXED');
       const agy = settings => ({...configured, reviewRoles: [{role: 'independent-review', targets: ['agy']}], learning: {...registration, settings: {...registration.settings, target: 'agy', ...settings}}});
       assert.equal((await resolve(agy({model: 'gemini-3.8-flash-high'}))).status, 'eligible', 'agy catalog ids are the strongest pin agy offers');
-      for (const model of ['gemini-high', 'gemini-3.8-latest-high', 'auto-3-medium', 'gemini-3.8-flash']) assert.equal((await resolve(agy({model}))).reason, 'MODEL_NOT_FIXED', model);
+      for (const model of ['gemini-high', 'gemini-3.8-latest-high', 'auto-3-medium', 'gemini-3.8-flash', 'gpt-6.2-sol']) assert.equal((await resolve(agy({model}))).reason, 'MODEL_NOT_FIXED', model);
+      const codex = model => ({...configured, learning: {...registration, settings: {...registration.settings, model}}});
+      for (const model of ['gpt-6.2-sol', 'gpt-6-luna', 'gpt-5.6-terra']) assert.equal((await resolve(codex(model))).status, 'eligible', `Codex catalog id ${model} is the strongest pin Codex offers`);
+      for (const model of ['gpt-6.2-auto', 'gpt-6.2-latest', 'gpt-6.2-default', 'gpt-6.2-minimal', 'gpt-6.2-low', 'gpt-6.2-medium', 'gpt-6.2-xhigh', 'codex-auto-review', 'gpt-reserve', 'gpt-6.2-sol-preview', 'GPT-6.2-SOL'])
+        assert.equal((await resolve(codex(model))).reason, 'MODEL_NOT_FIXED', model);
+      const claude = {...configured, reviewRoles: [{role: 'independent-review', targets: ['claude']}], learning: {...registration, settings: {...registration.settings, target: 'claude', model: 'gpt-6.2-sol'}}};
+      assert.equal((await resolve(claude)).reason, 'MODEL_NOT_FIXED', 'The Codex catalog shape is accepted only under target codex');
       assert.equal((await resolve({...configured, learning: {...registration, suiteDigest: '0'.repeat(64)}})).reason, 'SUITE_DIGEST_CHANGED');
       assert.equal((await resolve({...configured, learning: {...registration, suitePath: 'tests/learning/scenarios.json'}})).reason, 'SYNTHETIC_SUITE');
       assert.equal((await resolve({...configured, reviewRoles: []})).reason, 'TARGET_UNCONFIGURED');
@@ -655,9 +661,13 @@ const documentationChecks = async () => {
     }
     assert.ok(texts[1].includes('suiteDigest') && texts[1].includes('humanConfirmed') && texts[1].includes('independentlyLabelled'));
     assert.ok(texts[1].includes('agy models'), `${lang} configuration guide documents the agy catalog id pin`);
+    assert.ok(texts[1].includes('gpt-6.2-sol'), `${lang} configuration guide documents the Codex catalog id pin`);
     assert.ok(texts[0].includes('12,000') && texts[2].includes('12,000'));
     assert.doesNotMatch(texts[0], /There is no background model work|本版沒有背景模型工作/);
   }
+  const changelog = await readFile(new URL('../../CHANGELOG.md', import.meta.url), 'utf8');
+  // ponytail: whole-file match so the check survives the entry moving from Unreleased to a release heading.
+  assert.ok(changelog.includes('gpt-6.2-sol') && changelog.includes('900 s'), 'CHANGELOG records the Codex catalog id pin and the 900 s learning call deadline');
 };
 
 export const pipelineChecks = {

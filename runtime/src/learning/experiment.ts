@@ -234,6 +234,9 @@ function structuredCloneInputs(options: Parameters<typeof runLearningTrial>[0]):
   return {...structuredClone(inputs), store, call, ...(isCurrent === undefined ? {} : {isCurrent})};
 }
 
+/** One call answers every suite case at once; agy needs ~150 s per case, so 300 s cut real answers off. */
+export const LEARNING_CALL_TIMEOUT_MS = 900_000;
+
 /** Same read-only target, explicit model, isolated cwd/environment and no fallback for every paired execution. */
 export function targetLearningCall(settings: LearningSettings, runner?: VerificationProcessRunner): LearningCall {
   const baseEnvironment = {...process.env};
@@ -244,7 +247,7 @@ export function targetLearningCall(settings: LearningSettings, runner?: Verifica
       if (invocation === undefined) return {value: null, durationMs: 0, failure: "TARGET_UNAVAILABLE"};
       const args = [...invocation.args, ...(settings.target === "claude" ? ["--tools", ""] : [])];
       const output = await runVerificationCommand({id: "learning-experiment", command: invocation.command, args, cwd: ".",
-        required: false, evidence: {kind: "exit-code"}}, {cwd: directory, runner, timeoutMs: 300_000,
+        required: false, evidence: {kind: "exit-code"}}, {cwd: directory, runner, timeoutMs: LEARNING_CALL_TIMEOUT_MS,
         stdin: invocation.stdin, env: isolatedReviewEnvironment(settings.target, directory, baseEnvironment), replaceEnv: true, outputLimitBytes: 128 * 1024});
       const usage = extractUsage(settings.target, output.stdout, output.stderr);
       return {value: (output.status === "PASS" ? extractReviewObject(settings.target, output.stdout) : null) ?? null,

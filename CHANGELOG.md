@@ -4,6 +4,15 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+- Automatic learning accepts an exact Codex catalog id (`gpt-<version>-<name>`,
+  such as `gpt-6.2-sol`) as a fixed model under target `codex`. Codex lists no
+  dated snapshots, so every Codex registration waited `MODEL_NOT_FIXED`. Bare
+  versions, effort words and `auto`/`default`/`latest` are still refused, and
+  the shape is accepted only under `codex`.
+- A learning experiment call now has 900 s instead of 300 s. One call answers
+  every suite case at once, and agy needs about 150 s per case, so six cases
+  were cut off at 300 s and recorded `TARGET_FAILED`.
+
 ## [1.4.2] - 2026-11-24
 
 - Reuse independent QA plans and proofs after surface reclassification or

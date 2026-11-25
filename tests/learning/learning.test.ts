@@ -5,7 +5,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {digest, improves, parseProposal, parseSuite, scoreReply, type LearningSuite, type Proposal} from "../../runtime/src/learning/data.js";
 import {FileLearningStore, matchingExperiences} from "../../runtime/src/learning/store.js";
-import {runLearningTrial, replayLearningTrial, targetLearningCall, learningConditions, evaluationPrompt, type LearningCall, type LearningTrial} from "../../runtime/src/learning/experiment.js";
+import {runLearningTrial, replayLearningTrial, targetLearningCall, LEARNING_CALL_TIMEOUT_MS, learningConditions, evaluationPrompt, type LearningCall, type LearningTrial} from "../../runtime/src/learning/experiment.js";
 import {runCriteriaReview} from "../../runtime/src/review/criteria.js";
 import {parseArgs} from "../../packages/cli/src/args.js";
 import type {AgentTask} from "../../runtime/src/contracts.js";
@@ -301,6 +301,51 @@ test("learning target preserves fixed model, read-only flags and isolated execut
   assert.equal(parseArgs(["learn", "run", "--receipt", "receipt.json", "--suite", "suite.json", "--model", "model-1", "--no-execute"]).learningNoExecute, true);
   for (const option of ["--harness", "--yes", "--grader", "--trust", "--base", "--profile"])
     assert.throws(() => parseArgs(["learn", "run", "--receipt", "r", "--suite", "s", "--model", "model-1", option, "x"]));
+});
+
+test("learning target call lets a working target run past 300 s and stops it at the 900 s deadline", async t => {
+  assert.equal(LEARNING_CALL_TIMEOUT_MS, 900_000);
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => {started = resolve;});
+  let finish!: (completion: {exitCode: number | null; signal: string | null}) => void;
+  let terminated = 0;
+  async function* empty() {}
+  const runner: VerificationProcessRunner = {start: () => {
+    started();
+    return {pid: 123, stdout: empty(), stderr: empty(), completion: new Promise(resolve => {finish = resolve;}),
+      terminateTree: async () => {terminated++; finish({exitCode: null, signal: "SIGTERM"});}};
+  }};
+  t.mock.timers.enable({apis: ["setTimeout"]});
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const pending = targetLearningCall(settings, runner)("prompt", {});
+  await ready; await flush();
+  t.mock.timers.tick(300_001); await flush();
+  assert.equal(terminated, 0, "A target still working after the former 300 s deadline keeps running");
+  t.mock.timers.tick(LEARNING_CALL_TIMEOUT_MS - 300_001);
+  const result = await pending;
+  assert.equal(terminated, 1, "The 900 s deadline stops the target");
+  assert.equal(result.failure, "TARGET_FAILED");
+});
+
+test("learning target call that answers between 300 s and 900 s completes normally", async t => {
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => {started = resolve;});
+  let terminated = 0;
+  async function* answer() {yield Buffer.from("{}");}
+  async function* empty() {}
+  const runner: VerificationProcessRunner = {start: () => {
+    started();
+    return {pid: 123, stdout: answer(), stderr: empty(),
+      completion: new Promise(resolve => setTimeout(() => resolve({exitCode: 0, signal: null}), 450_000)),
+      terminateTree: async () => {terminated++;}};
+  }};
+  t.mock.timers.enable({apis: ["setTimeout"]});
+  const pending = targetLearningCall(settings, runner)("prompt", {});
+  await ready; await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(450_000);
+  const result = await pending;
+  assert.equal(terminated, 0, "A target answering at 450 s is never stopped");
+  assert.equal(Object.hasOwn(result, "failure"), false, "A 450 s answer is not TARGET_FAILED");
 });
 
 test("native failures and malformed replies without reported usage retain durable NOT_RUN evidence", async () => {

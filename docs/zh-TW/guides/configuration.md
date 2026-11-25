@@ -456,7 +456,9 @@ target 必須已列為 `independent-review`。正規化 JSON 遞迴排序物件 
 array 順序；雜湊 UTF-8 JSON 編碼而非檔案空白。先提交 suite，才註冊；不使用
 浮動 latest／auto 模型，id 結尾須為日期或 `@vN`／`:N`。agy 不提供日期快照，
 所以 target 為 `agy` 時改接受 `agy models` 列出的精確 id（含版本數字並以
-`-low`／`-medium`／`-high` 結尾，例如 `gemini-3.8-flash-high`）。註冊不授予
+`-low`／`-medium`／`-high` 結尾，例如 `gemini-3.8-flash-high`）。Codex 同樣
+不提供日期快照，所以 target 為 `codex` 時接受精確目錄 id `gpt-<版本>-<名稱>`
+（例如 `gpt-6.2-sol`）；`-high` 這類 effort 字不算名稱。註冊不授予
 trust，也不修改 verifier authority；設定
 變更仍須依原有授權程序。
 

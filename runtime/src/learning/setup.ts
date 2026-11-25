@@ -26,9 +26,12 @@ export async function resolveLearningSetup(options: LearningSource & {config: Ag
   if (!validLearningConfig(registration)) return wait("SETUP_INVALID");
   if (!registration.humanConfirmed || !registration.independentlyLabelled) return wait("SUITE_UNCONFIRMED");
   const {settings} = registration;
-  // agy lists no dated snapshots; its exact catalog id (version digit + tier, e.g. gemini-3.8-flash-high) is the strongest pin it offers.
+  // agy and Codex list no dated snapshots; their exact catalog ids are the strongest pin they offer:
+  // agy is version digit + tier (gemini-3.8-flash-high), Codex is gpt-<version>-<name> (gpt-6.2-sol), never an effort word.
   const pinned = /(?:\d{8}|\d{4}-\d{2}(?:-\d{2})?|[@:]v?\d+)$/u.test(settings.model) ||
-    (settings.target === "agy" && /\d/u.test(settings.model) && /-(?:low|medium|high)$/u.test(settings.model));
+    (settings.target === "agy" && /\d/u.test(settings.model) && /-(?:low|medium|high)$/u.test(settings.model)) ||
+    (settings.target === "codex" && /^gpt-\d+(?:\.\d+)*-[a-z]+$/u.test(settings.model) &&
+      !/-(?:minimal|low|medium|high|xhigh)$/u.test(settings.model));
   if (!pinned || /(?:^|[-_:])(?:auto|default|latest)(?:$|[-_:])/iu.test(settings.model)) return wait("MODEL_NOT_FIXED");
   if (!options.config.reviewRoles?.some(r => r.role === "independent-review" && r.targets.includes(settings.target))) return wait("TARGET_UNCONFIGURED");
   if (registration.suitePath === "tests/learning/scenarios.json") return wait("SYNTHETIC_SUITE");

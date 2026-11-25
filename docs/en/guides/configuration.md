@@ -522,7 +522,9 @@ UTF-8 JSON encoding, not the file's whitespace. Commit the suite before registra
 Do not use a floating `latest`/`auto` model: the id must end in a date or `@vN`/`:N`.
 agy lists no dated snapshots, so with target `agy` the exact id printed by
 `agy models` (a version digit and a `-low`/`-medium`/`-high` tier, such as
-`gemini-3.8-flash-high`) is accepted instead. Registration does not grant trust or
+`gemini-3.8-flash-high`) is accepted instead. Codex also lists no dated snapshots, so
+with target `codex` its exact catalog id `gpt-<version>-<name>` (such as `gpt-6.2-sol`)
+is accepted; an effort word such as `-high` is not a name. Registration does not grant trust or
 modify verifier authority; follow the normal authorization process for config changes.
 
 The suite needs at least two distinct probes and two distinct independent holdouts,
