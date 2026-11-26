@@ -4,6 +4,18 @@ All notable changes to the project are documented here.
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-11-26
+
+- Acceptance and QA bindings store check ids in the exact form adapters report.
+  `checkIds` and `redCheckIds` written as `file :: suite :: test` are trimmed
+  around `::` to `file::suite::test` when a task is created or revised and when
+  a QA plan is accepted, so they no longer fail every case as `missing-check`.
+  The QA planner prompt now states the format, with an example.
+- The task state file may grow to 16 MiB instead of 1 MiB. Each revise keeps
+  the full previous task, surface included, so a large surface revised many
+  times hit `TASK_STATE_TOO_LARGE` and no further revise or rebind was
+  possible. The error now reports the actual size and the limit.
+
 ## [1.4.3] - 2026-11-25
 
 - Automatic learning accepts an exact Codex catalog id (`gpt-<version>-<name>`,

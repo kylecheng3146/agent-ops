@@ -9,6 +9,8 @@ import { NodeVerificationProcessRunner, type ProcessRequest } from "../../runtim
 import {
   ACCEPTANCE_FAILURE,
   aggregateAcceptanceRun,
+  canonicalBindings,
+  canonicalCheckId,
   makeAcceptanceCheck,
   makeAcceptanceRun,
   type AcceptanceCheckResult
@@ -142,4 +144,19 @@ test("collector outcomes preserve legacy config and real command execution contr
     }
     assert.deepEqual(config, original, "collectors and command execution cannot mutate legacy config or argv");
   }
+});
+
+test("canonicalCheckId trims segments around :: like adapter-reported ids", () => {
+  assert.equal(canonicalCheckId("src/a.test.ts :: suite :: case"), "src/a.test.ts::suite::case");
+  assert.equal(canonicalCheckId("src/a.test.ts::suite::case"), "src/a.test.ts::suite::case");
+  assert.equal(canonicalCheckId("  answer-two  "), "answer-two");
+  assert.equal(canonicalCheckId("a ::  :: b"), "a::b");
+});
+
+test("canonicalBindings normalizes checkIds and redCheckIds and keeps other fields", () => {
+  const materials = [{path: "tests/x.test.ts", role: "test"}];
+  const [binding] = canonicalBindings([{runnerId: "r", checkIds: ["f :: s :: t", "f::s::u"], redCheckIds: ["f :: s :: t"], materials}]);
+  assert.deepEqual(binding, {runnerId: "r", checkIds: ["f::s::t", "f::s::u"], redCheckIds: ["f::s::t"], materials});
+  const [noRed] = canonicalBindings([{runnerId: "r", checkIds: ["a :: b"], materials}]);
+  assert.equal("redCheckIds" in noRed!, false);
 });

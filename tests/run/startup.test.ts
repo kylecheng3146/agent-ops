@@ -57,7 +57,7 @@ test("run startup ignores live runtime artifacts and preserves source and runtim
     ids.push(...r.results.map(x => x.checkId));
   }
   assert.equal(new Set(ids).size, ids.length, "every check runs in exactly one shard");
-  assert.equal(ids.length, 188);
+  assert.equal(ids.length, 189);
 });
 
 test("startup runner shards after the check filter and rejects malformed shards", async () => {

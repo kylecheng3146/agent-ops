@@ -16,6 +16,7 @@ import type { GitRunner } from "../verify/change-surface.js";
 import { resolveReviewScope } from "../review/scope.js";
 import { calculateSourceFingerprint } from "../verify/source-fingerprint.js";
 import {acceptanceCoverage, type CriterionCoverage} from "../verify/acceptance-coverage.js";
+import { canonicalBindings } from "../verify/acceptance-protocol.js";
 import {loadFindingPin} from "./pin-finding.js";
 import {findReviewAttestation} from "../review/attestation.js";
 import {
@@ -256,6 +257,7 @@ export class TaskService {
       throw taskError("TASK_BASELINE_INVALID", "Task creation commit must be a resolved SHA.");
     const criteria = structuredClone(input.criteria).map(criterion => ({...criterion,
       ...(criterion.acceptance === undefined ? {} : {acceptance: {...criterion.acceptance,
+        bindings: canonicalBindings(criterion.acceptance.bindings),
         baselineCommit: criterion.acceptance.baselineCommit ?? createdSourceCommit}})})) as AcceptanceCriterion[];
     if (input.debug !== undefined && input.parentTaskId === undefined &&
         !criteria.some(c => c.acceptance?.mode === "behavioral" && c.acceptance.bindings.some(b => (b.redCheckIds ?? []).length > 0))) {
@@ -442,7 +444,7 @@ export class TaskService {
       if (sha === undefined) throw taskError("BASELINE_REQUIRED", "Legacy tasks need an explicit baseline before typed acceptance.");
       const old = previous.task.criteria.find(c => c.id === criterion.id)?.acceptance;
       if (moved === undefined && old !== undefined && sha !== old.baselineCommit) throw taskError("BASELINE_IMMUTABLE", "Create a replacement criterion, or move every baseline with --baseline.");
-      return {...criterion, acceptance: {...criterion.acceptance, baselineCommit: sha}};
+      return {...criterion, acceptance: {...criterion.acceptance, bindings: canonicalBindings(criterion.acceptance.bindings), baselineCommit: sha}};
     });
     const next: AgentTask = {...previous.task, schemaVersion: TASK_SCHEMA_VERSION,
       contractRevision: (previous.task.contractRevision ?? 0) + 1, criteria, ...(surface === undefined ? {} : {surface}),

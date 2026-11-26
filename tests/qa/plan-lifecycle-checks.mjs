@@ -95,6 +95,24 @@ async function advisoryOutput(f, run) {
 }
 
 export const planLifecycleChecks = {
+  'qa-plan-canonical-check-ids': () => fixture(async f => {
+    const task = await f.create();
+    await writeFile(join(f.root, 'feature.mjs'), 'export const answer = () => 2;\n');
+    f.git(['commit', '-qam', 'implementation']);
+    const plan = planFor(task.id, [{id: 'q-audience', prompt: 'Which audience?', required: true, criterionIds: ['behavior']}]);
+    const spaced = `tests/qa-independent/${task.id}.test.mjs :: answer :: two`;
+    plan.cases[0].bindings[0].checkIds = [spaced];
+    plan.cases[0].bindings[0].redCheckIds = [spaced];
+    f.planner.answer = plan;
+    const first = await f.orchestrate(task.id);
+    assert.equal(first.state, 'awaiting-input');
+    assert.match(f.planner.prompts[0], /::/u);
+    assert.ok(f.planner.prompts[0].includes('without spaces'), 'The planner is told the exact check id format');
+    const stored = await f.store.get((await f.store.readControl(task.id)).plan);
+    const canonical = `tests/qa-independent/${task.id}.test.mjs::answer::two`;
+    assert.deepEqual(stored.cases[0].bindings[0].checkIds, [canonical], 'Spaced separators are stored in the adapter format');
+    assert.deepEqual(stored.cases[0].bindings[0].redCheckIds, [canonical]);
+  }),
   'qa-plan-deferred-to-verify': () => fixture(async f => {
     const {reviewCreatedCriteria} = await load('packages/cli/src/criteria-review.js');
     const {taskContractHash} = await load('runtime/src/task/contract.js');

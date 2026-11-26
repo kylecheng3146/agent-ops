@@ -245,16 +245,28 @@ test("fails closed for malformed and oversized task state", async () => {
         error.code === "TASK_STATE_INVALID"
     );
 
+    // 1 MiB was the old ceiling: larger state with long revision history must still load (TASK_STATE_INVALID, not TOO_LARGE).
     await writeFile(statePath, "x".repeat(1024 * 1024 + 1));
     await assert.rejects(
       service(root).list(),
       (error: unknown) =>
         error instanceof AgentOpsError &&
-        error.code === "TASK_STATE_TOO_LARGE"
+        error.code === "TASK_STATE_INVALID"
+    );
+
+    const limit = 16 * 1024 * 1024;
+    await writeFile(statePath, "x".repeat(limit + 1));
+    await assert.rejects(
+      service(root).list(),
+      (error: unknown) =>
+        error instanceof AgentOpsError &&
+        error.code === "TASK_STATE_TOO_LARGE" &&
+        error.message.includes(String(limit + 1)) &&
+        error.message.includes(String(limit))
     );
     assert.equal(
       (await readFile(statePath)).byteLength,
-      1024 * 1024 + 1
+      limit + 1
     );
   } finally {
     await rm(root, { recursive: true, force: true });

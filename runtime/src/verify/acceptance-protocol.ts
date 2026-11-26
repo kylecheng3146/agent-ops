@@ -155,6 +155,26 @@ export function stableCheckId(parts: readonly string[]): string {
   return normalized.join("::");
 }
 
+/**
+ * A bound check id in the exact form adapters report (stableCheckId): segments around `::` are trimmed, so a planner
+ * or author writing `file :: suite :: test` still matches `file::suite::test`. Ids without `::` are only trimmed.
+ */
+export function canonicalCheckId(id: string): string {
+  try {
+    return stableCheckId(id.split("::"));
+  } catch {
+    return id.trim();
+  }
+}
+
+/** Canonical checkIds/redCheckIds for stored bindings; every other field is kept as given. */
+export function canonicalBindings<T extends {readonly checkIds: readonly string[]; readonly redCheckIds?: readonly string[]}>(
+  bindings: readonly T[]
+): T[] {
+  return bindings.map(binding => ({...binding, checkIds: binding.checkIds.map(canonicalCheckId),
+    ...(binding.redCheckIds === undefined ? {} : {redCheckIds: binding.redCheckIds.map(canonicalCheckId)})}));
+}
+
 export function makeAcceptanceCheck(input: AcceptanceCheckInput): AcceptanceCheckResult {
   const status = input.status;
   if (status !== "PASS" && status !== "FAIL" && status !== "UNKNOWN") {

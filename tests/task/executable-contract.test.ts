@@ -162,3 +162,23 @@ test("pin at the five-criterion cap returns a validated replan obligation withou
       {...criteria()[0]!, acceptance: {...criteria()[0]!.acceptance!, mode: "invariant"}}), {code: "TASK_PIN_CRITERION_INVALID"});
   } finally {await rm(f.root, {recursive: true, force: true});}
 });
+
+test("create and revise store binding check ids in the adapter format (a::b::c)", async () => {
+  const f = await fixture();
+  try {
+    const spaced = criteria();
+    spaced[0]!.acceptance!.bindings[0]!.checkIds = ["tests/behavior.test.js :: suite :: changed"];
+    spaced[0]!.acceptance!.bindings[0]!.redCheckIds = ["tests/behavior.test.js :: suite :: changed"];
+    const created = await f.service.create({title: "Goal", criteria: spaced});
+    const binding = created.task.criteria[0]!.acceptance!.bindings[0]!;
+    assert.deepEqual(binding.checkIds, ["tests/behavior.test.js::suite::changed"]);
+    assert.deepEqual(binding.redCheckIds, ["tests/behavior.test.js::suite::changed"]);
+    const revised = criteria();
+    revised[0]!.acceptance!.bindings[0]!.checkIds = ["test :: changed", "test :: other"];
+    revised[0]!.acceptance!.bindings[0]!.redCheckIds = ["test :: changed"];
+    const next = await f.service.revise(created.task.id, {expectedContractHash: taskContractHash(created.task), criteria: revised,
+      reason: "Add a second check"});
+    assert.deepEqual(next.task.criteria[0]!.acceptance!.bindings[0]!.checkIds, ["test::changed", "test::other"]);
+    assert.deepEqual(next.task.criteria[0]!.acceptance!.bindings[0]!.redCheckIds, ["test::changed"]);
+  } finally {await rm(f.root, {recursive: true, force: true});}
+});

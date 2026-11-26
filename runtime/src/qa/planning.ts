@@ -11,6 +11,7 @@ import { redactSecrets } from "../security/redact.js";
 import { writePrivateFile } from "../security/permissions.js";
 import { acceptanceError } from "../schema/acceptance.js";
 import { SCENARIO_DIMENSIONS } from "../surface/schema.js";
+import { canonicalBindings } from "../verify/acceptance-protocol.js";
 import { runVerificationCommand, type VerificationProcessRunner } from "../verify/spawn.js";
 import type { CriteriaReviewView } from "../review/criteria.js";
 import { isolatedReviewEnvironment } from "../review/execute.js";
@@ -113,7 +114,7 @@ export function qaPlanningPrompt(snapshot: Record<string, unknown>, schema: Reco
     "The working directory is a read-only clone at DATA.baselineCommit when present: the task's creation baseline, before any implementation, so you plan from the requirements and never from the developer's code. Without DATA.baselineCommit it is the committed candidate. Inspect code, tests and configuration as needed; do not modify files or run anything that writes.",
     "Plan acceptance testing of the user-visible tasks in originalGoal within the scoped tasks: map every criterion to at least one case and name the surface ids it exercises.",
     "Cover the happy path and, where the risk warrants it, negative, boundary, retry/concurrency and recovery cases. Answer each of the five scenarios as applies with behavior, or na with a reason; they are not exhaustive.",
-    "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. DATA.runners shows what each runner executes: read its entry in the clone first and place material only at paths it collects, with check ids exactly as it reports them. Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
+    "Bind mechanical cases only to the listed runner ids and the checks/material files QA will add; you cannot choose commands. DATA.runners shows what each runner executes: read its entry in the clone first and place material only at paths it collects, with check ids exactly as it reports them: the file path relative to the runner cwd, then each describe title, then the test name, joined by :: without spaces (for example src/a.test.ts::suite::case). Use mode nonmechanical with a reason only for requirements that cannot be executed, never for a reproducible bug.",
     "Ids are lowercase kebab-case. Every binding names at least one material file. A behavioral case lists in redCheckIds at least one of its checkIds that must fail by assertion on the baseline; an invariant case has no redCheckIds; a nonmechanical case has no bindings and a nonmechanicalReason. A scenario is either {\"applies\":true,\"behavior\":...} or {\"na\":...}.",
     "baselineCommit in DATA, when present, is the immutable baseline your clone is checked out at. Behavior the baseline already has is an invariant case, never behavioral: its checks cannot fail there.",
     "When DATA.baselineCommit is supplied, the controller uses it for EVERY QA case. An individual criterion acceptance.baselineCommit belongs to separate task verification and cannot override QA's baseline. Do not copy that criterion's redCheckIds blindly: inspect the QA baseline for each exact assertion. An invariant needs PASS on both sides; a baseline assertion failure needs a behavioral case with a genuinely red designated check. The task verifier separately proves its own pinned baseline.",
@@ -137,7 +138,11 @@ function normalizePlanAnswer(answer: Record<string, unknown> | undefined): Recor
   const object = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
   const scenarios = object(answer.scenarios) ? Object.fromEntries(Object.entries(answer.scenarios).map(([k, s]) =>
     [k, object(s) && s.applies === false && Object.keys(s).length === 2 && "na" in s ? {na: s.na} : s])) : answer.scenarios;
-  const cases = Array.isArray(answer.cases) ? answer.cases.map(c => object(c) && c.mode === "invariant" && Array.isArray(c.bindings) &&
+  const canonical = (c: unknown): unknown => object(c) && Array.isArray(c.bindings) &&
+    c.bindings.every(b => object(b) && Array.isArray(b.checkIds) && b.checkIds.every(id => typeof id === "string") &&
+      (b.redCheckIds === undefined || Array.isArray(b.redCheckIds) && b.redCheckIds.every(id => typeof id === "string")))
+    ? {...c, bindings: canonicalBindings(c.bindings as {checkIds: string[]; redCheckIds?: string[]}[])} : c;
+  const cases = Array.isArray(answer.cases) ? answer.cases.map(canonical).map(c => object(c) && c.mode === "invariant" && Array.isArray(c.bindings) &&
     c.bindings.some(b => object(b) && Array.isArray(b.redCheckIds) && b.redCheckIds.length > 0) ? {...c, mode: "behavioral"} : c) : answer.cases;
   return {cases, scenarios, environment: answer.environment, questions: answer.questions};
 }

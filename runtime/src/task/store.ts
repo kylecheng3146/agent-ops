@@ -90,7 +90,9 @@ export interface FileTaskStoreOptions {
   readonly maxBytes?: number;
 }
 
-const DEFAULT_MAX_BYTES = 1024 * 1024;
+// ponytail: every revise keeps the full previous task (surface included) in revisions, so a large surface revised often
+// outgrows 1 MiB. 16 MiB covers that; slim revisions (hash-only previous surfaces) if this ceiling is reached.
+const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const SESSION_ID_PATTERN = /^[^\0\r\n]{1,256}$/u;
 
 function isMissing(error: unknown): boolean {
@@ -424,6 +426,11 @@ function parseState(source: string | null): MutableTaskState {
     };
 }
 
+function tooLarge(size: number | bigint, limit: number): AgentOpsError {
+  return new AgentOpsError("TASK_STATE_TOO_LARGE",
+    `Task state exceeds its configured byte limit (${String(size)} bytes > ${limit} bytes).`);
+}
+
 function positiveMaxBytes(value: number | undefined): number {
   if (value === undefined) {
     return DEFAULT_MAX_BYTES;
@@ -464,10 +471,7 @@ export class FileTaskStore implements TaskStore {
         status.size > BigInt(this.#maxBytes)
       ) {
         if (status.size > BigInt(this.#maxBytes)) {
-          throw new AgentOpsError(
-            "TASK_STATE_TOO_LARGE",
-            "Task state exceeds its configured byte limit."
-          );
+          throw tooLarge(status.size, this.#maxBytes);
         }
         throw new AgentOpsError(
           "TASK_STATE_INVALID",
@@ -515,10 +519,7 @@ export class FileTaskStore implements TaskStore {
       source !== null &&
       Buffer.byteLength(source, "utf8") > this.#maxBytes
     ) {
-      throw new AgentOpsError(
-        "TASK_STATE_TOO_LARGE",
-        "Task state exceeds its configured byte limit."
-      );
+      throw tooLarge(Buffer.byteLength(source, "utf8"), this.#maxBytes);
     }
     return parseState(source);
   }
@@ -543,10 +544,7 @@ export class FileTaskStore implements TaskStore {
         const validated = parseState(JSON.stringify(state));
         const content = `${JSON.stringify(validated, null, 2)}\n`;
         if (Buffer.byteLength(content, "utf8") > this.#maxBytes) {
-          throw new AgentOpsError(
-            "TASK_STATE_TOO_LARGE",
-            "Task state exceeds its configured byte limit."
-          );
+          throw tooLarge(Buffer.byteLength(content, "utf8"), this.#maxBytes);
         }
         await writePrivateFile(
           this.#path,
